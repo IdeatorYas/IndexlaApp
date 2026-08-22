@@ -74,6 +74,35 @@ export const liveDataProvider: IndexlaDataProvider = {
   getMarketplaceProductById() {
     return unavailable(null, LIVE_REASON);
   },
+  getMyPortfolioWorkspace() {
+    return unavailable(
+      {
+        portfolios: [],
+        detailsById: {},
+        notifications: [],
+        notificationPrefs: {
+          executionUpdates: false,
+          allocationDrift: false,
+          automationTriggers: false,
+          permissionExpiry: false,
+          insufficientGas: false,
+          rewardEligibility: false,
+          creatorPublications: false,
+          securityAlerts: false,
+        },
+        dexla: {
+          balance: 0,
+          tier: "none",
+          discountPercent: 0,
+          nextTier: "10",
+          balanceToNextTier: 0,
+          isDemo: false,
+        },
+        isIllustrative: false,
+      },
+      LIVE_REASON,
+    );
+  },
   getFixtureLabel() {
     return "Live";
   },

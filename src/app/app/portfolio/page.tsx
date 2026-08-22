@@ -1,15 +1,19 @@
-import { DisconnectedWalletState, EmptyState } from "@/components/states/AppStates";
-import { ScreenStub } from "@/components/screens/ScreenStub";
-import { APP_SCREENS } from "@/lib/routes";
+import { Suspense } from "react";
+import { MyPortfolioView } from "@/components/portfolio/MyPortfolioView";
+import { LoadingSkeleton } from "@/components/states/AppStates";
+import { getMyPortfolioWorkspace, isIllustrativeDataMode } from "@/lib/data";
 
 export default function MyPortfolioPage() {
+  const workspace = getMyPortfolioWorkspace();
+  const illustrative = isIllustrativeDataMode() || workspace.isIllustrative;
+
   return (
-    <ScreenStub screen={APP_SCREENS[4]}>
-      <DisconnectedWalletState />
-      <EmptyState
-        title="Overview · Assets · Automation · Activity · Notifications"
-        description="Tabbed portfolio center stub with Save tier and investor rewards cards."
+    <Suspense fallback={<LoadingSkeleton title="Loading My Portfolio" lines={6} />}>
+      <MyPortfolioView
+        workspace={workspace.data}
+        illustrative={illustrative}
+        initialError={workspace.availability === "unavailable"}
       />
-    </ScreenStub>
+    </Suspense>
   );
 }

@@ -62,6 +62,10 @@ export function getMarketplaceProductById(id: string) {
   return getDataProvider().getMarketplaceProductById(id);
 }
 
+export function getMyPortfolioWorkspace() {
+  return getDataProvider().getMyPortfolioWorkspace();
+}
+
 export function getDataLabel() {
   return getDataProvider().getFixtureLabel();
 }

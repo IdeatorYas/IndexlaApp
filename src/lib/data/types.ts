@@ -1,5 +1,6 @@
 import type { DashboardData } from "@/lib/domain/dashboard";
 import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
+import type { MyPortfolioWorkspace } from "@/lib/domain/my-portfolio";
 import type {
   CreatorProfile,
   DexlaBalanceAndTier,
@@ -37,5 +38,6 @@ export interface IndexlaDataProvider {
   getDexlaBalance(): DataResult<DexlaBalanceAndTier>;
   getDiscoverCatalog(): DataResult<DiscoverCatalog>;
   getMarketplaceProductById(id: string): DataResult<MarketplaceProduct | null>;
+  getMyPortfolioWorkspace(): DataResult<MyPortfolioWorkspace>;
   getFixtureLabel(): string;
 }

@@ -5,6 +5,7 @@ import {
   getDiscoverCatalog as fixtureDiscoverCatalog,
   getMarketplaceProductById as fixtureMarketplaceProductById,
 } from "@/lib/fixtures/discover";
+import { getMyPortfolioWorkspace as fixtureMyPortfolioWorkspace } from "@/lib/fixtures/my-portfolio";
 import {
   FIXTURE_LABEL,
   ILLUSTRATIVE_CREATORS,
@@ -16,6 +17,7 @@ import {
   getPortfolioById as fixturePortfolioById,
 } from "@/lib/fixtures/index";
 import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
+import type { MyPortfolioWorkspace } from "@/lib/domain/my-portfolio";
 
 function ok<T>(data: T): DataResult<T> {
   return {
@@ -60,6 +62,9 @@ export const fixtureDataProvider: IndexlaDataProvider = {
     return ok<MarketplaceProduct | null>(
       fixtureMarketplaceProductById(id) ?? null,
     );
+  },
+  getMyPortfolioWorkspace() {
+    return ok<MyPortfolioWorkspace>(fixtureMyPortfolioWorkspace());
   },
   getFixtureLabel() {
     return FIXTURE_LABEL;
