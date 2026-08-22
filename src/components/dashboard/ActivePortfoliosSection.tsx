@@ -13,13 +13,13 @@ export function ActivePortfoliosSection({
   return (
     <section>
       <SectionHeader
-        title="Active Portfolios"
-        description="Your latest portfolio activity at a glance."
+        title="My Portfolios"
+        description="Your latest portfolios and indexes at a glance."
         illustrative={portfolios.some((p) => p.isIllustrative)}
         action={
           <Link
             href={APP_ROUTES.portfolio}
-            className="text-sm font-medium text-app-brand hover:underline"
+            className="text-sm font-semibold text-app-brand hover:underline"
           >
             View All Portfolios →
           </Link>
@@ -33,7 +33,7 @@ export function ActivePortfoliosSection({
           action={
             <Link
               href={APP_ROUTES.create}
-              className="rounded-lg bg-app-brand px-4 py-2 text-sm font-medium text-white"
+              className="app-gradient-btn rounded-xl px-4 py-2 text-sm font-semibold"
             >
               Create Portfolio
             </Link>

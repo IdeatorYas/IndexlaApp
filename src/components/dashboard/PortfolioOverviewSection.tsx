@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import type { ChartPeriod } from "@/lib/domain/dashboard";
-import type { DashboardOverview } from "@/lib/domain/dashboard";
+import type { ChartPeriod, DashboardOverview } from "@/lib/domain/dashboard";
+import type { WalletConnection } from "@/lib/domain/types";
+import type { DashboardLoadState } from "@/components/wallet/DemoWalletProvider";
 import { MiniLineChart } from "@/components/ui/MiniLineChart";
 import { NetworkBadges } from "@/components/ui/NetworkBadges";
 import { PeriodTabs } from "@/components/ui/PeriodTabs";
-import { SectionHeader } from "@/components/ui/SectionHeader";
+import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import {
   DisconnectedWalletState,
   ErrorState,
@@ -19,8 +20,6 @@ import {
   formatUsdSigned,
 } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
-import type { DashboardLoadState } from "@/components/wallet/DemoWalletProvider";
-import type { WalletConnection } from "@/lib/domain/types";
 
 export function PortfolioOverviewSection({
   overview,
@@ -40,11 +39,12 @@ export function PortfolioOverviewSection({
 
   if (wallet.state === "disconnected") {
     return (
-      <section className="app-panel p-5 md:p-6">
-        <SectionHeader
-          title="Portfolio Overview"
-          description="Connect your wallet to view balances and automation health."
-        />
+      <section className="app-panel p-5 md:p-7">
+        <div className="mb-4 flex items-center gap-2">
+          <h2 className="app-display text-xl font-bold text-app-ink">
+            Portfolio Overview
+          </h2>
+        </div>
         <DisconnectedWalletState onConnect={onConnect} showAction={false} />
       </section>
     );
@@ -52,24 +52,22 @@ export function PortfolioOverviewSection({
 
   if (loadState === "loading") {
     return (
-      <section className="app-panel p-5 md:p-6">
-        <SectionHeader title="Portfolio Overview" illustrative />
-        <LoadingSkeleton lines={5} />
+      <section className="app-panel p-5 md:p-7">
+        <LoadingSkeleton title="Loading portfolio overview" lines={5} />
       </section>
     );
   }
 
   if (loadState === "error") {
     return (
-      <section className="app-panel p-5 md:p-6">
-        <SectionHeader title="Portfolio Overview" illustrative />
+      <section className="app-panel p-5 md:p-7">
         <ErrorState
           description="Unable to load portfolio overview. No transaction was executed."
           action={
             <button
               type="button"
               onClick={onRetry}
-              className="rounded-lg bg-app-brand px-4 py-2 text-sm font-medium text-white"
+              className="app-gradient-btn rounded-xl px-4 py-2 text-sm font-semibold"
             >
               Retry
             </button>
@@ -80,74 +78,112 @@ export function PortfolioOverviewSection({
   }
 
   return (
-    <section className="app-panel p-5 md:p-6">
-      <SectionHeader
-        title="Portfolio Overview"
-        illustrative={overview.isIllustrative}
-        action={<PeriodTabs value={period} onChange={setPeriod} />}
-      />
-
-      <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+    <section className="app-panel overflow-hidden p-5 md:p-7">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-sm text-app-muted">Total Portfolio Value</p>
-          <p className="app-display mt-1 text-3xl font-bold text-app-ink md:text-4xl">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="app-display text-xl font-bold text-app-ink md:text-2xl">
+              Portfolio Overview
+            </h2>
+            {overview.isIllustrative ? <IllustrativeBadge /> : null}
+          </div>
+          <p className="mt-1 text-sm text-app-muted">
+            Total value, performance and automation health
+          </p>
+        </div>
+        <PeriodTabs value={period} onChange={setPeriod} />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_1.2fr]">
+        <div>
+          <p className="text-sm font-medium text-app-muted">
+            Total Portfolio Value
+          </p>
+          <p className="app-display mt-1 text-4xl font-bold tracking-tight text-app-ink md:text-5xl">
             {formatUsd(overview.totalValueUsd)}
           </p>
           <p
             className={[
-              "mt-2 text-sm font-medium",
+              "mt-2 text-sm font-semibold",
               positive ? "text-app-success" : "text-app-danger",
             ].join(" ")}
           >
-            {formatUsdSigned(overview.change30dUsd)} ·{" "}
-            {formatPercent(overview.return30dPercent, true)} (30D)
+            {formatPercent(overview.return30dPercent, true)} (30D) ·{" "}
+            {formatUsdSigned(overview.change30dUsd)}
           </p>
 
-          <div className="mt-6 h-32 md:h-40">
-            <MiniLineChart points={overview.chartSeries[period]} height={160} />
+          <div className="mt-6 flex flex-wrap gap-2">
+            <Link
+              href={`${APP_ROUTES.portfolio}?action=add-funds`}
+              className="app-gradient-btn inline-flex items-center rounded-xl px-4 py-2.5 text-sm font-semibold"
+            >
+              + Add Funds
+            </Link>
+            <Link
+              href={APP_ROUTES.create}
+              className="inline-flex items-center rounded-xl border border-app-brand/30 px-4 py-2.5 text-sm font-semibold text-app-brand hover:bg-app-soft"
+            >
+              Create Portfolio
+            </Link>
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-          <Metric label="Invested balance" value={formatUsd(overview.investedUsd)} />
-          <Metric label="Available balance" value={formatUsd(overview.availableUsd)} />
-          <Metric
-            label="Total return"
-            value={`${formatUsd(overview.totalReturnUsd)} · ${formatPercent(overview.totalReturnPercent, true)}`}
-          />
-          <Metric
-            label="Active automations"
-            value={String(overview.activeAutomations)}
-          />
+        <div className="rounded-2xl border border-app-line bg-app-panel/60 p-3 md:p-4">
+          <div className="h-40 md:h-48">
+            <MiniLineChart points={overview.chartSeries[period]} height={192} />
+          </div>
+          <p className="mt-2 text-center text-[11px] text-app-dim">
+            Portfolio performance · {period.toUpperCase()}
+          </p>
         </div>
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-app-line pt-5">
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="Invested" value={formatUsd(overview.investedUsd)} />
+        <Metric label="Available" value={formatUsd(overview.availableUsd)} />
+        <Metric
+          label="Total Return"
+          value={`${formatUsdSigned(overview.totalReturnUsd)} · ${formatPercent(overview.totalReturnPercent, true)}`}
+          accent="success"
+        />
+        <Metric
+          label="Active Automations"
+          value={String(overview.activeAutomations)}
+          accent="violet"
+        />
+      </div>
+
+      <div className="mt-5 border-t border-app-line pt-4">
         <NetworkBadges networkIds={overview.networkIds} />
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href={`${APP_ROUTES.portfolio}?action=add-funds`}
-            className="rounded-lg border border-app-line px-4 py-2 text-sm font-medium text-app-ink hover:bg-app-panel"
-          >
-            Add Funds
-          </Link>
-          <Link
-            href={APP_ROUTES.create}
-            className="rounded-lg bg-app-brand px-4 py-2 text-sm font-medium text-white hover:opacity-95"
-          >
-            Create Portfolio
-          </Link>
-        </div>
       </div>
     </section>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: "success" | "violet";
+}) {
   return (
-    <div className="rounded-lg border border-app-line bg-app-panel/50 p-3">
-      <p className="text-xs text-app-dim">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-app-ink">{value}</p>
+    <div className="app-panel-soft p-3.5">
+      <p className="text-xs font-medium text-app-dim">{label}</p>
+      <p
+        className={[
+          "mt-1 text-sm font-bold",
+          accent === "success"
+            ? "text-app-success"
+            : accent === "violet"
+              ? "text-[color:var(--color-accent-violet)]"
+              : "text-app-ink",
+        ].join(" ")}
+      >
+        {value}
+      </p>
     </div>
   );
 }

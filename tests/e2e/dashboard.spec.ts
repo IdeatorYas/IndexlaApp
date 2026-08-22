@@ -5,35 +5,45 @@ test.describe("Main Dashboard", () => {
   test("disconnected wallet shows connect state in overview", async ({ page }) => {
     await page.goto(APP_ROUTES.dashboard);
     await expect(page.getByText("Wallet not connected")).toBeVisible();
+    await expect(page.getByText("Preview · Illustrative Data")).toBeVisible();
   });
 
   test.describe("connected", () => {
     test.beforeEach(async ({ page }) => {
       await page.goto(APP_ROUTES.dashboard);
-      await page.getByRole("banner").getByRole("button", { name: "Connect Wallet" }).click();
+      await page
+        .getByRole("banner")
+        .getByRole("button", { name: "Connect Wallet" })
+        .click();
       await expect(page.getByText("Total Portfolio Value")).toBeVisible({
         timeout: 5000,
       });
     });
 
-    test("renders all dashboard sections", async ({ page }) => {
+    test("renders redesigned dashboard sections", async ({ page }) => {
       await expect(
-        page.getByRole("heading", { name: "Welcome back, Investor" }),
+        page.getByRole("heading", { name: /Welcome back/ }),
       ).toBeVisible();
       await expect(
         page.getByRole("heading", { name: "Portfolio Overview" }),
       ).toBeVisible();
       await expect(
-        page.getByRole("heading", { name: "Main Product Gateways" }),
+        page.getByRole("heading", { name: "Featured Products" }),
       ).toBeVisible();
       await expect(
-        page.getByRole("heading", { name: "Active Portfolios" }),
+        page.getByRole("heading", { name: "Product Gateways" }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "My Portfolios" }),
       ).toBeVisible();
       await expect(
         page.getByRole("heading", { name: "Automation Status" }),
       ).toBeVisible();
       await expect(
         page.getByRole("heading", { name: "Recent Activity" }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "Notifications" }),
       ).toBeVisible();
       await expect(
         page.getByRole("heading", { name: "Market Snapshot" }),
@@ -55,17 +65,22 @@ test.describe("Main Dashboard", () => {
 
     test("product gateway cards navigate correctly", async ({ page }) => {
       const cases = [
-        { text: "Open Portfolio →", url: /\/app\/portfolio$/ },
         { text: "Discover →", url: /\/app\/discover$/ },
+        { text: "Browse Indexes →", url: /\/app\/discover\?tab=indexes/ },
+        { text: "Browse Portfolios →", url: /\/app\/discover\?tab=portfolios/ },
         { text: "Enter Degen Club →", url: /\/app\/degen-club$/ },
         { text: "Explore Strategies →", url: /\/app\/strategies$/ },
         { text: "View Leaderboard →", url: /\/app\/leaderboard$/ },
         { text: "Open Creator Hub →", url: /\/app\/creators$/ },
+        { text: "Open Portfolio →", url: /\/app\/portfolio$/ },
       ];
 
       for (const item of cases) {
         await page.goto(APP_ROUTES.dashboard);
-        await page.getByRole("banner").getByRole("button", { name: /Connect Wallet|0x742d/ }).click();
+        await page
+          .getByRole("banner")
+          .getByRole("button", { name: /Connect Wallet|0x742d/ })
+          .click();
         await page.locator("a").filter({ hasText: item.text }).first().click();
         await expect(page).toHaveURL(item.url);
       }

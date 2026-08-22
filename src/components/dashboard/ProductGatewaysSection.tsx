@@ -12,25 +12,10 @@ export function ProductGatewaysSection({
   return (
     <section>
       <SectionHeader
-        title="Main Product Gateways"
-        description="Jump into every core INDEXLA product area."
+        title="Product Gateways"
+        description="Discover indexes, portfolios and every core INDEXLA product area."
       />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <ProductGatewayCard
-          accent="blue"
-          title="My Portfolio"
-          href={APP_ROUTES.portfolio}
-          cta="Open Portfolio"
-        >
-          <p>{gateways.myPortfolio.activePortfolios} active portfolios</p>
-          <p>{gateways.myPortfolio.assetCount} underlying assets</p>
-          <p>
-            30D return ·{" "}
-            {formatPercent(gateways.myPortfolio.return30d, true)}
-          </p>
-          <p>{gateways.myPortfolio.automationStatus}</p>
-        </ProductGatewayCard>
-
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <ProductGatewayCard
           accent="violet"
           title="Discover"
@@ -42,12 +27,34 @@ export function ProductGatewaysSection({
         </ProductGatewayCard>
 
         <ProductGatewayCard
+          accent="blue"
+          title="Indexes"
+          href={`${APP_ROUTES.discover}?tab=indexes`}
+          cta="Browse Indexes"
+        >
+          <p>{gateways.indexes.count} public indexes</p>
+          <p>Top · {gateways.indexes.topName}</p>
+        </ProductGatewayCard>
+
+        <ProductGatewayCard
+          accent="indigo"
+          title="Portfolios"
+          href={`${APP_ROUTES.discover}?tab=portfolios`}
+          cta="Browse Portfolios"
+        >
+          <p>{gateways.portfolios.count} public portfolios</p>
+          <p>Top · {gateways.portfolios.topName}</p>
+        </ProductGatewayCard>
+
+        <ProductGatewayCard
           accent="magenta"
           title="Degen Club"
           href={APP_ROUTES.degenClub}
           cta="Enter Degen Club"
         >
-          <p className="font-medium text-app-ink">{gateways.degenClub.tagline}</p>
+          <p className="font-semibold text-app-ink">
+            {gateways.degenClub.tagline}
+          </p>
           <p>{gateways.degenClub.indexCount} memecoin indexes</p>
         </ProductGatewayCard>
 
@@ -57,19 +64,19 @@ export function ProductGatewaysSection({
           href={APP_ROUTES.strategies}
           cta="Explore Strategies"
         >
-          <p>{gateways.strategies.available} available strategies</p>
+          <p>{gateways.strategies.available} available</p>
           <p>{gateways.strategies.active} active on your portfolios</p>
         </ProductGatewayCard>
 
         <ProductGatewayCard
           accent="amber"
-          title="Portfolio Leaderboard"
+          title="Leaderboard"
           href={APP_ROUTES.leaderboard}
           cta="View Leaderboard"
         >
           <p>{gateways.leaderboard.topTenMessage}</p>
           {gateways.leaderboard.userBestRank ? (
-            <p>Your best rank · #{gateways.leaderboard.userBestRank}</p>
+            <p>Your best portfolio rank · #{gateways.leaderboard.userBestRank}</p>
           ) : (
             <p>No ranked portfolio yet</p>
           )}
@@ -85,12 +92,26 @@ export function ProductGatewaysSection({
 
         <ProductGatewayCard
           accent="indigo"
-          title="Creator Hub"
+          title="Creators"
           href={gateways.creatorHub.href}
           cta="Open Creator Hub"
         >
           <p>{gateways.creatorHub.statusLabel}</p>
           <p>{gateways.creatorHub.creatorCount} creators on INDEXLA</p>
+        </ProductGatewayCard>
+
+        <ProductGatewayCard
+          accent="blue"
+          title="My Portfolio"
+          href={APP_ROUTES.portfolio}
+          cta="Open Portfolio"
+        >
+          <p>{gateways.myPortfolio.activePortfolios} active portfolios</p>
+          <p>{gateways.myPortfolio.assetCount} underlying assets</p>
+          <p>
+            30D · {formatPercent(gateways.myPortfolio.return30d, true)}
+          </p>
+          <p>{gateways.myPortfolio.automationStatus}</p>
         </ProductGatewayCard>
       </div>
     </section>

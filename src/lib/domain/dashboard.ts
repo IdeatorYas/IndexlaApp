@@ -59,6 +59,23 @@ export interface LeaderboardPreviewEntry {
   performance30d: number;
 }
 
+export interface FeaturedProductPreview {
+  id: string;
+  name: string;
+  kind: "Index" | "Portfolio";
+  performance30d: number;
+  aumUsd: number;
+  href: string;
+}
+
+export interface NotificationPreviewItem {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  unread: boolean;
+}
+
 export interface ProductGatewayStats {
   myPortfolio: {
     activePortfolios: number;
@@ -69,6 +86,14 @@ export interface ProductGatewayStats {
   discover: {
     tabPreview: ("All" | "Indexes" | "Portfolios")[];
     productCount: number;
+  };
+  indexes: {
+    count: number;
+    topName: string;
+  };
+  portfolios: {
+    count: number;
+    topName: string;
   };
   degenClub: {
     tagline: string;
@@ -94,8 +119,10 @@ export interface DashboardData {
   nickname: string;
   overview: DashboardOverview;
   gateways: ProductGatewayStats;
+  featuredProducts: FeaturedProductPreview[];
   activePortfolioIds: string[];
   automation: DashboardAutomationSummary;
   recentActivity: DashboardActivityItem[];
+  notifications: NotificationPreviewItem[];
   market: MarketSnapshot;
 }

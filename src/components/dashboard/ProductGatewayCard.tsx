@@ -9,39 +9,45 @@ export type GatewayAccent =
   | "amber"
   | "indigo";
 
-const ACCENT_STYLES: Record<
+const ACCENT: Record<
   GatewayAccent,
-  { border: string; glow: string; badge: string }
+  { bar: string; soft: string; badge: string }
 > = {
   blue: {
-    border: "border-[color:var(--color-accent-blue)]",
-    glow: "from-[color:var(--color-accent-blue)]/10",
-    badge: "bg-[color:var(--color-accent-blue)]/15 text-[color:var(--color-accent-blue)]",
+    bar: "bg-[color:var(--color-accent-blue)]",
+    soft: "from-[color:var(--color-accent-blue)]/12",
+    badge:
+      "bg-[color:var(--color-accent-blue)]/12 text-[color:var(--color-accent-blue)]",
   },
   violet: {
-    border: "border-[color:var(--color-accent-violet)]",
-    glow: "from-[color:var(--color-accent-violet)]/10",
-    badge: "bg-[color:var(--color-accent-violet)]/15 text-[color:var(--color-accent-violet)]",
+    bar: "bg-[color:var(--color-accent-violet)]",
+    soft: "from-[color:var(--color-accent-violet)]/12",
+    badge:
+      "bg-[color:var(--color-accent-violet)]/12 text-[color:var(--color-accent-violet)]",
   },
   magenta: {
-    border: "border-[color:var(--color-accent-magenta)]",
-    glow: "from-[color:var(--color-accent-magenta)]/10",
-    badge: "bg-[color:var(--color-accent-magenta)]/15 text-[color:var(--color-accent-magenta)]",
+    bar: "bg-[color:var(--color-accent-magenta)]",
+    soft: "from-[color:var(--color-accent-magenta)]/12",
+    badge:
+      "bg-[color:var(--color-accent-magenta)]/12 text-[color:var(--color-accent-magenta)]",
   },
   emerald: {
-    border: "border-[color:var(--color-accent-emerald)]",
-    glow: "from-[color:var(--color-accent-emerald)]/10",
-    badge: "bg-[color:var(--color-accent-emerald)]/15 text-[color:var(--color-accent-emerald)]",
+    bar: "bg-[color:var(--color-accent-emerald)]",
+    soft: "from-[color:var(--color-accent-emerald)]/12",
+    badge:
+      "bg-[color:var(--color-accent-emerald)]/12 text-[color:var(--color-accent-emerald)]",
   },
   amber: {
-    border: "border-[color:var(--color-accent-amber)]",
-    glow: "from-[color:var(--color-accent-amber)]/10",
-    badge: "bg-[color:var(--color-accent-amber)]/15 text-[color:var(--color-accent-amber)]",
+    bar: "bg-[color:var(--color-accent-amber)]",
+    soft: "from-[color:var(--color-accent-amber)]/12",
+    badge:
+      "bg-[color:var(--color-accent-amber)]/12 text-[color:var(--color-accent-amber)]",
   },
   indigo: {
-    border: "border-[color:var(--color-accent-indigo)]",
-    glow: "from-[color:var(--color-accent-indigo)]/10",
-    badge: "bg-[color:var(--color-accent-indigo)]/15 text-[color:var(--color-accent-indigo)]",
+    bar: "bg-[color:var(--color-accent-indigo)]",
+    soft: "from-[color:var(--color-accent-indigo)]/12",
+    badge:
+      "bg-[color:var(--color-accent-indigo)]/12 text-[color:var(--color-accent-indigo)]",
   },
 };
 
@@ -58,38 +64,32 @@ export function ProductGatewayCard({
   cta: string;
   children: ReactNode;
 }) {
-  const styles = ACCENT_STYLES[accent];
+  const styles = ACCENT[accent];
 
   return (
     <Link
       href={href}
-      className={[
-        "app-panel group relative overflow-hidden border-l-4 p-5 transition-transform hover:-translate-y-0.5 hover:shadow-lg",
-        styles.border,
-      ].join(" ")}
+      className="app-panel group relative flex min-h-[180px] flex-col overflow-hidden p-5 transition-transform hover:-translate-y-0.5"
     >
+      <div className={`absolute inset-x-0 top-0 h-1 ${styles.bar}`} />
       <div
-        className={[
-          "pointer-events-none absolute inset-0 bg-gradient-to-br to-transparent opacity-80",
-          styles.glow,
-        ].join(" ")}
+        className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${styles.soft} to-transparent opacity-90`}
       />
-      <div className="relative">
+      <div className="relative flex flex-1 flex-col">
         <div className="flex items-start justify-between gap-2">
-          <h3 className="app-display text-base font-semibold text-app-ink md:text-lg">
+          <h3 className="app-display text-base font-bold text-app-ink md:text-lg">
             {title}
           </h3>
           <span
-            className={[
-              "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-              styles.badge,
-            ].join(" ")}
+            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${styles.badge}`}
           >
-            Gateway
+            Open
           </span>
         </div>
-        <div className="mt-3 space-y-1 text-sm text-app-muted">{children}</div>
-        <p className="mt-4 text-sm font-semibold text-app-brand group-hover:underline">
+        <div className="mt-3 flex-1 space-y-1.5 text-sm text-app-muted">
+          {children}
+        </div>
+        <p className="mt-4 text-sm font-bold text-app-brand group-hover:underline">
           {cta} →
         </p>
       </div>

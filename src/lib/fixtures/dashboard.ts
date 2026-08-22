@@ -1,10 +1,16 @@
 import type { DashboardData } from "@/lib/domain/dashboard";
-import { getIllustrativeChartSeries, ILLUSTRATIVE_TIMESTAMP } from "@/lib/fixtures/chart-series";
+import {
+  getIllustrativeChartSeries,
+  ILLUSTRATIVE_TIMESTAMP,
+} from "@/lib/fixtures/chart-series";
 import { FIXTURE_LABEL, ILLUSTRATIVE_PORTFOLIOS } from "@/lib/fixtures/index";
 import { APP_ROUTES } from "@/lib/routes";
 
 export function getDashboardData(): DashboardData {
-  const totalValue = ILLUSTRATIVE_PORTFOLIOS.reduce((sum, p) => sum + p.valueUsd, 0);
+  const totalValue = ILLUSTRATIVE_PORTFOLIOS.reduce(
+    (sum, p) => sum + p.valueUsd,
+    0,
+  );
 
   return {
     nickname: "Investor",
@@ -17,20 +23,28 @@ export function getDashboardData(): DashboardData {
       totalReturnUsd: 12_400,
       totalReturnPercent: 21.3,
       activeAutomations: 3,
-      networkIds: ["ethereum", "base", "solana"],
+      networkIds: ["ethereum", "base", "arbitrum", "solana"],
       chartSeries: getIllustrativeChartSeries(totalValue),
       isIllustrative: true,
     },
     gateways: {
       myPortfolio: {
-        activePortfolios: 2,
-        assetCount: 6,
+        activePortfolios: ILLUSTRATIVE_PORTFOLIOS.length,
+        assetCount: 8,
         return30d: 8.6,
         automationStatus: "2 active · 1 paused",
       },
       discover: {
         tabPreview: ["All", "Indexes", "Portfolios"],
         productCount: 48,
+      },
+      indexes: {
+        count: 18,
+        topName: "AI Infrastructure Index",
+      },
+      portfolios: {
+        count: 30,
+        topName: "Macro Diversified Index",
       },
       degenClub: {
         tagline: "10 Shots > 1 Shot",
@@ -65,11 +79,37 @@ export function getDashboardData(): DashboardData {
         topTenMessage: "Top 10 portfolios win monthly rewards",
       },
       creatorHub: {
-        statusLabel: "Verified creator",
+        statusLabel: "Creator access available",
         creatorCount: 124,
         href: APP_ROUTES.creators,
       },
     },
+    featuredProducts: [
+      {
+        id: "ai-infra-index",
+        name: "AI Infrastructure Index",
+        kind: "Index",
+        performance30d: 18.4,
+        aumUsd: 4_200_000,
+        href: `${APP_ROUTES.discover}?tab=indexes&id=ai-infra-index`,
+      },
+      {
+        id: "macro-diversified",
+        name: "Macro Diversified Index",
+        kind: "Index",
+        performance30d: 15.2,
+        aumUsd: 6_800_000,
+        href: `${APP_ROUTES.discover}?tab=indexes&id=macro-diversified`,
+      },
+      {
+        id: "degen-ten-shots",
+        name: "Solana Meme 10-Shots",
+        kind: "Portfolio",
+        performance30d: -12.5,
+        aumUsd: 850_000,
+        href: `${APP_ROUTES.degenClub}`,
+      },
+    ],
     activePortfolioIds: ILLUSTRATIVE_PORTFOLIOS.map((p) => p.id),
     automation: {
       activeRules: 3,
@@ -136,6 +176,29 @@ export function getDashboardData(): DashboardData {
         isIllustrative: true,
       },
     ],
+    notifications: [
+      {
+        id: "n1",
+        title: "Automation scheduled",
+        body: "Rebalance for AI Infrastructure Index runs in 6h.",
+        createdAt: "2026-08-22T15:00:00.000Z",
+        unread: true,
+      },
+      {
+        id: "n2",
+        title: "Permission healthy",
+        body: "All automation sessions remain within limits.",
+        createdAt: "2026-08-22T10:00:00.000Z",
+        unread: true,
+      },
+      {
+        id: "n3",
+        title: "Reward eligibility",
+        body: "Your ranked portfolio is in the Top 10 zone this month.",
+        createdAt: "2026-08-21T18:00:00.000Z",
+        unread: false,
+      },
+    ],
     market: {
       fearGreedIndex: 62,
       fearGreedLabel: "Greed",
@@ -165,11 +228,12 @@ export function getEmptyDashboardData(): DashboardData {
       chartSeries: getIllustrativeChartSeries(0),
     },
     activePortfolioIds: [],
+    featuredProducts: [],
+    notifications: [],
     automation: {
       ...base.automation,
       activeRules: 0,
       nextScheduledAction: "No scheduled actions",
-      permissionHealth: "healthy",
       permissionHealthLabel: "Connect a portfolio to enable automation",
       lastExecution: "No executions yet",
     },

@@ -24,16 +24,16 @@ export function RecentActivitySection({
   items: DashboardActivityItem[];
 }) {
   return (
-    <section className="app-panel p-5 md:p-6">
+    <section className="app-panel h-full p-5 md:p-6">
       <SectionHeader
         title="Recent Activity"
         illustrative={items.some((i) => i.isIllustrative)}
         action={
           <Link
             href={`${APP_ROUTES.portfolio}?tab=activity`}
-            className="text-sm font-medium text-app-brand hover:underline"
+            className="text-sm font-semibold text-app-brand hover:underline"
           >
-            View in My Portfolio →
+            View all →
           </Link>
         }
       />
@@ -48,14 +48,14 @@ export function RecentActivitySection({
           {items.map((item) => (
             <li
               key={item.id}
-              className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
+              className="flex flex-wrap items-start justify-between gap-3 py-3.5 first:pt-0 last:pb-0"
             >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded bg-app-panel px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-app-dim">
+                  <span className="rounded-md bg-app-soft px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-app-brand">
                     {TYPE_LABELS[item.type]}
                   </span>
-                  <p className="font-medium text-app-ink">{item.title}</p>
+                  <p className="font-semibold text-app-ink">{item.title}</p>
                   {item.isIllustrative ? <IllustrativeBadge compact /> : null}
                 </div>
                 <p className="mt-1 text-sm text-app-muted">{item.subtitle}</p>
@@ -65,12 +65,12 @@ export function RecentActivitySection({
               </div>
               <div className="text-right text-sm">
                 {item.amountUsd !== null ? (
-                  <p className="font-semibold text-app-ink">
+                  <p className="font-bold text-app-success">
                     {formatUsd(item.amountUsd)}
                   </p>
                 ) : null}
                 {item.amountDexla !== null ? (
-                  <p className="font-semibold text-app-brand">
+                  <p className="font-bold text-[color:var(--color-accent-violet)]">
                     {formatDexla(item.amountDexla)}
                   </p>
                 ) : null}
