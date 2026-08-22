@@ -27,10 +27,9 @@ export function MarketplaceHeroSection() {
         <div className="min-w-0 flex-1">
           <p className="app-label text-app-brand">Marketplace</p>
           <h1 className="app-display mt-1 text-[1.45rem] font-bold leading-tight text-app-ink sm:text-[1.75rem] lg:text-[1.85rem]">
-            <span className="whitespace-nowrap">
-              Discover. Build. Automate.{" "}
-              <span className="app-gradient-text">Own.</span>
-            </span>
+            Discover. Build. Automate.
+            {"\u00A0"}
+            <span className="app-gradient-text">Own.</span>
           </h1>
           <p className="mt-1.5 max-w-2xl text-[13px] leading-snug text-app-muted">
             Explore indexes and portfolios across crypto and tokenized assets
