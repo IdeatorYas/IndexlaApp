@@ -1,6 +1,7 @@
 import type { DashboardData } from "@/lib/domain/dashboard";
 import type { IndexlaDataProvider, DataResult } from "@/lib/data/types";
 import { getEmptyDashboardData } from "@/lib/fixtures/dashboard";
+import { getEmptyCreatorsWorkspace } from "@/lib/fixtures/creators";
 import { getEmptyDegenClubWorkspace } from "@/lib/fixtures/degen-club";
 import { getEmptyLeaderboardWorkspace } from "@/lib/fixtures/leaderboard";
 
@@ -39,6 +40,9 @@ export const liveDataProvider: IndexlaDataProvider = {
   },
   getCreatorByHandle() {
     return unavailable(null, LIVE_REASON);
+  },
+  getCreatorsWorkspace() {
+    return unavailable(getEmptyCreatorsWorkspace(), LIVE_REASON);
   },
   getStrategies() {
     return unavailable([], LIVE_REASON);

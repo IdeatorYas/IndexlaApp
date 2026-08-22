@@ -1,43 +1,19 @@
-import Link from "next/link";
-import { EmptyState } from "@/components/states/AppStates";
-import { ScreenStub } from "@/components/screens/ScreenStub";
-import { getCreators } from "@/lib/data";
-import { APP_ROUTES, APP_SCREENS } from "@/lib/routes";
+import { Suspense } from "react";
+import { CreatorsHubView } from "@/components/creators/CreatorsHubView";
+import { LoadingSkeleton } from "@/components/states/AppStates";
+import { getCreatorsWorkspace, isIllustrativeDataMode } from "@/lib/data";
 
 export default function CreatorsPage() {
-  const creators = getCreators().data;
+  const workspace = getCreatorsWorkspace();
+  const illustrative = isIllustrativeDataMode() || workspace.isIllustrative;
+
   return (
-    <ScreenStub screen={APP_SCREENS[7]}>
-      <EmptyState
-        title="Creator Hub gateway"
-        description="Browse creators, follow, and open activation or dashboard based on status."
+    <Suspense fallback={<LoadingSkeleton title="Loading Creator Hub" lines={6} />}>
+      <CreatorsHubView
+        workspace={workspace.data}
+        illustrative={illustrative}
+        initialError={workspace.availability === "unavailable"}
       />
-      <div className="flex flex-wrap gap-2">
-        <Link
-          href={APP_ROUTES.creatorLeaderboard}
-          className="rounded-lg border border-app-line px-3 py-2 text-sm text-app-brand"
-        >
-          Creator Leaderboard →
-        </Link>
-        <Link
-          href={APP_ROUTES.creatorActivate}
-          className="rounded-lg border border-app-line px-3 py-2 text-sm text-app-brand"
-        >
-          Become a Creator →
-        </Link>
-        <Link
-          href={APP_ROUTES.creatorDashboard}
-          className="rounded-lg border border-app-line px-3 py-2 text-sm text-app-brand"
-        >
-          Creator Dashboard →
-        </Link>
-        <Link
-          href={APP_ROUTES.creatorProfile(creators[0]?.handle ?? "indexla")}
-          className="rounded-lg border border-app-line px-3 py-2 text-sm text-app-brand"
-        >
-          Sample Profile →
-        </Link>
-      </div>
-    </ScreenStub>
+    </Suspense>
   );
 }

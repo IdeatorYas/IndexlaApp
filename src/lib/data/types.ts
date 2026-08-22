@@ -1,4 +1,5 @@
 import type { DashboardData } from "@/lib/domain/dashboard";
+import type { CreatorsWorkspace } from "@/lib/domain/creators";
 import type { DegenClubWorkspace } from "@/lib/domain/degen-club";
 import type { LeaderboardWorkspace } from "@/lib/domain/leaderboard";
 import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
@@ -36,6 +37,7 @@ export interface IndexlaDataProvider {
   getPortfolioById(id: string): DataResult<Portfolio | null>;
   getCreators(): DataResult<CreatorProfile[]>;
   getCreatorByHandle(handle: string): DataResult<CreatorProfile | null>;
+  getCreatorsWorkspace(): DataResult<CreatorsWorkspace>;
   getStrategies(): DataResult<Strategy[]>;
   getNetworks(): DataResult<Network[]>;
   getDexlaBalance(): DataResult<DexlaBalanceAndTier>;

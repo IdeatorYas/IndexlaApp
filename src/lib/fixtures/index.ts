@@ -7,6 +7,10 @@ import type {
   Strategy,
   WalletConnection,
 } from "@/lib/domain/types";
+import {
+  creatorsAsProfiles,
+  getCreatorDirectoryByHandle,
+} from "@/lib/fixtures/creators";
 
 export const FIXTURE_LABEL = "Illustrative";
 
@@ -283,32 +287,7 @@ export const ILLUSTRATIVE_STRATEGIES: Strategy[] = [
   },
 ];
 
-export const ILLUSTRATIVE_CREATORS: CreatorProfile[] = [
-  {
-    handle: "indexla",
-    displayName: "INDEXLA",
-    bio: "Official INDEXLA creator profile.",
-    verified: true,
-    followerCount: 12_400,
-    publicPortfolioCount: 3,
-    totalAumUsd: 18_500_000,
-    bestPortfolioRank: 1,
-    creatorSince: "2025-01-01",
-    activationStatus: "approved",
-  },
-  {
-    handle: "memebuilder",
-    displayName: "Meme Builder",
-    bio: "Degen Club portfolio creator.",
-    verified: true,
-    followerCount: 2_100,
-    publicPortfolioCount: 2,
-    totalAumUsd: 1_200_000,
-    bestPortfolioRank: 18,
-    creatorSince: "2025-06-01",
-    activationStatus: "approved",
-  },
-];
+export const ILLUSTRATIVE_CREATORS: CreatorProfile[] = creatorsAsProfiles();
 
 export const DISCONNECTED_WALLET: WalletConnection = {
   state: "disconnected",
@@ -331,5 +310,7 @@ export function getPortfolioById(id: string): Portfolio | undefined {
 }
 
 export function getCreatorByHandle(handle: string): CreatorProfile | undefined {
-  return ILLUSTRATIVE_CREATORS.find((c) => c.handle === handle);
+  const entry = getCreatorDirectoryByHandle(handle);
+  if (!entry) return undefined;
+  return ILLUSTRATIVE_CREATORS.find((c) => c.handle === entry.handle);
 }

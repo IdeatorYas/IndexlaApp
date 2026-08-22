@@ -42,6 +42,10 @@ export function getCreatorByHandle(handle: string) {
   return getDataProvider().getCreatorByHandle(handle);
 }
 
+export function getCreatorsWorkspace() {
+  return getDataProvider().getCreatorsWorkspace();
+}
+
 export function getStrategies() {
   return getDataProvider().getStrategies();
 }
