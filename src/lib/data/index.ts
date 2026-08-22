@@ -66,6 +66,10 @@ export function getMyPortfolioWorkspace() {
   return getDataProvider().getMyPortfolioWorkspace();
 }
 
+export function getStrategiesWorkspace() {
+  return getDataProvider().getStrategiesWorkspace();
+}
+
 export function getDataLabel() {
   return getDataProvider().getFixtureLabel();
 }

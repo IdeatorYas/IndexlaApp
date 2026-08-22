@@ -103,6 +103,38 @@ export const liveDataProvider: IndexlaDataProvider = {
       LIVE_REASON,
     );
   },
+  getStrategiesWorkspace() {
+    return unavailable(
+      {
+        marketplace: [],
+        myStrategies: [],
+        publishDefaults: {
+          name: "",
+          description: "",
+          logic: "",
+          conditions: "",
+          configurableParameters: "",
+          assetCategories: [],
+          networkIds: [],
+          riskLevel: "medium",
+          disclosures: "",
+          accessPriceDexla: 0,
+        },
+        listingFeeDexla: 500,
+        listingFeeBurnPercent: 100,
+        accessSplitCreatorPercent: 50,
+        accessSplitBurnPercent: 50,
+        defaultExecutionFeeSharePercent: 10,
+        demoDexlaBalance: 0,
+        categories: [],
+        strategyTypes: [],
+        risks: [],
+        networks: [],
+        isIllustrative: false,
+      },
+      LIVE_REASON,
+    );
+  },
   getFixtureLabel() {
     return "Live";
   },

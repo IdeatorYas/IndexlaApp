@@ -1,20 +1,19 @@
-import { EmptyState, UtilityGateState } from "@/components/states/AppStates";
-import { ScreenStub } from "@/components/screens/ScreenStub";
-import { getFeatureFlags } from "@/lib/feature-flags";
-import { APP_SCREENS } from "@/lib/routes";
+import { Suspense } from "react";
+import { StrategiesView } from "@/components/strategies/StrategiesView";
+import { LoadingSkeleton } from "@/components/states/AppStates";
+import { getStrategiesWorkspace, isIllustrativeDataMode } from "@/lib/data";
 
 export default function StrategiesPage() {
-  const flags = getFeatureFlags();
+  const workspace = getStrategiesWorkspace();
+  const illustrative = isIllustrativeDataMode() || workspace.isIllustrative;
+
   return (
-    <ScreenStub screen={APP_SCREENS[5]}>
-      <EmptyState
-        title="Marketplace · My Strategies · Publish Strategy"
-        description="Strategy marketplace tabs and cards stub."
+    <Suspense fallback={<LoadingSkeleton title="Loading Strategies" lines={6} />}>
+      <StrategiesView
+        workspace={workspace.data}
+        illustrative={illustrative}
+        initialError={workspace.availability === "unavailable"}
       />
-      <UtilityGateState
-        featureName="Private Strategy Payments"
-        demoMode={flags.DEXLA_DEMO_MODE}
-      />
-    </ScreenStub>
+    </Suspense>
   );
 }

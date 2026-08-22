@@ -6,6 +6,7 @@ import {
   getDiscoverCatalog,
   getMyPortfolioWorkspace,
   getPortfolios,
+  getStrategiesWorkspace,
 } from "@/lib/data";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -33,6 +34,7 @@ describe("data-access layer", () => {
     expect(getDexlaBalance().data.balance).toBeGreaterThan(0);
     expect(getDiscoverCatalog().data.products.length).toBeGreaterThan(0);
     expect(getMyPortfolioWorkspace().data.portfolios.length).toBeGreaterThan(0);
+    expect(getStrategiesWorkspace().data.marketplace.length).toBeGreaterThan(0);
   });
 
   it("switches to live provider when illustrative demo data is disabled", () => {

@@ -6,6 +6,7 @@ import {
   getMarketplaceProductById as fixtureMarketplaceProductById,
 } from "@/lib/fixtures/discover";
 import { getMyPortfolioWorkspace as fixtureMyPortfolioWorkspace } from "@/lib/fixtures/my-portfolio";
+import { getStrategiesWorkspace as fixtureStrategiesWorkspace } from "@/lib/fixtures/strategies";
 import {
   FIXTURE_LABEL,
   ILLUSTRATIVE_CREATORS,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/fixtures/index";
 import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
 import type { MyPortfolioWorkspace } from "@/lib/domain/my-portfolio";
+import type { StrategiesWorkspace } from "@/lib/domain/strategies";
 
 function ok<T>(data: T): DataResult<T> {
   return {
@@ -65,6 +67,9 @@ export const fixtureDataProvider: IndexlaDataProvider = {
   },
   getMyPortfolioWorkspace() {
     return ok<MyPortfolioWorkspace>(fixtureMyPortfolioWorkspace());
+  },
+  getStrategiesWorkspace() {
+    return ok<StrategiesWorkspace>(fixtureStrategiesWorkspace());
   },
   getFixtureLabel() {
     return FIXTURE_LABEL;
