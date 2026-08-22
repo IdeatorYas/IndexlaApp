@@ -1,0 +1,45 @@
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import {
+  getDashboard,
+  getDataProvider,
+  getDexlaBalance,
+  getPortfolios,
+} from "@/lib/data";
+
+const ORIGINAL_ENV = { ...process.env };
+
+describe("data-access layer", () => {
+  beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  it("serves illustrative fixtures when ILLUSTRATIVE_DEMO_DATA is enabled", () => {
+    process.env.ILLUSTRATIVE_DEMO_DATA = "true";
+    const provider = getDataProvider();
+    expect(provider.kind).toBe("illustrative-fixtures");
+    expect(provider.isIllustrative).toBe(true);
+
+    const dashboard = getDashboard();
+    expect(dashboard.isIllustrative).toBe(true);
+    expect(dashboard.availability).toBe("populated");
+    expect(dashboard.data.featuredProducts.length).toBeGreaterThan(0);
+    expect(getPortfolios().data.length).toBeGreaterThan(0);
+    expect(getDexlaBalance().data.balance).toBeGreaterThan(0);
+  });
+
+  it("switches to live provider when illustrative demo data is disabled", () => {
+    process.env.ILLUSTRATIVE_DEMO_DATA = "false";
+    const provider = getDataProvider();
+    expect(provider.kind).toBe("live");
+    expect(provider.isIllustrative).toBe(false);
+
+    const dashboard = getDashboard();
+    expect(dashboard.availability).toBe("unavailable");
+    expect(dashboard.isIllustrative).toBe(false);
+    expect(dashboard.data.featuredProducts).toHaveLength(0);
+  });
+});

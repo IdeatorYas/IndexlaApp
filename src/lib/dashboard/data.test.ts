@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getDashboardData } from "@/lib/fixtures/dashboard";
+import { getDashboard } from "@/lib/data";
 import { getActivePortfolios, formatDexla, formatUsd } from "@/lib/dashboard/data";
 
-describe("dashboard fixtures", () => {
+describe("dashboard fixtures via data layer", () => {
   it("provides marketplace-first dashboard fields", () => {
-    const data = getDashboardData();
+    const data = getDashboard().data;
     expect(data.overview.totalValueUsd).toBeGreaterThan(0);
     expect(data.featuredProducts.length).toBeGreaterThanOrEqual(3);
     expect(data.marketplace.trending.length).toBeGreaterThan(0);
@@ -20,7 +20,7 @@ describe("dashboard fixtures", () => {
   });
 
   it("returns up to three active portfolios", () => {
-    const data = getDashboardData();
+    const data = getDashboard().data;
     const portfolios = getActivePortfolios(data.activePortfolioIds);
     expect(portfolios.length).toBeLessThanOrEqual(3);
     expect(portfolios.length).toBeGreaterThan(0);

@@ -10,12 +10,13 @@ import { TrustStripSection } from "@/components/dashboard/TrustStripSection";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import {
   getActivePortfolios,
-  getDashboardFixture,
 } from "@/lib/dashboard/data";
+import { getDashboard } from "@/lib/data";
 
 export function DashboardView() {
   const { wallet, loadState, connectDemo, retryLoad } = useDemoWallet();
-  const data = getDashboardFixture();
+  const dashboardResult = getDashboard();
+  const data = dashboardResult.data;
   const activePortfolios = getActivePortfolios(data.activePortfolioIds);
   const activityItems =
     wallet.state === "connected" && loadState === "ready"
@@ -28,7 +29,10 @@ export function DashboardView() {
       style={{ maxWidth: "var(--content-max)" }}
     >
       <MarketplaceHeroSection />
-      <FeaturedProductsSection products={data.featuredProducts} />
+      <FeaturedProductsSection
+        products={data.featuredProducts}
+        illustrative={dashboardResult.isIllustrative}
+      />
       <ExploreMarketplaceSection
         marketplace={data.marketplace}
         categories={data.categories}

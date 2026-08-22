@@ -3,15 +3,15 @@
 import Link from "next/link";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { ILLUSTRATIVE_DEXLA } from "@/lib/fixtures";
 import { getClientFeatureFlags } from "@/lib/feature-flags";
+import { getDexlaBalance } from "@/lib/data";
 import { APP_ROUTES } from "@/lib/routes";
 
 export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const { theme, toggleTheme } = useTheme();
   const { wallet, connectDemo, disconnect } = useDemoWallet();
   const flags = getClientFeatureFlags();
-  const dexla = ILLUSTRATIVE_DEXLA;
+  const dexla = getDexlaBalance().data;
 
   return (
     <header

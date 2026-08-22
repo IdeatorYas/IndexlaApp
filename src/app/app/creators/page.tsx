@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { EmptyState } from "@/components/states/AppStates";
 import { ScreenStub } from "@/components/screens/ScreenStub";
-import { ILLUSTRATIVE_CREATORS } from "@/lib/fixtures";
+import { getCreators } from "@/lib/data";
 import { APP_ROUTES, APP_SCREENS } from "@/lib/routes";
 
 export default function CreatorsPage() {
+  const creators = getCreators().data;
   return (
     <ScreenStub screen={APP_SCREENS[7]}>
       <EmptyState
@@ -31,7 +32,7 @@ export default function CreatorsPage() {
           Creator Dashboard →
         </Link>
         <Link
-          href={APP_ROUTES.creatorProfile(ILLUSTRATIVE_CREATORS[0]?.handle ?? "indexla")}
+          href={APP_ROUTES.creatorProfile(creators[0]?.handle ?? "indexla")}
           className="rounded-lg border border-app-line px-3 py-2 text-sm text-app-brand"
         >
           Sample Profile →

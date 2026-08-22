@@ -5,10 +5,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NavIcon } from "@/components/shell/NavIcons";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
-import { ILLUSTRATIVE_DEXLA } from "@/lib/fixtures";
 import { getClientFeatureFlags } from "@/lib/feature-flags";
 import { NAV_ITEMS } from "@/lib/routes";
 import { formatUsd } from "@/lib/dashboard/data";
+import { getDexlaBalance } from "@/lib/data";
 
 function isActive(pathname: string, href: string) {
   if (href === "/app") return pathname === "/app";
@@ -19,7 +19,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { wallet } = useDemoWallet();
   const flags = getClientFeatureFlags();
-  const dexla = ILLUSTRATIVE_DEXLA;
+  const dexla = getDexlaBalance().data;
   const initials =
     wallet.state === "connected"
       ? (wallet.shortenedAddress?.slice(2, 4) ?? "IX").toUpperCase()

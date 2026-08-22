@@ -1,21 +1,16 @@
 import type { Portfolio } from "@/lib/domain/types";
-import type { DashboardData } from "@/lib/domain/dashboard";
-import { getDashboardData } from "@/lib/fixtures/dashboard";
-import {
-  FIXTURE_LABEL,
-  ILLUSTRATIVE_PORTFOLIOS,
-  getPortfolioById,
-} from "@/lib/fixtures/index";
+import { getDashboard, getPortfolioById } from "@/lib/data";
 
 export function getActivePortfolios(ids: string[]): Portfolio[] {
   return ids
-    .map((id) => getPortfolioById(id))
+    .map((id) => getPortfolioById(id).data)
     .filter((p): p is Portfolio => Boolean(p))
     .slice(0, 3);
 }
 
-export function getDashboardFixture(): DashboardData {
-  return getDashboardData();
+/** @deprecated Prefer getDashboard() from @/lib/data */
+export function getDashboardFixture() {
+  return getDashboard().data;
 }
 
 export function formatUsd(value: number, compact = false): string {
@@ -63,5 +58,3 @@ export function formatMarketTimestamp(iso: string): string {
     timeStyle: "short",
   });
 }
-
-export { FIXTURE_LABEL, ILLUSTRATIVE_PORTFOLIOS };

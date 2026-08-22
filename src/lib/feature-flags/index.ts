@@ -1,6 +1,7 @@
 export type IndexlaEnvironment = "development" | "staging" | "production";
 
 export type FeatureFlagKey =
+  | "ILLUSTRATIVE_DEMO_DATA"
   | "DEXLA_UTILITY_ENABLED"
   | "FEATURED_PLACEMENTS_ENABLED"
   | "PRIVATE_STRATEGY_PAYMENTS_ENABLED"
@@ -45,29 +46,51 @@ export function getEnvironment(): IndexlaEnvironment {
   return "development";
 }
 
+/**
+ * Preview/demo marketplace data.
+ * Default ON until explicitly disabled for real production / testnet cutover.
+ * Client builds should also set NEXT_PUBLIC_ILLUSTRATIVE_DEMO_DATA.
+ */
+export function resolveIllustrativeDemoData(
+  _environment: IndexlaEnvironment,
+): boolean {
+  const explicit =
+    readEnv("ILLUSTRATIVE_DEMO_DATA") ??
+    readEnv("NEXT_PUBLIC_ILLUSTRATIVE_DEMO_DATA");
+  if (explicit !== undefined) {
+    return explicit === "1" || explicit.toLowerCase() === "true";
+  }
+  return true;
+}
+
 /** Server-side feature flags */
 export function getFeatureFlags(): FeatureFlags {
   const environment = getEnvironment();
   const isProduction = environment === "production";
+  const illustrativeDemoData = resolveIllustrativeDemoData(environment);
   const demoUtilities =
-    !isProduction || readBool("INDEXLA_DEMO_UTILITIES", false);
+    illustrativeDemoData ||
+    !isProduction ||
+    readBool("INDEXLA_DEMO_UTILITIES", false);
 
   const productionUtilityEnabled = readBool("DEXLA_UTILITY_ENABLED", false);
 
   return {
     environment,
-    DEXLA_DEMO_MODE: demoUtilities && !isProduction,
+    ILLUSTRATIVE_DEMO_DATA: illustrativeDemoData,
+    DEXLA_DEMO_MODE: demoUtilities && (!isProduction || illustrativeDemoData),
     DEXLA_UTILITY_ENABLED: isProduction
-      ? productionUtilityEnabled
+      ? productionUtilityEnabled || illustrativeDemoData
       : demoUtilities || productionUtilityEnabled,
     FEATURED_PLACEMENTS_ENABLED: isProduction
-      ? readBool("FEATURED_PLACEMENTS_ENABLED", false)
+      ? readBool("FEATURED_PLACEMENTS_ENABLED", false) || illustrativeDemoData
       : demoUtilities,
     PRIVATE_STRATEGY_PAYMENTS_ENABLED: isProduction
-      ? readBool("PRIVATE_STRATEGY_PAYMENTS_ENABLED", false)
+      ? readBool("PRIVATE_STRATEGY_PAYMENTS_ENABLED", false) ||
+        illustrativeDemoData
       : demoUtilities,
     CREATOR_PUBLISH_BURN_ENABLED: isProduction
-      ? readBool("CREATOR_PUBLISH_BURN_ENABLED", false)
+      ? readBool("CREATOR_PUBLISH_BURN_ENABLED", false) || illustrativeDemoData
       : demoUtilities,
     EARLY_CREATOR_PUBLISH_EXEMPTION_ENABLED: readBool(
       "EARLY_CREATOR_PUBLISH_EXEMPTION_ENABLED",
@@ -76,7 +99,7 @@ export function getFeatureFlags(): FeatureFlags {
     CROSS_CHAIN_ENABLED: readBool("CROSS_CHAIN_ENABLED", false),
     COW_EXECUTION_ENABLED: readBool("COW_EXECUTION_ENABLED", false),
     INVESTOR_REWARD_CLAIMS_ENABLED: isProduction
-      ? readBool("INVESTOR_REWARD_CLAIMS_ENABLED", false)
+      ? readBool("INVESTOR_REWARD_CLAIMS_ENABLED", false) || illustrativeDemoData
       : demoUtilities,
     NETWORK_ETHEREUM_ENABLED: readBool("NETWORK_ETHEREUM_ENABLED", false),
     NETWORK_BASE_ENABLED: readBool("NETWORK_BASE_ENABLED", false),
@@ -88,10 +111,10 @@ export function getFeatureFlags(): FeatureFlags {
   };
 }
 
-/** Client-safe flags for UI badges (demo labeling) */
+/** Client-safe flags for UI badges and preview banner */
 export function getClientFeatureFlags(): Pick<
   FeatureFlags,
-  "DEXLA_DEMO_MODE" | "environment"
+  "ILLUSTRATIVE_DEMO_DATA" | "DEXLA_DEMO_MODE" | "environment"
 > {
   const raw =
     process.env.NEXT_PUBLIC_INDEXLA_ENV ??
@@ -100,10 +123,11 @@ export function getClientFeatureFlags(): Pick<
     raw === "production" || raw === "staging" || raw === "development"
       ? raw
       : "development";
-  const isProduction = environment === "production";
+  const illustrativeDemoData = resolveIllustrativeDemoData(environment);
   return {
     environment,
-    DEXLA_DEMO_MODE: !isProduction,
+    ILLUSTRATIVE_DEMO_DATA: illustrativeDemoData,
+    DEXLA_DEMO_MODE: illustrativeDemoData || environment !== "production",
   };
 }
 

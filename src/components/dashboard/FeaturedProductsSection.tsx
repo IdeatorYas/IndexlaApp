@@ -27,14 +27,17 @@ const ACCENTS = [
 
 export function FeaturedProductsSection({
   products,
+  illustrative = true,
 }: {
   products: FeaturedProductPreview[];
+  illustrative?: boolean;
 }) {
   return (
     <section>
       <SectionHeader
         title="Featured Products"
         description="Promotional placements — never an endorsement or performance guarantee."
+        illustrative={illustrative}
         action={
           <Link
             href={`${APP_ROUTES.discover}?filter=featured`}
@@ -75,7 +78,7 @@ export function FeaturedProductsSection({
                       <span className="rounded-md bg-app-panel px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-muted">
                         {product.kind}
                       </span>
-                      <IllustrativeBadge compact />
+                      {illustrative ? <IllustrativeBadge compact /> : null}
                     </div>
                     <h3 className="app-display mt-1.5 truncate text-[15px] font-bold text-app-ink">
                       {product.name}

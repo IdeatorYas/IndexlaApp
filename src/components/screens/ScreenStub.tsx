@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FIXTURE_LABEL } from "@/lib/fixtures";
+import { getDataLabel } from "@/lib/data";
 import type { AppScreenMeta } from "@/lib/domain/types";
 import { APP_SCREENS } from "@/lib/routes";
 import { LoadingSkeleton } from "@/components/states/AppStates";
@@ -11,6 +11,7 @@ export function ScreenStub({
   screen: AppScreenMeta;
   children?: React.ReactNode;
 }) {
+  const dataLabel = getDataLabel();
   return (
     <div className="space-y-6">
       <header className="space-y-2">
@@ -24,7 +25,7 @@ export function ScreenStub({
         <p className="text-xs text-app-dim">
           Route: <code className="rounded bg-app-panel px-1">{screen.route}</code>
           {" · "}
-          Phase 1 route stub · {FIXTURE_LABEL} fixtures only
+          Phase 1 route stub · {dataLabel} data layer
         </p>
       </header>
 
