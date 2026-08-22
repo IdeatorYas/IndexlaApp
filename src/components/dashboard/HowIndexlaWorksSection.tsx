@@ -18,27 +18,25 @@ export function HowIndexlaWorksSection() {
   ];
 
   return (
-    <section className="app-panel-glow border app-border-accent-violet p-5 md:p-7">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="app-display text-xl font-bold text-app-ink md:text-2xl">
-            How INDEXLA Works
-          </h2>
-          <p className="mt-1 text-sm font-semibold text-app-brand">
-            AI monitors. Your rules decide. Smart contracts enforce.
-          </p>
-        </div>
+    <section className="app-panel overflow-hidden app-accent-bar-violet">
+      <div className="border-b border-app-line px-4 py-3 sm:px-5">
+        <h2 className="app-display text-[16px] font-bold text-app-ink">
+          How INDEXLA Works
+        </h2>
+        <p className="mt-0.5 text-[12px] font-semibold text-app-brand">
+          AI monitors. Your rules decide. Smart contracts enforce.
+        </p>
       </div>
-      <div className="mt-5 grid gap-4 md:grid-cols-3">
+      <div className="grid gap-0 md:grid-cols-3 md:divide-x md:divide-app-line">
         {steps.map((step) => (
-          <div key={step.n} className="app-panel-soft p-4">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-app-brand">
-              {step.n}
-            </p>
-            <h3 className="app-display mt-2 text-lg font-bold text-app-ink">
+          <div key={step.n} className="px-4 py-3.5 sm:px-5">
+            <p className="app-label text-app-brand">{step.n}</p>
+            <h3 className="app-display mt-1 text-[14px] font-bold text-app-ink">
               {step.title}
             </h3>
-            <p className="mt-2 text-sm text-app-muted">{step.body}</p>
+            <p className="mt-1 text-[12px] leading-snug text-app-muted">
+              {step.body}
+            </p>
           </div>
         ))}
       </div>

@@ -34,62 +34,63 @@ function Row({
   products,
   tab,
   category,
+  accent,
 }: {
   title: string;
   products: MarketplaceProductPreview[];
   tab: MarketplaceTab;
   category: MarketplaceCategory | "All";
+  accent: string;
 }) {
   const filtered = products.filter(
     (p) => matchesTab(p, tab) && matchesCategory(p, category),
   );
 
   return (
-    <div className="app-panel p-4 md:p-5">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="app-display text-base font-bold text-app-ink">{title}</h3>
+    <div className={`app-panel overflow-hidden ${accent}`}>
+      <div className="flex items-center justify-between gap-2 border-b border-app-line px-3 py-2.5">
+        <h3 className="app-display text-[14px] font-bold text-app-ink">{title}</h3>
         <Link
           href={`${APP_ROUTES.discover}?tab=${tab === "All" ? "" : tab.toLowerCase()}${category !== "All" ? `&category=${encodeURIComponent(category)}` : ""}`}
-          className="text-xs font-bold text-app-brand hover:underline"
+          className="text-[11px] font-bold text-app-brand hover:underline"
         >
           View All →
         </Link>
       </div>
       {filtered.length === 0 ? (
-        <p className="text-sm text-app-dim">No products in this filter.</p>
+        <p className="px-3 py-3 text-[12px] text-app-dim">No products in this filter.</p>
       ) : (
-        <div className="space-y-2.5">
+        <div className="divide-y divide-app-line">
           {filtered.map((product) => {
             const positive = product.performance30d >= 0;
             return (
               <Link
                 key={`${title}-${product.id}`}
                 href={product.href}
-                className="app-panel-soft flex items-center gap-3 p-3 transition-colors hover:border-app-brand/30"
+                className="flex items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-app-panel"
               >
-                <AssetIconStack assetIds={product.assetIds} size={24} max={3} />
+                <AssetIconStack assetIds={product.assetIds} size={22} max={3} />
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-bold text-app-ink">
+                  <div className="flex items-center gap-1.5">
+                    <p className="truncate text-[13px] font-bold text-app-ink">
                       {product.name}
                     </p>
-                    <span className="rounded-md bg-app-soft px-1.5 py-0.5 text-[10px] font-bold uppercase text-app-brand">
+                    <span className="shrink-0 rounded bg-app-soft px-1 py-px text-[9px] font-bold uppercase text-app-brand">
                       {product.kind}
                     </span>
                     {product.isNew ? (
-                      <span className="rounded-md bg-app-success/15 px-1.5 py-0.5 text-[10px] font-bold uppercase text-app-success">
+                      <span className="shrink-0 rounded bg-app-success/15 px-1 py-px text-[9px] font-bold uppercase text-app-success">
                         New
                       </span>
                     ) : null}
                   </div>
-                  <p className="truncate text-xs text-app-dim">
-                    {product.creatorName} · {product.category} ·{" "}
-                    {formatUsd(product.aumUsd, true)} AUM
+                  <p className="truncate text-[11px] text-app-dim">
+                    {product.creatorName} · {formatUsd(product.aumUsd, true)}
                   </p>
                 </div>
                 <p
                   className={[
-                    "app-metric shrink-0 text-base",
+                    "app-metric shrink-0 text-[13px]",
                     positive ? "text-app-success" : "text-app-danger",
                   ].join(" ")}
                 >
@@ -126,18 +127,22 @@ export function ExploreMarketplaceSection({
     <section>
       <SectionHeader
         title="Explore Marketplace"
-        description="Trending, most invested and new products — browse without connecting a wallet."
+        description="Trending, most invested and new — browse without a wallet."
         action={
           <Link
             href={discoverHref}
-            className="text-sm font-bold text-app-brand hover:underline"
+            className="text-[13px] font-bold text-app-brand hover:underline"
           >
             View All →
           </Link>
         }
       />
 
-      <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Marketplace tabs">
+      <div
+        className="mb-2.5 flex flex-wrap gap-1.5"
+        role="tablist"
+        aria-label="Marketplace tabs"
+      >
         {TABS.map((item) => {
           const selected = item === tab;
           return (
@@ -148,7 +153,7 @@ export function ExploreMarketplaceSection({
               aria-selected={selected}
               onClick={() => setTab(item)}
               className={[
-                "rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors",
+                "h-8 rounded-full px-3 text-[12px] font-bold transition-colors",
                 selected
                   ? "bg-app-brand text-white"
                   : "border border-app-line bg-app-elevated text-app-muted hover:text-app-ink",
@@ -160,7 +165,7 @@ export function ExploreMarketplaceSection({
         })}
       </div>
 
-      <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
+      <div className="mb-3 flex gap-1.5 overflow-x-auto pb-0.5">
         <Chip
           label="All"
           active={category === "All"}
@@ -176,24 +181,27 @@ export function ExploreMarketplaceSection({
         ))}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-3 xl:grid-cols-3">
         <Row
           title="Trending Now"
           products={marketplace.trending}
           tab={tab}
           category={category}
+          accent="app-accent-bar-cyan"
         />
         <Row
           title="Most Invested"
           products={marketplace.mostInvested}
           tab={tab}
           category={category}
+          accent="app-accent-bar-violet"
         />
         <Row
           title="New This Week"
           products={marketplace.newThisWeek}
           tab={tab}
           category={category}
+          accent="app-accent-bar-emerald"
         />
       </div>
     </section>
@@ -214,7 +222,7 @@ function Chip({
       type="button"
       onClick={onClick}
       className={[
-        "shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+        "h-7 shrink-0 rounded-full px-2.5 text-[11px] font-semibold transition-colors",
         active
           ? "border border-app-brand/40 bg-app-soft text-app-brand"
           : "border border-app-line bg-app-elevated text-app-muted hover:text-app-ink",

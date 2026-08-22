@@ -23,7 +23,10 @@ export function DashboardView() {
       : [];
 
   return (
-    <div className="mx-auto max-w-[1440px] space-y-8 md:space-y-10">
+    <div
+      className="mx-auto space-y-5 md:space-y-6"
+      style={{ maxWidth: "var(--content-max)" }}
+    >
       <MarketplaceHeroSection />
       <FeaturedProductsSection products={data.featuredProducts} />
       <ExploreMarketplaceSection

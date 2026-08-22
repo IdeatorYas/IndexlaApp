@@ -50,34 +50,34 @@ export function PersonalSnapshotSection({
 
   if (wallet.state === "disconnected") {
     return (
-      <section className="app-panel border app-border-accent-blue p-5 md:p-7">
-        <div className="mb-3 flex items-center gap-2">
-          <h2 className="app-display text-xl font-bold text-app-ink">
+      <section className="app-panel overflow-hidden app-accent-bar-blue px-4 py-4 sm:px-5">
+        <div className="mb-2 flex items-center gap-2">
+          <h2 className="app-display text-[16px] font-bold text-app-ink">
             Personal Snapshot
           </h2>
-          <span className="rounded-full bg-app-panel px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-app-dim">
+          <span className="rounded-md bg-app-panel px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-dim">
             Secondary
           </span>
         </div>
-        <p className="max-w-2xl text-sm text-app-muted">
+        <p className="max-w-2xl text-[13px] text-app-muted">
           Connect your wallet to view your portfolio, automation and rewards.
         </p>
-        <div className="mt-5 flex flex-wrap gap-3">
+        <div className="mt-3.5 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={onConnect}
-            className="app-gradient-btn rounded-xl px-5 py-2.5 text-sm font-bold"
+            className="app-gradient-btn h-9 rounded-[10px] px-4 text-[13px] font-bold"
           >
             Connect Wallet
           </button>
           <Link
             href={APP_ROUTES.discover}
-            className="rounded-xl border border-app-line px-5 py-2.5 text-sm font-bold text-app-ink hover:bg-app-panel"
+            className="inline-flex h-9 items-center rounded-[10px] border border-app-line px-4 text-[13px] font-bold text-app-ink hover:bg-app-panel"
           >
             Continue Exploring
           </Link>
         </div>
-        <p className="mt-4 text-xs text-app-dim">
+        <p className="mt-3 text-[11px] text-app-dim">
           Wallet not connected — marketplace discovery stays available above.
         </p>
       </section>
@@ -86,22 +86,22 @@ export function PersonalSnapshotSection({
 
   if (loadState === "loading") {
     return (
-      <section className="app-panel p-5 md:p-7">
-        <LoadingSkeleton title="Loading personal snapshot" lines={5} />
+      <section className="app-panel p-4">
+        <LoadingSkeleton title="Loading personal snapshot" lines={4} />
       </section>
     );
   }
 
   if (loadState === "error") {
     return (
-      <section className="app-panel p-5 md:p-7">
+      <section className="app-panel p-4">
         <ErrorState
           description="Unable to load personal snapshot. No transaction was executed."
           action={
             <button
               type="button"
               onClick={onRetry}
-              className="app-gradient-btn rounded-xl px-4 py-2 text-sm font-semibold"
+              className="app-gradient-btn rounded-[10px] px-4 py-2 text-[13px] font-semibold"
             >
               Retry
             </button>
@@ -114,23 +114,23 @@ export function PersonalSnapshotSection({
   const positive = overview.return30dPercent >= 0;
 
   return (
-    <section className="app-panel-glow border app-border-accent-blue p-5 md:p-7">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+    <section className="app-panel overflow-hidden app-accent-bar-blue p-4 sm:p-5">
+      <div className="mb-3.5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="app-display text-xl font-bold text-app-ink md:text-2xl">
+            <h2 className="app-display text-[16px] font-bold text-app-ink">
               Personal Snapshot
             </h2>
-            {overview.isIllustrative ? <IllustrativeBadge /> : null}
+            {overview.isIllustrative ? <IllustrativeBadge compact /> : null}
           </div>
-          <p className="mt-1 text-sm text-app-muted">
-            Compact view of holdings, automation and activity — full detail lives in My Portfolio.
+          <p className="mt-0.5 text-[12px] text-app-muted">
+            Compact holdings view — full detail in My Portfolio.
           </p>
         </div>
         <PeriodTabs value={period} onChange={setPeriod} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-5">
         <Metric
           label="Total Portfolio Value"
           value={formatUsd(overview.totalValueUsd)}
@@ -161,53 +161,46 @@ export function PersonalSnapshotSection({
         />
       </div>
 
-      <div className="mt-5 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="app-panel-soft p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-bold uppercase tracking-wide text-app-dim">
-              Performance · {period.toUpperCase()}
-            </p>
+      <div className="mt-3.5 grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="app-panel-soft p-3">
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="app-label">Performance · {period.toUpperCase()}</p>
             <p
               className={[
-                "text-sm font-bold",
+                "text-[12px] font-bold",
                 positive ? "text-app-success" : "text-app-danger",
               ].join(" ")}
             >
               {formatPercent(overview.return30dPercent, true)} (30D)
             </p>
           </div>
-          <div className="h-36 md:h-40">
-            <MiniLineChart points={overview.chartSeries[period]} height={160} />
+          <div className="h-28 md:h-32">
+            <MiniLineChart points={overview.chartSeries[period]} height={128} />
           </div>
         </div>
 
-        <div className="space-y-3">
-          <div className="app-panel-soft p-4">
-            <p className="text-xs font-bold uppercase tracking-wide text-app-dim">
-              Active portfolios
-            </p>
-            <div className="mt-3 space-y-2.5">
+        <div className="space-y-2.5">
+          <div className="app-panel-soft p-3">
+            <p className="app-label">Active portfolios</p>
+            <div className="mt-2 space-y-2">
               {portfolios.slice(0, 3).map((portfolio) => (
-                <div
-                  key={portfolio.id}
-                  className="flex items-center gap-3"
-                >
+                <div key={portfolio.id} className="flex items-center gap-2.5">
                   <AssetIconStack
                     assetIds={portfolio.assets.map((a) => a.assetId)}
-                    size={22}
+                    size={20}
                     max={3}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-app-ink">
+                    <p className="truncate text-[12px] font-bold text-app-ink">
                       {portfolio.name}
                     </p>
-                    <p className="text-xs text-app-dim">
+                    <p className="text-[11px] text-app-dim">
                       {formatUsd(portfolio.valueUsd)}
                     </p>
                   </div>
                   <p
                     className={[
-                      "text-xs font-bold",
+                      "text-[11px] font-bold",
                       portfolio.performance30d >= 0
                         ? "text-app-success"
                         : "text-app-danger",
@@ -219,14 +212,12 @@ export function PersonalSnapshotSection({
               ))}
             </div>
           </div>
-          <div className="app-panel-soft p-4">
-            <p className="text-xs font-bold uppercase tracking-wide text-app-dim">
-              Automation
-            </p>
-            <p className="mt-2 text-sm font-semibold text-app-ink">
+          <div className="app-panel-soft p-3">
+            <p className="app-label">Automation</p>
+            <p className="mt-1.5 text-[13px] font-semibold text-app-ink">
               {automation.activeRules} active rules
             </p>
-            <p className="mt-1 text-xs text-app-muted">
+            <p className="mt-0.5 text-[11px] text-app-muted">
               {automation.nextScheduledAction}
             </p>
           </div>
@@ -234,23 +225,23 @@ export function PersonalSnapshotSection({
       </div>
 
       {activity.length > 0 ? (
-        <div className="mt-5 app-panel-soft p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-app-dim">
-            Recent activity preview
-          </p>
-          <ul className="mt-3 space-y-2">
+        <div className="mt-3.5 app-panel-soft p-3">
+          <p className="app-label">Recent activity preview</p>
+          <ul className="mt-2 space-y-1.5">
             {activity.slice(0, 3).map((item) => (
               <li
                 key={item.id}
-                className="flex flex-wrap items-center justify-between gap-2 border-b border-app-line pb-2 last:border-0 last:pb-0"
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-app-line pb-1.5 last:border-0 last:pb-0"
               >
                 <div>
-                  <p className="text-sm font-semibold text-app-ink">{item.title}</p>
-                  <p className="text-xs text-app-dim">
+                  <p className="text-[12px] font-semibold text-app-ink">
+                    {item.title}
+                  </p>
+                  <p className="text-[11px] text-app-dim">
                     {item.subtitle} · {formatRelativeTime(item.timestamp)}
                   </p>
                 </div>
-                <p className="text-xs font-bold text-app-muted">
+                <p className="text-[11px] font-bold text-app-muted">
                   {item.amountUsd != null
                     ? formatUsd(item.amountUsd)
                     : item.amountDexla != null
@@ -263,23 +254,23 @@ export function PersonalSnapshotSection({
         </div>
       ) : null}
 
-      <div className="mt-5 flex flex-wrap gap-3">
+      <div className="mt-3.5 flex flex-wrap gap-2">
         <Link
           href={APP_ROUTES.portfolio}
-          className="app-gradient-btn rounded-xl px-4 py-2.5 text-sm font-bold"
+          className="app-gradient-btn inline-flex h-9 items-center rounded-[10px] px-4 text-[13px] font-bold"
         >
           Open My Portfolio
         </Link>
         <Link
           href={`${APP_ROUTES.portfolio}?tab=automation`}
-          className="rounded-xl border border-app-brand/30 px-4 py-2.5 text-sm font-bold text-app-brand hover:bg-app-soft"
+          className="inline-flex h-9 items-center rounded-[10px] border border-app-brand/30 px-4 text-[13px] font-bold text-app-brand hover:bg-app-soft"
         >
           Manage Automations
         </Link>
         {overview.claimableRewardsUsd != null ? (
           <Link
             href={`${APP_ROUTES.portfolio}?action=claim`}
-            className="rounded-xl border border-app-line px-4 py-2.5 text-sm font-bold text-app-ink hover:bg-app-panel"
+            className="inline-flex h-9 items-center rounded-[10px] border border-app-line px-4 text-[13px] font-bold text-app-ink hover:bg-app-panel"
           >
             Claim Rewards
           </Link>
@@ -301,14 +292,12 @@ function Metric({
   large?: boolean;
 }) {
   return (
-    <div className="app-panel-soft p-3.5">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-app-dim">
-        {label}
-      </p>
+    <div className="app-panel-soft p-2.5">
+      <p className="app-label">{label}</p>
       <p
         className={[
           "mt-1 font-bold",
-          large ? "app-metric text-2xl md:text-3xl" : "text-sm",
+          large ? "app-metric text-[1.35rem] leading-none" : "text-[13px]",
           accent === "success"
             ? "text-app-success"
             : accent === "danger"
