@@ -1,6 +1,7 @@
 import type { DashboardData } from "@/lib/domain/dashboard";
 import type { IndexlaDataProvider, DataResult } from "@/lib/data/types";
 import { getEmptyDashboardData } from "@/lib/fixtures/dashboard";
+import { getEmptyDegenClubWorkspace } from "@/lib/fixtures/degen-club";
 import { getEmptyLeaderboardWorkspace } from "@/lib/fixtures/leaderboard";
 
 /**
@@ -138,6 +139,9 @@ export const liveDataProvider: IndexlaDataProvider = {
   },
   getLeaderboardWorkspace() {
     return unavailable(getEmptyLeaderboardWorkspace(), LIVE_REASON);
+  },
+  getDegenClubWorkspace() {
+    return unavailable(getEmptyDegenClubWorkspace(), LIVE_REASON);
   },
   getFixtureLabel() {
     return "Live";

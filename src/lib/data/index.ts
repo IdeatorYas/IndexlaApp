@@ -74,6 +74,10 @@ export function getLeaderboardWorkspace() {
   return getDataProvider().getLeaderboardWorkspace();
 }
 
+export function getDegenClubWorkspace() {
+  return getDataProvider().getDegenClubWorkspace();
+}
+
 export function getDataLabel() {
   return getDataProvider().getFixtureLabel();
 }

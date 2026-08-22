@@ -1,18 +1,19 @@
-import { EmptyState, UnavailableState } from "@/components/states/AppStates";
-import { ScreenStub } from "@/components/screens/ScreenStub";
-import { APP_SCREENS } from "@/lib/routes";
+import { Suspense } from "react";
+import { DegenClubView } from "@/components/degen-club/DegenClubView";
+import { LoadingSkeleton } from "@/components/states/AppStates";
+import { getDegenClubWorkspace, isIllustrativeDataMode } from "@/lib/data";
 
 export default function DegenClubPage() {
+  const workspace = getDegenClubWorkspace();
+  const illustrative = isIllustrativeDataMode() || workspace.isIllustrative;
+
   return (
-    <ScreenStub screen={APP_SCREENS[2]}>
-      <UnavailableState
-        title="EXTREME RISK — persistent warning"
-        description="Memecoins are highly speculative and may lose most or all of their value. Diversification does not remove risk. This banner remains non-dismissible on every Degen Club view."
+    <Suspense fallback={<LoadingSkeleton title="Loading Degen Club" lines={6} />}>
+      <DegenClubView
+        workspace={workspace.data}
+        illustrative={illustrative}
+        initialError={workspace.availability === "unavailable"}
       />
-      <EmptyState
-        title="10 Shots > 1 Shot"
-        description="Memecoin index grid and build flow stub. All performance figures remain Illustrative until live verified data exists."
-      />
-    </ScreenStub>
+    </Suspense>
   );
 }

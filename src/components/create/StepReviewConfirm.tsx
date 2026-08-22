@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { CreateDraft, MarketAsset } from "@/lib/domain/create";
 import { INDEX_CATEGORIES } from "@/lib/domain/create";
+import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
 import { AllocationDonut } from "@/components/ui/AllocationDonut";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { calculateFees } from "@/lib/fees/fee-calculator";
@@ -72,11 +73,10 @@ export function StepReviewConfirm({
 
       {isDegen ? (
         <div
-          className="rounded-[10px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm text-app-danger"
+          className="rounded-[10px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
           role="alert"
         >
-          EXTREME RISK — Memecoins are highly speculative and may lose most or
-          all of their value. Diversification does not remove risk.
+          {DEGEN_RISK_WARNING}
           <label className="mt-3 flex items-start gap-2 font-semibold text-app-ink">
             <input
               type="checkbox"

@@ -11,6 +11,7 @@ import {
   type CreateDraft,
   type MarketAsset,
 } from "@/lib/domain/create";
+import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
 import { AllocationDonut } from "@/components/ui/AllocationDonut";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 
@@ -152,11 +153,10 @@ export function StepAssetsAllocations({
 
       {categoryMeta?.isDegen ? (
         <div
-          className="rounded-[10px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm text-app-danger"
+          className="rounded-[10px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
           role="alert"
         >
-          EXTREME RISK — Memecoins are highly speculative and may lose most or
-          all of their value. Diversification does not remove risk.
+          {DEGEN_RISK_WARNING}
         </div>
       ) : null}
 

@@ -8,6 +8,7 @@ import {
 import { getMyPortfolioWorkspace as fixtureMyPortfolioWorkspace } from "@/lib/fixtures/my-portfolio";
 import { getStrategiesWorkspace as fixtureStrategiesWorkspace } from "@/lib/fixtures/strategies";
 import { getLeaderboardWorkspace as fixtureLeaderboardWorkspace } from "@/lib/fixtures/leaderboard";
+import { getDegenClubWorkspace as fixtureDegenClubWorkspace } from "@/lib/fixtures/degen-club";
 import {
   FIXTURE_LABEL,
   ILLUSTRATIVE_CREATORS,
@@ -19,6 +20,7 @@ import {
   getPortfolioById as fixturePortfolioById,
 } from "@/lib/fixtures/index";
 import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
+import type { DegenClubWorkspace } from "@/lib/domain/degen-club";
 import type { LeaderboardWorkspace } from "@/lib/domain/leaderboard";
 import type { MyPortfolioWorkspace } from "@/lib/domain/my-portfolio";
 import type { StrategiesWorkspace } from "@/lib/domain/strategies";
@@ -75,6 +77,9 @@ export const fixtureDataProvider: IndexlaDataProvider = {
   },
   getLeaderboardWorkspace() {
     return ok<LeaderboardWorkspace>(fixtureLeaderboardWorkspace());
+  },
+  getDegenClubWorkspace() {
+    return ok<DegenClubWorkspace>(fixtureDegenClubWorkspace());
   },
   getFixtureLabel() {
     return FIXTURE_LABEL;

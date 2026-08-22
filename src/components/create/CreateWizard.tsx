@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CreateStepRail } from "@/components/create/CreateStepRail";
 import { StepAssetsAllocations } from "@/components/create/StepAssetsAllocations";
 import { StepChooseProduct } from "@/components/create/StepChooseProduct";
@@ -12,18 +13,43 @@ import { useCreateDraft } from "@/components/create/useCreateDraft";
 import {
   INDEX_CATEGORIES,
   allocationTotal,
+  createEmptyDraft,
   wizardStepsFor,
   type CreateProductType,
   type MarketAsset,
 } from "@/lib/domain/create";
+import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
 import { LoadingSkeleton } from "@/components/states/AppStates";
 
 export function CreateWizard() {
-  const { draft, hydrated, update, setStep, reset } = useCreateDraft();
+  const searchParams = useSearchParams();
+  const { draft, hydrated, update, setStep, reset, setDraft } = useCreateDraft();
   const [assetCache, setAssetCache] = useState<MarketAsset[]>([]);
+  const templateApplied = useRef(false);
 
   const steps = wizardStepsFor(draft.productType);
   const stepIndex = steps.indexOf(draft.step);
+  const isDegenTemplate =
+    draft.categoryId === "memecoins" ||
+    searchParams.get("template") === "degen";
+
+  useEffect(() => {
+    if (!hydrated || templateApplied.current) return;
+    if (searchParams.get("template") !== "degen") return;
+    templateApplied.current = true;
+    const next = {
+      ...createEmptyDraft(),
+      productType: "index" as const,
+      categoryId: "memecoins" as const,
+      step: "assets" as const,
+      name: "My Degen Index",
+      thesis:
+        "Diversified memecoin index — extreme risk. Illustrative preview only.",
+      visibility: "public" as const,
+      degenAcknowledged: false,
+    };
+    setDraft(next);
+  }, [hydrated, searchParams, setDraft]);
 
   const canContinue = useMemo(() => {
     switch (draft.step) {
@@ -97,16 +123,30 @@ export function CreateWizard() {
           </div>
           <button
             type="button"
-            onClick={reset}
+            onClick={() => {
+              templateApplied.current = false;
+              reset();
+            }}
             className="h-9 rounded-[10px] border border-app-line px-3 text-[12px] font-bold text-app-muted hover:text-app-ink"
           >
             Reset draft
           </button>
         </div>
+        {isDegenTemplate ? (
+          <div
+            className="rounded-[10px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
+            role="alert"
+          >
+            {DEGEN_RISK_WARNING}
+          </div>
+        ) : null}
         <CreateStepRail productType={draft.productType} current={draft.step} />
         <p className="text-[11px] text-app-dim">
           Draft autosaved locally · step {Math.max(1, stepIndex + 1)} of{" "}
           {steps.length}
+          {draft.categoryId === "memecoins"
+            ? " · Degen Index template"
+            : ""}
         </p>
       </header>
 

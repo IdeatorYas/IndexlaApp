@@ -1,4 +1,5 @@
 import type { DashboardData } from "@/lib/domain/dashboard";
+import type { DegenClubWorkspace } from "@/lib/domain/degen-club";
 import type { LeaderboardWorkspace } from "@/lib/domain/leaderboard";
 import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
 import type { MyPortfolioWorkspace } from "@/lib/domain/my-portfolio";
@@ -43,5 +44,6 @@ export interface IndexlaDataProvider {
   getMyPortfolioWorkspace(): DataResult<MyPortfolioWorkspace>;
   getStrategiesWorkspace(): DataResult<StrategiesWorkspace>;
   getLeaderboardWorkspace(): DataResult<LeaderboardWorkspace>;
+  getDegenClubWorkspace(): DataResult<DegenClubWorkspace>;
   getFixtureLabel(): string;
 }
