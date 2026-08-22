@@ -1,17 +1,22 @@
 import Link from "next/link";
 import type { Portfolio } from "@/lib/domain/types";
+import {
+  ProductAttribution,
+  ProductTypeBadge,
+} from "@/components/product/ProductIdentity";
 import { AllocationDonut } from "@/components/ui/AllocationDonut";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
-import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
 
 export function PortfolioCard({
   portfolio,
   href,
+  showIllustrativeBadge = false,
 }: {
   portfolio: Portfolio;
   href?: string;
+  showIllustrativeBadge?: boolean;
 }) {
   const positive = portfolio.performance30d >= 0;
   const linkHref =
@@ -20,7 +25,7 @@ export function PortfolioCard({
   return (
     <Link
       href={linkHref}
-      className="app-panel app-panel-hover app-border-accent-blue group block border p-5"
+      className="app-panel app-panel-hover group block p-5"
     >
       <div className="flex items-start gap-3">
         <AllocationDonut segments={portfolio.assets} size={68} />
@@ -29,12 +34,20 @@ export function PortfolioCard({
             <h3 className="truncate text-base font-bold text-app-ink group-hover:text-app-brand">
               {portfolio.name}
             </h3>
-            <span className="rounded-md bg-app-soft px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-app-brand">
-              {portfolio.discoveryLabel}
-            </span>
-            {portfolio.isIllustrative ? <IllustrativeBadge compact /> : null}
+            <ProductTypeBadge kind={portfolio.discoveryLabel} />
+            {showIllustrativeBadge && portfolio.isIllustrative ? (
+              <span className="rounded-md bg-app-soft px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-muted">
+                Illustrative
+              </span>
+            ) : null}
           </div>
-          <p className="mt-1 text-xs text-app-muted">{portfolio.strategyName}</p>
+          <ProductAttribution
+            creatorName={portfolio.creatorName}
+            creatorHandle={portfolio.creatorHandle}
+            verified
+            className="mt-1 truncate text-xs font-semibold text-app-muted"
+          />
+          <p className="mt-1 text-xs text-app-dim">{portfolio.strategyName}</p>
           <div className="mt-2">
             <AssetIconStack
               assetIds={portfolio.assets.map((a) => a.assetId)}

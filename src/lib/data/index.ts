@@ -54,6 +54,14 @@ export function getDexlaBalance() {
   return getDataProvider().getDexlaBalance();
 }
 
+export function getDiscoverCatalog() {
+  return getDataProvider().getDiscoverCatalog();
+}
+
+export function getMarketplaceProductById(id: string) {
+  return getDataProvider().getMarketplaceProductById(id);
+}
+
 export function getDataLabel() {
   return getDataProvider().getFixtureLabel();
 }

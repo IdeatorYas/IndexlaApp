@@ -3,8 +3,56 @@ import {
   getIllustrativeChartSeries,
   ILLUSTRATIVE_TIMESTAMP,
 } from "@/lib/fixtures/chart-series";
+import { toMarketplaceProduct } from "@/lib/fixtures/discover";
 import { FIXTURE_LABEL, ILLUSTRATIVE_PORTFOLIOS } from "@/lib/fixtures/index";
 import { APP_ROUTES } from "@/lib/routes";
+
+function productById(id: string) {
+  const portfolio = ILLUSTRATIVE_PORTFOLIOS.find((p) => p.id === id);
+  if (!portfolio) throw new Error(`Missing fixture portfolio: ${id}`);
+  return toMarketplaceProduct(portfolio);
+}
+
+function toFeatured(id: string) {
+  const p = productById(id);
+  return {
+    id: p.id,
+    name: p.name,
+    kind: p.kind,
+    creatorHandle: p.creatorHandle,
+    creatorName: p.creatorName,
+    verified: p.verified,
+    thesis: p.thesis,
+    strategy: p.strategy,
+    performance30d: p.performance30d,
+    aumUsd: p.aumUsd,
+    investors: p.investors,
+    risk: p.risk,
+    allocations: p.allocations,
+    assetIds: p.assetIds,
+    href: p.href,
+  };
+}
+
+function toPreview(id: string, isNew?: boolean) {
+  const p = productById(id);
+  return {
+    id: p.id,
+    name: p.name,
+    kind: p.kind,
+    category: p.category,
+    creatorName: p.creatorName,
+    creatorHandle: p.creatorHandle,
+    verified: p.verified,
+    performance30d: p.performance30d,
+    aumUsd: p.aumUsd,
+    investors: p.investors,
+    allocations: p.allocations,
+    assetIds: p.assetIds,
+    href: p.href,
+    isNew: isNew ?? p.isNew,
+  };
+}
 
 export function getDashboardData(): DashboardData {
   const totalValue = ILLUSTRATIVE_PORTFOLIOS.reduce(
@@ -38,15 +86,18 @@ export function getDashboardData(): DashboardData {
       },
       discover: {
         tabPreview: ["All", "Indexes", "Portfolios"],
-        productCount: 48,
+        productCount: ILLUSTRATIVE_PORTFOLIOS.length,
       },
       indexes: {
-        count: 18,
+        count: ILLUSTRATIVE_PORTFOLIOS.filter((p) => p.discoveryLabel === "Index")
+          .length,
         topName: "AI Infrastructure Index",
       },
       portfolios: {
-        count: 30,
-        topName: "Macro Diversified Index",
+        count: ILLUSTRATIVE_PORTFOLIOS.filter(
+          (p) => p.discoveryLabel === "Portfolio",
+        ).length,
+        topName: "DeFi Core Portfolio",
       },
       degenClub: {
         tagline: "10 Shots > 1 Shot",
@@ -60,21 +111,21 @@ export function getDashboardData(): DashboardData {
         topThree: [
           {
             rank: 1,
+            portfolioId: "solana-growth",
+            portfolioName: "Solana Growth Index",
+            performance30d: 21.3,
+          },
+          {
+            rank: 2,
             portfolioId: "ai-infra-index",
             portfolioName: "AI Infrastructure Index",
             performance30d: 18.4,
           },
           {
-            rank: 2,
+            rank: 3,
             portfolioId: "macro-diversified",
             portfolioName: "Macro Diversified Index",
             performance30d: 15.2,
-          },
-          {
-            rank: 3,
-            portfolioId: "defi-core",
-            portfolioName: "DeFi Core Portfolio",
-            performance30d: 12.8,
           },
         ],
         userBestRank: 2,
@@ -87,172 +138,25 @@ export function getDashboardData(): DashboardData {
       },
     },
     featuredProducts: [
-      {
-        id: "ai-infra-index",
-        name: "AI Infrastructure Index",
-        kind: "Index",
-        creatorHandle: "indexla",
-        creatorName: "INDEXLA",
-        verified: true,
-        thesis: "Cross-asset AI infrastructure exposure.",
-        strategy: "Buy Fear / Sell Greed",
-        performance30d: 18.4,
-        aumUsd: 4_200_000,
-        investors: 128,
-        risk: "Medium",
-        assetIds: ["eth", "sol", "btc"],
-        href: `${APP_ROUTES.discover}?tab=indexes&id=ai-infra-index`,
-      },
-      {
-        id: "macro-diversified",
-        name: "Macro Diversified Index",
-        kind: "Index",
-        creatorHandle: "indexla",
-        creatorName: "INDEXLA",
-        verified: true,
-        thesis: "Balanced macro exposure across crypto and tokenized assets.",
-        strategy: "Rebalance",
-        performance30d: 15.2,
-        aumUsd: 6_800_000,
-        investors: 210,
-        risk: "Low",
-        assetIds: ["btc", "eth", "sol"],
-        href: `${APP_ROUTES.discover}?tab=indexes&id=macro-diversified`,
-      },
-      {
-        id: "degen-ten-shots",
-        name: "Solana Meme 10-Shots",
-        kind: "Portfolio",
-        creatorHandle: "memebuilder",
-        creatorName: "Meme Builder",
-        verified: true,
-        thesis: "Diversified memecoin basket — extreme risk.",
-        strategy: "Rebalance",
-        performance30d: -12.5,
-        aumUsd: 850_000,
-        investors: 64,
-        risk: "Extreme",
-        assetIds: ["wif", "sol"],
-        href: APP_ROUTES.degenClub,
-      },
+      toFeatured("ai-infra-index"),
+      toFeatured("macro-diversified"),
+      toFeatured("degen-ten-shots"),
     ],
     marketplace: {
       trending: [
-        {
-          id: "ai-infra-index",
-          name: "AI Infrastructure Index",
-          kind: "Index",
-          category: "AI",
-          creatorName: "INDEXLA",
-          performance30d: 18.4,
-          aumUsd: 4_200_000,
-          investors: 128,
-          assetIds: ["eth", "sol", "btc"],
-          href: `${APP_ROUTES.discover}?tab=indexes&id=ai-infra-index`,
-        },
-        {
-          id: "defi-core",
-          name: "DeFi Core Portfolio",
-          kind: "Portfolio",
-          category: "DeFi",
-          creatorName: "Quant Desk",
-          performance30d: 12.8,
-          aumUsd: 2_100_000,
-          investors: 96,
-          assetIds: ["eth", "btc"],
-          href: `${APP_ROUTES.discover}?tab=portfolios&id=defi-core`,
-        },
-        {
-          id: "macro-diversified",
-          name: "Macro Diversified Index",
-          kind: "Index",
-          category: "Hybrid",
-          creatorName: "INDEXLA",
-          performance30d: 15.2,
-          aumUsd: 6_800_000,
-          investors: 210,
-          assetIds: ["btc", "eth", "sol"],
-          href: `${APP_ROUTES.discover}?tab=indexes&id=macro-diversified`,
-        },
+        toPreview("ai-infra-index"),
+        toPreview("defi-core"),
+        toPreview("macro-diversified"),
       ],
       mostInvested: [
-        {
-          id: "macro-diversified",
-          name: "Macro Diversified Index",
-          kind: "Index",
-          category: "Hybrid",
-          creatorName: "INDEXLA",
-          performance30d: 15.2,
-          aumUsd: 6_800_000,
-          investors: 210,
-          assetIds: ["btc", "eth", "sol"],
-          href: `${APP_ROUTES.discover}?tab=indexes&id=macro-diversified`,
-        },
-        {
-          id: "ai-infra-index",
-          name: "AI Infrastructure Index",
-          kind: "Index",
-          category: "AI",
-          creatorName: "INDEXLA",
-          performance30d: 18.4,
-          aumUsd: 4_200_000,
-          investors: 128,
-          assetIds: ["eth", "sol", "btc"],
-          href: `${APP_ROUTES.discover}?tab=indexes&id=ai-infra-index`,
-        },
-        {
-          id: "rwa-income",
-          name: "Tokenized Income Basket",
-          kind: "Portfolio",
-          category: "RWAs",
-          creatorName: "Yield Lab",
-          performance30d: 6.4,
-          aumUsd: 3_400_000,
-          investors: 154,
-          assetIds: ["btc", "eth"],
-          href: `${APP_ROUTES.discover}?tab=portfolios&id=rwa-income`,
-        },
+        toPreview("macro-diversified"),
+        toPreview("ai-infra-index"),
+        toPreview("rwa-income"),
       ],
       newThisWeek: [
-        {
-          id: "degen-ten-shots",
-          name: "Solana Meme 10-Shots",
-          kind: "Portfolio",
-          category: "Degen",
-          creatorName: "Meme Builder",
-          performance30d: -12.5,
-          aumUsd: 850_000,
-          investors: 64,
-          assetIds: ["wif", "sol"],
-          href: APP_ROUTES.degenClub,
-          isNew: true,
-        },
-        {
-          id: "commodities-lite",
-          name: "Commodities Lite Index",
-          kind: "Index",
-          category: "Commodities",
-          creatorName: "INDEXLA",
-          performance30d: 4.1,
-          aumUsd: 1_100_000,
-          investors: 42,
-          assetIds: ["btc", "eth"],
-          href: `${APP_ROUTES.discover}?tab=indexes&id=commodities-lite`,
-          isNew: true,
-        },
-        {
-          id: "tokenized-tech",
-          name: "Tokenized Tech Leaders",
-          kind: "Index",
-          category: "Tokenized Stocks",
-          creatorName: "Equity Desk",
-          performance30d: 9.7,
-          aumUsd: 2_600_000,
-          investors: 88,
-          assetIds: ["eth", "sol"],
-          href: `${APP_ROUTES.discover}?tab=indexes&id=tokenized-tech`,
-          isNew: true,
-        },
+        toPreview("degen-ten-shots", true),
+        toPreview("commodities-lite", true),
+        toPreview("tokenized-tech", true),
       ],
     },
     pathways: [
@@ -307,7 +211,7 @@ export function getDashboardData(): DashboardData {
       "Hybrid",
       "Degen",
     ],
-    activePortfolioIds: ILLUSTRATIVE_PORTFOLIOS.map((p) => p.id),
+    activePortfolioIds: ILLUSTRATIVE_PORTFOLIOS.slice(0, 3).map((p) => p.id),
     automation: {
       activeRules: 3,
       nextScheduledAction: "Rebalance · AI Infrastructure Index · in 6h",

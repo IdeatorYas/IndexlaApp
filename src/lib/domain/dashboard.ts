@@ -75,6 +75,12 @@ export interface LeaderboardPreviewEntry {
   performance30d: number;
 }
 
+export interface AllocationPreview {
+  assetId: string;
+  label: string;
+  percent: number;
+}
+
 export interface FeaturedProductPreview {
   id: string;
   name: string;
@@ -88,6 +94,7 @@ export interface FeaturedProductPreview {
   aumUsd: number;
   investors: number;
   risk: ProductRisk;
+  allocations: AllocationPreview[];
   assetIds: string[];
   href: string;
 }
@@ -98,9 +105,12 @@ export interface MarketplaceProductPreview {
   kind: "Index" | "Portfolio";
   category: MarketplaceCategory;
   creatorName: string;
+  creatorHandle: string;
+  verified: boolean;
   performance30d: number;
   aumUsd: number;
   investors: number;
+  allocations: AllocationPreview[];
   assetIds: string[];
   href: string;
   isNew?: boolean;

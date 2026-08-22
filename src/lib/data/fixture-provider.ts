@@ -2,6 +2,10 @@ import type { DashboardData } from "@/lib/domain/dashboard";
 import type { IndexlaDataProvider, DataResult } from "@/lib/data/types";
 import { getDashboardData } from "@/lib/fixtures/dashboard";
 import {
+  getDiscoverCatalog as fixtureDiscoverCatalog,
+  getMarketplaceProductById as fixtureMarketplaceProductById,
+} from "@/lib/fixtures/discover";
+import {
   FIXTURE_LABEL,
   ILLUSTRATIVE_CREATORS,
   ILLUSTRATIVE_DEXLA,
@@ -11,6 +15,7 @@ import {
   getCreatorByHandle as fixtureCreatorByHandle,
   getPortfolioById as fixturePortfolioById,
 } from "@/lib/fixtures/index";
+import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
 
 function ok<T>(data: T): DataResult<T> {
   return {
@@ -47,6 +52,14 @@ export const fixtureDataProvider: IndexlaDataProvider = {
   },
   getDexlaBalance() {
     return ok({ ...ILLUSTRATIVE_DEXLA });
+  },
+  getDiscoverCatalog() {
+    return ok<DiscoverCatalog>(fixtureDiscoverCatalog());
+  },
+  getMarketplaceProductById(id) {
+    return ok<MarketplaceProduct | null>(
+      fixtureMarketplaceProductById(id) ?? null,
+    );
   },
   getFixtureLabel() {
     return FIXTURE_LABEL;

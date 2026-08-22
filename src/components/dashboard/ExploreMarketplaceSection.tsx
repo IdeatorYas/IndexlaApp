@@ -75,7 +75,14 @@ function Row({
                     <p className="truncate text-[13px] font-bold text-app-ink">
                       {product.name}
                     </p>
-                    <span className="shrink-0 rounded bg-app-soft px-1 py-px text-[9px] font-bold uppercase text-app-brand">
+                    <span
+                      className={[
+                        "shrink-0 rounded px-1 py-px text-[9px] font-bold uppercase",
+                        product.kind === "Index"
+                          ? "bg-[color:var(--color-accent-blue)]/15 text-[color:var(--color-accent-blue)]"
+                          : "bg-[color:var(--color-accent-violet)]/15 text-[color:var(--color-accent-violet)]",
+                      ].join(" ")}
+                    >
                       {product.kind}
                     </span>
                     {product.isNew ? (
@@ -85,7 +92,10 @@ function Row({
                     ) : null}
                   </div>
                   <p className="truncate text-[11px] text-app-dim">
-                    {product.creatorName} · {formatUsd(product.aumUsd, true)}
+                    {product.creatorName.toUpperCase() === "INDEXLA"
+                      ? "INDEXLA · Verified"
+                      : `${product.creatorName} · Verified · @${product.creatorHandle}`}{" "}
+                    · {formatUsd(product.aumUsd, true)}
                   </p>
                 </div>
                 <p

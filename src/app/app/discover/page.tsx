@@ -1,14 +1,19 @@
-import { EmptyState } from "@/components/states/AppStates";
-import { ScreenStub } from "@/components/screens/ScreenStub";
-import { APP_SCREENS } from "@/lib/routes";
+import { Suspense } from "react";
+import { DiscoverView } from "@/components/discover/DiscoverView";
+import { LoadingSkeleton } from "@/components/states/AppStates";
+import { getDiscoverCatalog, isIllustrativeDataMode } from "@/lib/data";
 
 export default function DiscoverPage() {
+  const catalog = getDiscoverCatalog();
+  const illustrative = isIllustrativeDataMode() || catalog.isIllustrative;
+
   return (
-    <ScreenStub screen={APP_SCREENS[1]}>
-      <EmptyState
-        title="All · Indexes · Portfolios"
-        description="Discovery tabs, filters and product grid will render here in Phase 2."
+    <Suspense fallback={<LoadingSkeleton title="Loading Discover" lines={5} />}>
+      <DiscoverView
+        catalog={catalog.data}
+        illustrative={illustrative}
+        initialError={catalog.availability === "unavailable"}
       />
-    </ScreenStub>
+    </Suspense>
   );
 }

@@ -36,19 +36,21 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           onClick={onNavigate}
           className="flex items-center gap-2.5"
         >
-          <Image
-            src="/logo/indexla-logo-transparent.png"
-            alt="INDEXLA"
-            width={44}
-            height={44}
-            className="h-11 w-11 object-contain"
-            priority
-          />
+          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/95 ring-1 ring-app-line">
+            <Image
+              src="/logo/indexla-logo-hq.png"
+              alt="INDEXLA"
+              width={40}
+              height={40}
+              className="h-9 w-9 object-contain"
+              priority
+            />
+          </span>
           <div className="min-w-0">
             <p className="app-display text-[15px] font-bold leading-none tracking-tight text-app-ink">
               INDEXLA
             </p>
-            <p className="mt-1 text-[9px] font-bold uppercase tracking-[0.14em] text-app-dim">
+            <p className="mt-1 text-[9px] font-bold uppercase tracking-[0.14em] text-app-muted">
               Invest in Everything
             </p>
           </div>
@@ -67,7 +69,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
                 "group relative flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13px] font-semibold transition-colors",
                 active
                   ? "bg-[var(--sidebar-active-bg)] text-app-brand shadow-[inset_3px_0_0_var(--sidebar-active-border)]"
-                  : "text-app-muted hover:bg-app-panel hover:text-app-ink",
+                  : "text-app-ink/75 hover:bg-app-panel hover:text-app-ink",
               ].join(" ")}
             >
               <span
@@ -75,7 +77,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
                   "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
                   active
                     ? "bg-app-brand/15 text-app-brand"
-                    : "text-app-dim group-hover:text-app-ink",
+                    : "text-app-muted group-hover:text-app-ink",
                 ].join(" ")}
               >
                 <NavIcon name={item.label} className="h-4 w-4" />

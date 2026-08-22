@@ -3,6 +3,7 @@ import {
   getDashboard,
   getDataProvider,
   getDexlaBalance,
+  getDiscoverCatalog,
   getPortfolios,
 } from "@/lib/data";
 
@@ -29,6 +30,7 @@ describe("data-access layer", () => {
     expect(dashboard.data.featuredProducts.length).toBeGreaterThan(0);
     expect(getPortfolios().data.length).toBeGreaterThan(0);
     expect(getDexlaBalance().data.balance).toBeGreaterThan(0);
+    expect(getDiscoverCatalog().data.products.length).toBeGreaterThan(0);
   });
 
   it("switches to live provider when illustrative demo data is disabled", () => {

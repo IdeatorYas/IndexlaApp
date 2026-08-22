@@ -18,7 +18,7 @@ export function AllocationDonut({
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
-      className="shrink-0 drop-shadow-[0_0_10px_rgba(99,102,241,0.25)]"
+      className="shrink-0"
       aria-hidden
     >
       <circle

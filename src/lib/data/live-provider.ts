@@ -57,6 +57,23 @@ export const liveDataProvider: IndexlaDataProvider = {
       LIVE_REASON,
     );
   },
+  getDiscoverCatalog() {
+    return unavailable(
+      {
+        products: [],
+        featured: [],
+        trending: [],
+        categories: [],
+        networks: [],
+        strategies: [],
+        risks: [],
+      },
+      LIVE_REASON,
+    );
+  },
+  getMarketplaceProductById() {
+    return unavailable(null, LIVE_REASON);
+  },
   getFixtureLabel() {
     return "Live";
   },

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { DashboardActivityItem } from "@/lib/domain/dashboard";
 import { EmptyState } from "@/components/states/AppStates";
-import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import {
   formatDexla,
@@ -56,7 +55,6 @@ export function RecentActivitySection({
                     {TYPE_LABELS[item.type]}
                   </span>
                   <p className="font-semibold text-app-ink">{item.title}</p>
-                  {item.isIllustrative ? <IllustrativeBadge compact /> : null}
                 </div>
                 <p className="mt-1 text-sm text-app-muted">{item.subtitle}</p>
                 <p className="mt-1 text-xs text-app-dim">

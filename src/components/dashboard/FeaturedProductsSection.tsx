@@ -1,8 +1,11 @@
 import Link from "next/link";
 import type { FeaturedProductPreview } from "@/lib/domain/dashboard";
+import {
+  ProductAttribution,
+  ProductTypeBadge,
+} from "@/components/product/ProductIdentity";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
 import { AllocationDonut } from "@/components/ui/AllocationDonut";
-import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
@@ -51,11 +54,9 @@ export function FeaturedProductsSection({
         {products.map((product, index) => {
           const positive = product.performance30d >= 0;
           const accent = ACCENTS[index % ACCENTS.length];
-          const segments = product.assetIds.map((id, i) => ({
-            label: id,
-            percent:
-              Math.floor(100 / product.assetIds.length) +
-              (i === 0 ? 100 % product.assetIds.length : 0),
+          const segments = product.allocations.map((a) => ({
+            label: a.label,
+            percent: a.percent,
           }));
 
           return (
@@ -75,21 +76,16 @@ export function FeaturedProductsSection({
                       <span className="rounded-md bg-app-brand/12 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-brand">
                         Featured
                       </span>
-                      <span className="rounded-md bg-app-panel px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-muted">
-                        {product.kind}
-                      </span>
-                      {illustrative ? <IllustrativeBadge compact /> : null}
+                      <ProductTypeBadge kind={product.kind} />
                     </div>
                     <h3 className="app-display mt-1.5 truncate text-[15px] font-bold text-app-ink">
                       {product.name}
                     </h3>
-                    <p className="mt-0.5 truncate text-[11px] font-semibold text-app-muted">
-                      {product.creatorName}
-                      {product.verified ? " ✓" : ""}
-                      {product.creatorHandle === "indexla"
-                        ? " · INDEXLA"
-                        : ` · @${product.creatorHandle}`}
-                    </p>
+                    <ProductAttribution
+                      creatorName={product.creatorName}
+                      creatorHandle={product.creatorHandle}
+                      verified={product.verified}
+                    />
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="app-label">30D</p>

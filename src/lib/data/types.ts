@@ -1,4 +1,5 @@
 import type { DashboardData } from "@/lib/domain/dashboard";
+import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
 import type {
   CreatorProfile,
   DexlaBalanceAndTier,
@@ -34,5 +35,7 @@ export interface IndexlaDataProvider {
   getStrategies(): DataResult<Strategy[]>;
   getNetworks(): DataResult<Network[]>;
   getDexlaBalance(): DataResult<DexlaBalanceAndTier>;
+  getDiscoverCatalog(): DataResult<DiscoverCatalog>;
+  getMarketplaceProductById(id: string): DataResult<MarketplaceProduct | null>;
   getFixtureLabel(): string;
 }
