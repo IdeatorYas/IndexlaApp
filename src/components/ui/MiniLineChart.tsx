@@ -51,11 +51,29 @@ export function MiniLineChart({
         points={coords.join(" ")}
         fill="none"
         stroke="var(--chart-stroke)"
-        strokeWidth="2"
+        strokeWidth="2.25"
         strokeLinecap="round"
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"
       />
+      {points.map((point, index) => {
+        const x = (index / (points.length - 1)) * width;
+        const y = height - ((point.v - min) / range) * (height - 10) - 5;
+        if (index % Math.max(1, Math.floor(points.length / 6)) !== 0) {
+          return null;
+        }
+        return (
+          <circle
+            key={`${point.t}-${index}`}
+            cx={x}
+            cy={y}
+            r="1.4"
+            fill="var(--chart-stroke)"
+            stroke="var(--color-bg-elevated)"
+            strokeWidth="0.6"
+          />
+        );
+      })}
     </svg>
   );
 }

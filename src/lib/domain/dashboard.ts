@@ -1,5 +1,19 @@
 export type ChartPeriod = "7d" | "30d" | "90d" | "1y";
 
+export type MarketplaceTab = "All" | "Indexes" | "Portfolios";
+
+export type MarketplaceCategory =
+  | "Crypto"
+  | "AI"
+  | "DeFi"
+  | "RWAs"
+  | "Tokenized Stocks"
+  | "Commodities"
+  | "Hybrid"
+  | "Degen";
+
+export type ProductRisk = "Low" | "Medium" | "High" | "Extreme";
+
 export interface DashboardOverview {
   totalValueUsd: number;
   change30dUsd: number;
@@ -9,6 +23,8 @@ export interface DashboardOverview {
   totalReturnUsd: number;
   totalReturnPercent: number;
   activeAutomations: number;
+  activePortfolioCount: number;
+  claimableRewardsUsd: number | null;
   networkIds: string[];
   chartSeries: Record<ChartPeriod, { t: string; v: number }[]>;
   isIllustrative: boolean;
@@ -63,9 +79,46 @@ export interface FeaturedProductPreview {
   id: string;
   name: string;
   kind: "Index" | "Portfolio";
+  creatorHandle: string;
+  creatorName: string;
+  verified: boolean;
+  thesis: string;
+  strategy: string;
   performance30d: number;
   aumUsd: number;
+  investors: number;
+  risk: ProductRisk;
+  assetIds: string[];
   href: string;
+}
+
+export interface MarketplaceProductPreview {
+  id: string;
+  name: string;
+  kind: "Index" | "Portfolio";
+  category: MarketplaceCategory;
+  creatorName: string;
+  performance30d: number;
+  aumUsd: number;
+  investors: number;
+  assetIds: string[];
+  href: string;
+  isNew?: boolean;
+}
+
+export interface MarketplacePreview {
+  trending: MarketplaceProductPreview[];
+  mostInvested: MarketplaceProductPreview[];
+  newThisWeek: MarketplaceProductPreview[];
+}
+
+export interface ProductPathway {
+  id: string;
+  title: string;
+  description: string;
+  href: string;
+  cta: string;
+  accent: "blue" | "violet" | "magenta" | "emerald" | "amber" | "rose";
 }
 
 export interface NotificationPreviewItem {
@@ -76,6 +129,7 @@ export interface NotificationPreviewItem {
   unread: boolean;
 }
 
+/** Legacy gateway stats retained for Discover previews and tests */
 export interface ProductGatewayStats {
   myPortfolio: {
     activePortfolios: number;
@@ -120,6 +174,9 @@ export interface DashboardData {
   overview: DashboardOverview;
   gateways: ProductGatewayStats;
   featuredProducts: FeaturedProductPreview[];
+  marketplace: MarketplacePreview;
+  pathways: ProductPathway[];
+  categories: MarketplaceCategory[];
   activePortfolioIds: string[];
   automation: DashboardAutomationSummary;
   recentActivity: DashboardActivityItem[];

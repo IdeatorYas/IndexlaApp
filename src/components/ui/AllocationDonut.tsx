@@ -9,15 +9,16 @@ export function AllocationDonut({
 }) {
   const total = segments.reduce((sum, s) => sum + s.percent, 0) || 100;
   let offset = 0;
-  const radius = size / 2 - 4;
+  const radius = size / 2 - 5;
   const circumference = 2 * Math.PI * radius;
+  const stroke = Math.max(7, Math.round(size / 8));
 
   return (
     <svg
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
-      className="shrink-0"
+      className="shrink-0 drop-shadow-[0_0_10px_rgba(99,102,241,0.25)]"
       aria-hidden
     >
       <circle
@@ -26,7 +27,7 @@ export function AllocationDonut({
         r={radius}
         fill="none"
         stroke="var(--color-panel)"
-        strokeWidth="8"
+        strokeWidth={stroke}
       />
       {segments.map((segment, index) => {
         const length = (segment.percent / total) * circumference;
@@ -35,19 +36,26 @@ export function AllocationDonut({
         offset += length;
         return (
           <circle
-            key={segment.label}
+            key={`${segment.label}-${index}`}
             cx={size / 2}
             cy={size / 2}
             r={radius}
             fill="none"
             stroke={COLORS[index % COLORS.length]}
-            strokeWidth="8"
+            strokeWidth={stroke}
             strokeDasharray={dasharray}
             strokeDashoffset={dashoffset}
+            strokeLinecap="butt"
             transform={`rotate(-90 ${size / 2} ${size / 2})`}
           />
         );
       })}
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={Math.max(8, radius - stroke)}
+        fill="var(--color-bg-elevated)"
+      />
     </svg>
   );
 }

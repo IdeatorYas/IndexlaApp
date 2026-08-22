@@ -3,9 +3,12 @@ import { getDashboardData } from "@/lib/fixtures/dashboard";
 import { getActivePortfolios, formatDexla, formatUsd } from "@/lib/dashboard/data";
 
 describe("dashboard fixtures", () => {
-  it("provides all gateway and overview fields", () => {
+  it("provides marketplace-first dashboard fields", () => {
     const data = getDashboardData();
     expect(data.overview.totalValueUsd).toBeGreaterThan(0);
+    expect(data.featuredProducts.length).toBeGreaterThanOrEqual(3);
+    expect(data.marketplace.trending.length).toBeGreaterThan(0);
+    expect(data.pathways).toHaveLength(5);
     expect(data.gateways.leaderboard.topThree).toHaveLength(3);
     expect(data.recentActivity.length).toBeGreaterThan(0);
   });

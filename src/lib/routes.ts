@@ -31,9 +31,9 @@ export const APP_SCREENS: AppScreenMeta[] = [
   {
     number: 1,
     slug: "dashboard",
-    title: "Main Dashboard",
+    title: "Marketplace-First Dashboard",
     route: APP_ROUTES.dashboard,
-    purpose: "Overview and gateway into every core product area.",
+    purpose: "Product discovery home for every user, with personal data secondary.",
   },
   {
     number: 2,

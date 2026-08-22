@@ -12,15 +12,25 @@ test.describe("Dashboard screenshots", () => {
 
   async function prepareDashboard(page: import("@playwright/test").Page) {
     await page.goto(APP_ROUTES.dashboard);
-    await page.getByRole("banner").getByRole("button", { name: "Connect Wallet" }).click();
+    await expect(
+      page.getByRole("heading", { name: /Discover\. Build\. Automate\./ }),
+    ).toBeVisible();
+  }
+
+  async function connect(page: import("@playwright/test").Page) {
+    await page
+      .getByRole("banner")
+      .getByRole("button", { name: "Connect Wallet" })
+      .click();
     await expect(page.getByText("Total Portfolio Value")).toBeVisible({
       timeout: 5000,
     });
   }
 
   test("capture desktop dark", async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.setViewportSize({ width: 1440, height: 1400 });
     await prepareDashboard(page);
+    await connect(page);
     await page.evaluate(() => {
       document.documentElement.setAttribute("data-theme", "dark");
       localStorage.setItem("indexla-app-theme", "dark");
@@ -32,8 +42,9 @@ test.describe("Dashboard screenshots", () => {
   });
 
   test("capture desktop light", async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.setViewportSize({ width: 1440, height: 1400 });
     await prepareDashboard(page);
+    await connect(page);
     await page.evaluate(() => {
       document.documentElement.setAttribute("data-theme", "light");
       localStorage.setItem("indexla-app-theme", "light");
