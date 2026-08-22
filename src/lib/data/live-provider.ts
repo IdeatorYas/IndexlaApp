@@ -44,6 +44,12 @@ export const liveDataProvider: IndexlaDataProvider = {
   getCreatorsWorkspace() {
     return unavailable(getEmptyCreatorsWorkspace(), LIVE_REASON);
   },
+  getCreatorPublicProfile() {
+    return unavailable(null, LIVE_REASON);
+  },
+  getCreatorPublicHandles() {
+    return unavailable([], LIVE_REASON);
+  },
   getStrategies() {
     return unavailable([], LIVE_REASON);
   },

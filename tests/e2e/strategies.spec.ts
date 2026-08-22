@@ -7,7 +7,7 @@ test.describe("Strategies", () => {
   test("marketplace tab shows featured and filters", async ({ page }) => {
     await page.goto(APP_ROUTES.strategies);
     await expect(
-      page.getByRole("heading", { name: "Strategies" }),
+      page.getByRole("heading", { name: "Strategies", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("tablist", { name: "Strategies tabs" }),

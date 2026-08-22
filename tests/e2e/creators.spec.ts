@@ -56,3 +56,49 @@ test.describe("Creator Leaderboard", () => {
     await expect(page).toHaveURL(/\/app\/creators\//);
   });
 });
+
+test.describe("Public Creator Profile", () => {
+  test.setTimeout(60_000);
+
+  test("loads populated profile for fixture handle", async ({ page }) => {
+    await page.goto(APP_ROUTES.creatorProfile("indexla"));
+    await expect(
+      page.getByRole("heading", { name: "INDEXLA", exact: true }),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("@indexla").first()).toBeVisible();
+    await expect(page.getByText("Illustrative").first()).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Public products" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Published strategies" }),
+    ).toBeVisible();
+    const disclosure = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "Disclosure and risk" }) });
+    await expect(
+      disclosure.getByTestId("creator-funds-disclosure"),
+    ).toHaveCount(1);
+    await expect(disclosure.getByTestId("creator-funds-disclosure")).toContainText(
+      "Creators never control investor funds",
+    );
+    await page.getByRole("button", { name: "Connect Wallet" }).first().click();
+    await expect(
+      page.getByRole("button", { name: /0x742d/i }),
+    ).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("button", { name: "Tip $DEXLA" }).click();
+    await expect(
+      page.getByRole("dialog").getByRole("heading", { name: "Tip $DEXLA" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Confirm Tip Preview" }).click();
+    await expect(page.getByText(/preview only/i)).toBeVisible();
+  });
+
+  test("unknown handle shows not found", async ({ page }) => {
+    const response = await page.goto("/app/creators/no-such-creator-xyz");
+    expect(response?.status()).toBe(404);
+    await expect(
+      page.getByRole("heading", { name: "Creator not found" }),
+    ).toBeVisible();
+  });
+});

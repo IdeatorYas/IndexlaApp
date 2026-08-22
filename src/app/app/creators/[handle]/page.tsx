@@ -1,8 +1,16 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { EmptyState } from "@/components/states/AppStates";
-import { ScreenStub } from "@/components/screens/ScreenStub";
-import { getCreatorByHandle } from "@/lib/data";
-import { APP_SCREENS } from "@/lib/routes";
+import { CreatorProfileView } from "@/components/creators/CreatorProfileView";
+import { LoadingSkeleton } from "@/components/states/AppStates";
+import {
+  getCreatorPublicHandles,
+  getCreatorPublicProfile,
+  isIllustrativeDataMode,
+} from "@/lib/data";
+
+export function generateStaticParams() {
+  return getCreatorPublicHandles().data.map((handle) => ({ handle }));
+}
 
 export default async function CreatorProfilePage({
   params,
@@ -10,23 +18,24 @@ export default async function CreatorProfilePage({
   params: Promise<{ handle: string }>;
 }) {
   const { handle } = await params;
-  const result = getCreatorByHandle(handle);
-  const creator = result.data;
-  if (!creator) {
+  const result = getCreatorPublicProfile(handle);
+  const profile = result.data;
+
+  if (!profile) {
     notFound();
   }
 
-  const screen = {
-    ...APP_SCREENS[9],
-    route: `/app/creators/${handle}`,
-  };
+  const illustrative = isIllustrativeDataMode() || profile.isIllustrative;
 
   return (
-    <ScreenStub screen={screen}>
-      <EmptyState
-        title={creator.displayName}
-        description={`@${creator.handle} · ${creator.publicPortfolioCount} public portfolios · ${creator.followerCount.toLocaleString()} followers · ${result.isIllustrative ? "Illustrative" : "Live"} profile.`}
+    <Suspense
+      fallback={<LoadingSkeleton title="Loading creator profile" lines={6} />}
+    >
+      <CreatorProfileView
+        profile={profile}
+        illustrative={illustrative}
+        initialError={result.availability === "unavailable"}
       />
-    </ScreenStub>
+    </Suspense>
   );
 }

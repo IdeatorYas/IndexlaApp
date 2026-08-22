@@ -10,6 +10,7 @@ import { getStrategiesWorkspace as fixtureStrategiesWorkspace } from "@/lib/fixt
 import { getLeaderboardWorkspace as fixtureLeaderboardWorkspace } from "@/lib/fixtures/leaderboard";
 import { getDegenClubWorkspace as fixtureDegenClubWorkspace } from "@/lib/fixtures/degen-club";
 import { getCreatorsWorkspace as fixtureCreatorsWorkspace } from "@/lib/fixtures/creators";
+import { getCreatorPublicProfile as fixtureCreatorPublicProfile, getAllCreatorPublicHandles as fixtureCreatorHandles } from "@/lib/fixtures/creator-profile";
 import {
   FIXTURE_LABEL,
   ILLUSTRATIVE_CREATORS,
@@ -21,7 +22,7 @@ import {
   getPortfolioById as fixturePortfolioById,
 } from "@/lib/fixtures/index";
 import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
-import type { CreatorsWorkspace } from "@/lib/domain/creators";
+import type { CreatorsWorkspace, CreatorPublicProfile } from "@/lib/domain/creators";
 import type { DegenClubWorkspace } from "@/lib/domain/degen-club";
 import type { LeaderboardWorkspace } from "@/lib/domain/leaderboard";
 import type { MyPortfolioWorkspace } from "@/lib/domain/my-portfolio";
@@ -56,6 +57,14 @@ export const fixtureDataProvider: IndexlaDataProvider = {
   },
   getCreatorsWorkspace() {
     return ok<CreatorsWorkspace>(fixtureCreatorsWorkspace());
+  },
+  getCreatorPublicProfile(handle) {
+    return ok<CreatorPublicProfile | null>(
+      fixtureCreatorPublicProfile(handle),
+    );
+  },
+  getCreatorPublicHandles() {
+    return ok<string[]>(fixtureCreatorHandles());
   },
   getStrategies() {
     return ok([...ILLUSTRATIVE_STRATEGIES]);

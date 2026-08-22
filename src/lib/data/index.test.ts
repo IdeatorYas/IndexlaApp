@@ -5,6 +5,7 @@ import {
   getDexlaBalance,
   getDiscoverCatalog,
   getCreatorsWorkspace,
+  getCreatorPublicProfile,
   getDegenClubWorkspace,
   getLeaderboardWorkspace,
   getMyPortfolioWorkspace,
@@ -41,6 +42,8 @@ describe("data-access layer", () => {
     expect(getLeaderboardWorkspace().data.monthlyEntries).toHaveLength(25);
     expect(getDegenClubWorkspace().data.products.length).toBeGreaterThan(0);
     expect(getCreatorsWorkspace().data.creators.length).toBeGreaterThanOrEqual(25);
+    expect(getCreatorPublicProfile("indexla").data?.handle).toBe("indexla");
+    expect(getCreatorPublicProfile("missing-handle-xyz").data).toBeNull();
   });
 
   it("switches to live provider when illustrative demo data is disabled", () => {

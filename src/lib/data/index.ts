@@ -46,6 +46,14 @@ export function getCreatorsWorkspace() {
   return getDataProvider().getCreatorsWorkspace();
 }
 
+export function getCreatorPublicProfile(handle: string) {
+  return getDataProvider().getCreatorPublicProfile(handle);
+}
+
+export function getCreatorPublicHandles() {
+  return getDataProvider().getCreatorPublicHandles();
+}
+
 export function getStrategies() {
   return getDataProvider().getStrategies();
 }
