@@ -1,14 +1,27 @@
-import { EmptyState } from "@/components/states/AppStates";
-import { ScreenStub } from "@/components/screens/ScreenStub";
-import { APP_SCREENS } from "@/lib/routes";
+import { Suspense } from "react";
+import { CreatorActivationView } from "@/components/creators/CreatorActivationView";
+import { LoadingSkeleton } from "@/components/states/AppStates";
+import {
+  getMyPortfolioWorkspace,
+  isIllustrativeDataMode,
+} from "@/lib/data";
 
 export default function CreatorActivatePage() {
+  const workspace = getMyPortfolioWorkspace();
+  const illustrative =
+    isIllustrativeDataMode() || workspace.data.isIllustrative;
+
   return (
-    <ScreenStub screen={APP_SCREENS[10]}>
-      <EmptyState
-        title="Creator activation sequence"
-        description="Publish public portfolio → connect social → submit verification → approved dashboard access."
+    <Suspense
+      fallback={
+        <LoadingSkeleton title="Loading creator activation" lines={6} />
+      }
+    >
+      <CreatorActivationView
+        portfolios={workspace.data.portfolios}
+        illustrative={illustrative}
+        initialError={workspace.availability === "unavailable"}
       />
-    </ScreenStub>
+    </Suspense>
   );
 }

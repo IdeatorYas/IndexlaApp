@@ -19,6 +19,8 @@ import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
 import { CreatorAvatar } from "@/components/creators/CreatorAvatar";
+import { readStoredActivationDraft } from "@/components/creators/useCreatorActivation";
+import { CREATOR_ACTIVATION_REQUIREMENT_COPY } from "@/lib/domain/creator-activation";
 
 type ViewState = "loading" | "ready" | "error" | "empty";
 
@@ -26,15 +28,15 @@ const HUB_STATUS_COPY: Record<
   CreatorHubUserStatus,
   { title: string; body: string; cta: string; href: string }
 > = {
-  "not-started": {
+  locked: {
     title: "Become a Creator",
-    body: "Publish a public portfolio, connect socials and submit verification to unlock creator tools.",
+    body: "Creator access requires a published public portfolio, connected social profile and verification.",
     cta: "Become a Creator",
     href: APP_ROUTES.creatorActivate,
   },
-  "setup-incomplete": {
+  "in-progress": {
     title: "Continue Setup",
-    body: "Your creator activation is incomplete. Finish the remaining steps to submit verification.",
+    body: "Your creator activation is in progress. Finish the remaining steps to submit verification.",
     cta: "Continue Setup",
     href: APP_ROUTES.creatorActivate,
   },
@@ -42,6 +44,12 @@ const HUB_STATUS_COPY: Record<
     title: "Verification Pending",
     body: "Your submission is under review. Creator Dashboard unlocks after approval.",
     cta: "View Activation Status",
+    href: APP_ROUTES.creatorActivate,
+  },
+  "needs-changes": {
+    title: "Changes Requested",
+    body: "Verification needs updates. Review the activation checklist and resubmit.",
+    cta: "Fix Activation",
     href: APP_ROUTES.creatorActivate,
   },
   approved: {
@@ -84,6 +92,26 @@ export function CreatorsHubView({
     ),
   );
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    function syncFromActivation() {
+      const stored = readStoredActivationDraft();
+      if (stored) setHubStatus(stored.status);
+    }
+    syncFromActivation();
+    window.addEventListener(
+      "indexla-creator-activation-changed",
+      syncFromActivation,
+    );
+    window.addEventListener("storage", syncFromActivation);
+    return () => {
+      window.removeEventListener(
+        "indexla-creator-activation-changed",
+        syncFromActivation,
+      );
+      window.removeEventListener("storage", syncFromActivation);
+    };
+  }, []);
 
   useEffect(() => {
     if (initialError) return;
@@ -233,9 +261,10 @@ export function CreatorsHubView({
             </span>
             {(
               [
-                "not-started",
-                "setup-incomplete",
+                "locked",
+                "in-progress",
                 "awaiting-verification",
+                "needs-changes",
                 "approved",
               ] as CreatorHubUserStatus[]
             ).map((s) => (
@@ -270,8 +299,9 @@ export function CreatorsHubView({
           )}
         </div>
         <p className="text-[11px] text-app-muted">
-          Creator Hub stays at `/app/creators`. Ordinary users are never routed
-          directly to Creator Dashboard.
+          {CREATOR_ACTIVATION_REQUIREMENT_COPY} Creator Hub stays at
+          `/app/creators`. Ordinary users are never routed directly to Creator
+          Dashboard.
         </p>
       </section>
 

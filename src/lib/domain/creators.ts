@@ -11,12 +11,13 @@ export type CreatorSpecialty =
   | "Tokenized Stocks"
   | "Commodities";
 
-/** Viewer status for the smart Creator Hub card */
+/** Viewer status for the smart Creator Hub card (SCREEN 11 lifecycle) */
 export type CreatorHubUserStatus =
-  | "not-started"
-  | "setup-incomplete"
+  | "locked"
+  | "in-progress"
   | "awaiting-verification"
-  | "approved";
+  | "approved"
+  | "needs-changes";
 
 export type CreatorHubSort = "newest" | "most-followed" | "highest-aum";
 

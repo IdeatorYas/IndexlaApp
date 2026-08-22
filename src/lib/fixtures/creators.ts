@@ -580,7 +580,7 @@ export function getCreatorsWorkspace(): CreatorsWorkspace {
   return {
     creators: DIRECTORY,
     featuredHandles: DIRECTORY.filter((c) => c.featured).map((c) => c.handle),
-    viewerHubStatus: "not-started",
+    viewerHubStatus: "locked",
     specialties: SPECIALTIES,
     networks: NETWORKS,
     isIllustrative: true,

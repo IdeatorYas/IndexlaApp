@@ -102,3 +102,85 @@ test.describe("Public Creator Profile", () => {
     ).toBeVisible();
   });
 });
+
+test.describe("Creator Activation", () => {
+  test.setTimeout(90_000);
+
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.removeItem("indexla.creator.activation.v1");
+    });
+  });
+
+  test("required copy, public portfolio select, social, submit and approve", async ({
+    page,
+  }) => {
+    await page.goto(APP_ROUTES.creatorActivate);
+    await expect(
+      page.getByRole("heading", { name: "Creator Activation" }),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByText(
+        /Creator access requires a published public portfolio, connected social profile and verification/i,
+      ),
+    ).toBeVisible();
+    await expect(page.getByText("Personal portfolios (not eligible)")).toBeVisible();
+    await expect(page.getByText(/does not qualify/i).first()).toBeVisible();
+
+    await page.getByRole("button", { name: "Connect Wallet" }).first().click();
+    await expect(page.getByRole("button", { name: /0x742d/i })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await page.getByRole("button", { name: /Select for activation/i }).first().click();
+    await expect(page.getByText(/Selected public portfolio/i).first()).toBeVisible();
+    await page.getByRole("button", { name: "Continue to Social" }).click();
+
+    await expect(
+      page.getByRole("heading", { name: "2. Connect Social Media" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Connect X" }).click();
+    await expect(page.getByText(/Connected ·/i).first()).toBeVisible();
+    await page.getByRole("button", { name: "Continue to Verification" }).click();
+
+    await page.getByPlaceholder("Display name").fill("Preview Creator");
+    await page.getByPlaceholder("handle").fill("previewcreator");
+    await page.getByPlaceholder("Short creator bio").fill("Illustrative creator bio");
+    await page.locator("select").selectOption("AI");
+    await page.getByRole("checkbox").check();
+    await page.getByRole("button", { name: "Submit Verification", exact: true }).click();
+    await expect(
+      page.getByText("Awaiting Verification", { exact: true }).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole("button", { name: "Simulate Approval (preview)" }).click();
+    await expect(
+      page.getByRole("heading", { name: "4. Creator Access Approved" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Open Creator Dashboard" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "View Public Profile" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Publish Strategy" }),
+    ).toBeVisible();
+  });
+
+  test("hub smart card reflects locked activation status copy", async ({
+    page,
+  }) => {
+    await page.goto(APP_ROUTES.creators);
+    await expect(
+      page.getByRole("heading", { name: "Become a Creator" }),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByText(
+        /Creator access requires a published public portfolio, connected social profile and verification/i,
+      ).first(),
+    ).toBeVisible();
+    await page.getByRole("link", { name: "Become a Creator" }).click();
+    await expect(page).toHaveURL(/\/app\/creators\/activate/);
+  });
+});
