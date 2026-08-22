@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# INDEXLA App (`IndexLa-App`)
 
-## Getting Started
+Separate application for **https://app.indexla.tech**
 
-First, run the development server:
+Product authority: `../Indexla Code github/content/app/INDEXLA_APP_V1_BUILD_PLAN.md` (or copy into this repo when syncing content).
+
+## Phase 1 — Foundation
+
+- Next.js 15 + Tailwind 4
+- Dual light / dark-navy themes
+- Global app shell (8 nav items)
+- 12 route stubs under `/app/*`
+- Shared domain models, fixtures, feature flags, fee calculator skeleton
+- Disabled execution/contract adapters (no fake transaction success)
+- Vitest + Playwright baseline
+
+## Local development
 
 ```bash
+npm install
+cp .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open **http://localhost:3456**
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Verification
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+npm run test:e2e
+```
 
-## Learn More
+## Production boundary
 
-To learn more about Next.js, take a look at the following resources:
+Phase 1 does **not** configure nginx, SSL, PM2 or deploy to `app.indexla.tech`. The marketing site at `indexla.tech` is untouched.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Ports
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Environment | URL / port |
+|-------------|------------|
+| App dev | `localhost:3456` |
+| Website prod | `indexla.tech` → PM2 `:3000` (separate repo) |

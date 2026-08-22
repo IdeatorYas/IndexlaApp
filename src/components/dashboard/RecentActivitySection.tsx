@@ -1,0 +1,84 @@
+import Link from "next/link";
+import type { DashboardActivityItem } from "@/lib/domain/dashboard";
+import { EmptyState } from "@/components/states/AppStates";
+import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
+import { SectionHeader } from "@/components/ui/SectionHeader";
+import {
+  formatDexla,
+  formatRelativeTime,
+  formatUsd,
+} from "@/lib/dashboard/data";
+import { APP_ROUTES } from "@/lib/routes";
+
+const TYPE_LABELS: Record<DashboardActivityItem["type"], string> = {
+  "portfolio-buy": "Buy",
+  "automated-execution": "Auto",
+  rebalance: "Rebalance",
+  tip: "Tip",
+  "strategy-access": "Strategy",
+};
+
+export function RecentActivitySection({
+  items,
+}: {
+  items: DashboardActivityItem[];
+}) {
+  return (
+    <section className="app-panel p-5 md:p-6">
+      <SectionHeader
+        title="Recent Activity"
+        illustrative={items.some((i) => i.isIllustrative)}
+        action={
+          <Link
+            href={`${APP_ROUTES.portfolio}?tab=activity`}
+            className="text-sm font-medium text-app-brand hover:underline"
+          >
+            View in My Portfolio →
+          </Link>
+        }
+      />
+
+      {items.length === 0 ? (
+        <EmptyState
+          title="No recent activity"
+          description="Executions, rebalances, tips and strategy access will appear here."
+        />
+      ) : (
+        <ul className="divide-y divide-app-line">
+          {items.map((item) => (
+            <li
+              key={item.id}
+              className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded bg-app-panel px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-app-dim">
+                    {TYPE_LABELS[item.type]}
+                  </span>
+                  <p className="font-medium text-app-ink">{item.title}</p>
+                  {item.isIllustrative ? <IllustrativeBadge compact /> : null}
+                </div>
+                <p className="mt-1 text-sm text-app-muted">{item.subtitle}</p>
+                <p className="mt-1 text-xs text-app-dim">
+                  {formatRelativeTime(item.timestamp)} · {item.status}
+                </p>
+              </div>
+              <div className="text-right text-sm">
+                {item.amountUsd !== null ? (
+                  <p className="font-semibold text-app-ink">
+                    {formatUsd(item.amountUsd)}
+                  </p>
+                ) : null}
+                {item.amountDexla !== null ? (
+                  <p className="font-semibold text-app-brand">
+                    {formatDexla(item.amountDexla)}
+                  </p>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
