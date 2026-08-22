@@ -1,6 +1,7 @@
 import type { DashboardData } from "@/lib/domain/dashboard";
 import type { IndexlaDataProvider, DataResult } from "@/lib/data/types";
 import { getEmptyDashboardData } from "@/lib/fixtures/dashboard";
+import { getEmptyLeaderboardWorkspace } from "@/lib/fixtures/leaderboard";
 
 /**
  * Live / testnet provider stub.
@@ -134,6 +135,9 @@ export const liveDataProvider: IndexlaDataProvider = {
       },
       LIVE_REASON,
     );
+  },
+  getLeaderboardWorkspace() {
+    return unavailable(getEmptyLeaderboardWorkspace(), LIVE_REASON);
   },
   getFixtureLabel() {
     return "Live";

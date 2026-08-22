@@ -4,6 +4,7 @@ import {
   getDataProvider,
   getDexlaBalance,
   getDiscoverCatalog,
+  getLeaderboardWorkspace,
   getMyPortfolioWorkspace,
   getPortfolios,
   getStrategiesWorkspace,
@@ -35,6 +36,7 @@ describe("data-access layer", () => {
     expect(getDiscoverCatalog().data.products.length).toBeGreaterThan(0);
     expect(getMyPortfolioWorkspace().data.portfolios.length).toBeGreaterThan(0);
     expect(getStrategiesWorkspace().data.marketplace.length).toBeGreaterThan(0);
+    expect(getLeaderboardWorkspace().data.monthlyEntries).toHaveLength(25);
   });
 
   it("switches to live provider when illustrative demo data is disabled", () => {

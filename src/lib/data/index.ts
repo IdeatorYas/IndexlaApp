@@ -70,6 +70,10 @@ export function getStrategiesWorkspace() {
   return getDataProvider().getStrategiesWorkspace();
 }
 
+export function getLeaderboardWorkspace() {
+  return getDataProvider().getLeaderboardWorkspace();
+}
+
 export function getDataLabel() {
   return getDataProvider().getFixtureLabel();
 }

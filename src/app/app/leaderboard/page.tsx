@@ -1,14 +1,24 @@
-import { EmptyState } from "@/components/states/AppStates";
-import { ScreenStub } from "@/components/screens/ScreenStub";
-import { APP_SCREENS } from "@/lib/routes";
+import { Suspense } from "react";
+import { LeaderboardView } from "@/components/leaderboard/LeaderboardView";
+import { LoadingSkeleton } from "@/components/states/AppStates";
+import {
+  getLeaderboardWorkspace,
+  isIllustrativeDataMode,
+} from "@/lib/data";
 
 export default function LeaderboardPage() {
+  const workspace = getLeaderboardWorkspace();
+  const illustrative = isIllustrativeDataMode() || workspace.isIllustrative;
+
   return (
-    <ScreenStub screen={APP_SCREENS[6]}>
-      <EmptyState
-        title="Monthly Portfolio Leaderboard"
-        description="Top 10 winner zone, ranks 11–25 competing zone, and ranking formula stub. Likes and follows never affect score."
+    <Suspense
+      fallback={<LoadingSkeleton title="Loading Portfolio Leaderboard" lines={6} />}
+    >
+      <LeaderboardView
+        workspace={workspace.data}
+        illustrative={illustrative}
+        initialError={workspace.availability === "unavailable"}
       />
-    </ScreenStub>
+    </Suspense>
   );
 }

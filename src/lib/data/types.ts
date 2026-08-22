@@ -1,4 +1,5 @@
 import type { DashboardData } from "@/lib/domain/dashboard";
+import type { LeaderboardWorkspace } from "@/lib/domain/leaderboard";
 import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
 import type { MyPortfolioWorkspace } from "@/lib/domain/my-portfolio";
 import type { StrategiesWorkspace } from "@/lib/domain/strategies";
@@ -41,5 +42,6 @@ export interface IndexlaDataProvider {
   getMarketplaceProductById(id: string): DataResult<MarketplaceProduct | null>;
   getMyPortfolioWorkspace(): DataResult<MyPortfolioWorkspace>;
   getStrategiesWorkspace(): DataResult<StrategiesWorkspace>;
+  getLeaderboardWorkspace(): DataResult<LeaderboardWorkspace>;
   getFixtureLabel(): string;
 }
