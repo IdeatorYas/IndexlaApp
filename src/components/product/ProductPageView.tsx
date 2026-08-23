@@ -8,6 +8,7 @@ import { InvestmentChoiceModal } from "@/components/product/InvestmentChoiceModa
 import { PremiumAllocationVisual } from "@/components/product/PremiumAllocationVisual";
 import { ExactProductTypeBadge } from "@/components/product/ProductIdentity";
 import { ProductCreatorLine } from "@/components/product/ProductCreatorLine";
+import { RiskDisclosure } from "@/components/product/RiskDisclosure";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { MiniLineChart } from "@/components/ui/MiniLineChart";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
@@ -57,7 +58,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
   return (
     <div
       className={[
-        "relative mx-auto pb-28 transition-all duration-500",
+        "relative mx-auto pb-44 transition-all duration-500",
         entered ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
       ].join(" ")}
       style={{ maxWidth: "var(--content-max)" }}
@@ -303,6 +304,8 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
           until connected to live INDEXLA data feeds.
         </p>
       </section>
+
+      <RiskDisclosure className="mt-4" variant="page" />
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-app-line/70 bg-app-elevated/92 px-3 py-2.5 backdrop-blur-md">
         <div

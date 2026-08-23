@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { CreateDraft, MarketAsset } from "@/lib/domain/create";
 import { INDEX_CATEGORIES } from "@/lib/domain/create";
 import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
+import { RiskDisclosure } from "@/components/product/RiskDisclosure";
 import { AllocationDonut } from "@/components/ui/AllocationDonut";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { calculateFees } from "@/lib/fees/fee-calculator";
@@ -26,6 +27,7 @@ export function StepReviewConfirm({
   const [message, setMessage] = useState<string | null>(null);
   const [authorizedAutomation, setAuthorizedAutomation] = useState(false);
   const [purchaseConfirmed, setPurchaseConfirmed] = useState(false);
+  const [riskAcknowledged, setRiskAcknowledged] = useState(false);
 
   const category = INDEX_CATEGORIES.find((c) => c.id === draft.categoryId);
   const isDegen = Boolean(category?.isDegen);
@@ -182,6 +184,12 @@ export function StepReviewConfirm({
         </div>
       </div>
 
+      <RiskDisclosure
+        variant="confirm"
+        acknowledged={riskAcknowledged}
+        onAcknowledgedChange={setRiskAcknowledged}
+      />
+
       <div className="flex flex-wrap gap-2">
         {wallet.state !== "connected" ? (
           <button
@@ -202,7 +210,9 @@ export function StepReviewConfirm({
         <button
           type="button"
           className="h-10 app-gradient-btn rounded-[10px] px-4 text-sm font-bold text-white disabled:opacity-40"
-          disabled={isDegen && !draft.degenAcknowledged}
+          disabled={
+            !riskAcknowledged || (isDegen && !draft.degenAcknowledged)
+          }
           onClick={() => {
             setPurchaseConfirmed(true);
             previewAction("Confirm Initial Purchase");
