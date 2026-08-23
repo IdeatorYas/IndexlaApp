@@ -190,7 +190,7 @@ Branch: $branchName
   if ($LASTEXITCODE -ne 0) { throw "Empty commit failed." }
   $committed = $true
 } else {
-  Write-Info "Staging $($toAdd.Count) path(s)…"
+  Write-Info "Staging $($toAdd.Count) path(s)..."
   foreach ($p in $toAdd) {
     git add -- $p
     if ($LASTEXITCODE -ne 0) {
