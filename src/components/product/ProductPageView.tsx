@@ -10,7 +10,6 @@ import { ExactProductTypeBadge } from "@/components/product/ProductIdentity";
 import { ProductCreatorLine } from "@/components/product/ProductCreatorLine";
 import { RiskDisclosure } from "@/components/product/RiskDisclosure";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
-import { MiniLineChart } from "@/components/ui/MiniLineChart";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
@@ -54,48 +53,57 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
   const strategy = product.selectedStrategy;
   const typeStyle = getProductTypeStyle(product);
   const official = isIndexlaProduct(product);
+  const assetCount = product.allocations.length;
+  const dense = assetCount >= 8;
 
   return (
     <div
       className={[
-        "relative mx-auto pb-44 transition-all duration-500",
+        "relative mx-auto pb-20 transition-all duration-500 lg:pb-16",
+        "lg:flex lg:h-[calc(100dvh-4.75rem)] lg:min-h-0 lg:flex-col lg:overflow-hidden",
         entered ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
       ].join(" ")}
       style={{ maxWidth: "var(--content-max)" }}
     >
-      {/* 1–3: Name → type/creator/description → compact metrics */}
       <section
-        className="relative overflow-hidden rounded-[22px] border"
+        className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] border shadow-[0_24px_60px_-36px_rgba(0,0,0,0.45)]"
         style={{
           borderColor: typeStyle.border,
           background: `
-            radial-gradient(ellipse 80% 70% at 100% 0%, ${typeStyle.surface}, transparent 55%),
+            radial-gradient(ellipse 70% 55% at 100% 0%, ${typeStyle.surface}, transparent 58%),
+            radial-gradient(ellipse 45% 40% at 0% 100%, color-mix(in srgb, ${typeStyle.color} 12%, transparent), transparent 55%),
             linear-gradient(165deg, var(--color-bg-elevated) 0%, var(--color-panel) 100%)
           `,
           boxShadow: `0 20px 56px -28px ${typeStyle.glow}`,
         }}
       >
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-[3px]"
+          className="pointer-events-none absolute inset-x-0 top-0 h-[2px]"
           style={{
             background: `linear-gradient(90deg, transparent, ${typeStyle.color}, transparent)`,
           }}
           aria-hidden
         />
 
-        <div className="relative space-y-4 p-4 sm:p-5 lg:p-6">
-          <div className="flex flex-wrap items-center gap-2">
+        {/* Top: identity */}
+        <header
+          className={[
+            "relative shrink-0 border-b border-app-line/35",
+            dense ? "px-3 py-2.5 sm:px-4" : "px-3.5 py-3 sm:px-5",
+          ].join(" ")}
+        >
+          <div className="flex flex-wrap items-center gap-1.5">
             <ExactProductTypeBadge
               kind={product.kind}
               indexType={product.indexType}
             />
             {product.featured ? (
-              <span className="rounded-full border border-app-line/60 bg-app-elevated/80 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-app-muted">
+              <span className="rounded-full border border-app-line/60 bg-app-elevated/80 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-muted">
                 Featured
               </span>
             ) : null}
             {product.isNew ? (
-              <span className="rounded-full bg-app-success/15 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-app-success">
+              <span className="rounded-full bg-app-success/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-success">
                 New
               </span>
             ) : null}
@@ -104,217 +112,153 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
 
           <div
             className={[
-              "w-full rounded-[16px] px-4 py-3.5 sm:px-5 sm:py-4",
+              "mt-2 w-full rounded-[12px] px-3 py-2 sm:px-4 sm:py-2.5",
               PRODUCT_NAME_BOX_CLASS,
             ].join(" ")}
             style={productNameBoxStyle(typeStyle)}
           >
-            <h1 className="app-display text-[1.55rem] font-bold leading-tight sm:text-[2rem]">
+            <h1
+              className={[
+                "app-display font-bold leading-tight",
+                dense
+                  ? "text-[1.25rem] sm:text-[1.55rem]"
+                  : "text-[1.35rem] sm:text-[1.7rem]",
+              ].join(" ")}
+            >
               {product.name}
             </h1>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="rounded-[12px] border border-app-line/50 bg-app-elevated/70 px-3 py-2">
-              <p className="text-[9px] font-bold uppercase tracking-wider text-app-dim">
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-app-dim">
                 Creator
-              </p>
-              <div className="mt-1">
-                <ProductCreatorLine
-                  creatorName={product.creatorName}
-                  creatorHandle={product.creatorHandle}
-                />
-              </div>
+              </span>
+              <ProductCreatorLine
+                creatorName={product.creatorName}
+                creatorHandle={product.creatorHandle}
+              />
             </div>
             {!official ? (
               <Link
                 href={APP_ROUTES.creatorProfile(product.creatorHandle)}
-                className="text-[12px] font-semibold text-app-brand hover:underline"
+                className="text-[11px] font-semibold text-app-brand hover:underline"
               >
-                View creator profile →
+                Profile →
               </Link>
             ) : null}
           </div>
 
-          <p className="max-w-3xl text-[14px] leading-relaxed text-app-muted sm:text-[15px]">
+          <p
+            className={[
+              "mt-1.5 max-w-4xl leading-snug text-app-muted",
+              dense ? "text-[12px] line-clamp-2" : "text-[13px] line-clamp-2 lg:line-clamp-1",
+            ].join(" ")}
+          >
             {product.description}
           </p>
-
-          {/* Compact key metrics */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <MetricTile
-              label="30D"
-              value={formatPercent(product.performance30d, true)}
-              accent={
-                positive
-                  ? "var(--color-success)"
-                  : "var(--color-danger)"
-              }
-              valueClass={
-                positive ? "text-app-success" : "text-app-danger"
-              }
-            />
-            <MetricTile
-              label="AUM"
-              value={formatUsd(product.aumUsd, true)}
-              accent="var(--color-accent-blue)"
-            />
-            <MetricTile
-              label="Volume"
-              value={formatUsd(product.volumeUsd, true)}
-              accent="var(--color-accent-violet)"
-            />
-            <MetricTile
-              label="Investors"
-              value={String(product.investors)}
-              accent="var(--color-accent-cyan)"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* 4: Allocation — immediately below metrics */}
-      <section className="mt-3 overflow-hidden rounded-[22px] border border-app-line/55 bg-gradient-to-b from-app-elevated via-app-elevated to-app-panel/80 p-4 shadow-[0_16px_48px_-28px_rgba(0,0,0,0.3)] sm:mt-4 sm:p-5 lg:p-6">
-        <header className="mb-4 flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
-              Composition
-            </p>
-            <h2 className="app-display mt-0.5 text-xl font-bold text-app-ink sm:text-2xl">
-              Allocation
-            </h2>
-            <p className="mt-1 text-[12px] text-app-muted">
-              Published target weights with native asset colors and logos
-            </p>
-          </div>
-          <IllustrativeBadge compact />
         </header>
-        <PremiumAllocationVisual allocations={product.allocations} />
-      </section>
 
-      {/* Strategy + Performance */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <section className="overflow-hidden rounded-[22px] border border-app-line/55 bg-app-elevated/90 p-4 sm:p-5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
-            Automation
-          </p>
-          <h2 className="app-display mt-0.5 text-xl font-bold text-app-ink">
-            Selected Strategy
-          </h2>
-          <p
-            className="mt-2 text-[15px] font-bold"
-            style={{ color: typeStyle.color }}
-          >
-            {strategy.name}
-          </p>
-          <p className="mt-2 text-[13px] leading-relaxed text-app-muted">
-            {strategy.explanation}
-          </p>
-
-          <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
-            <GlassBlock title="Rules">
-              <ul className="space-y-1.5 text-[12px] leading-snug text-app-muted">
-                {strategy.rules.map((rule) => (
-                  <li key={rule} className="flex gap-2">
-                    <span
-                      className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                      style={{ background: typeStyle.color }}
-                    />
-                    <span>{rule}</span>
-                  </li>
-                ))}
-              </ul>
-            </GlassBlock>
-            <GlassBlock title="Triggers">
-              <ul className="space-y-1.5 text-[12px] leading-snug text-app-muted">
-                {strategy.triggers.map((trigger) => (
-                  <li key={trigger} className="flex gap-2">
-                    <span
-                      className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                      style={{ background: typeStyle.color }}
-                    />
-                    <span>{trigger}</span>
-                  </li>
-                ))}
-              </ul>
-            </GlassBlock>
-          </div>
-
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
-            {strategy.thresholds.map((item) => (
-              <div
-                key={item.label}
-                className="rounded-[14px] border border-app-line/45 bg-app-panel/70 px-2.5 py-2.5 text-center"
-              >
-                <p className="text-[9px] font-bold uppercase tracking-wide text-app-dim">
-                  {item.label}
-                </p>
-                <p className="mt-0.5 text-[13px] font-bold text-app-ink">
-                  {item.value}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-app-success/40 bg-app-success/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-app-success">
-              Automation · {strategy.automationStatus}
-            </span>
-          </div>
-
-          <p className="mt-3 rounded-[14px] border border-app-line/45 bg-app-soft/40 p-3 text-[12px] leading-relaxed text-app-muted">
-            {strategy.permissionsDisclosure}
-          </p>
-        </section>
-
-        <section className="flex flex-col overflow-hidden rounded-[22px] border border-app-line/55 bg-app-elevated/90 p-4 sm:p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
-                Track record
-              </p>
-              <h2 className="app-display mt-0.5 text-xl font-bold text-app-ink">
-                Performance
-              </h2>
-            </div>
-            <IllustrativeBadge compact />
-          </div>
-          <div className="min-h-[200px] flex-1 rounded-[16px] border border-app-line/45 bg-gradient-to-b from-app-panel/80 to-app-soft/30 p-3">
-            <MiniLineChart points={product.performanceChart} height={180} />
-          </div>
-          <p className="mt-2 text-[12px] text-app-muted">
-            Selected strategy:{" "}
-            <span className="font-bold text-app-ink">{strategy.name}</span>
-          </p>
-        </section>
-      </div>
-
-      <section className="mt-4 rounded-[18px] border border-app-line/45 bg-app-panel/40 px-4 py-3.5 sm:px-5">
-        <h2 className="app-display text-base font-bold text-app-ink">
-          Disclosures
-        </h2>
-        <p className="mt-2 text-[12px] leading-relaxed text-app-muted">
-          You hold the real underlying assets in your wallet. INDEXLA cannot
-          withdraw funds or expand its own permissions. Fees, Save discount, gas
-          / bridge estimates and CoW or LI.FI / Across routing appear at
-          investment confirmation — not executable in preview.
-        </p>
-        <p className="mt-2 text-[12px] leading-relaxed text-app-muted">
-          AUM, volume, investor counts and performance charts are illustrative
-          until connected to live INDEXLA data feeds.
-        </p>
-      </section>
-
-      <RiskDisclosure className="mt-4" variant="page" />
-
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-app-line/70 bg-app-elevated/92 px-3 py-2.5 backdrop-blur-md">
+        {/* Allocation — immediately below identity */}
         <div
-          className="mx-auto flex max-w-3xl gap-2.5"
+          className={[
+            "relative min-h-0 flex-1",
+            dense ? "px-3 py-2 sm:px-4" : "px-3.5 py-2.5 sm:px-5",
+          ].join(" ")}
+        >
+          <PremiumAllocationVisual
+            allocations={product.allocations}
+            size={dense ? 280 : 300}
+            compact={dense}
+          />
+        </div>
+
+        {/* Strategy + metrics + compact disclosure — same screen */}
+        <footer
+          className={[
+            "relative shrink-0 border-t border-app-line/35",
+            dense ? "px-3 py-2 sm:px-4" : "px-3.5 py-2.5 sm:px-5",
+          ].join(" ")}
+        >
+          <div className="grid gap-2.5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.95fr)_minmax(0,1.15fr)] lg:items-stretch">
+            <div className="rounded-[14px] border border-app-line/45 bg-gradient-to-br from-app-elevated/90 to-app-panel/60 p-2.5 backdrop-blur-sm">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-app-dim">
+                  Strategy
+                </p>
+                <span className="rounded-full border border-app-success/35 bg-app-success/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-success">
+                  {strategy.automationStatus}
+                </span>
+              </div>
+              <p
+                className="mt-1 truncate text-[13px] font-bold"
+                style={{ color: typeStyle.color }}
+              >
+                {strategy.name}
+              </p>
+              <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-app-muted">
+                {strategy.explanation}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {strategy.thresholds.slice(0, 3).map((item) => (
+                  <span
+                    key={item.label}
+                    className="rounded-full border border-app-line/50 bg-app-soft/40 px-2 py-0.5 text-[10px] text-app-muted"
+                  >
+                    <span className="font-bold text-app-ink">{item.value}</span>{" "}
+                    {item.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-2">
+              <MetricTile
+                label="30D"
+                value={formatPercent(product.performance30d, true)}
+                accent={
+                  positive ? "var(--color-success)" : "var(--color-danger)"
+                }
+                valueClass={positive ? "text-app-success" : "text-app-danger"}
+                dense
+              />
+              <MetricTile
+                label="AUM"
+                value={formatUsd(product.aumUsd, true)}
+                accent="var(--color-accent-blue)"
+                dense
+              />
+              <MetricTile
+                label="Volume"
+                value={formatUsd(product.volumeUsd, true)}
+                accent="var(--color-accent-violet)"
+                dense
+              />
+              <MetricTile
+                label="Investors"
+                value={String(product.investors)}
+                accent="var(--color-accent-cyan)"
+                dense
+              />
+            </div>
+
+            <RiskDisclosure
+              variant="page"
+              density="compact"
+              className="h-full"
+            />
+          </div>
+        </footer>
+      </section>
+
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-app-line/70 bg-app-elevated/92 px-3 py-2 backdrop-blur-md lg:static lg:mt-2.5 lg:rounded-[14px] lg:border lg:border-app-line/50 lg:bg-gradient-to-r lg:from-app-elevated lg:to-app-panel/80 lg:px-3 lg:py-2 lg:shadow-[0_12px_36px_-24px_rgba(0,0,0,0.35)]">
+        <div
+          className="mx-auto flex gap-2.5"
           style={{ maxWidth: "var(--content-max)" }}
         >
           <button
             type="button"
-            className="app-btn-invest h-12 flex-1 rounded-[14px] text-[14px]"
+            className="app-btn-invest h-11 flex-1 rounded-[12px] text-[14px] lg:h-12"
             onClick={() => {
               if (wallet.state !== "connected") connectDemo();
               openInvest();
@@ -324,7 +268,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
           </button>
           <Link
             href={`${APP_ROUTES.create}?from=${product.id}&mode=customize`}
-            className="app-btn-customize flex h-12 flex-1 items-center justify-center rounded-[14px] text-[14px]"
+            className="app-btn-customize flex h-11 flex-1 items-center justify-center rounded-[12px] text-[14px] lg:h-12"
             onClick={(e) => {
               if (wallet.state !== "connected") {
                 e.preventDefault();
@@ -353,50 +297,40 @@ function MetricTile({
   value,
   accent,
   valueClass,
+  dense,
 }: {
   label: string;
   value: string;
   accent: string;
   valueClass?: string;
+  dense?: boolean;
 }) {
   return (
     <div
-      className="flex min-h-[64px] flex-col items-center justify-center rounded-[14px] border bg-gradient-to-b from-app-elevated to-app-panel/80 px-1.5 py-2 text-center"
+      className={[
+        "flex flex-col items-center justify-center rounded-[12px] border bg-gradient-to-b from-app-elevated to-app-panel/80 text-center",
+        dense ? "min-h-[48px] px-1 py-1.5" : "min-h-[56px] px-1.5 py-2",
+      ].join(" ")}
       style={{
-        borderColor: `color-mix(in srgb, ${accent} 40%, transparent)`,
+        borderColor: `color-mix(in srgb, ${accent} 42%, transparent)`,
+        boxShadow: `0 8px 20px -16px ${accent}`,
       }}
     >
       <p
-        className="text-[9px] font-bold uppercase tracking-wide"
+        className="text-[8px] font-bold uppercase tracking-wide"
         style={{ color: accent }}
       >
         {label}
       </p>
       <p
         className={[
-          "mt-0.5 text-[13px] font-bold sm:text-sm",
+          "mt-0.5 font-bold",
+          dense ? "text-[12px]" : "text-[13px]",
           valueClass ?? "text-app-ink",
         ].join(" ")}
       >
         {value}
       </p>
-    </div>
-  );
-}
-
-function GlassBlock({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-[14px] border border-app-line/45 bg-app-panel/55 p-3 backdrop-blur-sm">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-app-dim">
-        {title}
-      </p>
-      <div className="mt-2">{children}</div>
     </div>
   );
 }
