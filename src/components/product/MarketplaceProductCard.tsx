@@ -1,13 +1,12 @@
 import Link from "next/link";
 import type { MarketplaceProduct } from "@/lib/domain/marketplace";
-import {
-  ProductAttribution,
-  ProductTypeBadge,
-} from "@/components/product/ProductIdentity";
+import { ExactProductTypeBadge } from "@/components/product/ProductIdentity";
+import { ProductCreatorLine } from "@/components/product/ProductCreatorLine";
 import { InvestChoiceLink } from "@/components/product/InvestmentChoiceModal";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
+import { getProductTypeStyle } from "@/lib/product/product-type";
 import { APP_ROUTES } from "@/lib/routes";
 
 export function MarketplaceProductCard({
@@ -22,53 +21,48 @@ export function MarketplaceProductCard({
   const positive = product.performance30d >= 0;
   const showFeatured = featured || product.featured;
   const detailsHref = APP_ROUTES.product(product.id);
+  const typeStyle = getProductTypeStyle(product);
 
   const shellClass = [
-    "group relative flex h-full flex-col overflow-hidden rounded-[12px] border border-app-line/80",
-    "bg-gradient-to-br from-app-elevated via-app-panel to-app-soft/30",
+    "group relative flex h-full flex-col overflow-hidden rounded-[14px] border bg-gradient-to-br from-app-elevated via-app-panel to-app-soft/25",
     compact
       ? "shadow-[0_4px_16px_-8px_rgba(0,0,0,0.4)]"
-      : "shadow-[0_8px_24px_-12px_rgba(0,0,0,0.45)]",
-    "transition-all duration-200 hover:-translate-y-0.5 hover:border-app-brand/35 hover:shadow-[0_12px_32px_-12px_rgba(59,130,246,0.35)]",
+      : "shadow-[0_10px_28px_-14px_rgba(0,0,0,0.45)]",
+    "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-14px_rgba(0,0,0,0.5)]",
   ].join(" ");
 
-  const pad = compact ? "p-2" : "p-3.5 sm:p-4";
+  const pad = compact ? "p-2" : "p-3 sm:p-3.5";
 
   return (
-    <article className={shellClass}>
+    <article
+      className={shellClass}
+      style={{
+        borderColor: typeStyle.border,
+        boxShadow: compact
+          ? undefined
+          : `0 10px 28px -14px rgba(0,0,0,0.45), 0 0 0 1px ${typeStyle.border}, 0 0 24px -10px ${typeStyle.glow}`,
+      }}
+    >
       <Link href={detailsHref} className={`block min-h-0 flex-1 ${pad}`}>
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-app-brand/40 to-transparent" />
-        <div className="flex items-start justify-between gap-1.5">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-0.5">
-              {showFeatured ? (
-                <span className="rounded-md bg-app-brand/15 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-app-brand">
-                  Featured
-                </span>
-              ) : null}
-              <ProductTypeBadge kind={product.kind} />
-              {product.isNew ? (
-                <span className="rounded-md bg-app-success/15 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-app-success">
-                  New
-                </span>
-              ) : null}
-            </div>
-            <h3
-              className={[
-                "app-display truncate font-bold text-app-ink group-hover:text-app-brand",
-                compact
-                  ? "mt-0.5 text-[13px] leading-tight"
-                  : "mt-1.5 text-[15px] sm:text-base",
-              ].join(" ")}
-            >
-              {product.name}
-            </h3>
-            <ProductAttribution
-              creatorName={product.creatorName}
-              creatorHandle={product.creatorHandle}
-              verified={product.verified}
-              className={compact ? "sr-only" : undefined}
-            />
+        <div
+          className="absolute inset-x-0 top-0 h-[2px]"
+          style={{
+            background: `linear-gradient(90deg, transparent, ${typeStyle.color}, transparent)`,
+          }}
+        />
+
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex flex-wrap items-center gap-0.5">
+            {showFeatured ? (
+              <span className="rounded-md bg-app-brand/15 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-app-brand">
+                Featured
+              </span>
+            ) : null}
+            {product.isNew ? (
+              <span className="rounded-md bg-app-success/15 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-app-success">
+                New
+              </span>
+            ) : null}
           </div>
           <div className="shrink-0 rounded-[8px] border border-app-line/60 bg-app-panel/80 px-1.5 py-0.5 text-right">
             <p className="text-[8px] font-bold uppercase tracking-wide text-app-dim">
@@ -77,7 +71,7 @@ export function MarketplaceProductCard({
             <p
               className={[
                 "app-metric leading-none",
-                compact ? "text-base" : "text-lg sm:text-xl",
+                compact ? "text-base" : "text-lg",
                 positive ? "text-app-success" : "text-app-danger",
               ].join(" ")}
             >
@@ -86,33 +80,67 @@ export function MarketplaceProductCard({
           </div>
         </div>
 
+        <div className="mt-1.5 flex justify-center">
+          <ExactProductTypeBadge
+            kind={product.kind}
+            indexType={product.indexType}
+            compact={compact}
+          />
+        </div>
+
+        <div
+          className={[
+            "mx-auto mt-2 w-full rounded-[12px] border px-2.5 py-2 text-center",
+            compact ? "mt-1.5 py-1.5" : "",
+          ].join(" ")}
+          style={{
+            borderColor: typeStyle.border,
+            background: `linear-gradient(180deg, ${typeStyle.surface} 0%, rgba(0,0,0,0) 100%)`,
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 0 20px -8px ${typeStyle.glow}`,
+          }}
+        >
+          <h3
+            className={[
+              "app-display line-clamp-2 font-bold text-app-ink group-hover:text-app-brand",
+              compact
+                ? "text-[12px] leading-snug"
+                : "text-[15px] leading-tight sm:text-base",
+            ].join(" ")}
+          >
+            {product.name}
+          </h3>
+        </div>
+
+        <div className={compact ? "mt-1 flex justify-center" : "mt-2 flex justify-center"}>
+          <ProductCreatorLine
+            creatorName={product.creatorName}
+            creatorHandle={product.creatorHandle}
+            compact={compact}
+          />
+        </div>
+
         <p
           className={[
-            "text-app-muted",
+            "text-center text-app-muted",
             compact
               ? "mt-1 line-clamp-1 text-[10px] leading-snug"
-              : "mt-2 line-clamp-2 text-[11px] leading-relaxed sm:text-xs",
+              : "mt-2 line-clamp-2 text-[11px] leading-relaxed",
           ].join(" ")}
         >
           {product.description}
         </p>
 
-        <div className={compact ? "mt-1 flex flex-wrap gap-0.5" : "mt-2.5 flex flex-wrap gap-1"}>
-          <MetaChip label={product.indexType} compact={compact} />
-          <MetaChip label={product.narrativeLabel} accent compact={compact} />
-        </div>
-
         <div
           className={
             compact
-              ? "mt-1 flex items-center justify-between gap-1.5"
-              : "mt-2.5 flex items-center justify-between gap-2"
+              ? "mt-1.5 flex items-center justify-center gap-1.5"
+              : "mt-2.5 flex items-center justify-center gap-2"
           }
         >
           <AssetIconStack
             assetIds={product.assetIds}
             size={compact ? 18 : 22}
-            max={compact ? 4 : 5}
+            max={compact ? 5 : 6}
           />
           <p className="text-[9px] font-semibold text-app-dim">
             {product.assetIds.length} assets
@@ -120,7 +148,7 @@ export function MarketplaceProductCard({
         </div>
 
         {!compact ? (
-          <p className="mt-2 truncate text-[10px] font-medium text-app-muted">
+          <p className="mt-2 truncate text-center text-[10px] font-medium text-app-muted">
             {product.selectedStrategy.name}
           </p>
         ) : null}
@@ -152,7 +180,7 @@ export function MarketplaceProductCard({
         </div>
 
         {!compact ? (
-          <div className="mt-2">
+          <div className="mt-2 flex justify-center">
             <IllustrativeBadge compact />
           </div>
         ) : null}
@@ -184,30 +212,6 @@ export function MarketplaceProductCard({
         </InvestChoiceLink>
       </div>
     </article>
-  );
-}
-
-function MetaChip({
-  label,
-  accent = false,
-  compact = false,
-}: {
-  label: string;
-  accent?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <span
-      className={[
-        "rounded-full font-bold",
-        compact ? "px-1.5 py-0.5 text-[8px]" : "px-2 py-0.5 text-[9px]",
-        accent
-          ? "border border-app-brand/30 bg-app-brand/10 text-app-brand"
-          : "border border-app-line bg-app-elevated text-app-muted",
-      ].join(" ")}
-    >
-      {label}
-    </span>
   );
 }
 

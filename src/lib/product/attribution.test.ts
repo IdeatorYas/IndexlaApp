@@ -2,23 +2,23 @@ import { describe, expect, it } from "vitest";
 import { formatProductAttribution } from "@/lib/product/attribution";
 
 describe("formatProductAttribution", () => {
-  it("formats INDEXLA products as INDEXLA · Verified", () => {
+  it("formats INDEXLA products without verified label", () => {
     expect(
       formatProductAttribution({
         creatorName: "INDEXLA",
         creatorHandle: "indexla",
         verified: true,
       }),
-    ).toBe("INDEXLA · Verified");
+    ).toBe("INDEXLA");
   });
 
-  it("formats creator portfolios with name, verified and handle", () => {
+  it("formats creator products with display name only", () => {
     expect(
       formatProductAttribution({
-        creatorName: "Meme Builder",
-        creatorHandle: "memebuilder",
+        creatorName: "Quant Desk",
+        creatorHandle: "quantdesk",
         verified: true,
       }),
-    ).toBe("Meme Builder · Verified · @memebuilder");
+    ).toBe("Quant Desk");
   });
 });

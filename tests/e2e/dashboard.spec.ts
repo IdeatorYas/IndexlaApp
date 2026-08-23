@@ -11,7 +11,7 @@ test.describe("Marketplace-First Dashboard", () => {
       page.getByRole("region", { name: "Featured products carousel" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Explore Marketplace" }),
+      page.getByRole("heading", { name: "Marketplace", exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Trending Now" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Most Invested" })).toHaveCount(0);
@@ -46,7 +46,7 @@ test.describe("Marketplace-First Dashboard", () => {
     test("renders dashboard sections in final order", async ({ page }) => {
       const header = page.getByRole("banner");
       const hero = page.getByRole("heading", { name: /Discover\. Build\. Automate\./ });
-      const explore = page.getByRole("heading", { name: "Explore Marketplace" });
+      const explore = page.getByRole("heading", { name: "Marketplace", exact: true });
       const carousel = page.getByRole("region", {
         name: "Featured products carousel",
       });
@@ -128,12 +128,13 @@ test.describe("Marketplace-First Dashboard", () => {
       ).toHaveCount(0);
 
       const productCards = page.locator(
-        '[aria-label="Explore marketplace"] article',
+        '[aria-label="Marketplace"] article',
       );
       await expect(productCards).toHaveCount(6);
 
       const exploreHeading = page.getByRole("heading", {
-        name: "Explore Marketplace",
+        name: "Marketplace",
+        exact: true,
       });
       const firstCard = productCards.first();
       const sixthCard = productCards.nth(5);

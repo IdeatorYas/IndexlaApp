@@ -14,10 +14,10 @@ test.describe("Discover marketplace", () => {
       page.getByPlaceholder("Search by index name or asset"),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Explore Marketplace" }),
+      page.getByRole("heading", { name: "Marketplace", exact: true }),
     ).toBeVisible();
     await expect(page.getByText("Layer 1 Index").first()).toBeVisible();
-    await expect(page.getByText("INDEXLA · Verified").first()).toBeVisible();
+    await expect(page.getByText("INDEXLA", { exact: true }).first()).toBeVisible();
     await expect(
       page.locator("article").filter({ hasText: "Layer 1 Index" }).getByText("AUM"),
     ).toBeVisible();

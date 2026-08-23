@@ -1,47 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { MarketplaceProduct } from "@/lib/domain/marketplace";
-import { CreatorAvatar } from "@/components/creators/CreatorAvatar";
 import { InvestmentChoiceModal } from "@/components/product/InvestmentChoiceModal";
 import { PremiumAllocationVisual } from "@/components/product/PremiumAllocationVisual";
-import { ProductTypeBadge } from "@/components/product/ProductIdentity";
+import { ExactProductTypeBadge } from "@/components/product/ProductIdentity";
+import { ProductCreatorLine } from "@/components/product/ProductCreatorLine";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { MiniLineChart } from "@/components/ui/MiniLineChart";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
-import { getCreatorsWorkspace } from "@/lib/data";
 import { APP_ROUTES } from "@/lib/routes";
-import { formatProductAttribution } from "@/lib/product/attribution";
-
-function creatorVisuals(handle: string, displayName: string) {
-  const creator = getCreatorsWorkspace().data.creators.find(
-    (entry) => entry.handle === handle,
-  );
-  if (creator) {
-    return { initials: creator.avatarInitials, hue: creator.avatarHue };
-  }
-  const parts = displayName.trim().split(/\s+/);
-  const initials =
-    parts.length === 1
-      ? parts[0].slice(0, 2).toUpperCase()
-      : `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
-  return { initials, hue: (handle.length * 41) % 360 };
-}
+import { getProductTypeStyle, isIndexlaProduct } from "@/lib/product/product-type";
 
 export function ProductPageView({ product }: { product: MarketplaceProduct }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { wallet, connectDemo } = useDemoWallet();
   const [investOpen, setInvestOpen] = useState(false);
-
-  const avatar = useMemo(
-    () => creatorVisuals(product.creatorHandle, product.creatorName),
-    [product.creatorHandle, product.creatorName],
-  );
 
   useEffect(() => {
     if (searchParams.get("action") === "invest") {
@@ -62,10 +41,15 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
 
   const positive = product.performance30d >= 0;
   const strategy = product.selectedStrategy;
+  const typeStyle = getProductTypeStyle(product);
+  const official = isIndexlaProduct(product);
 
   return (
     <div className="relative pb-24">
-      <section className="relative overflow-hidden rounded-[18px] border border-app-line/70 bg-gradient-to-br from-app-brand/20 via-app-elevated to-[color:var(--color-accent-violet)]/15 shadow-[0_20px_60px_-24px_rgba(59,130,246,0.45)]">
+      <section
+        className="relative overflow-hidden rounded-[18px] border bg-gradient-to-br from-app-brand/20 via-app-elevated to-[color:var(--color-accent-violet)]/15 shadow-[0_20px_60px_-24px_rgba(59,130,246,0.45)]"
+        style={{ borderColor: typeStyle.border }}
+      >
         <div
           className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-[color:var(--color-accent-cyan)]/20 blur-3xl"
           aria-hidden
@@ -77,13 +61,10 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
         <div className="relative grid gap-4 p-4 sm:p-6 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <ProductTypeBadge kind={product.kind} />
-              <span className="rounded-full border border-app-line/60 bg-app-panel/70 px-2 py-0.5 text-[10px] font-bold text-app-muted">
-                {product.indexType}
-              </span>
-              <span className="rounded-full border border-app-brand/35 bg-app-brand/10 px-2 py-0.5 text-[10px] font-bold text-app-brand">
-                {product.narrativeLabel}
-              </span>
+              <ExactProductTypeBadge
+                kind={product.kind}
+                indexType={product.indexType}
+              />
               {product.featured ? (
                 <span className="rounded-full bg-app-brand/15 px-2 py-0.5 text-[10px] font-bold uppercase text-app-brand">
                   Featured
@@ -93,33 +74,25 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
             <h1 className="app-display mt-2 text-2xl font-bold text-app-ink sm:text-3xl">
               {product.name}
             </h1>
-            <div className="mt-3 flex items-center gap-2.5">
-              <CreatorAvatar
-                initials={avatar.initials}
-                hue={avatar.hue}
-                size={44}
+            <div className="mt-3">
+              <ProductCreatorLine
+                creatorName={product.creatorName}
+                creatorHandle={product.creatorHandle}
               />
-              <div>
-                <p className="text-sm font-bold text-app-ink">
-                  {formatProductAttribution({
-                    creatorName: product.creatorName,
-                    creatorHandle: product.creatorHandle,
-                    verified: product.verified,
-                  })}
-                </p>
+              {!official ? (
                 <Link
                   href={APP_ROUTES.creatorProfile(product.creatorHandle)}
-                  className="text-[11px] font-semibold text-app-brand hover:underline"
+                  className="mt-1 inline-block text-[11px] font-semibold text-app-brand hover:underline"
                 >
                   View creator profile →
                 </Link>
-              </div>
+              ) : null}
             </div>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-app-muted">
               {product.description}
             </p>
             <div className="mt-3">
-              <AssetIconStack assetIds={product.assetIds} size={28} max={8} />
+              <AssetIconStack assetIds={product.assetIds} size={28} max={product.assetIds.length} />
             </div>
           </div>
           <div className="rounded-[14px] border border-app-line/50 bg-app-panel/50 p-3 backdrop-blur-sm">
