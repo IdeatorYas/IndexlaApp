@@ -236,7 +236,7 @@ Write-Info "commit=$($checkpointSha.Substring(0,7))"
 
 git push -u origin "HEAD:refs/heads/$branchName"
 if ($LASTEXITCODE -ne 0) {
-  throw "Push failed. Checkpoint commit exists locally on $branchName @ $($checkpointSha.Substring(0,7)). Fix remotes and push manually — do not discard."
+  throw "Push failed. Checkpoint commit exists locally on $branchName @ $($checkpointSha.Substring(0,7)). Fix remotes and push manually - do not discard."
 }
 
 Write-Info "Pushed origin/$branchName"
@@ -244,7 +244,7 @@ Write-Info "Pushed origin/$branchName"
 # Return to original branch without discarding WIP
 git checkout $origBranch
 if ($LASTEXITCODE -ne 0) {
-  throw "Push succeeded but failed to checkout $origBranch. Stay on $branchName and recover manually — do not reset."
+  throw "Push succeeded but failed to checkout $origBranch. Stay on $branchName and recover manually - do not reset."
 }
 
 if ($committed -and $checkpointSha -ne $startSha) {
