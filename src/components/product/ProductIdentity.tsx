@@ -1,23 +1,35 @@
-import { formatProductAttribution } from "@/lib/product/attribution";
+import { getProductTypeStyle } from "@/lib/product/product-type";
+import type { IndexType } from "@/lib/domain/marketplace";
 
-export function ProductAttribution({
-  creatorName,
-  creatorHandle,
-  verified = true,
-  className = "truncate text-[11px] font-semibold text-app-muted",
+export function ExactProductTypeBadge({
+  kind,
+  indexType,
+  compact = false,
 }: {
-  creatorName: string | null | undefined;
-  creatorHandle?: string | null;
-  verified?: boolean;
-  className?: string;
+  kind: "Index" | "Portfolio";
+  indexType: IndexType;
+  compact?: boolean;
 }) {
+  const style = getProductTypeStyle({ kind, indexType });
   return (
-    <p className={className}>
-      {formatProductAttribution({ creatorName, creatorHandle, verified })}
-    </p>
+    <span
+      className={[
+        "inline-flex items-center rounded-full border font-bold uppercase tracking-wide",
+        compact ? "px-1.5 py-0.5 text-[8px]" : "px-2 py-0.5 text-[9px]",
+      ].join(" ")}
+      style={{
+        color: style.color,
+        borderColor: style.border,
+        backgroundColor: style.surface,
+        boxShadow: `0 0 12px -4px ${style.glow}`,
+      }}
+    >
+      {style.label}
+    </span>
   );
 }
 
+/** @deprecated Use ExactProductTypeBadge */
 export function ProductTypeBadge({
   kind,
 }: {
@@ -36,4 +48,19 @@ export function ProductTypeBadge({
       {kind}
     </span>
   );
+}
+
+/** @deprecated Use ProductCreatorLine */
+export function ProductAttribution({
+  creatorName,
+  className = "truncate text-[11px] font-semibold text-app-muted",
+}: {
+  creatorName: string | null | undefined;
+  creatorHandle?: string | null;
+  verified?: boolean;
+  className?: string;
+}) {
+  const name =
+    (creatorName ?? "").toUpperCase() === "INDEXLA" ? "INDEXLA" : creatorName?.trim() || "Creator";
+  return <p className={className}>{name}</p>;
 }

@@ -28,22 +28,27 @@ import {
 } from "@/lib/fixtures/product-strategies";
 import { APP_ROUTES } from "@/lib/routes";
 
+const DEGEN_MARKETPLACE_IDS = new Set(["degen-ten-shots"]);
+
 const PORTFOLIO_INDEX_TYPE: Record<string, IndexType> = {
   "degen-ten-shots": "Crypto",
   "defi-core": "Crypto",
   "rwa-income": "Hybrid",
+  "tokenized-tech": "Tokenized Stocks",
 };
 
 const PORTFOLIO_NARRATIVE: Record<string, NarrativeId> = {
   "degen-ten-shots": "gaming",
   "defi-core": "defi",
   "rwa-income": "rwa-tokenization",
+  "tokenized-tech": "mega-tech",
 };
 
 const PORTFOLIO_NARRATIVE_LABEL: Record<string, string> = {
   "degen-ten-shots": "Gaming",
   "defi-core": "DeFi",
   "rwa-income": "RWA & Tokenization",
+  "tokenized-tech": "Mega-Tech",
 };
 
 const PORTFOLIO_RISK: Record<string, ProductRisk> = {
@@ -89,7 +94,7 @@ function portfolioStrategy(portfolio: Portfolio) {
   };
 }
 
-export function portfolioToMarketplaceProduct(
+export function illustrativeToMarketplaceProduct(
   portfolio: Portfolio,
 ): MarketplaceProduct {
   const indexType = PORTFOLIO_INDEX_TYPE[portfolio.id] ?? "Crypto";
@@ -97,10 +102,11 @@ export function portfolioToMarketplaceProduct(
   const selectedStrategy = portfolioStrategy(portfolio);
   const strategyId =
     PORTFOLIO_STRATEGY_ID[portfolio.id] ?? selectedStrategy.id;
+  const kind = portfolio.discoveryLabel === "Index" ? "Index" : "Portfolio";
   return normalizeProductMetrics({
     id: portfolio.id,
     name: portfolio.name,
-    kind: "Portfolio",
+    kind,
     indexType,
     narrative,
     narrativeLabel: PORTFOLIO_NARRATIVE_LABEL[portfolio.id] ?? "All",
@@ -138,18 +144,36 @@ export function portfolioToMarketplaceProduct(
   });
 }
 
-export function toMarketplaceProduct(portfolio: Portfolio): MarketplaceProduct {
-  return portfolioToMarketplaceProduct(portfolio);
+export function portfolioToMarketplaceProduct(
+  portfolio: Portfolio,
+): MarketplaceProduct {
+  return illustrativeToMarketplaceProduct(portfolio);
 }
 
-export function getCommunityMarketplacePortfolios(): MarketplaceProduct[] {
+export function toMarketplaceProduct(portfolio: Portfolio): MarketplaceProduct {
+  return illustrativeToMarketplaceProduct(portfolio);
+}
+
+/** Creator-built marketplace products — excludes INDEXLA official and Degen Club items. */
+export function getCreatorMarketplaceProducts(): MarketplaceProduct[] {
   return ILLUSTRATIVE_PORTFOLIOS.filter(
-    (p) => p.discoveryLabel === "Portfolio",
-  ).map(portfolioToMarketplaceProduct);
+    (p) =>
+      (p.creatorHandle ?? "").toLowerCase() !== "indexla" &&
+      !DEGEN_MARKETPLACE_IDS.has(p.id),
+  ).map(illustrativeToMarketplaceProduct);
+}
+
+/** Legacy alias */
+export function getCommunityMarketplacePortfolios(): MarketplaceProduct[] {
+  return getCreatorMarketplaceProducts().filter((p) => p.kind === "Portfolio");
 }
 
 export function getDiscoverCatalog(): DiscoverCatalog {
-  const products = [...INDEXLA_INDEX_CATALOG, ...INDEXLA_PORTFOLIO_CATALOG];
+  const products = [
+    ...INDEXLA_INDEX_CATALOG,
+    ...INDEXLA_PORTFOLIO_CATALOG,
+    ...getCreatorMarketplaceProducts(),
+  ];
 
   return {
     products,
@@ -176,7 +200,7 @@ export function getMarketplaceProductById(
   if (official) return official;
   const indexProduct = INDEXLA_INDEX_CATALOG.find((p) => p.id === id);
   if (indexProduct) return indexProduct;
-  return getCommunityMarketplacePortfolios().find((p) => p.id === id);
+  return getCreatorMarketplaceProducts().find((p) => p.id === id);
 }
 
 export { FIXTURE_LABEL };

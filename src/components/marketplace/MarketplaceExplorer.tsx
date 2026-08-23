@@ -14,9 +14,9 @@ import {
   type MarketplaceFilterState,
 } from "@/lib/domain/marketplace-filters";
 import type { DiscoverSort, NarrativeId, ProductTab } from "@/lib/domain/marketplace";
-import { DashboardSectionHeading } from "@/components/dashboard/DashboardSectionHeading";
 import { MarketplaceProductCard } from "@/components/product/MarketplaceProductCard";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
+import { splitMarketplaceByOrigin } from "@/lib/product/product-type";
 import { APP_ROUTES } from "@/lib/routes";
 
 function buildDiscoverHref(state: MarketplaceFilterState): string {
@@ -30,6 +30,123 @@ function buildDiscoverHref(state: MarketplaceFilterState): string {
   if (state.sort !== "trending") params.set("sort", state.sort);
   const qs = params.toString();
   return `${APP_ROUTES.discover}${qs ? `?${qs}` : ""}`;
+}
+
+function MarketplaceTitle({ compact = false }: { compact?: boolean }) {
+  return (
+    <div
+      className={[
+        "mx-auto text-center",
+        compact ? "max-w-xl" : "max-w-2xl",
+      ].join(" ")}
+    >
+      <div
+        className={[
+          "rounded-[14px] border border-app-line/60 bg-gradient-to-b from-app-elevated via-app-panel to-app-soft/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_12px_36px_-16px_rgba(0,0,0,0.45)]",
+          compact ? "px-3 py-2" : "px-4 py-3 sm:px-5 sm:py-3.5",
+        ].join(" ")}
+      >
+        <h2
+          className={[
+            "app-display font-bold tracking-tight text-app-ink",
+            compact ? "text-lg sm:text-xl" : "text-2xl sm:text-[1.75rem]",
+          ].join(" ")}
+        >
+          Marketplace
+        </h2>
+      </div>
+    </div>
+  );
+}
+
+function ProductOriginSections({
+  products,
+  compact,
+  maxProducts,
+}: {
+  products: MarketplaceProduct[];
+  compact?: boolean;
+  maxProducts?: number;
+}) {
+  const { indexla, creator } = splitMarketplaceByOrigin(products);
+  let indexlaShown = indexla;
+  let creatorShown = creator;
+
+  if (maxProducts != null) {
+    indexlaShown = indexla.slice(0, maxProducts);
+    const remaining = Math.max(0, maxProducts - indexlaShown.length);
+    creatorShown = creator.slice(0, remaining);
+  }
+
+  if (indexlaShown.length === 0 && creatorShown.length === 0) {
+    return (
+      <p className="app-panel px-3 py-3 text-center text-[12px] text-app-muted">
+        No products match these filters. Try another category or narrative.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {indexlaShown.length > 0 ? (
+        <ProductSection
+          title="INDEXLA"
+          products={indexlaShown}
+          compact={compact}
+        />
+      ) : null}
+      {creatorShown.length > 0 ? (
+        <ProductSection
+          title="Creator Products"
+          products={creatorShown}
+          compact={compact}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ProductSection({
+  title,
+  products,
+  compact,
+}: {
+  title: string;
+  products: MarketplaceProduct[];
+  compact?: boolean;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 px-0.5">
+        <h3
+          className={[
+            "app-display font-bold uppercase tracking-wider text-app-ink",
+            compact ? "text-[10px]" : "text-xs sm:text-sm",
+          ].join(" ")}
+        >
+          {title}
+        </h3>
+        <span className="h-px flex-1 bg-gradient-to-r from-app-line/80 to-transparent" />
+        <span className="text-[10px] font-semibold text-app-dim">
+          {products.length}
+        </span>
+      </div>
+      <div
+        className={[
+          "grid gap-1",
+          compact ? "sm:grid-cols-2 xl:grid-cols-3" : "sm:grid-cols-2 xl:grid-cols-3 gap-2",
+        ].join(" ")}
+      >
+        {products.map((product) => (
+          <MarketplaceProductCard
+            key={product.id}
+            product={product}
+            compact={compact}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function MarketplaceExplorer({
@@ -86,35 +203,17 @@ export function MarketplaceExplorer({
     [catalog.products, state],
   );
 
-  const displayed =
-    maxProducts != null ? filtered.slice(0, maxProducts) : filtered;
-
   const narratives = narrativeOptionsForCategory(state.assetCategory);
   const showNarratives =
     state.productTab === "indexes" && narratives.length > 1;
   const discoverHref = buildDiscoverHref(state);
   const isDashboard = variant === "dashboard";
 
-  const renderCard = (product: MarketplaceProduct) => (
-    <MarketplaceProductCard
-      key={product.id}
-      product={product}
-      compact={isDashboard}
-    />
-  );
-
   if (isDashboard) {
     return (
-      <section className="space-y-0.5" aria-label="Explore marketplace">
-        <header className="mx-auto max-w-2xl text-center">
-          <div className="flex justify-center">
-            <DashboardSectionHeading
-              label="Explore Marketplace"
-              tone="explore"
-              size="lg"
-              as="h2"
-            />
-          </div>
+      <section className="space-y-1" aria-label="Marketplace">
+        <header>
+          <MarketplaceTitle compact />
         </header>
 
         <div
@@ -122,13 +221,11 @@ export function MarketplaceExplorer({
           role="group"
           aria-label="Marketplace filters"
         >
-          <div className="flex flex-wrap items-center justify-center gap-0.5 border-b border-app-line/35 pb-0.5">
-            <SegmentedControl
-              ariaLabel="Marketplace product type"
-              items={PRODUCT_TABS}
+          <div className="border-b border-app-line/35 p-1">
+            <PrimaryProductTabs
               selected={state.productTab}
               onSelect={(id) => patchState({ productTab: id as ProductTab })}
-              size="md"
+              compact
             />
           </div>
 
@@ -173,17 +270,13 @@ export function MarketplaceExplorer({
           </div>
         </div>
 
-        {displayed.length === 0 ? (
-          <p className="app-panel px-3 py-3 text-center text-[12px] text-app-muted">
-            No products match these filters. Try another category or narrative.
-          </p>
-        ) : (
-          <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
-            {displayed.map((product) => renderCard(product))}
-          </div>
-        )}
+        <ProductOriginSections
+          products={filtered}
+          compact
+          maxProducts={maxProducts}
+        />
 
-        <div className="flex justify-center">
+        <div className="flex justify-center pt-0.5">
           <Link
             href={discoverHref}
             className="app-gradient-btn inline-flex h-8 items-center justify-center rounded-[8px] px-3.5 text-[10px] font-bold"
@@ -197,26 +290,13 @@ export function MarketplaceExplorer({
 
   return (
     <section className="space-y-3">
-      <div className="app-panel mx-auto max-w-5xl space-y-3 border border-app-line/80 bg-gradient-to-b from-app-elevated/90 to-app-panel/95 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:p-4">
-        <div className="border-b border-app-line/70 pb-3 text-center">
-          <h2 className="app-display text-xl font-bold text-app-ink sm:text-2xl">
-            Explore Marketplace
-          </h2>
-          <p className="mx-auto mt-1 max-w-xl text-xs text-app-muted sm:text-sm">
-            Discover INDEXLA indexes and portfolios across crypto, tokenized
-            assets and hybrid strategies.
-          </p>
-        </div>
+      <MarketplaceTitle />
 
-        <FilterRow label="Product">
-          <SegmentedControl
-            ariaLabel="Marketplace product type"
-            items={PRODUCT_TABS}
-            selected={state.productTab}
-            onSelect={(id) => patchState({ productTab: id as ProductTab })}
-            size="lg"
-          />
-        </FilterRow>
+      <div className="app-panel mx-auto max-w-5xl space-y-3 border border-app-line/80 bg-gradient-to-b from-app-elevated/90 to-app-panel/95 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:p-4">
+        <PrimaryProductTabs
+          selected={state.productTab}
+          onSelect={(id) => patchState({ productTab: id as ProductTab })}
+        />
 
         <FilterRow label="Asset category">
           <SegmentedControl
@@ -270,24 +350,55 @@ export function MarketplaceExplorer({
       <div className="flex items-center justify-between gap-2 px-0.5">
         <p className="text-[11px] font-semibold text-app-muted sm:text-xs">
           {filtered.length} result{filtered.length === 1 ? "" : "s"}
-          {maxProducts != null && filtered.length > maxProducts
-            ? ` · showing ${maxProducts}`
-            : ""}
         </p>
         <IllustrativeBadge compact />
       </div>
 
-      {displayed.length === 0 ? (
-        <p className="app-panel px-4 py-8 text-center text-sm text-app-muted">
-          No products match these filters. Try another category, narrative or
-          search term.
-        </p>
-      ) : (
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {displayed.map((product) => renderCard(product))}
-        </div>
-      )}
+      <ProductOriginSections products={filtered} />
     </section>
+  );
+}
+
+function PrimaryProductTabs({
+  selected,
+  onSelect,
+  compact = false,
+}: {
+  selected: ProductTab;
+  onSelect: (id: ProductTab) => void;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={[
+        "grid grid-cols-2 gap-1.5",
+        compact ? "" : "sm:gap-2",
+      ].join(" ")}
+      role="tablist"
+      aria-label="Marketplace product type"
+    >
+      {PRODUCT_TABS.map((tab) => {
+        const active = tab.id === selected;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onSelect(tab.id)}
+            className={[
+              "rounded-[12px] border-2 font-bold uppercase tracking-[0.12em] transition-all",
+              compact ? "px-2 py-2 text-[11px]" : "px-4 py-3.5 text-sm sm:text-base",
+              active
+                ? "border-app-brand bg-gradient-to-b from-app-brand/30 via-app-brand/12 to-transparent text-app-ink shadow-[0_0_28px_-6px_rgba(59,130,246,0.65),inset_0_1px_0_rgba(255,255,255,0.12)]"
+                : "border-app-line/55 bg-app-panel/45 text-app-muted hover:border-app-brand/25 hover:text-app-ink",
+            ].join(" ")}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

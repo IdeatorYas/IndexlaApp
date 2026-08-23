@@ -1,7 +1,6 @@
 export function formatProductAttribution({
   creatorName,
   creatorHandle,
-  verified = true,
 }: {
   creatorName: string | null | undefined;
   creatorHandle?: string | null;
@@ -12,13 +11,18 @@ export function formatProductAttribution({
     (creatorHandle ?? "").toLowerCase() === "indexla";
 
   if (isIndexla) {
-    return verified ? "INDEXLA · Verified" : "INDEXLA";
+    return "INDEXLA";
   }
 
-  const name = creatorName?.trim() || "Creator";
-  const handle = creatorHandle?.replace(/^@/, "").trim();
-  const parts = [name];
-  if (verified) parts.push("Verified");
-  if (handle) parts.push(`@${handle}`);
-  return parts.join(" · ");
+  return creatorName?.trim() || "Creator";
+}
+
+export function formatCreatorDisplayName({
+  creatorName,
+  creatorHandle,
+}: {
+  creatorName: string | null | undefined;
+  creatorHandle?: string | null;
+}): string {
+  return formatProductAttribution({ creatorName, creatorHandle });
 }
