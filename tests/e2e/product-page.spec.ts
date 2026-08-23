@@ -10,6 +10,14 @@ test.describe("Product page flow", () => {
       .click();
     await expect(page).toHaveURL(/\/app\/product\//);
     await expect(page.getByRole("heading", { name: "Allocation" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Risk Disclosure" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "By confirming this investment, you acknowledge and accept these risks.",
+      ),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Invest" }).click();
     await expect(
@@ -17,5 +25,14 @@ test.describe("Product page flow", () => {
     ).toBeVisible();
     await page.getByText("Invest as Published").click();
     await expect(page).toHaveURL(/\/app\/create\?from=.*&mode=published/);
+  });
+
+  test("Customize First create path reaches review risk acknowledgment", async ({
+    page,
+  }) => {
+    await page.goto(APP_ROUTES.product("layer-1-index"));
+    await page.getByRole("button", { name: "Invest" }).click();
+    await page.getByText("Customize First").click();
+    await expect(page).toHaveURL(/\/app\/create\?from=.*&mode=customize/);
   });
 });
