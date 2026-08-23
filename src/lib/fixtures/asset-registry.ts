@@ -1,4 +1,6 @@
-/** CoinGecko and brand icon URLs for marketplace asset stacks. */
+/** CoinGecko and brand icon URLs for marketplace asset stacks — keyed by lowercase ticker/id. */
+export const GENERIC_ASSET_LOGO = "/images/assets/generic-asset.svg";
+
 export const ASSET_ICON_URLS: Record<string, string> = {
   btc: "/images/assets/crypto/btc.svg",
   eth: "/images/assets/crypto/eth.svg",
@@ -111,14 +113,32 @@ export const ASSET_ICON_URLS: Record<string, string> = {
   jpm: "https://companiesmarketcap.com/img/company-logos/256/JPM.png",
   v: "https://companiesmarketcap.com/img/company-logos/256/V.png",
   ma: "https://companiesmarketcap.com/img/company-logos/256/MA.png",
-  spy: "https://companiesmarketcap.com/img/company-logos/256/SPY.png",
-  qqq: "https://companiesmarketcap.com/img/company-logos/256/QQQ.png",
+  spy: "https://financialmodelingprep.com/image-stock/SPY.png",
+  qqq: "https://financialmodelingprep.com/image-stock/QQQ.png",
   ionq: "https://companiesmarketcap.com/img/company-logos/256/IONQ.png",
   rklb: "https://companiesmarketcap.com/img/company-logos/256/RKLB.png",
   asts: "https://companiesmarketcap.com/img/company-logos/256/ASTS.png",
   rgti: "https://companiesmarketcap.com/img/company-logos/256/RGTI.png",
   sofi: "https://companiesmarketcap.com/img/company-logos/256/SOFI.png",
 };
+
+/** Central logo registry keyed by uppercase ticker. */
+export const ASSET_LOGOS_BY_TICKER: Record<string, string> = Object.fromEntries(
+  Object.entries(ASSET_ICON_URLS).map(([id, url]) => [id.toUpperCase(), url]),
+);
+
+export function resolveAssetTicker(assetId: string): string {
+  return assetId.trim().toUpperCase();
+}
+
+export function getAssetLogoUrl(assetId: string): string | undefined {
+  const id = assetId.toLowerCase();
+  return ASSET_ICON_URLS[id];
+}
+
+export function hasVerifiedAssetLogo(assetId: string): boolean {
+  return Boolean(getAssetLogoUrl(assetId));
+}
 
 export const ASSET_COLORS: Record<string, string> = {
   nvda: "#76b900",

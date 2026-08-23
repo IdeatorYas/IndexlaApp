@@ -113,8 +113,8 @@ export function FeaturedProductsSection({
 
                 <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-app-line pt-2.5 text-[11px]">
                   <Meta label="AUM" value={formatUsd(product.aumUsd, true)} />
+                  <Meta label="Volume" value={formatUsd(product.volumeUsd, true)} />
                   <Meta label="Investors" value={String(product.investors)} />
-                  <Meta label="Risk" value={product.risk} />
                 </div>
 
                 <span

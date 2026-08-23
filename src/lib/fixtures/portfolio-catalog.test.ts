@@ -45,7 +45,7 @@ describe("INDEXLA portfolio catalog", () => {
     }
   });
 
-  it("merges with index catalog and community portfolios in discover", () => {
+  it("merges official indexes and portfolios only in discover catalog", () => {
     const catalog = getDiscoverCatalog();
     const officialInCatalog = catalog.products.filter((p) =>
       OFFICIAL_PORTFOLIO_IDS.has(p.id),
@@ -55,11 +55,13 @@ describe("INDEXLA portfolio catalog", () => {
     const indexCount = catalog.products.filter((p) => p.kind === "Index").length;
     expect(indexCount).toBe(INDEXLA_INDEX_CATALOG.length);
 
+    expect(catalog.products).toHaveLength(
+      INDEXLA_INDEX_CATALOG.length + INDEXLA_PORTFOLIO_CATALOG.length,
+    );
+
     const community = getCommunityMarketplacePortfolios();
-    expect(community.length).toBeGreaterThan(0);
     for (const p of community) {
-      expect(OFFICIAL_PORTFOLIO_IDS.has(p.id)).toBe(false);
-      expect(catalog.products.some((c) => c.id === p.id)).toBe(true);
+      expect(catalog.products.some((c) => c.id === p.id)).toBe(false);
     }
   });
 

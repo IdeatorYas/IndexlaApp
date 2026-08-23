@@ -6,6 +6,7 @@ import type {
   NarrativeId,
 } from "@/lib/domain/marketplace";
 import type { Portfolio } from "@/lib/domain/types";
+import { normalizeProductMetrics } from "@/lib/fixtures/marketplace-metrics";
 import {
   INDEXLA_INDEX_CATALOG,
   getTrendingIndexes,
@@ -96,7 +97,7 @@ export function portfolioToMarketplaceProduct(
   const selectedStrategy = portfolioStrategy(portfolio);
   const strategyId =
     PORTFOLIO_STRATEGY_ID[portfolio.id] ?? selectedStrategy.id;
-  return {
+  return normalizeProductMetrics({
     id: portfolio.id,
     name: portfolio.name,
     kind: "Portfolio",
@@ -129,12 +130,12 @@ export function portfolioToMarketplaceProduct(
     })),
     assetIds: portfolio.assets.map((a) => a.assetId),
     href: portfolioHref(portfolio),
-    featured: portfolio.id === "degen-ten-shots",
-    isNew: portfolio.id === "degen-ten-shots",
+    featured: false,
+    isNew: false,
     addedAt: PORTFOLIO_ADDED[portfolio.id] ?? "2025-06-01",
     rankMonthly: portfolio.rankMonthly,
     isIllustrative: portfolio.isIllustrative,
-  };
+  });
 }
 
 export function toMarketplaceProduct(portfolio: Portfolio): MarketplaceProduct {
@@ -148,10 +149,7 @@ export function getCommunityMarketplacePortfolios(): MarketplaceProduct[] {
 }
 
 export function getDiscoverCatalog(): DiscoverCatalog {
-  const communityPortfolios = getCommunityMarketplacePortfolios();
-  const portfolios = [...INDEXLA_PORTFOLIO_CATALOG, ...communityPortfolios];
-
-  const products = [...INDEXLA_INDEX_CATALOG, ...portfolios];
+  const products = [...INDEXLA_INDEX_CATALOG, ...INDEXLA_PORTFOLIO_CATALOG];
 
   return {
     products,

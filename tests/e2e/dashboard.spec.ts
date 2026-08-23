@@ -79,7 +79,7 @@ test.describe("Marketplace-First Dashboard", () => {
       ).toBeVisible();
     });
 
-    test("explore marketplace tabs and degen club link", async ({ page }) => {
+    test("explore marketplace tabs and asset categories", async ({ page }) => {
       await expect(
         page.getByRole("tablist", { name: "Marketplace product type" }),
       ).toBeVisible();
@@ -93,8 +93,11 @@ test.describe("Marketplace-First Dashboard", () => {
           .getByRole("tab", { name: "Portfolios" }),
       ).toHaveAttribute("aria-selected", "true");
       await expect(
+        page.getByRole("tablist", { name: "Asset category" }),
+      ).toBeVisible();
+      await expect(
         page.getByRole("link", { name: "🔥 Degen Club" }),
-      ).toHaveAttribute("href", /\/app\/degen-club$/);
+      ).toHaveCount(0);
     });
 
     test("featured carousel opens product details", async ({ page }) => {

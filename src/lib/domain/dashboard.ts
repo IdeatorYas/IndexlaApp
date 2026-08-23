@@ -92,6 +92,7 @@ export interface FeaturedProductPreview {
   strategy: string;
   performance30d: number;
   aumUsd: number;
+  volumeUsd: number;
   investors: number;
   risk: ProductRisk;
   allocations: AllocationPreview[];

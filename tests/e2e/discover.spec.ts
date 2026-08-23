@@ -18,7 +18,7 @@ test.describe("Discover marketplace", () => {
     ).toBeVisible();
     await expect(page.getByText("Layer 1 Index").first()).toBeVisible();
     await expect(page.getByText("INDEXLA · Verified").first()).toBeVisible();
-    await expect(page.getByText("Risk").first()).toBeVisible();
+    await expect(page.getByText("Volume").first()).toBeVisible();
     await expect(page.getByRole("link", { name: "View Details" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Invest" }).first()).toBeVisible();
   });
@@ -44,7 +44,7 @@ test.describe("Discover marketplace", () => {
     await expect(page.getByText("Customize First")).toBeVisible();
   });
 
-  test("filters indexes tab and risk", async ({ page }) => {
+  test("filters indexes tab and narrative", async ({ page }) => {
     await page.goto(APP_ROUTES.discover);
     await page.getByRole("tab", { name: "Portfolios" }).click();
     await expect(page).toHaveURL(/tab=portfolios/);

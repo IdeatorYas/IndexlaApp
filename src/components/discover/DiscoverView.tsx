@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { DiscoverCatalog } from "@/lib/domain/marketplace";
-import type { MarketplaceFilterState } from "@/lib/domain/marketplace-filters";
+import type {
+  AssetCategory,
+  MarketplaceFilterState,
+} from "@/lib/domain/marketplace-filters";
 import {
   EmptyState,
   ErrorState,
@@ -14,15 +17,7 @@ import { MarketplaceExplorer } from "@/components/marketplace/MarketplaceExplore
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { APP_ROUTES } from "@/lib/routes";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
-import type {
-  DiscoverSort,
-  IndexType,
-  MarketplaceStrategyTag,
-  NarrativeId,
-  ProductTab,
-} from "@/lib/domain/marketplace";
-import type { ProductRisk } from "@/lib/domain/dashboard";
-import type { NetworkId } from "@/lib/domain/types";
+import type { DiscoverSort, NarrativeId, ProductTab } from "@/lib/domain/marketplace";
 
 type LoadState = "loading" | "ready" | "empty" | "error";
 
@@ -31,15 +26,16 @@ function parseProductTab(raw: string | null): ProductTab {
   return "indexes";
 }
 
-function parseIndexType(raw: string | null): IndexType {
+function parseAssetCategory(raw: string | null): AssetCategory {
   if (
+    raw === "Crypto" ||
     raw === "Tokenized Stocks" ||
     raw === "Tokenized Commodities" ||
     raw === "Hybrid"
   ) {
     return raw;
   }
-  return "Crypto";
+  return "All";
 }
 
 function parseSort(raw: string | null): DiscoverSort {
@@ -53,18 +49,6 @@ function parseSort(raw: string | null): DiscoverSort {
     return raw;
   }
   return "trending";
-}
-
-function parseStrategy(raw: string | null): MarketplaceStrategyTag | "All" {
-  if (
-    raw === "buy-fear-sell-greed" ||
-    raw === "rsi" ||
-    raw === "tp-sl" ||
-    raw === "momentum"
-  ) {
-    return raw;
-  }
-  return "All";
 }
 
 function parseNarrative(raw: string | null): NarrativeId {
@@ -95,12 +79,9 @@ export function DiscoverView({
 
   const initialState: Partial<MarketplaceFilterState> = {
     productTab: parseProductTab(searchParams.get("tab")),
-    indexType: parseIndexType(searchParams.get("type")),
+    assetCategory: parseAssetCategory(searchParams.get("type")),
     narrative: parseNarrative(searchParams.get("narrative")),
     query: searchParams.get("q") ?? "",
-    risk: (searchParams.get("risk") as ProductRisk | null) ?? "All",
-    network: (searchParams.get("network") as NetworkId | null) ?? "All",
-    strategy: parseStrategy(searchParams.get("strategy")),
     sort: parseSort(searchParams.get("sort")),
   };
 
@@ -164,8 +145,8 @@ export function DiscoverView({
             {illustrative ? <IllustrativeBadge compact /> : null}
           </div>
           <p className="mt-1 max-w-2xl text-sm text-app-muted">
-            Full INDEXLA index catalog with narrative, risk, network and strategy
-            filters.
+            Full INDEXLA index and portfolio catalog with asset category and
+            index narrative filters.
           </p>
         </div>
         <Link
