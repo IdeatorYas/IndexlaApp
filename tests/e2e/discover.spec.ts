@@ -18,7 +18,7 @@ test.describe("Discover marketplace", () => {
     ).toBeVisible();
     await expect(page.getByText("Layer 1 Index").first()).toBeVisible();
     await expect(page.getByText("INDEXLA · Verified").first()).toBeVisible();
-    await expect(page.getByText("Volume").first()).toBeVisible();
+    await expect(page.getByText("AUM").first()).toBeVisible();
     await expect(page.getByRole("link", { name: "View Details" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Invest" }).first()).toBeVisible();
   });
