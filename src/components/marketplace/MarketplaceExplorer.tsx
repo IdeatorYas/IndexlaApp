@@ -47,14 +47,12 @@ export function MarketplaceExplorer({
   variant = "dashboard",
   maxProducts,
   initialState,
-  onProductClick,
   syncUrl,
 }: {
   catalog: DiscoverCatalog;
   variant?: "dashboard" | "discover";
   maxProducts?: number;
   initialState?: Partial<MarketplaceFilterState>;
-  onProductClick?: (product: MarketplaceProduct) => void;
   syncUrl?: (patch: Record<string, string | null>) => void;
 }) {
   const [state, setState] = useState<MarketplaceFilterState>({
@@ -102,34 +100,13 @@ export function MarketplaceExplorer({
   const discoverHref = buildDiscoverHref(state);
   const isDashboard = variant === "dashboard";
 
-  const renderCard = (product: MarketplaceProduct) => {
-    const card = (
-      <MarketplaceProductCard
-        product={product}
-        interactive={!onProductClick}
-        compact={isDashboard}
-      />
-    );
-    if (onProductClick) {
-      return (
-        <button
-          key={product.id}
-          type="button"
-          className="text-left"
-          onClick={() => onProductClick(product)}
-        >
-          {card}
-        </button>
-      );
-    }
-    return (
-      <MarketplaceProductCard
-        key={product.id}
-        product={product}
-        compact={isDashboard}
-      />
-    );
-  };
+  const renderCard = (product: MarketplaceProduct) => (
+    <MarketplaceProductCard
+      key={product.id}
+      product={product}
+      compact={isDashboard}
+    />
+  );
 
   if (isDashboard) {
     return (

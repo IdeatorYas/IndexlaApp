@@ -106,7 +106,7 @@ test.describe("Marketplace-First Dashboard", () => {
         .getByRole("link", { name: /Layer 1 Index/i })
         .first()
         .click();
-      await expect(page).toHaveURL(/\/app\/discover/);
+      await expect(page).toHaveURL(/\/app\/product\//);
     });
 
     test("centered view all opens discover", async ({ page }) => {
@@ -124,16 +124,16 @@ test.describe("Marketplace-First Dashboard", () => {
         page.getByPlaceholder("Search by index name or asset"),
       ).toHaveCount(0);
 
-      const productLinks = page.locator(
-        '[aria-label="Explore marketplace"] .grid a[href*="id="]',
+      const productCards = page.locator(
+        '[aria-label="Explore marketplace"] article',
       );
-      await expect(productLinks).toHaveCount(6);
+      await expect(productCards).toHaveCount(6);
 
       const exploreHeading = page.getByRole("heading", {
         name: "Explore Marketplace",
       });
-      const firstCard = productLinks.first();
-      const sixthCard = productLinks.nth(5);
+      const firstCard = productCards.first();
+      const sixthCard = productCards.nth(5);
 
       const headingBox = await exploreHeading.boundingBox();
       const firstBox = await firstCard.boundingBox();

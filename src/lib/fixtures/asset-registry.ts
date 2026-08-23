@@ -92,6 +92,32 @@ export const ASSET_ICON_URLS: Record<string, string> = {
   usoon: "https://coin-images.coingecko.com/coins/images/1349/small/oil.png",
   ungon: "https://coin-images.coingecko.com/coins/images/1349/small/oil.png",
   wif: "/images/assets/meme/wif.jpg",
+  inj: "https://coin-images.coingecko.com/coins/images/12882/small/Injective-symbol.png",
+  aero: "https://coin-images.coingecko.com/coins/images/31745/small/token.png",
+  ath: "https://coin-images.coingecko.com/coins/images/37334/small/aethir.jpeg",
+  aapl: "https://companiesmarketcap.com/img/company-logos/256/AAPL.png",
+  msft: "https://companiesmarketcap.com/img/company-logos/256/MSFT.png",
+  googl: "https://companiesmarketcap.com/img/company-logos/256/GOOGL.png",
+  amzn: "https://companiesmarketcap.com/img/company-logos/256/AMZN.png",
+  meta: "https://companiesmarketcap.com/img/company-logos/256/META.png",
+  nvda: "https://companiesmarketcap.com/img/company-logos/256/NVDA.png",
+  tsla: "https://companiesmarketcap.com/img/company-logos/256/TSLA.png",
+  pltr: "https://companiesmarketcap.com/img/company-logos/256/PLTR.png",
+  amd: "https://companiesmarketcap.com/img/company-logos/256/AMD.png",
+  arm: "https://companiesmarketcap.com/img/company-logos/256/ARM.png",
+  coin: "https://companiesmarketcap.com/img/company-logos/256/COIN.png",
+  hood: "https://companiesmarketcap.com/img/company-logos/256/HOOD.png",
+  blk: "https://companiesmarketcap.com/img/company-logos/256/BLK.png",
+  jpm: "https://companiesmarketcap.com/img/company-logos/256/JPM.png",
+  v: "https://companiesmarketcap.com/img/company-logos/256/V.png",
+  ma: "https://companiesmarketcap.com/img/company-logos/256/MA.png",
+  spy: "https://companiesmarketcap.com/img/company-logos/256/SPY.png",
+  qqq: "https://companiesmarketcap.com/img/company-logos/256/QQQ.png",
+  ionq: "https://companiesmarketcap.com/img/company-logos/256/IONQ.png",
+  rklb: "https://companiesmarketcap.com/img/company-logos/256/RKLB.png",
+  asts: "https://companiesmarketcap.com/img/company-logos/256/ASTS.png",
+  rgti: "https://companiesmarketcap.com/img/company-logos/256/RGTI.png",
+  sofi: "https://companiesmarketcap.com/img/company-logos/256/SOFI.png",
 };
 
 export const ASSET_COLORS: Record<string, string> = {
@@ -153,4 +179,113 @@ export const ASSET_COLORS: Record<string, string> = {
 
 export function assetLabel(symbol: string): string {
   return symbol.toUpperCase();
+}
+
+const ASSET_NAMES: Record<string, string> = {
+  btc: "Bitcoin",
+  eth: "Ethereum",
+  sol: "Solana",
+  link: "Chainlink",
+  uni: "Uniswap",
+  peaq: "peaq",
+  inj: "Injective",
+  tao: "Bittensor",
+  render: "Render",
+  ondo: "Ondo",
+  akt: "Akash Network",
+  virtual: "Virtuals Protocol",
+  vvv: "Venice Token",
+  grt: "The Graph",
+  ath: "Aethir",
+  zec: "Zcash",
+  aero: "Aerodrome Finance",
+  near: "NEAR Protocol",
+  aapl: "Apple",
+  msft: "Microsoft",
+  googl: "Alphabet",
+  amzn: "Amazon",
+  meta: "Meta Platforms",
+  nvda: "NVIDIA",
+  tsla: "Tesla",
+  pltr: "Palantir Technologies",
+  amd: "Advanced Micro Devices",
+  arm: "Arm Holdings",
+  coin: "Coinbase Global",
+  hood: "Robinhood Markets",
+  blk: "BlackRock",
+  jpm: "JPMorgan Chase",
+  v: "Visa",
+  ma: "Mastercard",
+  paxg: "Gold",
+  slvon: "Silver",
+  cperon: "Copper",
+  spy: "SPDR S&P 500 ETF Trust",
+  qqq: "Invesco QQQ Trust",
+  ionq: "IonQ",
+  rklb: "Rocket Lab",
+  asts: "AST SpaceMobile",
+  rgti: "Rigetti Computing",
+  sofi: "SoFi Technologies",
+};
+
+const ASSET_NETWORKS: Record<string, string> = {
+  btc: "Multi-chain",
+  eth: "Ethereum",
+  sol: "Solana",
+  wif: "Solana",
+  link: "Multi-chain",
+  uni: "Ethereum",
+  peaq: "Ethereum",
+  inj: "Cosmos",
+  tao: "Bittensor",
+  render: "Ethereum",
+  ondo: "Ethereum",
+  akt: "Cosmos",
+  virtual: "Base",
+  vvv: "Ethereum",
+  grt: "Ethereum",
+  ath: "Ethereum",
+  zec: "Multi-chain",
+  aero: "Base",
+  near: "NEAR",
+  paxg: "Ethereum",
+  slvon: "Tokenized · Ethereum",
+  cperon: "Tokenized · Ethereum",
+  nvda: "Tokenized · Base",
+  aapl: "Tokenized · Ethereum",
+  msft: "Tokenized · Ethereum",
+  googl: "Tokenized · Ethereum",
+  amzn: "Tokenized · Ethereum",
+  meta: "Tokenized · Ethereum",
+  tsla: "Tokenized · Ethereum",
+  pltr: "Tokenized · Ethereum",
+  amd: "Tokenized · Ethereum",
+  arm: "Tokenized · Ethereum",
+  coin: "Tokenized · Base",
+  hood: "Tokenized · Ethereum",
+  blk: "Tokenized · Ethereum",
+  jpm: "Tokenized · Ethereum",
+  v: "Tokenized · Ethereum",
+  ma: "Tokenized · Ethereum",
+  spy: "Tokenized · Ethereum",
+  qqq: "Tokenized · Ethereum",
+  ionq: "Tokenized · Ethereum",
+  rklb: "Tokenized · Ethereum",
+  asts: "Tokenized · Ethereum",
+  rgti: "Tokenized · Ethereum",
+  sofi: "Tokenized · Ethereum",
+};
+
+export function getAssetDisplayName(assetId: string): string {
+  const id = assetId.toLowerCase();
+  return ASSET_NAMES[id] ?? assetLabel(id);
+}
+
+export function getAssetNetworkLabel(assetId: string): string {
+  const id = assetId.toLowerCase();
+  if (ASSET_NETWORKS[id]) return ASSET_NETWORKS[id];
+  if (/^[a-z]{2,5}$/.test(id) && id.length <= 5 && !id.includes("on")) {
+    return "Crypto";
+  }
+  return "Multi-chain";
 }

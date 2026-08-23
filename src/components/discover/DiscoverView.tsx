@@ -1,30 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type {
-  DiscoverCatalog,
-  DiscoverSort,
-  IndexType,
-  MarketplaceProduct,
-  MarketplaceStrategyTag,
-  NarrativeId,
-  ProductTab,
-} from "@/lib/domain/marketplace";
-import type { ProductRisk } from "@/lib/domain/dashboard";
-import type { NetworkId } from "@/lib/domain/types";
-import { ProductDetailPanel } from "@/components/product/ProductDetailPanel";
+import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import type { DiscoverCatalog } from "@/lib/domain/marketplace";
+import type { MarketplaceFilterState } from "@/lib/domain/marketplace-filters";
 import {
   EmptyState,
   ErrorState,
   LoadingSkeleton,
 } from "@/components/states/AppStates";
 import { MarketplaceExplorer } from "@/components/marketplace/MarketplaceExplorer";
-import type { MarketplaceFilterState } from "@/lib/domain/marketplace-filters";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { APP_ROUTES } from "@/lib/routes";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
+import type {
+  DiscoverSort,
+  IndexType,
+  MarketplaceStrategyTag,
+  NarrativeId,
+  ProductTab,
+} from "@/lib/domain/marketplace";
+import type { ProductRisk } from "@/lib/domain/dashboard";
+import type { NetworkId } from "@/lib/domain/types";
 
 type LoadState = "loading" | "ready" | "empty" | "error";
 
@@ -84,67 +82,36 @@ export function DiscoverView({
   initialError?: boolean;
 }) {
   const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { wallet, connectDemo } = useDemoWallet();
 
-  const [loadState, setLoadState] = useState<LoadState>(
-    initialError ? "error" : "loading",
-  );
-
   const selectedId = searchParams.get("id");
 
-  const initialState = useMemo<Partial<MarketplaceFilterState>>(
-    () => ({
-      productTab: parseProductTab(searchParams.get("tab")),
-      indexType: parseIndexType(searchParams.get("type")),
-      narrative: parseNarrative(searchParams.get("narrative")),
-      query: searchParams.get("q") ?? "",
-      risk: (searchParams.get("risk") as ProductRisk | null) ?? "All",
-      network: (searchParams.get("network") as NetworkId | null) ?? "All",
-      strategy: parseStrategy(searchParams.get("strategy")),
-      sort: parseSort(searchParams.get("sort")),
-    }),
-    [searchParams],
-  );
-
   useEffect(() => {
-    if (initialError) return;
-    const timer = window.setTimeout(() => {
-      setLoadState(catalog.products.length === 0 ? "empty" : "ready");
-    }, 280);
-    return () => window.clearTimeout(timer);
-  }, [catalog.products.length, initialError]);
+    if (selectedId) {
+      router.replace(APP_ROUTES.product(selectedId));
+    }
+  }, [selectedId, router]);
 
-  const syncParams = useCallback(
-    (patch: Record<string, string | null>) => {
-      const params = new URLSearchParams(searchParams.toString());
-      for (const [key, value] of Object.entries(patch)) {
-        if (!value || value === "All" || value === "all") params.delete(key);
-        else params.set(key, value);
-      }
-      const qs = params.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-    },
-    [pathname, router, searchParams],
-  );
+  const initialState: Partial<MarketplaceFilterState> = {
+    productTab: parseProductTab(searchParams.get("tab")),
+    indexType: parseIndexType(searchParams.get("type")),
+    narrative: parseNarrative(searchParams.get("narrative")),
+    query: searchParams.get("q") ?? "",
+    risk: (searchParams.get("risk") as ProductRisk | null) ?? "All",
+    network: (searchParams.get("network") as NetworkId | null) ?? "All",
+    strategy: parseStrategy(searchParams.get("strategy")),
+    sort: parseSort(searchParams.get("sort")),
+  };
 
-  const selected = useMemo(
-    () => catalog.products.find((p) => p.id === selectedId) ?? null,
-    [catalog.products, selectedId],
-  );
+  const loadState: LoadState = initialError
+    ? "error"
+    : catalog.products.length === 0
+      ? "empty"
+      : "ready";
 
-  if (loadState === "loading") {
-    return (
-      <div className="space-y-4">
-        <LoadingSkeleton title="Loading Discover" lines={4} />
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <LoadingSkeleton lines={5} />
-          <LoadingSkeleton lines={5} />
-          <LoadingSkeleton lines={5} />
-        </div>
-      </div>
-    );
+  if (selectedId) {
+    return <LoadingSkeleton title="Opening product" lines={4} />;
   }
 
   if (loadState === "error") {
@@ -156,7 +123,7 @@ export function DiscoverView({
           <button
             type="button"
             className="app-gradient-btn rounded-[10px] px-4 py-2 text-sm font-bold"
-            onClick={() => setLoadState("ready")}
+            onClick={() => router.refresh()}
           >
             Retry
           </button>
@@ -173,6 +140,18 @@ export function DiscoverView({
       />
     );
   }
+
+  const syncParams = (patch: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(patch)) {
+      if (!value || value === "All" || value === "all") params.delete(key);
+      else params.set(key, value);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${APP_ROUTES.discover}?${qs}` : APP_ROUTES.discover, {
+      scroll: false,
+    });
+  };
 
   return (
     <div className="space-y-5">
@@ -218,23 +197,11 @@ export function DiscoverView({
         </div>
       ) : null}
 
-      {selected ? (
-        <ProductDetailPanel
-          product={selected}
-          onClose={() => syncParams({ id: null })}
-          walletConnected={wallet.state === "connected"}
-          onConnect={connectDemo}
-        />
-      ) : null}
-
       <MarketplaceExplorer
         catalog={catalog}
         variant="discover"
         initialState={initialState}
         syncUrl={syncParams}
-        onProductClick={(product: MarketplaceProduct) =>
-          syncParams({ id: product.id })
-        }
       />
     </div>
   );

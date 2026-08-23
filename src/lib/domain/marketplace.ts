@@ -2,6 +2,7 @@ import type {
   AllocationPreview,
   ProductRisk,
 } from "@/lib/domain/dashboard";
+import type { ProductSelectedStrategy } from "@/lib/domain/product-strategy";
 import type { NetworkId } from "@/lib/domain/types";
 
 export type IndexType =
@@ -49,6 +50,11 @@ export interface StrategyCompositionEntry {
   percent: number;
 }
 
+export interface PerformancePoint {
+  t: string;
+  v: number;
+}
+
 /** Shared product card model for Dashboard + Discover. */
 export interface MarketplaceProduct {
   id: string;
@@ -63,10 +69,14 @@ export interface MarketplaceProduct {
   description: string;
   /** @deprecated Use description — kept for legacy references */
   thesis: string;
+  /** @deprecated Use selectedStrategy.name */
   strategy: string;
   strategyTags: MarketplaceStrategyTag[];
-  strategyComposition: StrategyCompositionEntry[];
+  /** @deprecated Internal catalog guidance only — never render */
+  strategyComposition?: StrategyCompositionEntry[];
+  selectedStrategy: ProductSelectedStrategy;
   performance30d: number;
+  performanceChart: PerformancePoint[];
   aumUsd: number;
   volumeUsd: number;
   investors: number;
