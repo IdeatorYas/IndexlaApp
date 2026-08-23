@@ -28,6 +28,7 @@ function toFeatured(id: string) {
     strategy: p.strategy,
     performance30d: p.performance30d,
     aumUsd: p.aumUsd,
+    volumeUsd: p.volumeUsd,
     investors: p.investors,
     risk: p.risk,
     allocations: p.allocations,

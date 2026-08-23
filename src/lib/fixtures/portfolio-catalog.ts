@@ -6,6 +6,7 @@ import type {
 } from "@/lib/domain/marketplace";
 import type { NetworkId } from "@/lib/domain/types";
 import { assetLabel } from "@/lib/fixtures/asset-registry";
+import { normalizeProductMetrics } from "@/lib/fixtures/marketplace-metrics";
 import {
   buildPerformanceChart,
   resolveProductStrategy,
@@ -47,7 +48,7 @@ function buildPortfolio(def: PortfolioDef): MarketplaceProduct {
   const selectedStrategy = resolveProductStrategy(strategyId);
   const strategyTags = strategyTagsForId(strategyId);
 
-  return {
+  return normalizeProductMetrics({
     id: def.id,
     name: def.name,
     kind: "Portfolio",
@@ -78,7 +79,7 @@ function buildPortfolio(def: PortfolioDef): MarketplaceProduct {
     addedAt: def.addedAt,
     rankMonthly: null,
     isIllustrative: true,
-  };
+  });
 }
 
 const PORTFOLIO_DEFS: PortfolioDef[] = [

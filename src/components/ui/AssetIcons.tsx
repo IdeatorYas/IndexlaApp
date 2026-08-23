@@ -1,8 +1,30 @@
+"use client";
+
 import Image from "next/image";
+import { useState } from "react";
 import {
-  ASSET_COLORS,
-  ASSET_ICON_URLS,
+  GENERIC_ASSET_LOGO,
+  getAssetLogoUrl,
+  resolveAssetTicker,
 } from "@/lib/fixtures/asset-registry";
+
+function GenericAssetIcon({ size, title }: { size: number; title: string }) {
+  return (
+    <span
+      className="inline-flex shrink-0 overflow-hidden rounded-full border border-app-line bg-app-elevated shadow-sm"
+      style={{ width: size, height: size }}
+      title={title}
+    >
+      <Image
+        src={GENERIC_ASSET_LOGO}
+        alt={title}
+        width={size}
+        height={size}
+        className="h-full w-full object-cover"
+      />
+    </span>
+  );
+}
 
 export function AssetIcon({
   assetId,
@@ -11,52 +33,43 @@ export function AssetIcon({
   assetId: string;
   size?: number;
 }) {
-  const id = assetId.toLowerCase();
-  const src = ASSET_ICON_URLS[id];
-  const label = id.toUpperCase();
+  const ticker = resolveAssetTicker(assetId);
+  const src = getAssetLogoUrl(assetId);
+  const [broken, setBroken] = useState(false);
 
-  if (src) {
-    const isRemote = src.startsWith("http");
-    return (
-      <span
-        className="inline-flex shrink-0 overflow-hidden rounded-full border border-app-line bg-app-elevated shadow-sm"
-        style={{ width: size, height: size }}
-        title={label}
-      >
-        {isRemote ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={src}
-            alt={label}
-            width={size}
-            height={size}
-            className="h-full w-full object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <Image
-            src={src}
-            alt={label}
-            width={size}
-            height={size}
-            className="h-full w-full object-cover"
-          />
-        )}
-      </span>
-    );
+  if (!src || broken) {
+    return <GenericAssetIcon size={size} title={ticker} />;
   }
+
+  const isRemote = src.startsWith("http");
 
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/10 text-[9px] font-bold text-white shadow-sm"
-      style={{
-        width: size,
-        height: size,
-        background: ASSET_COLORS[id] ?? "var(--color-brand)",
-      }}
-      title={label}
+      className="inline-flex shrink-0 overflow-hidden rounded-full border border-app-line bg-app-elevated shadow-sm"
+      style={{ width: size, height: size }}
+      title={ticker}
     >
-      {label.slice(0, 3)}
+      {isRemote ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={ticker}
+          width={size}
+          height={size}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <Image
+          src={src}
+          alt={ticker}
+          width={size}
+          height={size}
+          className="h-full w-full object-cover"
+          onError={() => setBroken(true)}
+        />
+      )}
     </span>
   );
 }

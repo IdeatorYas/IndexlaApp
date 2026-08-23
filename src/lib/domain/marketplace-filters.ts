@@ -1,20 +1,20 @@
-import type { ProductRisk } from "@/lib/domain/dashboard";
 import type {
   DiscoverSort,
   IndexType,
   MarketplaceProduct,
-  MarketplaceStrategyTag,
   NarrativeId,
   ProductTab,
 } from "@/lib/domain/marketplace";
-import type { NetworkId } from "@/lib/domain/types";
+
+export type AssetCategory = IndexType | "All";
 
 export const PRODUCT_TABS: { id: ProductTab; label: string }[] = [
   { id: "indexes", label: "Indexes" },
   { id: "portfolios", label: "Portfolios" },
 ];
 
-export const INDEX_TYPE_TABS: { id: IndexType; label: string }[] = [
+export const ASSET_CATEGORY_TABS: { id: AssetCategory; label: string }[] = [
+  { id: "All", label: "All" },
   { id: "Crypto", label: "Crypto" },
   { id: "Tokenized Stocks", label: "Tokenized Stocks" },
   { id: "Tokenized Commodities", label: "Tokenized Commodities" },
@@ -64,24 +64,8 @@ export const NARRATIVES_BY_INDEX_TYPE: Record<
   ],
 };
 
-export const RISK_FILTERS: (ProductRisk | "All")[] = [
-  "All",
-  "Low",
-  "Medium",
-  "High",
-  "Extreme",
-];
-
-export const STRATEGY_FILTERS: {
-  id: MarketplaceStrategyTag | "All";
-  label: string;
-}[] = [
-  { id: "All", label: "All" },
-  { id: "buy-fear-sell-greed", label: "Buy Fear/Sell Greed" },
-  { id: "rsi", label: "RSI" },
-  { id: "tp-sl", label: "TP/SL" },
-  { id: "momentum", label: "Momentum" },
-];
+export const NARRATIVES_FOR_ALL_CATEGORIES: { id: NarrativeId; label: string }[] =
+  [{ id: "all", label: "All" }];
 
 export const SORT_OPTIONS: { id: DiscoverSort; label: string }[] = [
   { id: "trending", label: "Trending" },
@@ -94,23 +78,17 @@ export const SORT_OPTIONS: { id: DiscoverSort; label: string }[] = [
 
 export interface MarketplaceFilterState {
   productTab: ProductTab;
-  indexType: IndexType;
+  assetCategory: AssetCategory;
   narrative: NarrativeId;
   query: string;
-  risk: ProductRisk | "All";
-  network: NetworkId | "All";
-  strategy: MarketplaceStrategyTag | "All";
   sort: DiscoverSort;
 }
 
 export const DEFAULT_FILTER_STATE: MarketplaceFilterState = {
   productTab: "indexes",
-  indexType: "Crypto",
+  assetCategory: "All",
   narrative: "all",
   query: "",
-  risk: "All",
-  network: "All",
-  strategy: "All",
   sort: "trending",
 };
 
@@ -119,34 +97,17 @@ function matchesProductTab(product: MarketplaceProduct, tab: ProductTab) {
   return product.kind === "Portfolio";
 }
 
-function matchesIndexType(product: MarketplaceProduct, indexType: IndexType) {
-  return product.indexType === indexType;
+function matchesAssetCategory(
+  product: MarketplaceProduct,
+  assetCategory: AssetCategory,
+) {
+  if (assetCategory === "All") return true;
+  return product.indexType === assetCategory;
 }
 
 function matchesNarrative(product: MarketplaceProduct, narrative: NarrativeId) {
   if (narrative === "all") return true;
   return product.narrative === narrative;
-}
-
-function matchesRisk(product: MarketplaceProduct, risk: ProductRisk | "All") {
-  if (risk === "All") return true;
-  return product.risk === risk;
-}
-
-function matchesNetwork(
-  product: MarketplaceProduct,
-  network: NetworkId | "All",
-) {
-  if (network === "All") return true;
-  return product.networkIds.includes(network);
-}
-
-function matchesStrategy(
-  product: MarketplaceProduct,
-  strategy: MarketplaceStrategyTag | "All",
-) {
-  if (strategy === "All") return true;
-  return product.strategyTags.includes(strategy);
 }
 
 function matchesSearch(product: MarketplaceProduct, query: string) {
@@ -193,21 +154,32 @@ export function filterMarketplaceProducts(
 ) {
   const list = products.filter((product) => {
     if (!matchesProductTab(product, state.productTab)) return false;
-    if (!matchesIndexType(product, state.indexType)) return false;
-    if (!matchesNarrative(product, state.narrative)) return false;
-    if (!matchesRisk(product, state.risk)) return false;
-    if (!matchesNetwork(product, state.network)) return false;
-    if (!matchesStrategy(product, state.strategy)) return false;
+    if (!matchesAssetCategory(product, state.assetCategory)) return false;
+    if (
+      state.productTab === "indexes" &&
+      !matchesNarrative(product, state.narrative)
+    ) {
+      return false;
+    }
     if (!matchesSearch(product, state.query)) return false;
     return true;
   });
   return sortMarketplaceProducts(list, state.sort);
 }
 
+export function narrativeOptionsForCategory(
+  assetCategory: AssetCategory,
+): { id: NarrativeId; label: string }[] {
+  if (assetCategory === "All") return NARRATIVES_FOR_ALL_CATEGORIES;
+  return NARRATIVES_BY_INDEX_TYPE[assetCategory];
+}
+
 export function narrativeLabel(
-  indexType: IndexType,
+  assetCategory: AssetCategory,
   narrative: NarrativeId,
 ): string {
-  const match = NARRATIVES_BY_INDEX_TYPE[indexType].find((n) => n.id === narrative);
+  const match = narrativeOptionsForCategory(assetCategory).find(
+    (n) => n.id === narrative,
+  );
   return match?.label ?? narrative;
 }
