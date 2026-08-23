@@ -221,7 +221,7 @@ export function DegenClubView({
           <button
             type="button"
             onClick={connectDemo}
-            className="h-9 rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+            className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet
           </button>
@@ -281,10 +281,8 @@ export function DegenClubView({
                 aria-selected={selectedFilter}
                 onClick={() => setFilter(item.id)}
                 className={[
-                  "h-8 rounded-full px-3 text-[12px] font-bold",
-                  selectedFilter
-                    ? "bg-app-brand text-white"
-                    : "border border-app-line bg-app-elevated text-app-ink/75 hover:text-app-ink",
+                  "app-page-tab app-interactive",
+                  selectedFilter ? "app-page-tab-active" : "",
                 ].join(" ")}
               >
                 {item.label}
@@ -418,7 +416,7 @@ function HeroSection({
             <button
               type="button"
               onClick={onDiscover}
-              className="h-10 rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+              className="h-10 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
             >
               Discover Memecoin Indexes
             </button>
@@ -538,7 +536,7 @@ function ProductCard({
       <button
         type="button"
         onClick={onView}
-        className="mt-auto inline-flex h-9 items-center justify-center rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+        className="mt-auto inline-flex h-9 items-center justify-center app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
       >
         View Product
       </button>
@@ -827,7 +825,7 @@ function BuildConfirmModal({
           <button
             type="button"
             onClick={onContinue}
-            className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+            className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
           >
             Continue to Create
           </button>
@@ -908,7 +906,7 @@ function InvestConfirmModal({
             type="button"
             disabled={!acknowledged || !walletConnected}
             onClick={onConfirm}
-            className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white disabled:opacity-40"
+            className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white disabled:opacity-40"
           >
             Confirm Invest Preview
           </button>

@@ -331,7 +331,7 @@ export function MarketplaceExplorer({
                   syncUrl?.({ q: query || null });
                 }}
                 placeholder="Search by index name or asset"
-                className="h-10 w-full rounded-[10px] border border-app-line bg-app-elevated px-3 text-sm text-app-ink outline-none ring-app-brand/30 placeholder:text-app-dim focus:ring-2"
+                className="app-input h-10 w-full px-3 text-sm"
               />
             </label>
             <FilterSelect

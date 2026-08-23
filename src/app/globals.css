@@ -39,6 +39,8 @@
   --chart-stroke: #2563eb;
   --chart-fill: rgba(37, 99, 235, 0.14);
   --content-max: 1280px;
+  --transition-fast: 140ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ─── Dark — neutral near-black with lighter elevated surfaces ─── */
@@ -79,6 +81,8 @@
   --chart-stroke: #a78bfa;
   --chart-fill: rgba(167, 139, 250, 0.16);
   --content-max: 1280px;
+  --transition-fast: 140ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @theme inline {
@@ -116,10 +120,19 @@
 
   body {
     font-family: var(--font-body);
-    background: var(--color-bg);
+    background:
+      radial-gradient(ellipse 120% 80% at 50% -20%, color-mix(in srgb, var(--color-brand) 8%, transparent), transparent 55%),
+      var(--color-bg);
     color: var(--color-ink);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  [data-theme="dark"] body {
+    background:
+      radial-gradient(ellipse 100% 60% at 50% -10%, rgba(96, 165, 250, 0.07), transparent 50%),
+      radial-gradient(ellipse 80% 50% at 100% 0%, rgba(167, 139, 250, 0.05), transparent 45%),
+      var(--color-bg);
   }
 
   ::selection {
@@ -180,14 +193,23 @@
 
   .app-panel-hover {
     transition:
-      transform 160ms ease,
-      box-shadow 160ms ease,
-      border-color 160ms ease;
+      transform var(--transition-base),
+      box-shadow var(--transition-base),
+      border-color var(--transition-base);
   }
 
   .app-panel-hover:hover {
     transform: translateY(-1px);
     box-shadow: var(--shadow-card-hover);
+  }
+
+  .app-interactive {
+    transition:
+      transform var(--transition-fast),
+      box-shadow var(--transition-fast),
+      border-color var(--transition-fast),
+      background var(--transition-fast),
+      color var(--transition-fast);
   }
 
   .app-gradient-btn {
@@ -198,14 +220,149 @@
     );
     color: white;
     box-shadow: var(--shadow-glow);
+    transition:
+      filter var(--transition-fast),
+      transform var(--transition-fast),
+      box-shadow var(--transition-fast);
   }
 
   .app-gradient-btn:hover {
-    filter: brightness(1.05);
+    filter: brightness(1.06);
+    transform: translateY(-1px);
   }
 
   .app-gradient-btn:active {
     filter: brightness(0.96);
+    transform: translateY(0);
+  }
+
+  .app-btn-secondary {
+    border: 1px solid var(--color-panel-border);
+    background: var(--color-bg-elevated);
+    color: var(--color-ink);
+    border-radius: var(--radius-control);
+    font-weight: 700;
+    transition:
+      border-color var(--transition-fast),
+      background var(--transition-fast),
+      color var(--transition-fast),
+      transform var(--transition-fast);
+  }
+
+  .app-btn-secondary:hover {
+    border-color: color-mix(in srgb, var(--color-brand) 35%, var(--color-panel-border));
+    background: color-mix(in srgb, var(--color-brand) 6%, var(--color-bg-elevated));
+  }
+
+  .app-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-panel-border);
+    background: var(--color-panel);
+    color: var(--color-ink-muted);
+    border-radius: 9999px;
+    transition:
+      border-color var(--transition-fast),
+      background var(--transition-fast),
+      color var(--transition-fast),
+      transform var(--transition-fast);
+  }
+
+  .app-icon-btn:hover {
+    border-color: color-mix(in srgb, var(--color-brand) 35%, var(--color-panel-border));
+    color: var(--color-ink);
+    background: color-mix(in srgb, var(--color-brand) 8%, var(--color-panel));
+  }
+
+  .app-input {
+    border: 1px solid var(--color-panel-border);
+    background: var(--color-bg-elevated);
+    color: var(--color-ink);
+    border-radius: var(--radius-control);
+    outline: none;
+    transition:
+      border-color var(--transition-fast),
+      box-shadow var(--transition-fast);
+  }
+
+  .app-input::placeholder {
+    color: var(--color-ink-dim);
+  }
+
+  .app-input:focus {
+    border-color: color-mix(in srgb, var(--color-brand) 55%, var(--color-panel-border));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand) 18%, transparent);
+  }
+
+  @keyframes app-shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  .app-skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--color-panel) 0%,
+      color-mix(in srgb, var(--color-panel) 70%, white) 50%,
+      var(--color-panel) 100%
+    );
+    background-size: 200% 100%;
+    animation: app-shimmer 1.4s ease-in-out infinite;
+    border-radius: 6px;
+  }
+
+  [data-theme="dark"] .app-skeleton {
+    background: linear-gradient(
+      90deg,
+      #222228 0%,
+      #2a2a32 50%,
+      #222228 100%
+    );
+    background-size: 200% 100%;
+  }
+
+  .app-page-tab {
+    height: 2rem;
+    border-radius: 9999px;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid var(--color-panel-border);
+    background: var(--color-bg-elevated);
+    color: color-mix(in srgb, var(--color-ink) 75%, transparent);
+  }
+
+  .app-page-tab:hover {
+    border-color: color-mix(in srgb, var(--color-brand) 30%, var(--color-panel-border));
+    background: var(--color-bg-soft);
+    color: var(--color-ink);
+  }
+
+  .app-page-tab-active {
+    border-color: transparent;
+    background: linear-gradient(
+      to right,
+      var(--color-brand-grad-from),
+      var(--color-accent-cyan)
+    );
+    color: white;
+    box-shadow: 0 2px 10px -2px rgba(37, 99, 235, 0.4);
+  }
+
+  .app-page-tab-active:hover {
+    border-color: transparent;
+    background: linear-gradient(
+      to right,
+      var(--color-brand-grad-from),
+      var(--color-accent-cyan)
+    );
+    color: white;
   }
 
   .app-gradient-text {

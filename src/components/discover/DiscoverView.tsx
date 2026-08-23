@@ -159,7 +159,7 @@ export function DiscoverView({
       </header>
 
       {wallet.state !== "connected" ? (
-        <div className="app-panel flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="app-panel-priority flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-app-ink">
               Wallet disconnected
@@ -172,7 +172,7 @@ export function DiscoverView({
           <button
             type="button"
             onClick={connectDemo}
-            className="h-9 shrink-0 rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+            className="app-gradient-btn h-9 shrink-0 rounded-[10px] px-4 text-[12px] font-bold"
           >
             Connect Wallet
           </button>

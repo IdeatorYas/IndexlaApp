@@ -18,7 +18,7 @@ export function PeriodTabs({
 }) {
   return (
     <div
-      className="inline-flex rounded-xl border border-app-line bg-app-panel p-1"
+      className="inline-flex rounded-xl border border-app-line bg-app-panel p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
       role="tablist"
       aria-label="Chart period"
     >
@@ -32,10 +32,10 @@ export function PeriodTabs({
             aria-selected={active}
             onClick={() => onChange(period.id)}
             className={[
-              "rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors",
+              "rounded-lg px-3.5 py-1.5 text-xs font-bold app-interactive",
               active
-                ? "bg-app-brand text-white shadow-sm"
-                : "text-app-muted hover:text-app-ink",
+                ? "bg-gradient-to-r from-app-brand to-[color:var(--color-accent-cyan)] text-white shadow-[0_2px_10px_-2px_rgba(37,99,235,0.45)]"
+                : "text-app-muted hover:bg-app-soft hover:text-app-ink",
             ].join(" ")}
           >
             {period.label}

@@ -125,7 +125,7 @@ export function CreatorDashboardView({
           action={
             <Link
               href={APP_ROUTES.creatorActivate}
-              className="inline-flex h-10 items-center rounded-[10px] bg-app-brand px-4 text-sm font-bold text-white"
+              className="inline-flex h-10 items-center app-gradient-btn rounded-[10px] px-4 text-sm font-bold text-white"
             >
               Continue Creator Setup
             </Link>
@@ -182,7 +182,7 @@ export function CreatorDashboardView({
           <button
             type="button"
             onClick={connectDemo}
-            className="h-9 rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+            className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet
           </button>
@@ -272,7 +272,7 @@ export function CreatorDashboardView({
               void navigator.clipboard?.writeText(url);
               preview(`Share Creator Profile · ${url}`);
             }}
-            className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+            className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
           >
             Share Creator Profile
           </button>
@@ -454,7 +454,7 @@ export function CreatorDashboardView({
                   : `Claim Rewards · ${formatDexla(dexlaEarnings.availableDexla)}`,
               );
             }}
-            className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+            className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
           >
             Claim Rewards
           </button>
@@ -483,7 +483,7 @@ export function CreatorDashboardView({
             action={
               <Link
                 href={APP_ROUTES.create}
-                className="inline-flex h-10 items-center rounded-[10px] bg-app-brand px-4 text-sm font-bold text-white"
+                className="inline-flex h-10 items-center app-gradient-btn rounded-[10px] px-4 text-sm font-bold text-white"
               >
                 Create Portfolio / Index
               </Link>
@@ -594,7 +594,7 @@ export function CreatorDashboardView({
                       }
                       setFeatureConfirmId(product.id);
                     }}
-                    className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+                    className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
                   >
                     Feature Portfolio
                   </button>
@@ -629,7 +629,7 @@ export function CreatorDashboardView({
                           );
                           setFeatureConfirmId(null);
                         }}
-                        className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+                        className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
                       >
                         Confirm Feature (preview)
                       </button>
@@ -849,7 +849,7 @@ export function CreatorDashboardView({
           </Link>
           <Link
             href={`${APP_ROUTES.strategies}?tab=publish`}
-            className="inline-flex h-9 items-center rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+            className="inline-flex h-9 items-center app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
           >
             Publish New Strategy
           </Link>

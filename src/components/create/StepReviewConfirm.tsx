@@ -201,7 +201,7 @@ export function StepReviewConfirm({
         )}
         <button
           type="button"
-          className="h-10 rounded-[10px] bg-app-brand px-4 text-sm font-bold text-white disabled:opacity-40"
+          className="h-10 app-gradient-btn rounded-[10px] px-4 text-sm font-bold text-white disabled:opacity-40"
           disabled={isDegen && !draft.degenAcknowledged}
           onClick={() => {
             setPurchaseConfirmed(true);

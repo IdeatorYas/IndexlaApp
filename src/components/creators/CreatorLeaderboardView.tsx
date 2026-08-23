@@ -129,7 +129,7 @@ export function CreatorLeaderboardView({
           <button
             type="button"
             onClick={connectDemo}
-            className="h-9 rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+            className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet
           </button>
@@ -366,7 +366,7 @@ function PodiumCard({ creator }: { creator: CreatorDirectoryEntry }) {
       </dl>
       <Link
         href={APP_ROUTES.creatorProfile(creator.handle)}
-        className="mt-auto inline-flex h-9 items-center justify-center rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+        className="mt-auto inline-flex h-9 items-center justify-center app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
       >
         View Profile
       </Link>

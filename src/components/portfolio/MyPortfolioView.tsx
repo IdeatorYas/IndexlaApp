@@ -266,7 +266,7 @@ export function MyPortfolioView({
           <h2 className="text-sm font-bold text-app-ink">Your portfolios</h2>
           <Link
             href={APP_ROUTES.create}
-            className="rounded-[10px] bg-app-brand px-3 py-1.5 text-[12px] font-bold text-white"
+            className="app-gradient-btn rounded-[10px] px-3 py-1.5 text-[12px] font-bold text-white"
           >
             Create Portfolio / Index
           </Link>
@@ -331,10 +331,8 @@ export function MyPortfolioView({
               aria-selected={selected}
               onClick={() => syncParams({ tab: item.id })}
               className={[
-                "h-8 rounded-full px-3 text-[12px] font-bold",
-                selected
-                  ? "bg-app-brand text-white"
-                  : "border border-app-line bg-app-elevated text-app-ink/75 hover:text-app-ink",
+                "app-page-tab app-interactive",
+                selected ? "app-page-tab-active" : "",
               ].join(" ")}
             >
               {item.label}
@@ -468,7 +466,7 @@ export function MyPortfolioView({
               type="button"
               disabled={!detail.rewards.eligible}
               onClick={() => preview("Claim Rewards")}
-              className="h-10 rounded-[10px] bg-app-brand px-4 text-sm font-bold text-white disabled:opacity-40"
+              className="h-10 app-gradient-btn rounded-[10px] px-4 text-sm font-bold text-white disabled:opacity-40"
             >
               Claim Rewards
             </button>
@@ -522,7 +520,7 @@ export function MyPortfolioView({
                   preview("Buy $DEXLA · 500");
                   setBuyDexlaOpen(false);
                 }}
-                className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+                className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
               >
                 Confirm Buy Preview
               </button>
@@ -676,7 +674,7 @@ export function MyPortfolioView({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              className="h-10 rounded-[10px] bg-app-brand px-4 text-sm font-bold text-white"
+              className="h-10 app-gradient-btn rounded-[10px] px-4 text-sm font-bold text-white"
               onClick={() => {
                 setAutomationStatus((prev) => ({
                   ...prev,
@@ -816,7 +814,7 @@ export function MyPortfolioView({
                 {item.actionable === "claim-rewards" ? (
                   <button
                     type="button"
-                    className="mt-3 h-9 rounded-[10px] bg-app-brand px-3 text-xs font-bold text-white"
+                    className="mt-3 h-9 app-gradient-btn rounded-[10px] px-3 text-xs font-bold text-white"
                     onClick={() => preview("Claim Rewards")}
                   >
                     Claim Rewards

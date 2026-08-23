@@ -11,7 +11,7 @@ export default function CreatorProfileNotFound() {
         action={
           <Link
             href={APP_ROUTES.creators}
-            className="inline-flex h-10 items-center rounded-[10px] bg-app-brand px-4 text-sm font-bold text-white"
+            className="app-gradient-btn inline-flex h-10 items-center rounded-[10px] px-4 text-sm font-bold"
           >
             Browse Creators
           </Link>

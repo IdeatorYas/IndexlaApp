@@ -26,7 +26,7 @@ export function DashboardTopBar({
         <button
           type="button"
           onClick={onMenuClick}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] border border-app-line bg-app-panel text-sm text-app-muted lg:hidden"
+          className="app-icon-btn h-8 w-8 shrink-0 rounded-[8px] text-sm lg:hidden"
           aria-label="Open navigation menu"
         >
           ☰
@@ -44,7 +44,7 @@ export function DashboardTopBar({
       <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
         <Link
           href="/app/portfolio?tab=notifications"
-          className="relative flex h-8 w-8 items-center justify-center rounded-full border border-app-line text-sm text-app-muted hover:text-app-ink sm:h-9 sm:w-9"
+          className="app-icon-btn relative h-8 w-8 text-sm sm:h-9 sm:w-9"
           aria-label="Notifications"
         >
           🔔
@@ -56,7 +56,7 @@ export function DashboardTopBar({
         <button
           type="button"
           onClick={toggleTheme}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-app-line text-sm text-app-muted hover:text-app-ink sm:h-9 sm:w-9"
+          className="app-icon-btn h-8 w-8 text-sm sm:h-9 sm:w-9"
           aria-label={
             theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
           }
@@ -67,7 +67,7 @@ export function DashboardTopBar({
         <button
           type="button"
           onClick={wallet.state === "connected" ? disconnect : connectDemo}
-          className="h-8 shrink-0 truncate rounded-full border border-app-brand/35 bg-gradient-to-r from-app-brand/15 to-[color:var(--color-accent-violet)]/12 px-2.5 text-[11px] font-bold text-app-ink hover:border-app-brand/55 sm:h-9 sm:px-3.5 sm:text-[12px]"
+          className="app-interactive h-8 shrink-0 truncate rounded-full border border-app-brand/35 bg-gradient-to-r from-app-brand/15 to-[color:var(--color-accent-violet)]/12 px-2.5 text-[11px] font-bold text-app-ink hover:border-app-brand/55 hover:shadow-[0_4px_14px_-4px_rgba(37,99,235,0.35)] sm:h-9 sm:px-3.5 sm:text-[12px]"
         >
           {wallet.state === "connected"
             ? wallet.shortenedAddress

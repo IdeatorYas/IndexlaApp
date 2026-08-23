@@ -243,7 +243,7 @@ export function StrategiesView({
           <button
             type="button"
             onClick={connectDemo}
-            className="h-9 rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+            className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet
           </button>
@@ -265,10 +265,8 @@ export function StrategiesView({
               aria-selected={selectedTab}
               onClick={() => syncTab(item.id)}
               className={[
-                "h-8 rounded-full px-3 text-[12px] font-bold",
-                selectedTab
-                  ? "bg-app-brand text-white"
-                  : "border border-app-line bg-app-elevated text-app-ink/75 hover:text-app-ink",
+                "app-page-tab app-interactive",
+                selectedTab ? "app-page-tab-active" : "",
               ].join(" ")}
             >
               {item.label}

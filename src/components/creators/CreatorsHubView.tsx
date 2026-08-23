@@ -223,7 +223,7 @@ export function CreatorsHubView({
           <button
             type="button"
             onClick={connectDemo}
-            className="h-9 rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+            className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet
           </button>
@@ -249,7 +249,7 @@ export function CreatorsHubView({
           </div>
           <Link
             href={status.href}
-            className="inline-flex h-10 items-center rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+            className="inline-flex h-10 items-center app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             {status.cta}
           </Link>

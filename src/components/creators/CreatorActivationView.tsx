@@ -245,7 +245,7 @@ export function CreatorActivationView({
           <button
             type="button"
             onClick={connectDemo}
-            className="h-9 rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+            className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet
           </button>
@@ -318,7 +318,7 @@ export function CreatorActivationView({
               action={
                 <Link
                   href={APP_ROUTES.create}
-                  className="inline-flex h-10 items-center rounded-[10px] bg-app-brand px-4 text-sm font-bold text-white"
+                  className="inline-flex h-10 items-center app-gradient-btn rounded-[10px] px-4 text-sm font-bold text-white"
                 >
                   Create & Publish Portfolio
                 </Link>
@@ -396,7 +396,7 @@ export function CreatorActivationView({
               type="button"
               disabled={!hasSelectedPublicPortfolio(draft)}
               onClick={() => goStep("social")}
-              className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white disabled:opacity-40"
+              className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white disabled:opacity-40"
             >
               Continue to Social
             </button>
@@ -454,7 +454,7 @@ export function CreatorActivationView({
                     <button
                       type="button"
                       onClick={() => connectSocial(s.platform)}
-                      className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+                      className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
                     >
                       Connect {s.platform}
                     </button>
@@ -480,7 +480,7 @@ export function CreatorActivationView({
               type="button"
               disabled={!hasConnectedSocial(draft)}
               onClick={() => goStep("verification")}
-              className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white disabled:opacity-40"
+              className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white disabled:opacity-40"
             >
               Continue to Verification
             </button>
@@ -523,7 +523,7 @@ export function CreatorActivationView({
                 <button
                   type="button"
                   onClick={simulateApproval}
-                  className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+                  className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
                 >
                   Simulate Approval (preview)
                 </button>
@@ -643,7 +643,7 @@ export function CreatorActivationView({
                   type="button"
                   disabled={!canSubmitVerification(draft)}
                   onClick={submitVerification}
-                  className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white disabled:opacity-40"
+                  className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white disabled:opacity-40"
                 >
                   Submit Verification
                 </button>
@@ -682,7 +682,7 @@ export function CreatorActivationView({
           <div className="flex flex-wrap gap-2">
             <Link
               href={APP_ROUTES.creatorDashboard}
-              className="inline-flex h-10 items-center rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+              className="inline-flex h-10 items-center app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
             >
               Open Creator Dashboard
             </Link>

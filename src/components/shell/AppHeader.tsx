@@ -15,14 +15,14 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
 
   return (
     <header
-      className="flex h-14 shrink-0 items-center gap-2 border-b border-app-line bg-app-elevated/95 px-3 backdrop-blur-md sm:gap-2.5 sm:px-5 lg:px-6"
+      className="flex h-14 shrink-0 items-center gap-2 border-b border-app-line/80 bg-gradient-to-r from-app-brand/6 via-app-elevated/98 to-[color:var(--color-accent-violet)]/5 px-3 backdrop-blur-md sm:gap-2.5 sm:px-5 lg:px-6"
       role="banner"
     >
       {onMenuClick ? (
         <button
           type="button"
           onClick={onMenuClick}
-          className="rounded-[10px] border border-app-line bg-app-panel px-2.5 py-1.5 text-sm text-app-muted lg:hidden"
+          className="app-icon-btn rounded-[10px] px-2.5 py-1.5 text-sm lg:hidden"
           aria-label="Open navigation menu"
         >
           ☰
@@ -37,7 +37,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
           onClick={() =>
             window.dispatchEvent(new CustomEvent("indexla-open-command-search"))
           }
-          className="relative flex h-9 w-full items-center rounded-[10px] border border-app-line bg-app-panel py-0 pl-8 pr-12 text-left text-[13px] text-app-dim outline-none hover:border-app-brand/45 focus-visible:border-app-brand/45"
+          className="app-input relative flex h-9 w-full items-center py-0 pl-8 pr-12 text-left text-[13px] text-app-dim hover:border-app-brand/45"
           aria-label="Search portfolios, indexes, creators and strategies"
           aria-keyshortcuts="Control+K Meta+K"
         >
@@ -51,7 +51,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         </button>
       </div>
 
-      <div className="hidden h-9 items-center gap-1.5 rounded-full border border-app-brand/25 bg-app-soft px-3 text-[12px] sm:flex">
+      <div className="hidden h-9 items-center gap-1.5 rounded-full border border-app-brand/25 bg-gradient-to-r from-app-brand/8 to-[color:var(--color-accent-violet)]/6 px-3 text-[12px] sm:flex">
         <span className="font-semibold text-app-brand-soft">$DEXLA</span>
         <span className="font-bold text-app-ink">
           {dexla.balance.toLocaleString()}
@@ -74,7 +74,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
 
       <Link
         href="/app/portfolio?tab=notifications"
-        className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-app-line text-sm text-app-muted hover:text-app-ink"
+        className="app-icon-btn relative h-9 w-9 shrink-0 text-sm"
         aria-label="Notifications"
       >
         🔔
@@ -86,7 +86,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
       <button
         type="button"
         onClick={toggleTheme}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-app-line text-sm text-app-muted hover:text-app-ink"
+        className="app-icon-btn h-9 w-9 shrink-0 text-sm"
         aria-label={
           theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
         }
@@ -97,7 +97,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
       <button
         type="button"
         onClick={wallet.state === "connected" ? disconnect : connectDemo}
-        className="ml-0.5 h-9 shrink-0 truncate rounded-full border border-app-brand/35 bg-gradient-to-r from-app-brand/15 to-[color:var(--color-accent-violet)]/12 px-3.5 text-[12px] font-bold text-app-ink hover:border-app-brand/55 sm:max-w-none sm:px-4"
+        className="app-interactive ml-0.5 h-9 shrink-0 truncate rounded-full border border-app-brand/35 bg-gradient-to-r from-app-brand/15 to-[color:var(--color-accent-violet)]/12 px-3.5 text-[12px] font-bold text-app-ink hover:border-app-brand/55 hover:shadow-[0_4px_14px_-4px_rgba(37,99,235,0.35)] sm:max-w-none sm:px-4"
       >
         {wallet.state === "connected"
           ? wallet.shortenedAddress

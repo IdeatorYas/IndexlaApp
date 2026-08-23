@@ -5,7 +5,7 @@ test.describe("Product page flow", () => {
   test("marketplace card to product page to invest choice", async ({ page }) => {
     await page.goto(APP_ROUTES.dashboard);
     await page
-      .locator('[aria-label="Explore marketplace"] .grid a[href*="/app/product/"]')
+      .locator('[aria-label="Marketplace"] .grid a[href*="/app/product/"]')
       .first()
       .click();
     await expect(page).toHaveURL(/\/app\/product\//);

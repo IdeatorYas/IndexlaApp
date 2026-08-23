@@ -137,7 +137,7 @@ export function CreatorProfileView({
           <button
             type="button"
             onClick={connectDemo}
-            className="h-9 rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+            className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet
           </button>
@@ -449,7 +449,7 @@ export function CreatorProfileView({
                         if (!requireWallet("Invest")) return;
                         preview(`Invest preview · ${product.name}`);
                       }}
-                      className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+                      className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
                     >
                       Invest
                     </button>
@@ -628,7 +628,7 @@ export function CreatorProfileView({
                     `Tip ${Number(tipAmount).toLocaleString()} $DEXLA → @${profile.handle}`,
                   );
                 }}
-                className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+                className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
               >
                 Confirm Tip Preview
               </button>

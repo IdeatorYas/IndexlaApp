@@ -156,10 +156,10 @@ export function GlobalCommandSearch() {
       onClick={close}
     >
       <div
-        className="w-full max-w-xl overflow-hidden rounded-[14px] border border-app-line bg-app-elevated shadow-2xl"
+        className="w-full max-w-xl overflow-hidden rounded-[14px] border border-app-line bg-app-elevated shadow-[0_24px_64px_-12px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.06)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b border-app-line px-3 py-2">
+        <div className="border-b border-app-line bg-gradient-to-r from-app-brand/8 to-[color:var(--color-accent-violet)]/6 px-3 py-2">
           <label className="sr-only" htmlFor="global-command-search">
             Search portfolios, indexes, creators, strategies and navigation
           </label>
@@ -182,7 +182,7 @@ export function GlobalCommandSearch() {
               }
             }}
             placeholder="Search portfolios, indexes, creators, strategies…"
-            className="h-11 w-full bg-transparent text-sm text-app-ink outline-none placeholder:text-app-dim"
+            className="app-input h-11 w-full border-0 bg-transparent px-0 shadow-none focus:shadow-none"
             autoComplete="off"
           />
         </div>

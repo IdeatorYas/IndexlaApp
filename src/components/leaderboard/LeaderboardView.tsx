@@ -200,7 +200,7 @@ export function LeaderboardView({
           <button
             type="button"
             onClick={connectDemo}
-            className="h-9 rounded-[10px] bg-app-brand px-4 text-[12px] font-bold text-white"
+            className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet
           </button>
@@ -396,10 +396,8 @@ function PeriodTab({
       aria-selected={selected}
       onClick={onClick}
       className={[
-        "h-8 rounded-full px-3 text-[12px] font-bold",
-        selected
-          ? "bg-app-brand text-white"
-          : "text-app-ink/70 hover:text-app-ink",
+        "app-page-tab app-interactive",
+        selected ? "app-page-tab-active" : "text-app-ink/70",
       ].join(" ")}
     >
       {label}
@@ -605,7 +603,7 @@ function PodiumCard({ entry }: { entry: LeaderboardEntry }) {
 
       <Link
         href={entry.href}
-        className="mt-auto inline-flex h-9 items-center justify-center rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+        className="mt-auto inline-flex h-9 items-center justify-center app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
       >
         View Product
       </Link>
@@ -868,7 +866,7 @@ function RewardsSection({
               walletConnected ? (
                 <button
                   type="button"
-                  className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+                  className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
                   onClick={() =>
                     onPreview(
                       `Claim Rewards · ${formatUsd(selected.claimableUsd ?? 0)}`,
@@ -880,7 +878,7 @@ function RewardsSection({
               ) : (
                 <button
                   type="button"
-                  className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+                  className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
                   onClick={onConnect}
                 >
                   Connect to claim preview

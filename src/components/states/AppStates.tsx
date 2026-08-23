@@ -9,15 +9,15 @@ export function LoadingSkeleton({
 }) {
   return (
     <div
-      className="app-panel p-6 animate-pulse"
+      className="app-panel overflow-hidden p-6"
       role="status"
       aria-label={title}
     >
-      <div className="mb-4 h-4 w-40 rounded bg-app-panel" />
+      <div className="app-skeleton mb-4 h-4 w-40" />
       {Array.from({ length: lines }).map((_, i) => (
         <div
           key={i}
-          className="mb-2 h-3 rounded bg-app-panel"
+          className="app-skeleton mb-2.5 h-3"
           style={{ width: `${90 - i * 12}%` }}
         />
       ))}
@@ -36,9 +36,17 @@ export function EmptyState({
 }) {
   return (
     <div className="app-panel flex flex-col items-start gap-3 p-8 text-left">
+      <div
+        className="flex h-10 w-10 items-center justify-center rounded-[10px] border border-app-line bg-gradient-to-br from-app-brand/12 to-[color:var(--color-accent-violet)]/10 text-lg"
+        aria-hidden
+      >
+        ◌
+      </div>
       <h3 className="app-display text-lg font-semibold text-app-ink">{title}</h3>
-      <p className="max-w-prose text-sm text-app-muted">{description}</p>
-      {action}
+      <p className="max-w-prose text-sm leading-relaxed text-app-muted">
+        {description}
+      </p>
+      {action ? <div className="pt-1">{action}</div> : null}
     </div>
   );
 }
@@ -54,13 +62,13 @@ export function ErrorState({
 }) {
   return (
     <div
-      className="app-panel border-app-danger/30 p-8"
+      className="app-panel border-app-danger/30 p-8 shadow-[inset_3px_0_0_var(--color-danger)]"
       role="alert"
     >
       <h3 className="app-display text-lg font-semibold text-app-danger">
         {title}
       </h3>
-      <p className="mt-2 text-sm text-app-muted">{description}</p>
+      <p className="mt-2 text-sm leading-relaxed text-app-muted">{description}</p>
       {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );
@@ -86,7 +94,7 @@ export function DisconnectedWalletState({
           <button
             type="button"
             onClick={onConnect}
-            className="rounded-lg bg-app-brand px-4 py-2 text-sm font-medium text-white"
+            className="app-gradient-btn rounded-[10px] px-4 py-2 text-sm font-bold"
           >
             Connect Wallet
           </button>
@@ -117,7 +125,7 @@ export function UnavailableState({
           </span>
         ) : null}
       </div>
-      <p className="mt-2 text-sm text-app-muted">{description}</p>
+      <p className="mt-2 text-sm leading-relaxed text-app-muted">{description}</p>
     </div>
   );
 }

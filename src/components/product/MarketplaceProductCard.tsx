@@ -196,7 +196,7 @@ export function MarketplaceProductCard({
         <Link
           href={detailsHref}
           className={[
-            "inline-flex flex-1 items-center justify-center rounded-[8px] border border-app-line bg-app-elevated font-bold text-app-ink hover:border-app-brand/35",
+            "app-btn-secondary inline-flex flex-1 items-center justify-center font-bold hover:-translate-y-px",
             compact ? "h-7 text-[10px]" : "h-9 text-[11px]",
           ].join(" ")}
         >
@@ -205,7 +205,7 @@ export function MarketplaceProductCard({
         <InvestChoiceLink
           productId={product.id}
           className={[
-            "inline-flex flex-1 items-center justify-center rounded-[8px] bg-gradient-to-r from-app-brand to-[color:var(--color-accent-cyan)] font-bold text-white",
+            "app-interactive inline-flex flex-1 items-center justify-center rounded-[8px] bg-gradient-to-r from-app-brand to-[color:var(--color-accent-cyan)] font-bold text-white hover:-translate-y-px hover:shadow-[0_4px_14px_-4px_rgba(37,99,235,0.45)]",
             compact ? "h-7 text-[10px]" : "h-9 text-[11px]",
           ].join(" ")}
         >

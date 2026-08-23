@@ -66,7 +66,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
               href={item.href}
               onClick={onNavigate}
               className={[
-                "group relative flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13px] font-semibold transition-colors",
+                "group relative flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13px] font-semibold app-interactive",
                 active
                   ? "bg-[var(--sidebar-active-bg)] text-app-brand shadow-[inset_3px_0_0_var(--sidebar-active-border)]"
                   : "text-app-ink/75 hover:bg-app-panel hover:text-app-ink",
@@ -97,7 +97,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       <div className="app-sidebar-wave relative mt-auto border-t border-app-line p-3">
-        <div className="rounded-[10px] border border-app-line bg-app-panel/80 p-3">
+        <div className="rounded-[10px] border border-app-line bg-gradient-to-br from-app-panel/90 to-app-elevated/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
           <div className="flex items-center gap-2.5">
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[var(--color-brand-grad-from)] to-[var(--color-brand-grad-to)] text-[11px] font-bold text-white">
               {initials}
