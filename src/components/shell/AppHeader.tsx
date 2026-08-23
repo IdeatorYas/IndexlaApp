@@ -28,7 +28,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         </button>
       ) : null}
 
-      <div className="mr-auto min-w-0 flex-1 sm:max-w-lg">
+      <div className="min-w-0 flex-1 sm:max-w-xl lg:max-w-2xl">
         <button
           type="button"
           onClick={() =>
@@ -47,16 +47,6 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
           </span>
         </button>
       </div>
-
-      <button
-        type="button"
-        onClick={wallet.state === "connected" ? disconnect : connectDemo}
-        className="h-9 max-w-[140px] truncate rounded-full border border-app-line bg-app-elevated px-3 text-[12px] font-bold text-app-ink sm:max-w-none"
-      >
-        {wallet.state === "connected"
-          ? wallet.shortenedAddress
-          : "Connect Wallet"}
-      </button>
 
       <div className="hidden h-9 items-center gap-1.5 rounded-full border border-app-brand/25 bg-app-soft px-3 text-[12px] sm:flex">
         <span className="font-semibold text-app-brand-soft">$DEXLA</span>
@@ -81,7 +71,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
 
       <Link
         href="/app/portfolio?tab=notifications"
-        className="relative flex h-9 w-9 items-center justify-center rounded-full border border-app-line text-sm text-app-muted hover:text-app-ink"
+        className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-app-line text-sm text-app-muted hover:text-app-ink"
         aria-label="Notifications"
       >
         🔔
@@ -93,12 +83,22 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
       <button
         type="button"
         onClick={toggleTheme}
-        className="flex h-9 w-9 items-center justify-center rounded-full border border-app-line text-sm text-app-muted hover:text-app-ink"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-app-line text-sm text-app-muted hover:text-app-ink"
         aria-label={
           theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
         }
       >
         {theme === "dark" ? "☀" : "☾"}
+      </button>
+
+      <button
+        type="button"
+        onClick={wallet.state === "connected" ? disconnect : connectDemo}
+        className="ml-0.5 h-9 shrink-0 truncate rounded-full border border-app-brand/35 bg-gradient-to-r from-app-brand/15 to-[color:var(--color-accent-violet)]/12 px-3.5 text-[12px] font-bold text-app-ink hover:border-app-brand/55 sm:max-w-none sm:px-4"
+      >
+        {wallet.state === "connected"
+          ? wallet.shortenedAddress
+          : "Connect Wallet"}
       </button>
     </header>
   );

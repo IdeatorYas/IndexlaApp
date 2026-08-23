@@ -57,7 +57,7 @@ export function ExploreMarketplaceSection() {
   }, [tab, category]);
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-2">
       <header className="mx-auto max-w-2xl text-center">
         <div className="flex justify-center">
           <DashboardSectionHeading
@@ -67,7 +67,7 @@ export function ExploreMarketplaceSection() {
             as="h2"
           />
         </div>
-        <p className="mt-1.5 text-[12px] text-app-muted sm:text-[13px]">
+        <p className="mt-1 text-[11px] text-app-muted sm:text-[12px]">
           Browse indexes and portfolios by type and narrative category. Every
           product opens full details — preview only, no wallet required to browse.
         </p>
@@ -127,7 +127,7 @@ export function ExploreMarketplaceSection() {
           No products match this filter. Try another category or tab.
         </p>
       ) : (
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((product) => (
             <MarketplaceProductCard key={product.id} product={product} />
           ))}
