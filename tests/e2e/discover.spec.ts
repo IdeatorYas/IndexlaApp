@@ -18,7 +18,9 @@ test.describe("Discover marketplace", () => {
     ).toBeVisible();
     await expect(page.getByText("Layer 1 Index").first()).toBeVisible();
     await expect(page.getByText("INDEXLA · Verified").first()).toBeVisible();
-    await expect(page.getByText("AUM").first()).toBeVisible();
+    await expect(
+      page.locator("article").filter({ hasText: "Layer 1 Index" }).getByText("AUM"),
+    ).toBeVisible();
     await expect(page.getByRole("link", { name: "View Details" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Invest" }).first()).toBeVisible();
   });
@@ -49,6 +51,10 @@ test.describe("Discover marketplace", () => {
     await page.getByRole("tab", { name: "Portfolios" }).click();
     await expect(page).toHaveURL(/tab=portfolios/);
     await page.getByRole("tab", { name: "Indexes" }).click();
+    await page
+      .getByRole("tablist", { name: "Asset category" })
+      .getByRole("tab", { name: "Crypto" })
+      .click();
     await page.getByRole("button", { name: "DeFi", exact: true }).click();
     await expect(page.getByText("DeFi Index").first()).toBeVisible();
   });
