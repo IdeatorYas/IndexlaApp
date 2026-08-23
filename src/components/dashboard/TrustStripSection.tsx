@@ -8,7 +8,7 @@ export function TrustStripSection() {
   ];
 
   return (
-    <section className="app-panel px-4 py-3 sm:px-5">
+    <section className="app-panel px-3 py-2 sm:px-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <ul className="flex flex-wrap gap-x-4 gap-y-1.5">
           {items.map((item) => (

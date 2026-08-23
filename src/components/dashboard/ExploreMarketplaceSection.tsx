@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { MarketplaceCategory } from "@/lib/domain/dashboard";
 import type { MarketplaceProduct } from "@/lib/domain/marketplace";
+import { DashboardSectionHeading } from "@/components/dashboard/DashboardSectionHeading";
 import { MarketplaceProductCard } from "@/components/product/MarketplaceProductCard";
 import { getDiscoverCatalog } from "@/lib/data";
 import { APP_ROUTES } from "@/lib/routes";
@@ -56,19 +57,24 @@ export function ExploreMarketplaceSection() {
   }, [tab, category]);
 
   return (
-    <section className="space-y-5">
+    <section className="space-y-3">
       <header className="mx-auto max-w-2xl text-center">
-        <h2 className="app-display text-2xl font-bold text-app-ink sm:text-[1.75rem]">
-          Explore Marketplace
-        </h2>
-        <p className="mt-2 text-sm text-app-muted">
+        <div className="flex justify-center">
+          <DashboardSectionHeading
+            label="Explore Marketplace"
+            tone="explore"
+            size="lg"
+            as="h2"
+          />
+        </div>
+        <p className="mt-1.5 text-[12px] text-app-muted sm:text-[13px]">
           Browse indexes and portfolios by type and narrative category. Every
           product opens full details — preview only, no wallet required to browse.
         </p>
       </header>
 
       <div
-        className="flex flex-wrap items-center justify-center gap-2"
+        className="flex flex-wrap items-center justify-center gap-1.5"
         role="tablist"
         aria-label="Explore marketplace product type"
       >
@@ -82,7 +88,7 @@ export function ExploreMarketplaceSection() {
               aria-selected={selected}
               onClick={() => setTab(item)}
               className={[
-                "h-10 rounded-full px-5 text-[13px] font-bold transition-colors sm:text-sm",
+                "h-9 rounded-full px-4 text-[12px] font-bold transition-colors sm:text-[13px]",
                 selected
                   ? "bg-app-brand text-white shadow-sm"
                   : "border border-app-line bg-app-elevated text-app-muted hover:border-app-brand/35 hover:text-app-ink",
@@ -94,13 +100,13 @@ export function ExploreMarketplaceSection() {
         })}
         <Link
           href={APP_ROUTES.degenClub}
-          className="inline-flex h-10 items-center rounded-full border border-app-danger/45 bg-gradient-to-r from-app-danger/15 to-app-warning/10 px-5 text-[13px] font-bold text-app-danger shadow-sm transition-colors hover:from-app-danger/25 hover:to-app-warning/15 sm:text-sm"
+          className="inline-flex h-9 items-center rounded-full border border-app-danger/45 bg-gradient-to-r from-app-danger/15 to-app-warning/10 px-4 text-[12px] font-bold text-app-danger shadow-sm transition-colors hover:from-app-danger/25 hover:to-app-warning/15 sm:text-[13px]"
         >
           🔥 Degen Club
         </Link>
       </div>
 
-      <div className="flex flex-wrap justify-center gap-1.5">
+      <div className="flex flex-wrap justify-center gap-1">
         <CategoryChip
           label="All"
           active={category === "All"}
@@ -117,21 +123,21 @@ export function ExploreMarketplaceSection() {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="app-panel px-4 py-8 text-center text-sm text-app-muted">
+        <p className="app-panel px-3 py-6 text-center text-[12px] text-app-muted">
           No products match this filter. Try another category or tab.
         </p>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((product) => (
             <MarketplaceProductCard key={product.id} product={product} />
           ))}
         </div>
       )}
 
-      <div className="flex justify-center pt-1">
+      <div className="flex justify-center pt-0.5">
         <Link
           href={discoverHref}
-          className="app-gradient-btn inline-flex h-11 items-center justify-center rounded-[10px] px-6 text-sm font-bold"
+          className="app-gradient-btn inline-flex h-10 items-center justify-center rounded-[10px] px-5 text-[12px] font-bold"
         >
           View All
         </Link>
@@ -154,7 +160,7 @@ function CategoryChip({
       type="button"
       onClick={onClick}
       className={[
-        "h-8 shrink-0 rounded-full px-3 text-[11px] font-semibold transition-colors sm:text-[12px]",
+        "h-7 shrink-0 rounded-full px-2.5 text-[10px] font-semibold transition-colors sm:text-[11px]",
         active
           ? "border border-app-brand/40 bg-app-soft text-app-brand"
           : "border border-app-line bg-app-elevated text-app-muted hover:text-app-ink",

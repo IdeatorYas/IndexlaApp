@@ -3,9 +3,16 @@ import type {
   MarketplacePreview,
   MarketplaceProductPreview,
 } from "@/lib/domain/dashboard";
+import { DashboardSectionHeading } from "@/components/dashboard/DashboardSectionHeading";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
+
+const COLUMN_TONES = {
+  "Trending Now": "cyan",
+  "Most Invested": "violet",
+  "Newly Published": "emerald",
+} as const;
 
 export function DiscoveryListsSection({
   marketplace,
@@ -13,7 +20,7 @@ export function DiscoveryListsSection({
   marketplace: MarketplacePreview;
 }) {
   return (
-    <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+    <section className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
       <DiscoveryColumn title="Trending Now" products={marketplace.trending} />
       <DiscoveryColumn title="Most Invested" products={marketplace.mostInvested} />
       <DiscoveryColumn
@@ -30,23 +37,25 @@ function DiscoveryColumn({
   products,
   className = "",
 }: {
-  title: string;
+  title: keyof typeof COLUMN_TONES;
   products: MarketplaceProductPreview[];
   className?: string;
 }) {
+  const tone = COLUMN_TONES[title];
+
   return (
     <div className={`app-panel overflow-hidden ${className}`}>
-      <div className="flex items-center justify-between gap-2 border-b border-app-line px-3 py-2">
-        <h2 className="app-display text-[13px] font-bold text-app-ink">{title}</h2>
+      <div className="flex items-center justify-between gap-2 border-b border-app-line px-2.5 py-1.5">
+        <DashboardSectionHeading label={title} tone={tone} size="sm" as="h3" />
         <Link
           href={APP_ROUTES.discover}
-          className="text-[10px] font-bold text-app-brand hover:underline"
+          className="text-[9px] font-bold text-app-brand hover:underline"
         >
           View All →
         </Link>
       </div>
       {products.length === 0 ? (
-        <p className="px-3 py-2.5 text-[11px] text-app-dim">No products yet.</p>
+        <p className="px-2.5 py-2 text-[10px] text-app-dim">No products yet.</p>
       ) : (
         <ul className="divide-y divide-app-line">
           {products.map((product) => (
@@ -66,20 +75,20 @@ function DiscoveryRow({ product }: { product: MarketplaceProductPreview }) {
   return (
     <Link
       href={product.href}
-      className="flex items-center gap-2 px-3 py-2 transition-colors hover:bg-app-panel"
+      className="flex items-center gap-1.5 px-2.5 py-1.5 transition-colors hover:bg-app-panel"
     >
-      <AssetIconStack assetIds={product.assetIds} size={20} max={3} />
+      <AssetIconStack assetIds={product.assetIds} size={18} max={3} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[12px] font-bold text-app-ink">
+        <p className="truncate text-[11px] font-bold leading-tight text-app-ink">
           {product.name}
         </p>
-        <p className="truncate text-[10px] text-app-dim">
+        <p className="truncate text-[9px] leading-tight text-app-dim">
           {product.creatorName} · {formatUsd(product.aumUsd, true)}
         </p>
       </div>
       <p
         className={[
-          "app-metric shrink-0 text-[12px] font-bold",
+          "app-metric shrink-0 text-[11px] font-bold",
           positive ? "text-app-success" : "text-app-danger",
         ].join(" ")}
       >

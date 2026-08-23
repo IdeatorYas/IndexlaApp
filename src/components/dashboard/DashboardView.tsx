@@ -13,7 +13,7 @@ export function DashboardView() {
 
   return (
     <div
-      className="mx-auto space-y-4 md:space-y-5"
+      className="mx-auto -mt-1 space-y-2 sm:-mt-1.5 sm:space-y-2.5"
       style={{ maxWidth: "var(--content-max)" }}
     >
       <FeaturedCarouselSection products={data.featuredProducts} />

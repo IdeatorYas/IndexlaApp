@@ -3,7 +3,31 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { FeaturedProductPreview } from "@/lib/domain/dashboard";
+import { DashboardSectionHeading } from "@/components/dashboard/DashboardSectionHeading";
 import { formatPercent } from "@/lib/dashboard/data";
+
+const ITEM_ACCENTS = [
+  {
+    shell:
+      "border-[color:var(--color-accent-blue)]/35 bg-gradient-to-br from-[color:var(--color-accent-blue)]/14 to-transparent",
+    dot: "bg-[color:var(--color-accent-blue)]",
+  },
+  {
+    shell:
+      "border-[color:var(--color-accent-violet)]/35 bg-gradient-to-br from-[color:var(--color-accent-violet)]/14 to-transparent",
+    dot: "bg-[color:var(--color-accent-violet)]",
+  },
+  {
+    shell:
+      "border-[color:var(--color-accent-rose)]/35 bg-gradient-to-br from-[color:var(--color-accent-rose)]/14 to-transparent",
+    dot: "bg-[color:var(--color-accent-rose)]",
+  },
+  {
+    shell:
+      "border-[color:var(--color-accent-cyan)]/35 bg-gradient-to-br from-[color:var(--color-accent-cyan)]/14 to-transparent",
+    dot: "bg-[color:var(--color-accent-cyan)]",
+  },
+] as const;
 
 export function FeaturedCarouselSection({
   products,
@@ -29,7 +53,7 @@ export function FeaturedCarouselSection({
     const tick = window.setInterval(() => {
       if (!trackRef.current) return;
       const node = trackRef.current;
-      node.scrollLeft += 0.6;
+      node.scrollLeft += 0.65;
       if (node.scrollLeft >= half) {
         node.scrollLeft -= half;
       }
@@ -41,19 +65,22 @@ export function FeaturedCarouselSection({
   if (products.length === 0) return null;
 
   return (
-    <section aria-label="Featured products carousel" className="relative">
-      <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
-        <p className="app-label text-app-brand">Featured</p>
-        <div className="flex gap-1">
+    <section
+      aria-label="Featured products carousel"
+      className="relative pt-0"
+    >
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <DashboardSectionHeading label="Featured" tone="brand" size="md" />
+        <div className="flex gap-0.5">
           <CarouselArrow
             label="Scroll featured left"
-            onClick={() => scrollBy(-220)}
+            onClick={() => scrollBy(-240)}
           >
             ‹
           </CarouselArrow>
           <CarouselArrow
             label="Scroll featured right"
-            onClick={() => scrollBy(220)}
+            onClick={() => scrollBy(240)}
           >
             ›
           </CarouselArrow>
@@ -69,10 +96,13 @@ export function FeaturedCarouselSection({
       >
         <ul
           ref={trackRef}
-          className="flex list-none gap-2 overflow-x-auto scroll-smooth pb-0.5 pl-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex list-none gap-1.5 overflow-x-auto scroll-smooth py-0.5 pl-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {items.map((product, index) => {
             const positive = product.performance30d >= 0;
+            const accent = ITEM_ACCENTS[index % ITEM_ACCENTS.length];
+            const perf = formatPercent(product.performance30d, true);
+
             return (
               <li
                 key={`${product.id}-${index}`}
@@ -81,23 +111,32 @@ export function FeaturedCarouselSection({
               >
                 <Link
                   href={product.href}
-                  className="app-panel app-panel-hover flex w-[min(100%,220px)] items-center justify-between gap-2 px-3 py-2.5 sm:w-[220px]"
+                  className={[
+                    "flex w-[min(100%,280px)] items-center gap-2 rounded-[9px] border px-2.5 py-1.5 transition-colors hover:brightness-105 sm:w-[280px]",
+                    accent.shell,
+                  ].join(" ")}
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-app-muted">
+                  <span
+                    aria-hidden
+                    className={["h-1.5 w-1.5 shrink-0 rounded-full", accent.dot].join(
+                      " ",
+                    )}
+                  />
+                  <p className="min-w-0 flex-1 truncate text-[11px] leading-tight text-app-ink">
+                    <span className="font-semibold text-app-muted">
                       {product.creatorName}
-                    </p>
-                    <p className="truncate text-[12px] font-bold text-app-ink">
-                      {product.name}
-                    </p>
-                  </div>
-                  <p
-                    className={[
-                      "app-metric shrink-0 text-[13px] font-bold",
-                      positive ? "text-app-success" : "text-app-danger",
-                    ].join(" ")}
-                  >
-                    {formatPercent(product.performance30d, true)}
+                    </span>
+                    <span className="text-app-dim"> · </span>
+                    <span className="font-bold">{product.name}</span>
+                    <span className="text-app-dim"> · </span>
+                    <span
+                      className={[
+                        "font-bold",
+                        positive ? "text-app-success" : "text-app-danger",
+                      ].join(" ")}
+                    >
+                      {perf}
+                    </span>
                   </p>
                 </Link>
               </li>
@@ -123,7 +162,7 @@ function CarouselArrow({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="flex h-7 w-7 items-center justify-center rounded-[8px] border border-app-line bg-app-elevated text-sm font-bold text-app-muted hover:border-app-brand/40 hover:text-app-ink"
+      className="flex h-6 w-6 items-center justify-center rounded-[7px] border border-app-line bg-app-elevated text-xs font-bold text-app-muted hover:border-app-brand/40 hover:text-app-ink"
     >
       {children}
     </button>
