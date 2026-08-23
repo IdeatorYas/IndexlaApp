@@ -6,7 +6,7 @@ import { InvestChoiceLink } from "@/components/product/InvestmentChoiceModal";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
-import { getProductTypeStyle } from "@/lib/product/product-type";
+import { getProductTypeStyle, productNameBoxStyle } from "@/lib/product/product-type";
 import { APP_ROUTES } from "@/lib/routes";
 
 export function MarketplaceProductCard({
@@ -93,11 +93,7 @@ export function MarketplaceProductCard({
             "mx-auto mt-2 w-full rounded-[12px] px-2.5 py-2.5 text-center",
             compact ? "mt-1.5 py-2" : "",
           ].join(" ")}
-          style={{
-            background: `linear-gradient(145deg, ${typeStyle.fill} 0%, color-mix(in srgb, ${typeStyle.fill} 78%, #000) 100%)`,
-            border: `1px solid ${typeStyle.border}`,
-            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.22), 0 8px 22px -10px ${typeStyle.glow}`,
-          }}
+          style={productNameBoxStyle(typeStyle)}
         >
           <h3
             className={[
@@ -205,7 +201,7 @@ export function MarketplaceProductCard({
         <InvestChoiceLink
           productId={product.id}
           className={[
-            "app-interactive inline-flex flex-1 items-center justify-center rounded-[8px] bg-gradient-to-r from-app-brand to-[color:var(--color-accent-cyan)] font-bold text-white hover:-translate-y-px hover:shadow-[0_4px_14px_-4px_rgba(37,99,235,0.45)]",
+            "app-btn-invest app-interactive inline-flex flex-1 items-center justify-center rounded-[8px]",
             compact ? "h-7 text-[10px]" : "h-9 text-[11px]",
           ].join(" ")}
         >

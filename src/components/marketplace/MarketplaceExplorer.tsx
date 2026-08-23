@@ -279,7 +279,7 @@ export function MarketplaceExplorer({
         <div className="flex justify-center pt-0.5">
           <Link
             href={discoverHref}
-            className="app-gradient-btn inline-flex h-8 items-center justify-center rounded-[8px] px-3.5 text-[10px] font-bold"
+            className="app-btn-secondary inline-flex h-8 items-center justify-center rounded-[8px] px-3.5 text-[10px] font-bold"
           >
             View All
           </Link>
@@ -368,24 +368,6 @@ function PrimaryProductTabs({
   onSelect: (id: ProductTab) => void;
   compact?: boolean;
 }) {
-  const styles: Record<
-    ProductTab,
-    { fill: string; fillMuted: string; glow: string; border: string }
-  > = {
-    indexes: {
-      fill: "#2563EB",
-      fillMuted: "rgba(37,99,235,0.38)",
-      glow: "rgba(37,99,235,0.55)",
-      border: "rgba(96,165,250,0.65)",
-    },
-    portfolios: {
-      fill: "#7C3AED",
-      fillMuted: "rgba(124,58,237,0.38)",
-      glow: "rgba(124,58,237,0.55)",
-      border: "rgba(167,139,250,0.65)",
-    },
-  };
-
   return (
     <div
       className={[
@@ -397,7 +379,6 @@ function PrimaryProductTabs({
     >
       {PRODUCT_TABS.map((tab) => {
         const active = tab.id === selected;
-        const tone = styles[tab.id];
         return (
           <button
             key={tab.id}
@@ -406,22 +387,12 @@ function PrimaryProductTabs({
             aria-selected={active}
             onClick={() => onSelect(tab.id)}
             className={[
-              "rounded-[14px] font-bold uppercase tracking-[0.14em] text-white transition-all",
+              "app-marketplace-nav-tab rounded-[14px]",
               compact
                 ? "min-h-[48px] px-3 py-3 text-[12px] sm:text-[13px]"
                 : "min-h-[64px] px-4 py-4 text-base sm:min-h-[72px] sm:text-lg",
+              active ? "app-marketplace-nav-tab-active scale-[1.02]" : "opacity-90",
             ].join(" ")}
-            style={{
-              background: active
-                ? `linear-gradient(145deg, ${tone.fill} 0%, color-mix(in srgb, ${tone.fill} 72%, #000) 100%)`
-                : `linear-gradient(145deg, ${tone.fillMuted} 0%, color-mix(in srgb, ${tone.fill} 22%, #111) 100%)`,
-              border: `2px solid ${active ? tone.border : "rgba(255,255,255,0.12)"}`,
-              boxShadow: active
-                ? `inset 0 1px 0 rgba(255,255,255,0.28), 0 12px 28px -8px ${tone.glow}`
-                : "inset 0 1px 0 rgba(255,255,255,0.08)",
-              opacity: active ? 1 : 0.82,
-              transform: active ? "scale(1.02)" : "scale(1)",
-            }}
           >
             {tab.label}
           </button>
@@ -494,7 +465,7 @@ function SegmentedControl<T extends string>({
               text,
               pad,
               active
-                ? "bg-gradient-to-r from-app-brand to-[color:var(--color-accent-cyan)] text-white shadow-[0_0_12px_-2px_rgba(59,130,246,0.45)]"
+                ? "app-filter-tab-active"
                 : "text-app-muted hover:bg-app-soft hover:text-app-ink",
             ].join(" ")}
           >
@@ -532,8 +503,8 @@ function ChipRow<T extends string>({
                 ? "h-6 px-2 text-[9px] sm:text-[10px]"
                 : "h-7 px-2.5 text-[10px] sm:text-[11px]",
               active
-                ? "border border-app-brand/55 bg-gradient-to-r from-app-brand/20 to-[color:var(--color-accent-cyan)]/15 text-app-brand shadow-[0_0_8px_-2px_rgba(59,130,246,0.4)]"
-                : "border border-app-line/70 bg-app-elevated text-app-muted hover:border-app-brand/30 hover:text-app-ink",
+                ? "app-filter-chip-active border"
+                : "border border-app-line/70 bg-app-elevated text-app-muted hover:border-app-line hover:text-app-ink",
             ].join(" ")}
           >
             {item.label}

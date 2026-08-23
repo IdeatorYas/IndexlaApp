@@ -770,13 +770,13 @@ function ProductDetail({
           <button
             type="button"
             onClick={onInvest}
-            className="app-gradient-btn flex h-11 w-full items-center justify-center rounded-[10px] text-sm font-bold"
+            className="app-btn-invest flex h-11 w-full items-center justify-center rounded-[10px] text-sm"
           >
             Invest
           </button>
           <Link
             href={APP_ROUTES.create + "?template=degen"}
-            className="flex h-11 w-full items-center justify-center rounded-[10px] border border-app-line bg-app-elevated text-sm font-bold text-app-ink hover:border-app-brand/30"
+            className="app-btn-customize flex h-11 w-full items-center justify-center rounded-[10px] text-sm"
           >
             Customize & Invest
           </Link>

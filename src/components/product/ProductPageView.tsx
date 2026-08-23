@@ -14,7 +14,7 @@ import { MiniLineChart } from "@/components/ui/MiniLineChart";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
-import { getProductTypeStyle, isIndexlaProduct } from "@/lib/product/product-type";
+import { getProductTypeStyle, isIndexlaProduct, productNameBoxStyle } from "@/lib/product/product-type";
 
 export function ProductPageView({ product }: { product: MarketplaceProduct }) {
   const router = useRouter();
@@ -47,15 +47,20 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
   return (
     <div className="relative pb-24">
       <section
-        className="relative overflow-hidden rounded-[18px] border bg-gradient-to-br from-app-brand/20 via-app-elevated to-[color:var(--color-accent-violet)]/15 shadow-[0_20px_60px_-24px_rgba(59,130,246,0.45)]"
-        style={{ borderColor: typeStyle.border }}
+        className="relative overflow-hidden rounded-[18px] border bg-gradient-to-br via-app-elevated to-app-panel shadow-[0_20px_60px_-24px_rgba(0,0,0,0.35)]"
+        style={{
+          borderColor: typeStyle.border,
+          background: `linear-gradient(135deg, ${typeStyle.surface} 0%, var(--color-bg-elevated) 38%, color-mix(in srgb, ${typeStyle.fill} 8%, var(--color-bg-elevated)) 100%)`,
+        }}
       >
         <div
-          className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-[color:var(--color-accent-cyan)]/20 blur-3xl"
+          className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full blur-3xl"
+          style={{ backgroundColor: `${typeStyle.color}33` }}
           aria-hidden
         />
         <div
-          className="pointer-events-none absolute -bottom-20 -left-10 h-56 w-56 rounded-full bg-app-brand/15 blur-3xl"
+          className="pointer-events-none absolute -bottom-20 -left-10 h-56 w-56 rounded-full blur-3xl"
+          style={{ backgroundColor: `${typeStyle.fill}22` }}
           aria-hidden
         />
         <div className="relative grid gap-4 p-4 sm:p-6 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
@@ -71,9 +76,17 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
                 </span>
               ) : null}
             </div>
-            <h1 className="app-display mt-2 text-2xl font-bold text-app-ink sm:text-3xl">
-              {product.name}
-            </h1>
+            <div
+              className="mt-3 w-full max-w-2xl rounded-[14px] px-4 py-3.5 text-center sm:text-left"
+              style={productNameBoxStyle(typeStyle)}
+            >
+              <h1
+                className="app-display text-2xl font-bold sm:text-3xl"
+                style={{ color: typeStyle.textOnFill }}
+              >
+                {product.name}
+              </h1>
+            </div>
             <div className="mt-3">
               <ProductCreatorLine
                 creatorName={product.creatorName}
@@ -231,7 +244,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
         >
           <button
             type="button"
-            className="app-gradient-btn h-11 flex-1 rounded-[12px] text-sm font-bold"
+            className="app-btn-invest h-11 flex-1 rounded-[12px] text-sm"
             onClick={() => {
               if (wallet.state !== "connected") connectDemo();
               openInvest();
@@ -241,7 +254,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
           </button>
           <Link
             href={`${APP_ROUTES.create}?from=${product.id}&mode=customize`}
-            className="flex h-11 flex-1 items-center justify-center rounded-[12px] border border-app-line bg-app-elevated text-sm font-bold text-app-ink hover:border-app-brand/35"
+            className="app-btn-customize flex h-11 flex-1 items-center justify-center rounded-[12px] text-sm"
             onClick={(e) => {
               if (wallet.state !== "connected") {
                 e.preventDefault();

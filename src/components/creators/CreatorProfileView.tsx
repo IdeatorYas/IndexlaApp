@@ -449,7 +449,7 @@ export function CreatorProfileView({
                         if (!requireWallet("Invest")) return;
                         preview(`Invest preview · ${product.name}`);
                       }}
-                      className="h-9 app-gradient-btn rounded-[10px] px-3 text-[12px] font-bold text-white"
+                      className="app-btn-invest h-9 rounded-[10px] px-3 text-[12px]"
                     >
                       Invest
                     </button>

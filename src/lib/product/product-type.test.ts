@@ -72,6 +72,17 @@ describe("product type styles", () => {
     ).toBe("Hybrid Portfolio");
   });
 
+  it("assigns distinct product-type palette colors", () => {
+    const cryptoIndex = getProductTypeStyle({ kind: "Index", indexType: "Crypto" });
+    const stockIndex = getProductTypeStyle({
+      kind: "Index",
+      indexType: "Tokenized Stocks",
+    });
+    expect(cryptoIndex.fill).toBe("#D97706");
+    expect(stockIndex.fill).toBe("#0284C7");
+    expect(cryptoIndex.fill).not.toBe(stockIndex.fill);
+  });
+
   it("splits INDEXLA and creator products", () => {
     const products = [
       mockProduct({ id: "a", creatorHandle: "indexla" }),
