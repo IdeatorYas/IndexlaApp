@@ -29,19 +29,52 @@ function GenericAssetIcon({ size, title }: { size: number; title: string }) {
 export function AssetIcon({
   assetId,
   size = 28,
+  framed = true,
 }: {
   assetId: string;
   size?: number;
+  /** When false, logo sits bare (no circular frame) — used inside allocation segments. */
+  framed?: boolean;
 }) {
   const ticker = resolveAssetTicker(assetId);
   const src = getAssetLogoUrl(assetId);
   const [broken, setBroken] = useState(false);
+  const resolved = !src || broken ? GENERIC_ASSET_LOGO : src;
+  const isRemote = resolved.startsWith("http");
+
+  if (!framed) {
+    if (isRemote) {
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={resolved}
+          alt={ticker}
+          width={size}
+          height={size}
+          className="object-contain"
+          style={{ width: size, height: size, display: "block" }}
+          loading="lazy"
+          title={ticker}
+          onError={() => setBroken(true)}
+        />
+      );
+    }
+    return (
+      <Image
+        src={resolved}
+        alt={ticker}
+        width={size}
+        height={size}
+        className="object-contain"
+        title={ticker}
+        onError={() => setBroken(true)}
+      />
+    );
+  }
 
   if (!src || broken) {
     return <GenericAssetIcon size={size} title={ticker} />;
   }
-
-  const isRemote = src.startsWith("http");
 
   return (
     <span
@@ -88,19 +121,24 @@ export function AssetIconStack({
 
   return (
     <div className="flex items-center">
-      {shown.map((id, index) => (
+      {shown.map((id, i) => (
         <span
-          key={`${id}-${index}`}
+          key={`${id}-${i}`}
           className="relative"
-          style={{ marginLeft: index === 0 ? 0 : -8, zIndex: shown.length - index }}
+          style={{ marginLeft: i === 0 ? 0 : -size * 0.28, zIndex: shown.length - i }}
         >
           <AssetIcon assetId={id} size={size} />
         </span>
       ))}
       {overflow > 0 ? (
         <span
-          className="relative z-0 ml-[-6px] inline-flex items-center justify-center rounded-full border border-app-line bg-app-panel text-[10px] font-bold text-app-muted"
-          style={{ width: size, height: size }}
+          className="relative flex items-center justify-center rounded-full border border-app-line bg-app-panel text-[9px] font-bold text-app-muted"
+          style={{
+            width: size,
+            height: size,
+            marginLeft: -size * 0.28,
+            zIndex: 0,
+          }}
         >
           +{overflow}
         </span>

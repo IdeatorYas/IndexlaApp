@@ -44,9 +44,23 @@ function describeDonutSegment(
   ].join(" ");
 }
 
+/** Max logo size that fits inside the ring thickness and arc chord. */
+function logoSizeForSegment(
+  sweep: number,
+  logoR: number,
+  ringThickness: number,
+  count: number,
+) {
+  const chord = 2 * logoR * Math.sin(Math.max(sweep, 0.08) / 2);
+  const byChord = chord * 0.72;
+  const byRing = ringThickness * 0.78;
+  const byCount = count <= 5 ? 42 : count <= 8 ? 34 : 28;
+  return Math.min(byCount, byChord, byRing, ringThickness - 4);
+}
+
 export function PremiumAllocationVisual({
   allocations,
-  size = 300,
+  size = 340,
 }: {
   allocations: AllocationPreview[];
   size?: number;
@@ -54,8 +68,10 @@ export function PremiumAllocationVisual({
   const total = allocations.reduce((sum, a) => sum + a.percent, 0) || 100;
   const cx = size / 2;
   const cy = size / 2;
-  const outerR = size / 2 - 8;
-  const innerR = Math.max(outerR * 0.52, 56);
+  /* Thick ring so logos use full segment depth */
+  const outerR = size / 2 - 6;
+  const innerR = outerR * 0.42;
+  const ringThickness = outerR - innerR;
   const logoR = (innerR + outerR) / 2;
 
   let cursor = -Math.PI / 2;
@@ -66,9 +82,11 @@ export function PremiumAllocationVisual({
     cursor = endAngle;
     const midAngle = startAngle + sweep / 2;
     const logoPos = polarToCartesian(cx, cy, logoR, midAngle);
-    const iconSize = Math.min(
-      30,
-      Math.max(16, Math.floor(sweep * logoR * 0.85)),
+    const iconSize = logoSizeForSegment(
+      sweep,
+      logoR,
+      ringThickness,
+      allocations.length,
     );
     const color = allocationSegmentColor(index);
     return {
@@ -85,79 +103,75 @@ export function PremiumAllocationVisual({
   });
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] xl:items-start">
-      <div className="relative mx-auto w-full max-w-[min(100%,320px)]">
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] xl:items-center">
+      <div className="relative mx-auto w-full max-w-[min(100%,380px)]">
         <div
-          className="absolute inset-0 rounded-full bg-gradient-to-br from-app-brand/12 via-transparent to-[color:var(--color-accent-violet)]/10 blur-2xl"
+          className="pointer-events-none absolute inset-[8%] rounded-full bg-gradient-to-br from-app-soft/80 to-transparent blur-xl"
           aria-hidden
         />
-        <div className="relative rounded-full border border-app-line/50 bg-app-panel/40 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_20px_50px_-20px_rgba(59,130,246,0.35)]">
-          <svg
-            width="100%"
-            height="100%"
-            viewBox={`0 0 ${size} ${size}`}
-            className="block aspect-square"
-            role="img"
-            aria-label="Asset allocation chart"
-          >
-            {segments.map((segment) => (
-              <path
-                key={`${segment.alloc.assetId}-${segment.index}`}
-                d={segment.path}
-                fill={segment.color}
-                stroke="var(--color-bg-elevated)"
-                strokeWidth="1.5"
-                className="drop-shadow-[0_0_4px_rgba(0,0,0,0.15)]"
-              />
-            ))}
-            <circle
-              cx={cx}
-              cy={cy}
-              r={innerR - 6}
-              fill="var(--color-bg-elevated)"
-              stroke="var(--color-line)"
-              strokeWidth="1"
+        <svg
+          width="100%"
+          height="100%"
+          viewBox={`0 0 ${size} ${size}`}
+          className="relative block aspect-square drop-shadow-[0_16px_40px_-18px_rgba(0,0,0,0.4)]"
+          role="img"
+          aria-label="Asset allocation chart"
+        >
+          {segments.map((segment) => (
+            <path
+              key={`${segment.alloc.assetId}-${segment.index}`}
+              d={segment.path}
+              fill={segment.color}
+              stroke="var(--color-bg-elevated)"
+              strokeWidth="2"
             />
-            <text
-              x={cx}
-              y={cy - 5}
-              textAnchor="middle"
-              fill="var(--color-ink)"
-              style={{ fontSize: 12, fontWeight: 700 }}
+          ))}
+          <circle
+            cx={cx}
+            cy={cy}
+            r={innerR - 2}
+            fill="var(--color-bg-elevated)"
+          />
+          <text
+            x={cx}
+            y={cy - 6}
+            textAnchor="middle"
+            fill="var(--color-ink)"
+            style={{ fontSize: 18, fontWeight: 700, fontFamily: "var(--font-display)" }}
+          >
+            {allocations.length}
+          </text>
+          <text
+            x={cx}
+            y={cy + 12}
+            textAnchor="middle"
+            fill="var(--color-ink-dim)"
+            style={{ fontSize: 10, fontWeight: 600 }}
+          >
+            assets
+          </text>
+          {segments.map((segment) => (
+            <foreignObject
+              key={`logo-${segment.alloc.assetId}-${segment.index}`}
+              x={segment.logoPos.x - segment.iconSize / 2}
+              y={segment.logoPos.y - segment.iconSize / 2}
+              width={segment.iconSize}
+              height={segment.iconSize}
+              className="overflow-visible pointer-events-none"
             >
-              {allocations.length}
-            </text>
-            <text
-              x={cx}
-              y={cy + 11}
-              textAnchor="middle"
-              fill="var(--color-muted)"
-              style={{ fontSize: 9, fontWeight: 600 }}
-            >
-              assets
-            </text>
-            {segments.map((segment) => (
-              <foreignObject
-                key={`logo-${segment.alloc.assetId}-${segment.index}`}
-                x={segment.logoPos.x - segment.iconSize / 2}
-                y={segment.logoPos.y - segment.iconSize / 2}
-                width={segment.iconSize}
-                height={segment.iconSize}
-                className="overflow-visible"
+              <div
+                className="flex h-full w-full items-center justify-center"
+                title={segment.alloc.label}
               >
-                <div
-                  className="flex h-full w-full items-center justify-center rounded-full border border-white/20 bg-app-elevated/95 shadow-sm"
-                  title={segment.alloc.label}
-                >
-                  <AssetIcon
-                    assetId={segment.alloc.assetId}
-                    size={Math.max(12, segment.iconSize - 4)}
-                  />
-                </div>
-              </foreignObject>
-            ))}
-          </svg>
-        </div>
+                <AssetIcon
+                  assetId={segment.alloc.assetId}
+                  size={Math.floor(segment.iconSize)}
+                  framed={false}
+                />
+              </div>
+            </foreignObject>
+          ))}
+        </svg>
       </div>
 
       <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
@@ -167,15 +181,16 @@ export function PremiumAllocationVisual({
           return (
             <li
               key={`${alloc.assetId}-${index}`}
-              className="flex items-center gap-2 rounded-[12px] border border-app-line/50 bg-app-panel/70 px-2.5 py-2"
+              className="group flex items-center gap-2.5 rounded-[14px] border border-app-line/45 bg-gradient-to-r from-app-elevated/90 to-app-panel/60 px-2.5 py-2 transition-transform hover:-translate-y-px"
             >
               <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                className="h-8 w-1 shrink-0 rounded-full"
                 style={{ background: color }}
+                aria-hidden
               />
-              <AssetIcon assetId={alloc.assetId} size={28} />
+              <AssetIcon assetId={alloc.assetId} size={30} />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[12px] font-bold text-app-ink">
+                <p className="truncate text-[13px] font-bold text-app-ink">
                   {getAssetDisplayName(alloc.assetId)}
                 </p>
                 <p className="text-[10px] text-app-muted">
@@ -183,7 +198,7 @@ export function PremiumAllocationVisual({
                 </p>
               </div>
               <p
-                className="shrink-0 text-[13px] font-bold"
+                className="shrink-0 text-[14px] font-bold tabular-nums"
                 style={{ color }}
               >
                 {alloc.percent}%

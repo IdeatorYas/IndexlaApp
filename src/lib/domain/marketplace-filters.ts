@@ -84,10 +84,10 @@ export interface MarketplaceFilterState {
   sort: DiscoverSort;
 }
 
-/** Indexes + Crypto so asset-category and index narratives appear immediately. */
+/** Indexes + All — full catalog visible; narratives unlock after a category is chosen. */
 export const DEFAULT_FILTER_STATE: MarketplaceFilterState = {
   productTab: "indexes",
-  assetCategory: "Crypto",
+  assetCategory: "All",
   narrative: "all",
   query: "",
   sort: "trending",

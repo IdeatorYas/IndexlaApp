@@ -467,33 +467,35 @@
       color var(--transition-fast);
   }
 
+  /* Premium medium grey — never black, never product/CTA colors */
   [data-theme="light"] .app-marketplace-nav-tab:not(.app-marketplace-nav-tab-active) {
-    background: linear-gradient(180deg, var(--color-panel) 0%, var(--color-bg-soft) 100%);
-    color: var(--color-ink-muted);
+    background: linear-gradient(180deg, #d8dee8 0%, #c5cdd9 100%);
+    color: #475569;
+    border-color: rgba(100, 116, 139, 0.35);
   }
 
   [data-theme="dark"] .app-marketplace-nav-tab:not(.app-marketplace-nav-tab-active) {
-    background: linear-gradient(180deg, #222228 0%, #1a1a1f 100%);
-    color: var(--color-ink-dim);
+    background: linear-gradient(180deg, #3f4550 0%, #343a44 100%);
+    color: #a8b0bd;
     border-color: rgba(255, 255, 255, 0.1);
   }
 
   [data-theme="light"] .app-marketplace-nav-tab-active {
-    background: linear-gradient(145deg, #0f172a 0%, #1e293b 100%);
+    background: linear-gradient(145deg, #6b7280 0%, #4b5563 100%);
     color: #ffffff;
-    border-color: rgba(15, 23, 42, 0.85);
+    border-color: rgba(75, 85, 99, 0.9);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.14),
-      0 10px 28px -10px rgba(15, 23, 42, 0.4);
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 10px 26px -10px rgba(75, 85, 99, 0.45);
   }
 
   [data-theme="dark"] .app-marketplace-nav-tab-active {
-    background: linear-gradient(145deg, #fafafa 0%, #e4e4e7 100%);
-    color: #09090b;
-    border-color: rgba(255, 255, 255, 0.22);
+    background: linear-gradient(145deg, #9ca3af 0%, #6b7280 100%);
+    color: #0a0a0b;
+    border-color: rgba(156, 163, 175, 0.65);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.55),
-      0 10px 28px -10px rgba(0, 0, 0, 0.55);
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 10px 26px -10px rgba(0, 0, 0, 0.55);
   }
 
   .app-filter-tab-active {

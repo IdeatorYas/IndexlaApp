@@ -52,15 +52,20 @@ test.describe("Discover marketplace", () => {
       page.getByRole("tablist", { name: "Marketplace product type" })
         .getByRole("tab", { name: "Indexes" }),
     ).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("button", { name: "Layer 1", exact: true })).toBeVisible();
+    await expect(
+      page
+        .getByRole("tablist", { name: "Asset category" })
+        .getByRole("tab", { name: "All" }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("button", { name: "Layer 1", exact: true })).toHaveCount(0);
     await page.getByRole("tab", { name: "Portfolios" }).click();
     await expect(page).toHaveURL(/tab=portfolios/);
-    await expect(page.getByRole("button", { name: "Layer 1", exact: true })).toHaveCount(0);
     await page.getByRole("tab", { name: "Indexes" }).click();
     await page
       .getByRole("tablist", { name: "Asset category" })
       .getByRole("tab", { name: "Crypto" })
       .click();
+    await expect(page.getByRole("button", { name: "Layer 1", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "DeFi", exact: true }).click();
     await expect(page.getByText("DeFi Index").first()).toBeVisible();
   });
