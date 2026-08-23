@@ -16,6 +16,7 @@ import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
 import { CreatorAvatar } from "@/components/creators/CreatorAvatar";
+import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 
 type ViewState = "loading" | "ready" | "error" | "empty";
 
@@ -306,11 +307,7 @@ function Header({ illustrative }: { illustrative: boolean }) {
           Ranks creator profiles for discovery — not monthly portfolio rewards.
         </p>
       </div>
-      {illustrative ? (
-        <span className="rounded-full bg-app-warning/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-app-warning">
-          Illustrative
-        </span>
-      ) : null}
+      {illustrative ? <IllustrativeBadge /> : null}
     </header>
   );
 }

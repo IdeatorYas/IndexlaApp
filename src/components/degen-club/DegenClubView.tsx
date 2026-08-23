@@ -27,6 +27,8 @@ import {
   formatUsd,
 } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
+import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
+import { PreviewOnlyMessage } from "@/components/ui/PreviewOnlyMessage";
 
 type ViewState = "loading" | "ready" | "error" | "empty";
 
@@ -205,11 +207,7 @@ export function DegenClubView({
             {workspace.hero.tagline}
           </h1>
         </div>
-        {illustrative ? (
-          <span className="rounded-full bg-app-warning/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-app-warning">
-            Illustrative
-          </span>
-        ) : null}
+        {illustrative ? <IllustrativeBadge /> : null}
       </header>
 
       {wallet.state !== "connected" ? (
@@ -247,11 +245,7 @@ export function DegenClubView({
         </div>
       ) : null}
 
-      {message ? (
-        <p className="rounded-[10px] border border-app-line bg-app-soft px-3 py-2 text-xs text-app-muted">
-          {message}
-        </p>
-      ) : null}
+      {message ? <PreviewOnlyMessage>{message}</PreviewOnlyMessage> : null}
 
       <HeroSection
         points={workspace.hero.points}
@@ -503,11 +497,7 @@ function ProductCard({
             <span className="rounded-md bg-app-danger/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-danger">
               Extreme
             </span>
-            {product.isIllustrative ? (
-              <span className="rounded-md bg-app-warning/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-warning">
-                Illustrative
-              </span>
-            ) : null}
+            {product.isIllustrative ? <IllustrativeBadge compact /> : null}
           </div>
           <h3 className="mt-1 truncate text-sm font-bold text-app-ink">
             {product.name}
@@ -582,27 +572,29 @@ function ProductDetail({
   onFollow: () => void;
   onInvest: () => void;
 }) {
+  const positive = product.performance30d >= 0;
+
   return (
     <section
-      className="app-panel space-y-4 p-4 sm:p-5"
+      className="app-panel overflow-hidden"
       aria-labelledby="degen-product-detail"
     >
-      <RiskBanner />
+      <div className="border-b border-app-line px-4 py-3 sm:px-5">
+        <RiskBanner />
+      </div>
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <div className="flex items-start justify-between gap-3 border-b border-app-line px-4 py-3 sm:px-5">
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <ProductTypeBadge kind={product.kind} />
-            <span className="rounded-md bg-app-danger/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-app-danger">
+            <span className="rounded-md bg-app-danger/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-danger">
               Risk: Extreme
             </span>
-            <span className="rounded-md bg-app-warning/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-app-warning">
-              Illustrative
-            </span>
+            {product.isIllustrative ? <IllustrativeBadge compact /> : null}
           </div>
           <h2
             id="degen-product-detail"
-            className="app-display mt-1 text-xl font-bold text-app-ink"
+            className="app-display mt-1 truncate text-xl font-bold text-app-ink"
           >
             {product.name}
           </h2>
@@ -616,116 +608,181 @@ function ProductDetail({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-[10px] border border-app-line px-3 py-1.5 text-xs font-bold text-app-muted"
+          className="rounded-[10px] border border-app-line px-3 py-1.5 text-xs font-bold text-app-muted hover:text-app-ink"
         >
           Close
         </button>
       </div>
 
-      <p className="text-sm text-app-muted">{product.thesis}</p>
+      <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-4">
+          <p className="text-sm text-app-muted">{product.thesis}</p>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
-        <div className="space-y-3">
-          <div className="rounded-[12px] border border-app-line bg-app-soft p-3">
-            <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-app-muted">
-              Performance · Illustrative
-            </p>
-            <MiniLineChart points={product.chartSeries} height={120} />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onFollow}
+              className="h-8 rounded-[10px] border border-app-line bg-app-elevated px-3 text-[11px] font-bold text-app-ink/80 hover:text-app-ink"
+            >
+              {following ? "Following" : "Follow creator"}
+            </button>
+            <button
+              type="button"
+              onClick={onLike}
+              className="h-8 rounded-[10px] border border-app-line bg-app-elevated px-3 text-[11px] font-bold text-app-ink/80 hover:text-app-ink"
+            >
+              {liked ? "Liked" : "Like"} · {product.likes + (liked ? 1 : 0)}
+            </button>
+            <Link
+              href={APP_ROUTES.create + "?template=degen"}
+              className="inline-flex h-8 items-center rounded-[10px] border border-app-line bg-app-elevated px-3 text-[11px] font-bold text-app-ink/80 hover:text-app-ink"
+            >
+              Customize in Create
+            </Link>
           </div>
-          <dl className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
-            <Metric
-              label="Performance"
-              value={formatPercent(product.performance30d, true)}
-            />
-            <Metric label="AUM" value={formatUsd(product.aumUsd, true)} />
-            <Metric
-              label="Volume"
-              value={formatUsd(product.volumeUsd, true)}
-            />
-            <Metric
-              label="Investors"
-              value={product.investors.toLocaleString()}
-            />
-            <Metric label="Volatility" value={product.volatilityLabel} />
-            <Metric label="Chain" value={product.chainLabel} />
-            <Metric label="Strategy" value={product.strategy} />
-            <Metric
-              label="Est. fees / costs"
-              value={`${formatUsd(product.feeEstimateUsd)} / ${formatUsd(product.estimatedCostUsd)}`}
-            />
-          </dl>
-        </div>
-        <div className="flex flex-col items-center gap-2 rounded-[12px] border border-app-line bg-app-elevated p-3">
-          <AllocationDonut
-            segments={product.allocations.map((a) => ({
-              label: a.label,
-              percent: a.percent,
-            }))}
-            size={96}
-          />
-          <p className="text-center text-[11px] text-app-muted">
-            {product.allocations
-              .map((a) => `${a.label} ${a.percent}%`)
-              .join(" · ")}
-          </p>
-        </div>
-      </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-[12px] border border-app-line bg-app-soft p-3">
-          <h3 className="text-sm font-bold text-app-ink">Rebalance rules</h3>
-          <p className="mt-1 text-xs text-app-muted">{product.rebalanceRules}</p>
-        </div>
-        <div className="rounded-[12px] border border-app-line bg-app-soft p-3">
-          <h3 className="text-sm font-bold text-app-ink">
-            Activity · Illustrative
-          </h3>
-          <ul className="mt-2 space-y-2">
-            {product.activity.map((item) => (
-              <li key={item.id} className="text-xs">
-                <p className="font-semibold text-app-ink">{item.title}</p>
-                <p className="text-app-muted">
-                  {item.subtitle} · {formatRelativeTime(item.atIso)}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
+          <PreviewOnlyMessage>
+            Likes and follows are engagement metrics only and never affect
+            Portfolio Leaderboard ranking. All figures are Illustrative.
+          </PreviewOnlyMessage>
 
-      <p className="text-[11px] text-app-muted">
-        Likes and follows are engagement metrics only and never affect Portfolio
-        Leaderboard ranking.
-      </p>
+          <div>
+            <h3 className="app-label mb-2">Assets & target allocations</h3>
+            <div className="flex items-start gap-4">
+              <AllocationDonut
+                segments={product.allocations.map((a) => ({
+                  label: a.label,
+                  percent: a.percent,
+                }))}
+                size={72}
+              />
+              <ul className="min-w-0 flex-1 space-y-1.5">
+                {product.allocations.map((a) => (
+                  <li
+                    key={a.label}
+                    className="flex items-center justify-between gap-2 text-sm"
+                  >
+                    <span className="font-semibold text-app-ink">{a.label}</span>
+                    <span className="text-app-muted">{a.percent}%</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={onFollow}
-          className="h-9 rounded-[10px] border border-app-line bg-app-elevated px-3 text-[12px] font-bold text-app-ink"
-        >
-          {following ? "Following" : "Follow"}
-        </button>
-        <button
-          type="button"
-          onClick={onLike}
-          className="h-9 rounded-[10px] border border-app-line bg-app-elevated px-3 text-[12px] font-bold text-app-ink"
-        >
-          {liked ? "Liked" : "Like"} · {product.likes + (liked ? 1 : 0)}
-        </button>
-        <button
-          type="button"
-          onClick={onInvest}
-          className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
-        >
-          Invest
-        </button>
-        <Link
-          href={APP_ROUTES.create + "?template=degen"}
-          className="inline-flex h-9 items-center rounded-[10px] border border-app-line px-3 text-[12px] font-bold text-app-ink"
-        >
-          Customize in Create
-        </Link>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[10px] border border-app-line bg-app-elevated px-3 py-2.5">
+              <p className="app-label">Chain</p>
+              <p className="mt-1 text-sm font-semibold text-app-ink">
+                {product.chainLabel}
+              </p>
+            </div>
+            <div className="rounded-[10px] border border-app-line bg-app-elevated px-3 py-2.5">
+              <p className="app-label">Strategy</p>
+              <p className="mt-1 text-sm font-semibold text-app-ink">
+                {product.strategy}
+              </p>
+            </div>
+            <div className="rounded-[10px] border border-app-line bg-app-elevated px-3 py-2.5">
+              <p className="app-label">Volatility</p>
+              <p className="mt-1 text-sm font-semibold text-app-ink">
+                {product.volatilityLabel}
+              </p>
+            </div>
+            <div className="rounded-[10px] border border-app-line bg-app-elevated px-3 py-2.5">
+              <p className="app-label">Est. fees / costs</p>
+              <p className="mt-1 text-sm font-semibold text-app-ink">
+                {formatUsd(product.feeEstimateUsd)} /{" "}
+                {formatUsd(product.estimatedCostUsd)}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-[10px] border border-app-line bg-app-soft p-3">
+            <h3 className="text-sm font-bold text-app-ink">Rebalance rules</h3>
+            <p className="mt-1 text-xs text-app-muted">{product.rebalanceRules}</p>
+          </div>
+
+          <div className="rounded-[10px] border border-app-line bg-app-soft p-3">
+            <h3 className="text-sm font-bold text-app-ink">Activity</h3>
+            <ul className="mt-2 space-y-2">
+              {product.activity.map((item) => (
+                <li key={item.id} className="text-xs">
+                  <p className="font-semibold text-app-ink">{item.title}</p>
+                  <p className="text-app-muted">
+                    {item.subtitle} · {formatRelativeTime(item.atIso)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="rounded-[10px] border border-app-line bg-app-soft p-3 text-xs text-app-muted">
+            <p className="font-bold text-app-ink">Non-custodial disclosure</p>
+            <p className="mt-1">
+              You hold the real underlying assets in your wallet. INDEXLA cannot
+              withdraw funds or expand its own permissions.
+            </p>
+            <p className="mt-2 font-semibold text-app-danger">{DEGEN_RISK_WARNING}</p>
+          </div>
+        </div>
+
+        <aside className="space-y-3">
+          <div className="rounded-[10px] border border-app-line bg-app-elevated p-4">
+            <p className="app-label">30D performance</p>
+            <p
+              className={[
+                "app-metric mt-1 text-3xl",
+                positive ? "text-app-success" : "text-app-danger",
+              ].join(" ")}
+            >
+              {formatPercent(product.performance30d, true)}
+            </p>
+            <div className="mt-3">
+              <MiniLineChart points={product.chartSeries} height={96} />
+            </div>
+            <dl className="mt-4 space-y-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-app-dim">AUM</dt>
+                <dd className="font-semibold text-app-ink">
+                  {formatUsd(product.aumUsd, true)}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-app-dim">Volume</dt>
+                <dd className="font-semibold text-app-ink">
+                  {formatUsd(product.volumeUsd, true)}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-app-dim">Investors</dt>
+                <dd className="font-semibold text-app-ink">
+                  {product.investors.toLocaleString()}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-app-dim">Likes</dt>
+                <dd className="font-semibold text-app-ink">
+                  {product.likes + (liked ? 1 : 0)}
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          <button
+            type="button"
+            onClick={onInvest}
+            className="app-gradient-btn flex h-11 w-full items-center justify-center rounded-[10px] text-sm font-bold"
+          >
+            Invest
+          </button>
+          <Link
+            href={APP_ROUTES.create + "?template=degen"}
+            className="flex h-11 w-full items-center justify-center rounded-[10px] border border-app-line bg-app-elevated text-sm font-bold text-app-ink hover:border-app-brand/30"
+          >
+            Customize & Invest
+          </Link>
+        </aside>
       </div>
     </section>
   );

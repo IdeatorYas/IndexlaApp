@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { AppSidebar } from "@/components/shell/AppSidebar";
+import { GlobalCommandSearch } from "@/components/shell/GlobalCommandSearch";
 import { PreviewBanner } from "@/components/shell/PreviewBanner";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -32,6 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <AppHeader onMenuClick={() => setMobileNavOpen(true)} />
         <main className="flex-1 px-3 py-4 sm:px-5 lg:px-6 lg:py-5">{children}</main>
       </div>
+      <GlobalCommandSearch />
     </div>
   );
 }

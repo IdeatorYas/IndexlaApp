@@ -11,6 +11,8 @@ import { AllocationDonut } from "@/components/ui/AllocationDonut";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
+import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
+import { PreviewOnlyMessage } from "@/components/ui/PreviewOnlyMessage";
 
 export function ProductDetailPanel({
   product,
@@ -52,11 +54,7 @@ export function ProductDetailPanel({
                 Featured
               </span>
             ) : null}
-            {product.isIllustrative ? (
-              <span className="rounded-md bg-app-soft px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-muted">
-                Illustrative
-              </span>
-            ) : null}
+            {product.isIllustrative ? <IllustrativeBadge compact /> : null}
           </div>
           <h2
             id="product-detail-title"
@@ -136,11 +134,7 @@ export function ProductDetailPanel({
             />
           </div>
 
-          {message ? (
-            <p className="rounded-[10px] border border-app-line bg-app-soft px-3 py-2 text-xs text-app-muted">
-              {message}
-            </p>
-          ) : null}
+          {message ? <PreviewOnlyMessage>{message}</PreviewOnlyMessage> : null}
 
           <div>
             <h3 className="app-label mb-2">Assets & target allocations</h3>

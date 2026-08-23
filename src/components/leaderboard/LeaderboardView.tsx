@@ -27,6 +27,8 @@ import {
   formatPercent,
   formatUsd,
 } from "@/lib/dashboard/data";
+import { APP_ROUTES } from "@/lib/routes";
+import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 
 type ViewState = "loading" | "ready" | "error" | "empty";
 
@@ -364,14 +366,16 @@ function Header({ illustrative }: { illustrative: boolean }) {
         </h1>
         <p className="mt-1 max-w-2xl text-sm text-app-muted">
           Ranks individual portfolios and indexes — not creators. Each product
-          competes separately.
+          competes separately. Separate from the Creator Leaderboard.
         </p>
+        <Link
+          href={APP_ROUTES.creatorLeaderboard}
+          className="mt-2 inline-flex text-xs font-bold text-app-brand hover:underline"
+        >
+          View Creator Leaderboard →
+        </Link>
       </div>
-      {illustrative ? (
-        <span className="rounded-full bg-app-warning/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-app-warning">
-          Illustrative
-        </span>
-      ) : null}
+      {illustrative ? <IllustrativeBadge /> : null}
     </header>
   );
 }

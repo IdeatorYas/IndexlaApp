@@ -35,7 +35,7 @@ export function ActivePortfoliosSection({
               href={APP_ROUTES.create}
               className="app-gradient-btn rounded-xl px-4 py-2 text-sm font-semibold"
             >
-              Create Portfolio
+              Create Portfolio / Index
             </Link>
           }
         />

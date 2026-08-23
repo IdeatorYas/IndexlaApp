@@ -5,7 +5,6 @@ import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { getClientFeatureFlags } from "@/lib/feature-flags";
 import { getDexlaBalance } from "@/lib/data";
-import { APP_ROUTES } from "@/lib/routes";
 
 export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const { theme, toggleTheme } = useTheme();
@@ -29,29 +28,25 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         </button>
       ) : null}
 
-      <form
-        action={APP_ROUTES.discover}
-        className="mr-auto min-w-0 flex-1 sm:max-w-lg"
-      >
-        <label className="sr-only" htmlFor="global-marketplace-search">
-          Search indexes, portfolios or assets
-        </label>
-        <div className="relative">
+      <div className="mr-auto min-w-0 flex-1 sm:max-w-lg">
+        <button
+          type="button"
+          onClick={() =>
+            window.dispatchEvent(new CustomEvent("indexla-open-command-search"))
+          }
+          className="relative flex h-9 w-full items-center rounded-[10px] border border-app-line bg-app-panel py-0 pl-8 pr-12 text-left text-[13px] text-app-dim outline-none hover:border-app-brand/45 focus-visible:border-app-brand/45"
+          aria-label="Search portfolios, indexes, creators and strategies"
+          aria-keyshortcuts="Control+K Meta+K"
+        >
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-app-dim">
             ⌕
           </span>
-          <input
-            id="global-marketplace-search"
-            name="q"
-            type="search"
-            placeholder="Search indexes, portfolios or assets"
-            className="h-9 w-full rounded-[10px] border border-app-line bg-app-panel py-0 pl-8 pr-12 text-[13px] text-app-ink outline-none placeholder:text-app-dim focus:border-app-brand/45"
-          />
+          <span className="truncate">Search portfolios, indexes, creators…</span>
           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-app-line px-1.5 py-0.5 text-[9px] font-bold text-app-dim">
             ⌘K
           </span>
-        </div>
-      </form>
+        </button>
+      </div>
 
       <button
         type="button"
@@ -99,9 +94,11 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         type="button"
         onClick={toggleTheme}
         className="flex h-9 w-9 items-center justify-center rounded-full border border-app-line text-sm text-app-muted hover:text-app-ink"
-        aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}
+        aria-label={
+          theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+        }
       >
-        {theme === "light" ? "☾" : "☀"}
+        {theme === "dark" ? "☀" : "☾"}
       </button>
     </header>
   );

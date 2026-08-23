@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { NavIcon } from "@/components/shell/NavIcons";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { getClientFeatureFlags } from "@/lib/feature-flags";
-import { NAV_ITEMS } from "@/lib/routes";
+import { APP_ROUTES, NAV_ITEMS } from "@/lib/routes";
 import { formatUsd } from "@/lib/dashboard/data";
 import { getDexlaBalance } from "@/lib/data";
 
@@ -124,7 +124,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
             </p>
           </div>
           <Link
-            href="/app/portfolio?action=buy-dexla"
+            href={`${APP_ROUTES.portfolio}?action=buy-dexla`}
             onClick={onNavigate}
             className="app-gradient-btn mt-2.5 flex w-full items-center justify-center rounded-[10px] px-3 py-2 text-[11px] font-bold"
           >

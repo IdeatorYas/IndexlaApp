@@ -30,6 +30,11 @@ import {
 } from "@/lib/dashboard/data";
 import { getClientFeatureFlags, getFeatureFlags } from "@/lib/feature-flags";
 import { APP_ROUTES } from "@/lib/routes";
+import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
+import {
+  PreviewOnlyMessage,
+  formatPreviewOnly,
+} from "@/components/ui/PreviewOnlyMessage";
 
 const TABS: { id: StrategiesTab; label: string }[] = [
   { id: "marketplace", label: "Marketplace" },
@@ -92,14 +97,47 @@ export function StrategiesView({
   const [selectedId, setSelectedId] = useState<string | null>(
     workspace.marketplace[0]?.id ?? null,
   );
+  const [focusHighlight, setFocusHighlight] = useState(false);
 
   const tab = (searchParams.get("tab") as StrategiesTab | null) ?? "marketplace";
+  const focusId = searchParams.get("focus");
 
   useEffect(() => {
     if (initialError) return;
     const timer = window.setTimeout(() => setViewState("ready"), 280);
     return () => window.clearTimeout(timer);
   }, [initialError]);
+
+  useEffect(() => {
+    if (!focusId || viewState !== "ready") return;
+    const exists = workspace.marketplace.some((s) => s.id === focusId);
+    if (!exists) return;
+    setSelectedId(focusId);
+    setFocusHighlight(true);
+    if (tab !== "marketplace") {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("tab");
+      params.set("focus", focusId);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    }
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById(`strategy-card-${focusId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      document
+        .getElementById("strategy-detail-panel")
+        ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [
+    focusId,
+    viewState,
+    workspace.marketplace,
+    tab,
+    pathname,
+    router,
+    searchParams,
+  ]);
 
   function syncTab(next: StrategiesTab) {
     const params = new URLSearchParams(searchParams.toString());
@@ -110,9 +148,7 @@ export function StrategiesView({
   }
 
   function preview(action: string) {
-    setMessage(
-      `${action} — preview only. No real $DEXLA payment, claim or publish was submitted.`,
-    );
+    setMessage(formatPreviewOnly(action));
   }
 
   const filtered = useMemo(() => {
@@ -241,11 +277,7 @@ export function StrategiesView({
         })}
       </div>
 
-      {message ? (
-        <p className="rounded-[10px] border border-app-line bg-app-soft px-3 py-2 text-xs text-app-muted">
-          {message}
-        </p>
-      ) : null}
+      {message ? <PreviewOnlyMessage>{message}</PreviewOnlyMessage> : null}
 
       <UtilityGateState
         featureName="Private Strategy Payments"
@@ -257,6 +289,8 @@ export function StrategiesView({
           workspace={workspace}
           filtered={filtered}
           selected={selected}
+          focusHighlight={focusHighlight}
+          focusId={focusId}
           query={query}
           setQuery={setQuery}
           category={category}
@@ -351,11 +385,7 @@ function Header({ illustrative }: { illustrative: boolean }) {
         <h1 className="app-display text-2xl font-bold text-app-ink sm:text-[1.75rem]">
           Strategies
         </h1>
-        {illustrative ? (
-          <span className="rounded-md bg-app-soft px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-muted">
-            Illustrative
-          </span>
-        ) : null}
+        {illustrative ? <IllustrativeBadge compact /> : null}
       </div>
       <p className="mt-1 text-sm text-app-muted">
         Marketplace, owned strategies and publishing — $DEXLA amounts stay
@@ -369,6 +399,8 @@ function MarketplaceTab({
   workspace,
   filtered,
   selected,
+  focusHighlight,
+  focusId,
   query,
   setQuery,
   category,
@@ -397,6 +429,8 @@ function MarketplaceTab({
   workspace: StrategiesWorkspace;
   filtered: MarketplaceStrategyCard[];
   selected: MarketplaceStrategyCard | null;
+  focusHighlight: boolean;
+  focusId: string | null;
   query: string;
   setQuery: (v: string) => void;
   category: StrategyCategory | "All";
@@ -508,6 +542,7 @@ function MarketplaceTab({
             <StrategyCard
               key={`feat-${strategy.id}`}
               strategy={strategy}
+              highlighted={focusHighlight && focusId === strategy.id}
               roleCreator={roleCreator}
               owned={ownedIds.has(strategy.id)}
               paymentsEnabled={paymentsEnabled}
@@ -539,6 +574,8 @@ function MarketplaceTab({
                 <StrategyCard
                   key={strategy.id}
                   strategy={strategy}
+                  domId={`strategy-card-${strategy.id}`}
+                  highlighted={focusHighlight && focusId === strategy.id}
                   roleCreator={roleCreator}
                   owned={ownedIds.has(strategy.id)}
                   paymentsEnabled={paymentsEnabled}
@@ -554,14 +591,18 @@ function MarketplaceTab({
         </div>
 
         {selected ? (
-          <aside className="app-panel h-fit space-y-3 p-4">
+          <aside
+            id="strategy-detail-panel"
+            className={[
+              "app-panel h-fit space-y-3 p-4",
+              focusHighlight && focusId === selected.id
+                ? "ring-2 ring-app-brand/50"
+                : "",
+            ].join(" ")}
+          >
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-bold text-app-ink">{selected.name}</h3>
-              {selected.isIllustrative ? (
-                <span className="rounded bg-app-soft px-1.5 py-0.5 text-[9px] font-bold uppercase text-app-muted">
-                  Illustrative
-                </span>
-              ) : null}
+              {selected.isIllustrative ? <IllustrativeBadge compact /> : null}
             </div>
             <ProductAttribution
               creatorName={selected.creatorName}
@@ -626,6 +667,8 @@ function MarketplaceTab({
 
 function StrategyCard({
   strategy,
+  domId,
+  highlighted = false,
   roleCreator,
   owned,
   paymentsEnabled,
@@ -636,6 +679,8 @@ function StrategyCard({
   onView,
 }: {
   strategy: MarketplaceStrategyCard;
+  domId?: string;
+  highlighted?: boolean;
   roleCreator: boolean;
   owned: boolean;
   paymentsEnabled: boolean;
@@ -647,13 +692,18 @@ function StrategyCard({
 }) {
   return (
     <article
-      className="app-panel app-panel-hover cursor-pointer p-4"
+      id={domId}
+      className={[
+        "app-panel app-panel-hover cursor-pointer p-4",
+        highlighted ? "ring-2 ring-app-brand/50" : "",
+      ].join(" ")}
       onClick={onSelect}
       onKeyDown={(e) => {
         if (e.key === "Enter") onSelect();
       }}
       role="button"
       tabIndex={0}
+      aria-current={highlighted ? "true" : undefined}
     >
       <div className="flex flex-wrap items-center gap-1.5">
         {strategy.featured ? (
@@ -785,11 +835,7 @@ function MyStrategiesTab({
                 <span className="rounded bg-app-panel px-1.5 py-0.5 text-[9px] font-bold uppercase text-app-dim">
                   {item.origin}
                 </span>
-                {item.isIllustrative ? (
-                  <span className="rounded bg-app-soft px-1.5 py-0.5 text-[9px] font-bold uppercase text-app-muted">
-                    Illustrative
-                  </span>
-                ) : null}
+                {item.isIllustrative ? <IllustrativeBadge compact /> : null}
               </div>
               <p className="mt-1 text-xs text-app-muted">{item.description}</p>
               <p className="mt-1 text-xs text-app-ink">

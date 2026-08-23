@@ -31,6 +31,11 @@ import { APP_ROUTES } from "@/lib/routes";
 import {
   ProductTypeBadge,
 } from "@/components/product/ProductIdentity";
+import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
+import {
+  PreviewOnlyMessage,
+  formatPreviewOnly,
+} from "@/components/ui/PreviewOnlyMessage";
 
 const TABS: { id: MyPortfolioTab; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -85,6 +90,9 @@ export function MyPortfolioView({
     workspace.portfolios[0]?.id ??
     null;
   const tab = (searchParams.get("tab") as MyPortfolioTab | null) ?? "overview";
+  const action = searchParams.get("action");
+  const [highlightRewards, setHighlightRewards] = useState(false);
+  const [buyDexlaOpen, setBuyDexlaOpen] = useState(false);
 
   useEffect(() => {
     if (initialError) return;
@@ -109,13 +117,39 @@ export function MyPortfolioView({
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
-  function preview(action: string) {
-    setMessage(
-      `${action} — preview only. No real transaction, permission or execution was submitted.`,
-    );
+  function preview(actionLabel: string) {
+    setMessage(formatPreviewOnly(actionLabel));
   }
 
+  useEffect(() => {
+    if (!action) return;
+    if (action === "claim") {
+      syncParams({ tab: "overview", action: null });
+      setHighlightRewards(true);
+      setMessage(formatPreviewOnly("Opened Investor Rewards"));
+    }
+    if (action === "buy-dexla") {
+      syncParams({ tab: "overview", action: null });
+      setBuyDexlaOpen(true);
+      setMessage(formatPreviewOnly("Opened Buy $DEXLA"));
+    }
+    // Intentionally depend on action query only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action]);
+
+  useEffect(() => {
+    if (wallet.state !== "connected" || !highlightRewards) return;
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById("portfolio-investor-rewards")
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [wallet.state, highlightRewards, viewState]);
+
   if (wallet.state !== "connected") {
+    const pendingBuy = buyDexlaOpen;
+    const pendingClaim = highlightRewards;
     return (
       <div className="mx-auto space-y-4" style={{ maxWidth: "var(--content-max)" }}>
         <Header illustrative={illustrative} />
@@ -128,6 +162,13 @@ export function MyPortfolioView({
               Connect your wallet to manage holdings, automation and rewards.
               Discovery remains available without a wallet.
             </p>
+            {pendingBuy || pendingClaim ? (
+              <PreviewOnlyMessage className="mt-3">
+                {pendingBuy
+                  ? "Buy $DEXLA preview will open after you connect."
+                  : "Investor Rewards / Claim will open after you connect."}
+              </PreviewOnlyMessage>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -202,7 +243,7 @@ export function MyPortfolioView({
                 href={APP_ROUTES.create}
                 className="inline-flex h-10 items-center rounded-[10px] border border-app-line px-4 text-sm font-bold"
               >
-                Create Portfolio
+                Create Portfolio / Index
               </Link>
             </div>
           }
@@ -227,7 +268,7 @@ export function MyPortfolioView({
             href={APP_ROUTES.create}
             className="rounded-[10px] bg-app-brand px-3 py-1.5 text-[12px] font-bold text-white"
           >
-            Create New Portfolio
+            Create Portfolio / Index
           </Link>
         </div>
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -302,11 +343,7 @@ export function MyPortfolioView({
         })}
       </div>
 
-      {message ? (
-        <p className="rounded-[10px] border border-app-line bg-app-soft px-3 py-2 text-xs text-app-muted">
-          {message}
-        </p>
-      ) : null}
+      {message ? <PreviewOnlyMessage>{message}</PreviewOnlyMessage> : null}
 
       {tab === "overview" ? (
         <section className="space-y-4">
@@ -406,13 +443,25 @@ export function MyPortfolioView({
             />
           </div>
 
-          <div className="app-panel flex flex-wrap items-center justify-between gap-3 p-4">
+          <div
+            id="portfolio-investor-rewards"
+            className={[
+              "app-panel flex flex-wrap items-center justify-between gap-3 p-4",
+              highlightRewards
+                ? "ring-2 ring-app-brand/50 border-app-brand/40"
+                : "",
+            ].join(" ")}
+          >
             <div>
               <p className="text-sm font-bold text-app-ink">Investor rewards</p>
               <p className="mt-1 text-xs text-app-muted">
                 {detail.rewards.eligible
                   ? `${detail.rewards.rankHint} · claimable ${formatUsd(detail.rewards.claimableUsd ?? 0)}`
                   : `${detail.rewards.rankHint} · not currently eligible`}
+              </p>
+              <p className="mt-1 text-[11px] text-app-muted">
+                Eligible rewards for this Portfolio / Index only. USD amounts
+                stay separate from any $DEXLA tips.
               </p>
             </div>
             <button
@@ -425,6 +474,61 @@ export function MyPortfolioView({
             </button>
           </div>
         </section>
+      ) : null}
+
+      {buyDexlaOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="buy-dexla-title"
+        >
+          <div className="w-full max-w-md space-y-4 rounded-[14px] border border-app-line bg-app-elevated p-5 shadow-xl">
+            <h3
+              id="buy-dexla-title"
+              className="app-display text-lg font-bold text-app-ink"
+            >
+              Buy $DEXLA
+            </h3>
+            <p className="text-sm text-app-muted">
+              Preview purchase flow only. $DEXLA balance stays separate from USD
+              portfolio value. No real payment or on-chain transfer.
+            </p>
+            <dl className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-[10px] border border-app-line bg-app-soft p-3">
+                <dt className="text-app-muted">Demo balance</dt>
+                <dd className="mt-1 font-bold text-app-ink">
+                  {formatDexla(workspace.dexla.balance)}
+                </dd>
+              </div>
+              <div className="rounded-[10px] border border-app-line bg-app-soft p-3">
+                <dt className="text-app-muted">Save tier</dt>
+                <dd className="mt-1 font-bold text-app-ink">
+                  {workspace.dexla.tier} · {workspace.dexla.discountPercent}%
+                </dd>
+              </div>
+            </dl>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setBuyDexlaOpen(false)}
+                className="h-9 rounded-[10px] border border-app-line px-3 text-[12px] font-bold text-app-ink"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  preview("Buy $DEXLA · 500");
+                  setBuyDexlaOpen(false);
+                }}
+                className="h-9 rounded-[10px] bg-app-brand px-3 text-[12px] font-bold text-white"
+              >
+                Confirm Buy Preview
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {tab === "assets" ? (
@@ -648,9 +752,7 @@ export function MyPortfolioView({
                           {item.type}
                         </span>
                         <p className="font-bold text-app-ink">{item.title}</p>
-                        <span className="text-[10px] font-bold uppercase text-app-muted">
-                          Illustrative
-                        </span>
+                        <IllustrativeBadge compact />
                       </div>
                       <p className="mt-1 text-app-muted">
                         {item.assetLabel} · {item.status} ·{" "}
@@ -775,11 +877,7 @@ function Header({ illustrative }: { illustrative: boolean }) {
         <h1 className="app-display text-2xl font-bold text-app-ink sm:text-[1.75rem]">
           My Portfolio
         </h1>
-        {illustrative ? (
-          <span className="rounded-md bg-app-soft px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-muted">
-            Illustrative
-          </span>
-        ) : null}
+        {illustrative ? <IllustrativeBadge compact /> : null}
       </div>
       <p className="mt-1 text-sm text-app-muted">
         Holdings, automation, activity and rewards — preview data only.

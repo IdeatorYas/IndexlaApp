@@ -324,7 +324,11 @@ export function CreatorDashboardView({
           <h2 className="app-display text-base font-semibold text-app-ink">
             Earnings Overview
           </h2>
-          <div className="flex gap-1">
+          <div
+            className="flex max-w-full gap-1 overflow-x-auto pb-0.5"
+            role="tablist"
+            aria-label="Earnings currency"
+          >
             {(
               [
                 ["usd", "USD"],
@@ -334,9 +338,11 @@ export function CreatorDashboardView({
               <button
                 key={id}
                 type="button"
+                role="tab"
+                aria-selected={earningsTab === id}
                 onClick={() => setEarningsTab(id)}
                 className={[
-                  "h-8 rounded-full px-3 text-[11px] font-bold",
+                  "h-8 shrink-0 rounded-full px-3 text-[11px] font-bold",
                   earningsTab === id
                     ? "bg-app-brand text-white"
                     : "border border-app-line text-app-muted",
@@ -479,7 +485,7 @@ export function CreatorDashboardView({
                 href={APP_ROUTES.create}
                 className="inline-flex h-10 items-center rounded-[10px] bg-app-brand px-4 text-sm font-bold text-white"
               >
-                Create Portfolio
+                Create Portfolio / Index
               </Link>
             }
           />

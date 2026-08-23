@@ -21,6 +21,7 @@ import {
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { APP_ROUTES } from "@/lib/routes";
+import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 
 const TABS: { id: DiscoverTab; label: string }[] = [
   { id: "all", label: "All" },
@@ -211,11 +212,7 @@ export function DiscoverView({
             <h1 className="app-display text-2xl font-bold text-app-ink sm:text-[1.75rem]">
               Discover
             </h1>
-            {illustrative ? (
-              <span className="rounded-md bg-app-soft px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-muted">
-                Illustrative
-              </span>
-            ) : null}
+            {illustrative ? <IllustrativeBadge compact /> : null}
           </div>
           <p className="mt-1 max-w-2xl text-sm text-app-muted">
             Explore indexes and portfolios across assets, strategies and chains.
