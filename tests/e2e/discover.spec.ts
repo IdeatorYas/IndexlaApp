@@ -31,10 +31,11 @@ test.describe("Discover marketplace", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Layer 1 Index" }),
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Allocation" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Selected Strategy" })).toBeVisible();
+    await expect(page.getByText("100% Allocated")).toBeVisible();
+    await expect(page.getByText("24H · 7D · 30D")).toBeVisible();
+    await expect(page.getByText("Strategy", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Risk Disclosure" })).toBeVisible();
     await expect(page.getByText("Strategy composition")).toHaveCount(0);
-    await expect(page.getByText("You hold the real underlying assets")).toBeVisible();
   });
 
   test("product invest flow opens choice modal", async ({ page }) => {
