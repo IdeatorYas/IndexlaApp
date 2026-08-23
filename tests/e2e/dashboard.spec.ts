@@ -18,7 +18,10 @@ test.describe("Marketplace-First Dashboard", () => {
     await expect(
       page.getByRole("heading", { name: "Newly Published" }),
     ).toBeVisible();
-    await expect(page.getByText("Preview · Illustrative Data")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Preview · Illustrative|Preview/i }),
+    ).toBeVisible();
+    await expect(page.getByText("Preview · Illustrative Data")).toBeAttached();
     await expect(page.getByRole("heading", { name: "Personal Snapshot" })).toHaveCount(
       0,
     );
@@ -43,27 +46,30 @@ test.describe("Marketplace-First Dashboard", () => {
     });
 
     test("renders dashboard sections in final order", async ({ page }) => {
+      const header = page.getByRole("banner");
       const hero = page.getByRole("heading", { name: /Discover\. Build\. Automate\./ });
       const explore = page.getByRole("heading", { name: "Explore Marketplace" });
       const trending = page.getByRole("heading", { name: "Trending Now" });
+      const carousel = page.getByRole("region", {
+        name: "Featured products carousel",
+      });
 
+      await expect(carousel).toBeVisible();
+      await expect(header).toBeVisible();
       await expect(hero).toBeVisible();
-      await expect(
-        page.getByRole("region", { name: "Featured products carousel" }),
-      ).toBeVisible();
       await expect(trending).toBeVisible();
       await expect(explore).toBeVisible();
 
+      const headerBox = await header.boundingBox();
       const heroBox = await hero.boundingBox();
-      const carouselBox = await page
-        .getByRole("region", { name: "Featured products carousel" })
-        .boundingBox();
+      const carouselBox = await carousel.boundingBox();
       const trendingBox = await trending.boundingBox();
       const exploreBox = await explore.boundingBox();
 
-      expect(heroBox && carouselBox && trendingBox && exploreBox).toBeTruthy();
-      if (heroBox && carouselBox && trendingBox && exploreBox) {
-        expect(carouselBox.y).toBeLessThan(heroBox.y);
+      expect(headerBox && heroBox && carouselBox && trendingBox && exploreBox).toBeTruthy();
+      if (headerBox && heroBox && carouselBox && trendingBox && exploreBox) {
+        expect(carouselBox.y).toBeLessThan(headerBox.y);
+        expect(headerBox.y).toBeLessThan(heroBox.y);
         expect(heroBox.y).toBeLessThan(trendingBox.y);
         expect(trendingBox.y).toBeLessThan(exploreBox.y);
       }

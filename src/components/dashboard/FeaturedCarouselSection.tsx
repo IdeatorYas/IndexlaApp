@@ -51,8 +51,10 @@ function creatorVisuals(handle: string, displayName: string) {
 
 export function FeaturedCarouselSection({
   products,
+  placement = "content",
 }: {
   products: FeaturedProductPreview[];
+  placement?: "top" | "content";
 }) {
   const trackRef = useRef<HTMLUListElement>(null);
   const [paused, setPaused] = useState(false);
@@ -97,10 +99,16 @@ export function FeaturedCarouselSection({
 
   if (products.length === 0) return null;
 
+  const isTop = placement === "top";
+
   return (
     <section
       aria-label="Featured products carousel"
-      className="relative overflow-hidden border-b border-app-line/80 bg-gradient-to-r from-app-brand/10 via-[color:var(--color-accent-violet)]/8 to-[color:var(--color-accent-cyan)]/8 px-3 py-2 sm:px-5 lg:px-6"
+      className={[
+        "relative shrink-0 overflow-hidden border-b border-app-line/80 bg-gradient-to-r from-app-brand/10 via-[color:var(--color-accent-violet)]/8 to-[color:var(--color-accent-cyan)]/8",
+        isTop ? "py-1.5 sm:py-2" : "px-3 py-2 sm:px-5 lg:px-6",
+        isTop ? "px-3 sm:px-5 lg:px-6" : "",
+      ].join(" ")}
     >
       <div
         aria-hidden
@@ -111,7 +119,7 @@ export function FeaturedCarouselSection({
         className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-app-bg/80 to-transparent"
       />
 
-      <div className="relative mb-1.5 flex items-center justify-between gap-2">
+      <div className="relative mb-1 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-[7px] border border-app-brand/40 bg-gradient-to-r from-app-brand/25 to-[color:var(--color-accent-violet)]/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-app-brand">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-app-brand" />

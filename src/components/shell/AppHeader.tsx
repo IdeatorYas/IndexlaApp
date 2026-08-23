@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { getClientFeatureFlags } from "@/lib/feature-flags";
+import { PreviewIllustrativeBadge } from "@/components/shell/PreviewIllustrativeBadge";
 import { getDexlaBalance } from "@/lib/data";
 
 export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
@@ -27,6 +28,8 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
           ☰
         </button>
       ) : null}
+
+      <PreviewIllustrativeBadge />
 
       <div className="min-w-0 flex-1 sm:max-w-xl lg:max-w-2xl">
         <button
