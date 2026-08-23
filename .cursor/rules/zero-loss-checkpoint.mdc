@@ -1,0 +1,59 @@
+---
+description: Permanent zero-loss checkpoint workflow — push recovery branch before long tests or deploy
+alwaysApply: true
+---
+
+# INDEXLA APP — ZERO-LOSS CHECKPOINT WORKFLOW
+
+This repository is `IndexlaApp` (`IndexLa-App`). Never apply this workflow to the website repo (`Indexla Code github` / `indexla.tech`).
+
+## Hard safety rules
+
+1. **Never** `git reset --hard`, `git clean -fd`, force-push, or discard/overwrite uncommitted work without **explicit founder approval**.
+2. **Never** commit secrets (`.env.local`, API keys, private keys, credentials).
+3. **Never** touch the website repository or PM2 `indexla` / port 3000.
+4. Prefer **pushing a recovery branch** over leaving substantial work only on a local disk.
+
+## When a pushed checkpoint is REQUIRED
+
+Before any of the following, run `scripts/checkpoint.ps1` (or equivalent) and confirm the remote branch exists:
+
+* Long verification (`typecheck` / `lint` / `test` / `build` / Playwright e2e)
+* Production / preview builds intended for VPS
+* Deployments to `app.indexla.tech`
+* Large refactors or multi-file architectural changes
+
+Skip only for trivial single-file copy edits where the founder explicitly waives the checkpoint.
+
+## How to checkpoint
+
+```powershell
+cd C:\Users\hp\Desktop\IndexLa-App
+.\scripts\checkpoint.ps1 -Topic "short-kebab-topic"
+```
+
+The script:
+
+* Creates `checkpoint/<yyyy-mm-dd>-<topic>`
+* Stages intentional project changes (respects `.gitignore`)
+* Blocks secrets, build artifacts, and temp paths
+* Creates a WIP recovery commit
+* Pushes immediately to `origin`
+* Returns to the original working branch **without discarding** the WIP (restores as local changes)
+
+## Completion report (mandatory)
+
+Every task completion report for this repo must include:
+
+| Field | Example |
+|-------|---------|
+| Working branch | `main` |
+| Main commit | `69a7573` (or current `origin/main`) |
+| Recovery checkpoint | `checkpoint/2026-08-23-topic` @ `abc1234` (or `n/a` if waived) |
+| Remote push status | pushed / not pushed |
+| Deployed commit | `.deploy-source-commit` on VPS, or `not deployed` |
+| Working-tree status | clean / dirty (list if dirty) |
+
+## Deploy reminder
+
+Checkpoint → verify → commit to `main` → push → deploy (per `always-deploy.mdc`) → verify live. Checkpoint alone does **not** deploy.

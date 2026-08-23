@@ -7,10 +7,13 @@ alwaysApply: true
 
 When finishing any task in this repository:
 
+0. **Before** long verification, preview/production builds, deployments, or large refactors: run a **pushed** zero-loss checkpoint (`scripts/checkpoint.ps1`) — see `zero-loss-checkpoint.mdc`.
 1. Verify locally (`typecheck`, `lint`, `test`, `build`, Playwright as relevant)
 2. Commit and push to `origin/main` (`https://github.com/IdeatorYas/IndexlaApp`)
-3. Deploy with `/usr/local/bin/deploy-indexla-app.sh` to `/var/www/IndexLa-App` (PM2 `indexla-app` :3001)
+3. Deploy with `/usr/local/bin/deploy-indexla-app.sh` to `/var/www/IndexLa-App` (PM2 `indexla-app` :3001) after uploading current source if the VPS tree is not a git clone
 4. Verify `https://app.indexla.tech/app` is live with the change
 5. Confirm `https://indexla.tech` remains healthy and was not modified
 
-Do not mark the task complete until the live preview is verified.
+Do not mark the task complete until the live preview is verified (unless the task is explicitly workflow/docs-only and the founder waived deploy).
+
+Completion reports must include working branch, main commit, recovery checkpoint branch/commit, remote push status, deployed commit, and working-tree status.

@@ -26,6 +26,15 @@ Open **http://localhost:3456**
 
 ## Verification
 
+Before long verification, builds, deployments, or large refactors, push a
+recovery checkpoint:
+
+```powershell
+.\scripts\checkpoint.ps1 -Topic "short-kebab-topic"
+```
+
+See `docs/CHECKPOINT_WORKFLOW.md`.
+
 ```bash
 npm run typecheck
 npm run lint
