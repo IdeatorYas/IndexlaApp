@@ -115,5 +115,35 @@ test.describe("Marketplace-First Dashboard", () => {
         .click();
       await expect(page).toHaveURL(/\/app\/discover/);
     });
+
+    test("compact explore shows six product cards without search", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await expect(
+        page.getByPlaceholder("Search by index name or asset"),
+      ).toHaveCount(0);
+
+      const productLinks = page.locator(
+        '[aria-label="Explore marketplace"] .grid a[href*="id="]',
+      );
+      await expect(productLinks).toHaveCount(6);
+
+      const exploreHeading = page.getByRole("heading", {
+        name: "Explore Marketplace",
+      });
+      const firstCard = productLinks.first();
+      const sixthCard = productLinks.nth(5);
+
+      const headingBox = await exploreHeading.boundingBox();
+      const firstBox = await firstCard.boundingBox();
+      const sixthBox = await sixthCard.boundingBox();
+
+      expect(headingBox && firstBox && sixthBox).toBeTruthy();
+      if (headingBox && firstBox && sixthBox) {
+        expect(firstBox.y - headingBox.y).toBeLessThan(250);
+        expect(sixthBox.y + sixthBox.height).toBeLessThan(900);
+      }
+    });
   });
 });

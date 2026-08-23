@@ -72,23 +72,22 @@ export function MarketplaceExplorer({
         if (patch.productTab && patch.productTab !== prev.productTab) {
           next.narrative = "all";
         }
+        if (syncUrl) {
+          syncUrl({
+            tab: next.productTab,
+            type: next.indexType === "Crypto" ? null : next.indexType,
+            narrative: next.narrative === "all" ? null : next.narrative,
+            q: next.query || null,
+            risk: next.risk === "All" ? null : next.risk,
+            network: next.network === "All" ? null : next.network,
+            strategy: next.strategy === "All" ? null : next.strategy,
+            sort: next.sort === "trending" ? null : next.sort,
+          });
+        }
         return next;
       });
-      if (syncUrl) {
-        const merged = { ...state, ...patch };
-        syncUrl({
-          tab: merged.productTab,
-          type: merged.indexType === "Crypto" ? null : merged.indexType,
-          narrative: merged.narrative === "all" ? null : merged.narrative,
-          q: merged.query || null,
-          risk: merged.risk === "All" ? null : merged.risk,
-          network: merged.network === "All" ? null : merged.network,
-          strategy: merged.strategy === "All" ? null : merged.strategy,
-          sort: merged.sort === "trending" ? null : merged.sort,
-        });
-      }
     },
-    [state, syncUrl],
+    [syncUrl],
   );
 
   const filtered = useMemo(
@@ -103,9 +102,38 @@ export function MarketplaceExplorer({
   const discoverHref = buildDiscoverHref(state);
   const isDashboard = variant === "dashboard";
 
-  return (
-    <section className="space-y-3">
-      {isDashboard ? (
+  const renderCard = (product: MarketplaceProduct) => {
+    const card = (
+      <MarketplaceProductCard
+        product={product}
+        interactive={!onProductClick}
+        compact={isDashboard}
+      />
+    );
+    if (onProductClick) {
+      return (
+        <button
+          key={product.id}
+          type="button"
+          className="text-left"
+          onClick={() => onProductClick(product)}
+        >
+          {card}
+        </button>
+      );
+    }
+    return (
+      <MarketplaceProductCard
+        key={product.id}
+        product={product}
+        compact={isDashboard}
+      />
+    );
+  };
+
+  if (isDashboard) {
+    return (
+      <section className="space-y-0.5" aria-label="Explore marketplace">
         <header className="mx-auto max-w-2xl text-center">
           <div className="flex justify-center">
             <DashboardSectionHeading
@@ -115,44 +143,147 @@ export function MarketplaceExplorer({
               as="h2"
             />
           </div>
-          <p className="mt-1 text-[11px] text-app-muted sm:text-xs">
-            Browse INDEXLA indexes and creator portfolios with narrative, risk and
-            strategy filters — illustrative preview data.
-          </p>
         </header>
-      ) : null}
 
-      <div className="app-panel mx-auto max-w-5xl space-y-3 border border-app-line/80 bg-gradient-to-b from-app-elevated/90 to-app-panel/95 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:p-4">
-        {!isDashboard ? (
-          <div className="border-b border-app-line/70 pb-3 text-center">
-            <h2 className="app-display text-xl font-bold text-app-ink sm:text-2xl">
-              Explore Marketplace
-            </h2>
-            <p className="mx-auto mt-1 max-w-xl text-xs text-app-muted sm:text-sm">
-              Discover INDEXLA indexes and portfolios across crypto, tokenized
-              assets and hybrid strategies.
-            </p>
+        <div
+          className="rounded-[10px] border border-app-line/70 bg-gradient-to-b from-app-elevated/95 to-app-panel/90 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_4px_16px_-8px_rgba(0,0,0,0.35)]"
+          role="group"
+          aria-label="Marketplace filters"
+        >
+          <div className="flex flex-wrap items-center justify-center gap-0.5 border-b border-app-line/35 pb-0.5">
+            <SegmentedControl
+              ariaLabel="Marketplace product type"
+              items={PRODUCT_TABS}
+              selected={state.productTab}
+              onSelect={(id) => patchState({ productTab: id as ProductTab })}
+              size="md"
+            />
+            <Link
+              href={APP_ROUTES.degenClub}
+              className="inline-flex h-7 shrink-0 items-center rounded-full border border-app-danger/50 bg-gradient-to-r from-app-danger/20 to-app-warning/12 px-2.5 text-[10px] font-bold text-app-danger shadow-[0_0_8px_-2px_rgba(244,63,94,0.35)]"
+            >
+              🔥 Degen Club
+            </Link>
           </div>
-        ) : null}
+
+          <div className="border-b border-app-line/35 py-0.5">
+            <SegmentedControl
+              ariaLabel="Index type"
+              items={INDEX_TYPE_TABS}
+              selected={state.indexType}
+              onSelect={(id) => patchState({ indexType: id as IndexType })}
+              size="sm"
+            />
+          </div>
+
+          <div className="border-b border-app-line/35 py-0.5">
+            <ChipRow
+              items={narratives}
+              selected={state.narrative}
+              onSelect={(id) => patchState({ narrative: id as NarrativeId })}
+              compact
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-0.5 pt-0.5">
+            <FilterSelect
+              label="Sort"
+              value={state.sort}
+              options={SORT_OPTIONS.map((s) => s.id)}
+              optionLabels={Object.fromEntries(
+                SORT_OPTIONS.map((s) => [s.id, s.label]),
+              )}
+              onChange={(value) => patchState({ sort: value as DiscoverSort })}
+              compact
+            />
+            <FilterSelect
+              label="Risk"
+              value={state.risk}
+              options={RISK_FILTERS}
+              onChange={(value) =>
+                patchState({ risk: value as ProductRisk | "All" })
+              }
+              compact
+            />
+            <FilterSelect
+              label="Network"
+              value={state.network}
+              options={["All", ...catalog.networks.map((n) => n.id)]}
+              optionLabels={{
+                All: "All networks",
+                ...Object.fromEntries(
+                  catalog.networks.map((n) => [n.id, n.label]),
+                ),
+              }}
+              onChange={(value) =>
+                patchState({ network: value as NetworkId | "All" })
+              }
+              compact
+            />
+            <FilterSelect
+              label="Strategy"
+              value={state.strategy}
+              options={STRATEGY_FILTERS.map((s) => s.id)}
+              optionLabels={Object.fromEntries(
+                STRATEGY_FILTERS.map((s) => [s.id, s.label]),
+              )}
+              onChange={(value) =>
+                patchState({
+                  strategy: value as MarketplaceStrategyTag | "All",
+                })
+              }
+              compact
+            />
+            <span className="inline-flex h-6 items-center px-1 text-[9px] font-semibold text-app-dim">
+              {filtered.length} results
+            </span>
+            <IllustrativeBadge compact />
+          </div>
+        </div>
+
+        {displayed.length === 0 ? (
+          <p className="app-panel px-3 py-3 text-center text-[12px] text-app-muted">
+            No products match these filters. Try another narrative or risk level.
+          </p>
+        ) : (
+          <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
+            {displayed.map((product) => renderCard(product))}
+          </div>
+        )}
+
+        <div className="flex justify-center">
+          <Link
+            href={discoverHref}
+            className="app-gradient-btn inline-flex h-8 items-center justify-center rounded-[8px] px-3.5 text-[10px] font-bold"
+          >
+            View All
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-3">
+      <div className="app-panel mx-auto max-w-5xl space-y-3 border border-app-line/80 bg-gradient-to-b from-app-elevated/90 to-app-panel/95 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:p-4">
+        <div className="border-b border-app-line/70 pb-3 text-center">
+          <h2 className="app-display text-xl font-bold text-app-ink sm:text-2xl">
+            Explore Marketplace
+          </h2>
+          <p className="mx-auto mt-1 max-w-xl text-xs text-app-muted sm:text-sm">
+            Discover INDEXLA indexes and portfolios across crypto, tokenized
+            assets and hybrid strategies.
+          </p>
+        </div>
 
         <FilterRow label="Product">
           <SegmentedControl
             ariaLabel="Marketplace product type"
             items={PRODUCT_TABS}
             selected={state.productTab}
-            onSelect={(id) =>
-              patchState({ productTab: id as ProductTab })
-            }
+            onSelect={(id) => patchState({ productTab: id as ProductTab })}
             size="lg"
           />
-          {isDashboard ? (
-            <Link
-              href={APP_ROUTES.degenClub}
-              className="inline-flex h-10 shrink-0 items-center rounded-full border border-app-danger/45 bg-gradient-to-r from-app-danger/15 to-app-warning/10 px-4 text-[12px] font-bold text-app-danger shadow-sm transition-colors hover:from-app-danger/25 hover:to-app-warning/15 sm:text-[13px]"
-            >
-              🔥 Degen Club
-            </Link>
-          ) : null}
         </FilterRow>
 
         <FilterRow label="Type">
@@ -194,9 +325,7 @@ export function MarketplaceExplorer({
               optionLabels={Object.fromEntries(
                 SORT_OPTIONS.map((s) => [s.id, s.label]),
               )}
-              onChange={(value) =>
-                patchState({ sort: value as DiscoverSort })
-              }
+              onChange={(value) => patchState({ sort: value as DiscoverSort })}
             />
           </div>
 
@@ -257,33 +386,9 @@ export function MarketplaceExplorer({
         </p>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {displayed.map((product) =>
-            onProductClick ? (
-              <button
-                key={product.id}
-                type="button"
-                className="text-left"
-                onClick={() => onProductClick(product)}
-              >
-                <MarketplaceProductCard product={product} interactive={false} />
-              </button>
-            ) : (
-              <MarketplaceProductCard key={product.id} product={product} />
-            ),
-          )}
+          {displayed.map((product) => renderCard(product))}
         </div>
       )}
-
-      {isDashboard ? (
-        <div className="flex justify-center pt-1">
-          <Link
-            href={discoverHref}
-            className="app-gradient-btn inline-flex h-10 items-center justify-center rounded-[10px] px-5 text-[12px] font-bold"
-          >
-            View All
-          </Link>
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -318,13 +423,21 @@ function SegmentedControl<T extends string>({
   items: { id: T; label: string }[];
   selected: T;
   onSelect: (id: T) => void;
-  size?: "md" | "lg";
+  size?: "sm" | "md" | "lg";
 }) {
-  const h = size === "lg" ? "h-10 sm:h-11" : "h-8 sm:h-9";
-  const text = size === "lg" ? "text-[13px] sm:text-sm" : "text-[11px] sm:text-xs";
+  const h =
+    size === "lg" ? "h-10 sm:h-11" : size === "sm" ? "h-7" : "h-8 sm:h-9";
+  const text =
+    size === "lg"
+      ? "text-[13px] sm:text-sm"
+      : size === "sm"
+        ? "text-[10px] sm:text-[11px]"
+        : "text-[11px] sm:text-xs";
+  const pad = size === "sm" ? "px-2 sm:px-2.5" : "px-3 sm:px-4";
+
   return (
     <div
-      className="inline-flex flex-wrap justify-center gap-1 rounded-full border border-app-line/70 bg-app-panel/80 p-1"
+      className="inline-flex flex-wrap justify-center gap-0.5 rounded-full border border-app-line/60 bg-app-panel/90 p-0.5"
       role="tablist"
       aria-label={ariaLabel}
     >
@@ -338,11 +451,12 @@ function SegmentedControl<T extends string>({
             aria-selected={active}
             onClick={() => onSelect(item.id)}
             className={[
-              "rounded-full px-3 font-bold transition-all sm:px-4",
+              "rounded-full font-bold transition-all",
               h,
               text,
+              pad,
               active
-                ? "bg-gradient-to-r from-app-brand to-[color:var(--color-accent-cyan)] text-white shadow-md shadow-app-brand/20"
+                ? "bg-gradient-to-r from-app-brand to-[color:var(--color-accent-cyan)] text-white shadow-[0_0_12px_-2px_rgba(59,130,246,0.45)]"
                 : "text-app-muted hover:bg-app-soft hover:text-app-ink",
             ].join(" ")}
           >
@@ -358,13 +472,15 @@ function ChipRow<T extends string>({
   items,
   selected,
   onSelect,
+  compact = false,
 }: {
   items: { id: T; label: string }[];
   selected: T;
   onSelect: (id: T) => void;
+  compact?: boolean;
 }) {
   return (
-    <div className="flex flex-wrap justify-center gap-1">
+    <div className="flex flex-wrap justify-center gap-0.5">
       {items.map((item) => {
         const active = item.id === selected;
         return (
@@ -373,10 +489,11 @@ function ChipRow<T extends string>({
             type="button"
             onClick={() => onSelect(item.id)}
             className={[
-              "h-7 shrink-0 rounded-full px-2.5 text-[10px] font-semibold transition-colors sm:text-[11px]",
+              "shrink-0 rounded-full font-semibold transition-colors",
+              compact ? "h-6 px-2 text-[9px] sm:text-[10px]" : "h-7 px-2.5 text-[10px] sm:text-[11px]",
               active
-                ? "border border-app-brand/50 bg-app-brand/12 text-app-brand shadow-sm"
-                : "border border-app-line bg-app-elevated text-app-muted hover:border-app-brand/25 hover:text-app-ink",
+                ? "border border-app-brand/55 bg-gradient-to-r from-app-brand/20 to-[color:var(--color-accent-cyan)]/15 text-app-brand shadow-[0_0_8px_-2px_rgba(59,130,246,0.4)]"
+                : "border border-app-line/70 bg-app-elevated text-app-muted hover:border-app-brand/30 hover:text-app-ink",
             ].join(" ")}
           >
             {item.label}
@@ -393,20 +510,27 @@ function FilterSelect({
   options,
   optionLabels,
   onChange,
+  compact = false,
 }: {
   label: string;
   value: string;
   options: string[];
   optionLabels?: Record<string, string>;
   onChange: (value: string) => void;
+  compact?: boolean;
 }) {
   return (
-    <label className="inline-flex h-9 min-w-0 items-center gap-1.5 rounded-[10px] border border-app-line bg-app-elevated px-2 text-[11px] sm:text-[12px]">
-      <span className="shrink-0 font-semibold text-app-dim">{label}</span>
+    <label
+      className={[
+        "inline-flex min-w-0 items-center gap-1 rounded-[8px] border border-app-line/70 bg-app-elevated font-semibold",
+        compact ? "h-7 px-1.5 text-[10px]" : "h-9 gap-1.5 px-2 text-[11px] sm:text-[12px]",
+      ].join(" ")}
+    >
+      <span className="shrink-0 text-app-dim">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="max-w-[9rem] truncate bg-transparent font-bold text-app-ink outline-none sm:max-w-none"
+        className="max-w-[7rem] truncate bg-transparent font-bold text-app-ink outline-none sm:max-w-none"
       >
         {options.map((option) => (
           <option key={option} value={option}>
