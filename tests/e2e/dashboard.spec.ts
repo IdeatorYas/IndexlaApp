@@ -81,16 +81,16 @@ test.describe("Marketplace-First Dashboard", () => {
 
     test("explore marketplace tabs and degen club link", async ({ page }) => {
       await expect(
-        page.getByRole("tablist", { name: "Explore marketplace product type" }),
+        page.getByRole("tablist", { name: "Marketplace product type" }),
       ).toBeVisible();
       await page
-        .getByRole("tablist", { name: "Explore marketplace product type" })
-        .getByRole("tab", { name: "Indexes" })
+        .getByRole("tablist", { name: "Marketplace product type" })
+        .getByRole("tab", { name: "Portfolios" })
         .click();
       await expect(
         page
-          .getByRole("tablist", { name: "Explore marketplace product type" })
-          .getByRole("tab", { name: "Indexes" }),
+          .getByRole("tablist", { name: "Marketplace product type" })
+          .getByRole("tab", { name: "Portfolios" }),
       ).toHaveAttribute("aria-selected", "true");
       await expect(
         page.getByRole("link", { name: "🔥 Degen Club" }),
@@ -103,10 +103,10 @@ test.describe("Marketplace-First Dashboard", () => {
       });
       await carousel.hover();
       await carousel
-        .getByRole("link", { name: /AI Infrastructure Index/i })
+        .getByRole("link", { name: /Layer 1 Index/i })
         .first()
         .click();
-      await expect(page).toHaveURL(/\/app\/(discover|degen-club)/);
+      await expect(page).toHaveURL(/\/app\/discover/);
     });
 
     test("centered view all opens discover", async ({ page }) => {

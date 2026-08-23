@@ -30,6 +30,7 @@ export function ProductDetailPanel({
   const [notify, setNotify] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const positive = product.performance30d >= 0;
+  const viewLabel = product.kind === "Index" ? "View Index" : "View Portfolio";
 
   function requireWallet(action: string) {
     if (!walletConnected) {
@@ -42,13 +43,19 @@ export function ProductDetailPanel({
 
   return (
     <section
-      className="app-panel overflow-hidden"
+      className="app-panel overflow-hidden border border-app-brand/20 shadow-[0_20px_50px_-20px_rgba(59,130,246,0.25)]"
       aria-labelledby="product-detail-title"
     >
-      <div className="flex items-start justify-between gap-3 border-b border-app-line px-4 py-3 sm:px-5">
+      <div className="flex items-start justify-between gap-3 border-b border-app-line bg-gradient-to-r from-app-brand/8 to-transparent px-4 py-3 sm:px-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <ProductTypeBadge kind={product.kind} />
+            <span className="rounded-md border border-app-line bg-app-elevated px-1.5 py-0.5 text-[9px] font-bold text-app-muted">
+              {product.indexType}
+            </span>
+            <span className="rounded-md border border-app-brand/30 bg-app-brand/10 px-1.5 py-0.5 text-[9px] font-bold text-app-brand">
+              {product.narrativeLabel}
+            </span>
             {product.featured ? (
               <span className="rounded-md bg-app-brand/12 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-brand">
                 Featured
@@ -80,7 +87,9 @@ export function ProductDetailPanel({
 
       <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[1.2fr_0.8fr]">
         <div className="space-y-4">
-          <p className="text-sm text-app-muted">{product.thesis}</p>
+          <p className="text-sm leading-relaxed text-app-muted">
+            {product.description}
+          </p>
 
           <div className="flex flex-wrap gap-2">
             <ActionButton
@@ -158,23 +167,34 @@ export function ProductDetailPanel({
                 ))}
               </ul>
             </div>
-            <div className="mt-3">
+            <div className="mt-3 flex items-center justify-between">
               <AssetIconStack assetIds={product.assetIds} size={24} />
+              <span className="text-xs font-semibold text-app-dim">
+                {product.assetIds.length} assets
+              </span>
             </div>
+          </div>
+
+          <div>
+            <h3 className="app-label mb-2">Strategy composition</h3>
+            <ul className="space-y-1.5 rounded-[10px] border border-app-line bg-app-elevated p-3">
+              {product.strategyComposition.map((entry) => (
+                <li
+                  key={entry.label}
+                  className="flex items-center justify-between text-sm"
+                >
+                  <span className="font-semibold text-app-ink">{entry.label}</span>
+                  <span className="text-app-muted">{entry.percent}%</span>
+                </li>
+              ))}
+            </ul>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <InfoBlock label="Networks" value={product.networkIds.join(" · ")} />
             <InfoBlock label="Strategy" value={product.strategy} />
             <InfoBlock label="Risk" value={product.risk} />
-            <InfoBlock
-              label="Leaderboard"
-              value={
-                product.rankMonthly != null
-                  ? `Monthly #${product.rankMonthly}`
-                  : "Unranked"
-              }
-            />
+            <InfoBlock label="Index type" value={product.indexType} />
           </div>
 
           <div className="rounded-[10px] border border-app-line bg-app-soft p-3 text-xs text-app-muted">
@@ -193,7 +213,10 @@ export function ProductDetailPanel({
 
         <aside className="space-y-3">
           <div className="rounded-[10px] border border-app-line bg-app-elevated p-4">
-            <p className="app-label">30D performance</p>
+            <div className="flex items-center justify-between">
+              <p className="app-label">30D performance</p>
+              <IllustrativeBadge compact />
+            </div>
             <p
               className={[
                 "app-metric mt-1 text-3xl",
@@ -204,9 +227,10 @@ export function ProductDetailPanel({
             </p>
             <dl className="mt-4 space-y-2 text-sm">
               <Row label="AUM" value={formatUsd(product.aumUsd, true)} />
+              <Row label="Volume" value={formatUsd(product.volumeUsd, true)} />
               <Row label="Investors" value={String(product.investors)} />
               <Row label="Likes" value={String(product.likes + (liked ? 1 : 0))} />
-              <Row label="Category" value={product.category} />
+              <Row label="Narrative" value={product.narrativeLabel} />
             </dl>
           </div>
 
@@ -235,6 +259,9 @@ export function ProductDetailPanel({
             >
               Customize & Invest
             </Link>
+            <p className="text-center text-[11px] font-semibold text-app-dim">
+              {viewLabel} · illustrative metrics
+            </p>
           </div>
         </aside>
       </div>

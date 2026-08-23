@@ -1,18 +1,8 @@
 import Image from "next/image";
-
-const ASSET_SRC: Record<string, string> = {
-  btc: "/images/assets/crypto/btc.svg",
-  eth: "/images/assets/crypto/eth.svg",
-  sol: "/images/assets/crypto/sol.svg",
-  wif: "/images/assets/meme/wif.jpg",
-};
-
-const ASSET_COLOR: Record<string, string> = {
-  btc: "#f7931a",
-  eth: "#627eea",
-  sol: "#14f195",
-  wif: "#e11d48",
-};
+import {
+  ASSET_COLORS,
+  ASSET_ICON_URLS,
+} from "@/lib/fixtures/asset-registry";
 
 export function AssetIcon({
   assetId,
@@ -21,34 +11,48 @@ export function AssetIcon({
   assetId: string;
   size?: number;
 }) {
-  const src = ASSET_SRC[assetId];
-  const label = assetId.toUpperCase();
+  const id = assetId.toLowerCase();
+  const src = ASSET_ICON_URLS[id];
+  const label = id.toUpperCase();
 
   if (src) {
+    const isRemote = src.startsWith("http");
     return (
       <span
         className="inline-flex shrink-0 overflow-hidden rounded-full border border-app-line bg-app-elevated shadow-sm"
         style={{ width: size, height: size }}
         title={label}
       >
-        <Image
-          src={src}
-          alt={label}
-          width={size}
-          height={size}
-          className="h-full w-full object-cover"
-        />
+        {isRemote ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={src}
+            alt={label}
+            width={size}
+            height={size}
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <Image
+            src={src}
+            alt={label}
+            width={size}
+            height={size}
+            className="h-full w-full object-cover"
+          />
+        )}
       </span>
     );
   }
 
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+      className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/10 text-[9px] font-bold text-white shadow-sm"
       style={{
         width: size,
         height: size,
-        background: ASSET_COLOR[assetId] ?? "var(--color-brand)",
+        background: ASSET_COLORS[id] ?? "var(--color-brand)",
       }}
       title={label}
     >

@@ -4,38 +4,39 @@ import {
   ProductAttribution,
   ProductTypeBadge,
 } from "@/components/product/ProductIdentity";
-import { AllocationDonut } from "@/components/ui/AllocationDonut";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
+import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 
 export function MarketplaceProductCard({
   product,
   featured = false,
+  interactive = true,
 }: {
   product: MarketplaceProduct;
   featured?: boolean;
+  interactive?: boolean;
 }) {
   const positive = product.performance30d >= 0;
   const showFeatured = featured || product.featured;
+  const shellClass = [
+    "group relative block overflow-hidden rounded-[14px] border border-app-line/80",
+    "bg-gradient-to-br from-app-elevated via-app-panel to-app-soft/30",
+    "shadow-[0_8px_24px_-12px_rgba(0,0,0,0.45)] transition-all duration-200",
+    interactive
+      ? "hover:-translate-y-0.5 hover:border-app-brand/35 hover:shadow-[0_16px_40px_-14px_rgba(59,130,246,0.35)]"
+      : "",
+  ].join(" ");
 
-  return (
-    <Link
-      href={product.href}
-      className="app-panel app-panel-hover group block overflow-hidden"
-    >
-      <div className="p-3.5">
-        <div className="flex items-start gap-3">
-          <AllocationDonut
-            segments={product.allocations.map((a) => ({
-              label: a.label,
-              percent: a.percent,
-            }))}
-            size={48}
-          />
+  const body = (
+    <>
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-app-brand/40 to-transparent" />
+      <div className="p-3.5 sm:p-4">
+        <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1">
               {showFeatured ? (
-                <span className="rounded-md bg-app-brand/12 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-brand">
+                <span className="rounded-md bg-app-brand/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-brand">
                   Featured
                 </span>
               ) : null}
@@ -46,7 +47,7 @@ export function MarketplaceProductCard({
                 </span>
               ) : null}
             </div>
-            <h3 className="app-display mt-1.5 truncate text-[15px] font-bold text-app-ink group-hover:text-app-brand">
+            <h3 className="app-display mt-1.5 truncate text-[15px] font-bold text-app-ink group-hover:text-app-brand sm:text-base">
               {product.name}
             </h3>
             <ProductAttribution
@@ -55,11 +56,13 @@ export function MarketplaceProductCard({
               verified={product.verified}
             />
           </div>
-          <div className="shrink-0 text-right">
-            <p className="app-label">30D</p>
+          <div className="shrink-0 rounded-[10px] border border-app-line/60 bg-app-panel/80 px-2 py-1 text-right">
+            <p className="text-[9px] font-bold uppercase tracking-wide text-app-dim">
+              30D
+            </p>
             <p
               className={[
-                "app-metric text-[1.25rem] leading-none",
+                "app-metric text-lg leading-none sm:text-xl",
                 positive ? "text-app-success" : "text-app-danger",
               ].join(" ")}
             >
@@ -68,37 +71,91 @@ export function MarketplaceProductCard({
           </div>
         </div>
 
-        <p className="mt-2 line-clamp-2 text-[12px] text-app-muted">
-          {product.thesis}
+        <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-app-muted sm:text-xs">
+          {product.description}
         </p>
 
+        <div className="mt-2.5 flex flex-wrap gap-1">
+          <MetaChip label={product.indexType} />
+          <MetaChip label={product.narrativeLabel} accent />
+          <MetaChip label={product.risk} />
+        </div>
+
         <div className="mt-2.5 flex items-center justify-between gap-2">
-          <AssetIconStack assetIds={product.assetIds} size={22} max={4} />
-          <p className="truncate text-[11px] text-app-dim">{product.strategy}</p>
+          <AssetIconStack assetIds={product.assetIds} size={22} max={5} />
+          <p className="text-[10px] font-semibold text-app-dim">
+            {product.assetIds.length} assets
+          </p>
         </div>
 
-        <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-app-line pt-2.5 text-[11px]">
-          <Meta label="AUM" value={formatUsd(product.aumUsd, true)} />
-          <Meta label="Investors" value={String(product.investors)} />
-          <Meta
-            label="Rank"
-            value={product.rankMonthly != null ? `#${product.rankMonthly}` : "—"}
-          />
+        <p className="mt-2 truncate text-[10px] font-medium text-app-muted">
+          {product.strategy}
+        </p>
+
+        <div className="mt-2.5 grid grid-cols-3 gap-1.5 border-t border-app-line/70 pt-2.5">
+          <Stat label="AUM" value={formatUsd(product.aumUsd, true)} />
+          <Stat label="Volume" value={formatUsd(product.volumeUsd, true)} />
+          <Stat label="Investors" value={String(product.investors)} />
         </div>
 
-        <span className="mt-3 flex h-9 w-full items-center justify-center rounded-[10px] bg-app-brand/90 text-[12px] font-bold text-white group-hover:bg-app-brand">
-          View Details →
-        </span>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <IllustrativeBadge compact />
+          <span
+            className={[
+              "inline-flex h-9 items-center justify-center rounded-[10px] px-3 text-[11px] font-bold",
+              interactive
+                ? "bg-gradient-to-r from-app-brand to-[color:var(--color-accent-cyan)] text-white group-hover:shadow-md group-hover:shadow-app-brand/25"
+                : "border border-app-line bg-app-elevated text-app-ink",
+            ].join(" ")}
+          >
+            View Index →
+          </span>
+        </div>
       </div>
-    </Link>
+    </>
+  );
+
+  if (interactive) {
+    return (
+      <Link href={product.href} className={shellClass}>
+        {body}
+      </Link>
+    );
+  }
+
+  return <div className={shellClass}>{body}</div>;
+}
+
+function MetaChip({
+  label,
+  accent = false,
+}: {
+  label: string;
+  accent?: boolean;
+}) {
+  return (
+    <span
+      className={[
+        "rounded-full px-2 py-0.5 text-[9px] font-bold",
+        accent
+          ? "border border-app-brand/30 bg-app-brand/10 text-app-brand"
+          : "border border-app-line bg-app-elevated text-app-muted",
+      ].join(" ")}
+    >
+      {label}
+    </span>
   );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <p className="text-app-dim">{label}</p>
-      <p className="mt-0.5 font-bold text-app-ink">{value}</p>
+    <div className="rounded-[8px] border border-app-line/50 bg-app-panel/60 px-1.5 py-1">
+      <p className="text-[9px] font-semibold uppercase tracking-wide text-app-dim">
+        {label}
+      </p>
+      <p className="mt-0.5 truncate text-[11px] font-bold text-app-ink">
+        {value}
+      </p>
     </div>
   );
 }

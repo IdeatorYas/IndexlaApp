@@ -1,16 +1,18 @@
-import type { DashboardData } from "@/lib/domain/dashboard";
+import type { DashboardData, MarketplaceCategory } from "@/lib/domain/dashboard";
+import type { IndexType } from "@/lib/domain/marketplace";
 import {
   getIllustrativeChartSeries,
   ILLUSTRATIVE_TIMESTAMP,
 } from "@/lib/fixtures/chart-series";
-import { toMarketplaceProduct } from "@/lib/fixtures/discover";
+import { getMarketplaceProductById } from "@/lib/fixtures/discover";
 import { FIXTURE_LABEL, ILLUSTRATIVE_PORTFOLIOS } from "@/lib/fixtures/index";
+import { INDEXLA_INDEX_CATALOG } from "@/lib/fixtures/index-catalog";
 import { APP_ROUTES } from "@/lib/routes";
 
 function productById(id: string) {
-  const portfolio = ILLUSTRATIVE_PORTFOLIOS.find((p) => p.id === id);
-  if (!portfolio) throw new Error(`Missing fixture portfolio: ${id}`);
-  return toMarketplaceProduct(portfolio);
+  const p = getMarketplaceProductById(id);
+  if (!p) throw new Error(`Missing marketplace product: ${id}`);
+  return p;
 }
 
 function toFeatured(id: string) {
@@ -34,13 +36,18 @@ function toFeatured(id: string) {
   };
 }
 
+function indexTypeToCategory(indexType: IndexType): MarketplaceCategory {
+  if (indexType === "Tokenized Commodities") return "Commodities";
+  return indexType as MarketplaceCategory;
+}
+
 function toPreview(id: string, isNew?: boolean) {
   const p = productById(id);
   return {
     id: p.id,
     name: p.name,
     kind: p.kind,
-    category: p.category,
+    category: indexTypeToCategory(p.indexType),
     creatorName: p.creatorName,
     creatorHandle: p.creatorHandle,
     verified: p.verified,
@@ -85,13 +92,15 @@ export function getDashboardData(): DashboardData {
         automationStatus: "2 active · 1 paused",
       },
       discover: {
-        tabPreview: ["All", "Indexes", "Portfolios"],
-        productCount: ILLUSTRATIVE_PORTFOLIOS.length,
+        tabPreview: ["Indexes", "Portfolios"],
+        productCount:
+          INDEXLA_INDEX_CATALOG.length +
+          ILLUSTRATIVE_PORTFOLIOS.filter((p) => p.discoveryLabel === "Portfolio")
+            .length,
       },
       indexes: {
-        count: ILLUSTRATIVE_PORTFOLIOS.filter((p) => p.discoveryLabel === "Index")
-          .length,
-        topName: "AI Infrastructure Index",
+        count: INDEXLA_INDEX_CATALOG.length,
+        topName: "Layer 1 Index",
       },
       portfolios: {
         count: ILLUSTRATIVE_PORTFOLIOS.filter(
@@ -111,21 +120,21 @@ export function getDashboardData(): DashboardData {
         topThree: [
           {
             rank: 1,
-            portfolioId: "solana-growth",
-            portfolioName: "Solana Growth Index",
-            performance30d: 21.3,
+            portfolioId: "layer-1-index",
+            portfolioName: "Layer 1 Index",
+            performance30d: 14.2,
           },
           {
             rank: 2,
-            portfolioId: "ai-infra-index",
-            portfolioName: "AI Infrastructure Index",
-            performance30d: 18.4,
+            portfolioId: "ai-index",
+            portfolioName: "AI Index",
+            performance30d: 22.4,
           },
           {
             rank: 3,
-            portfolioId: "macro-diversified",
-            portfolioName: "Macro Diversified Index",
-            performance30d: 15.2,
+            portfolioId: "ai-agents-index",
+            portfolioName: "AI Agents Index",
+            performance30d: 31.5,
           },
         ],
         userBestRank: 2,
@@ -138,25 +147,25 @@ export function getDashboardData(): DashboardData {
       },
     },
     featuredProducts: [
-      toFeatured("ai-infra-index"),
-      toFeatured("macro-diversified"),
-      toFeatured("degen-ten-shots"),
+      toFeatured("layer-1-index"),
+      toFeatured("ai-index"),
+      toFeatured("defi-index"),
     ],
     marketplace: {
       trending: [
-        toPreview("ai-infra-index"),
-        toPreview("defi-core"),
-        toPreview("macro-diversified"),
+        toPreview("ai-agents-index"),
+        toPreview("layer-2-index"),
+        toPreview("defi-index"),
       ],
       mostInvested: [
-        toPreview("macro-diversified"),
-        toPreview("ai-infra-index"),
-        toPreview("rwa-income"),
+        toPreview("layer-1-index"),
+        toPreview("tokenized-mega-tech-index"),
+        toPreview("defi-index"),
       ],
       newThisWeek: [
-        toPreview("degen-ten-shots", true),
-        toPreview("commodities-lite", true),
-        toPreview("tokenized-tech", true),
+        toPreview("ai-index", true),
+        toPreview("ai-agents-index", true),
+        toPreview("tokenized-crypto-stocks-index", true),
       ],
     },
     pathways: [
