@@ -205,7 +205,7 @@ export function MarketplaceExplorer({
 
   const narratives = narrativeOptionsForCategory(state.assetCategory);
   const showNarratives =
-    state.productTab === "indexes" && narratives.length > 1;
+    state.productTab === "indexes" && state.assetCategory !== "All";
   const discoverHref = buildDiscoverHref(state);
   const isDashboard = variant === "dashboard";
 
@@ -368,17 +368,36 @@ function PrimaryProductTabs({
   onSelect: (id: ProductTab) => void;
   compact?: boolean;
 }) {
+  const styles: Record<
+    ProductTab,
+    { fill: string; fillMuted: string; glow: string; border: string }
+  > = {
+    indexes: {
+      fill: "#2563EB",
+      fillMuted: "rgba(37,99,235,0.38)",
+      glow: "rgba(37,99,235,0.55)",
+      border: "rgba(96,165,250,0.65)",
+    },
+    portfolios: {
+      fill: "#7C3AED",
+      fillMuted: "rgba(124,58,237,0.38)",
+      glow: "rgba(124,58,237,0.55)",
+      border: "rgba(167,139,250,0.65)",
+    },
+  };
+
   return (
     <div
       className={[
-        "grid grid-cols-2 gap-1.5",
-        compact ? "" : "sm:gap-2",
+        "grid grid-cols-2",
+        compact ? "gap-2" : "gap-2.5 sm:gap-3",
       ].join(" ")}
       role="tablist"
       aria-label="Marketplace product type"
     >
       {PRODUCT_TABS.map((tab) => {
         const active = tab.id === selected;
+        const tone = styles[tab.id];
         return (
           <button
             key={tab.id}
@@ -387,12 +406,22 @@ function PrimaryProductTabs({
             aria-selected={active}
             onClick={() => onSelect(tab.id)}
             className={[
-              "rounded-[12px] border-2 font-bold uppercase tracking-[0.12em] transition-all",
-              compact ? "px-2 py-2 text-[11px]" : "px-4 py-3.5 text-sm sm:text-base",
-              active
-                ? "border-app-brand bg-gradient-to-b from-app-brand/30 via-app-brand/12 to-transparent text-app-ink shadow-[0_0_28px_-6px_rgba(59,130,246,0.65),inset_0_1px_0_rgba(255,255,255,0.12)]"
-                : "border-app-line/55 bg-app-panel/45 text-app-muted hover:border-app-brand/25 hover:text-app-ink",
+              "rounded-[14px] font-bold uppercase tracking-[0.14em] text-white transition-all",
+              compact
+                ? "min-h-[48px] px-3 py-3 text-[12px] sm:text-[13px]"
+                : "min-h-[64px] px-4 py-4 text-base sm:min-h-[72px] sm:text-lg",
             ].join(" ")}
+            style={{
+              background: active
+                ? `linear-gradient(145deg, ${tone.fill} 0%, color-mix(in srgb, ${tone.fill} 72%, #000) 100%)`
+                : `linear-gradient(145deg, ${tone.fillMuted} 0%, color-mix(in srgb, ${tone.fill} 22%, #111) 100%)`,
+              border: `2px solid ${active ? tone.border : "rgba(255,255,255,0.12)"}`,
+              boxShadow: active
+                ? `inset 0 1px 0 rgba(255,255,255,0.28), 0 12px 28px -8px ${tone.glow}`
+                : "inset 0 1px 0 rgba(255,255,255,0.08)",
+              opacity: active ? 1 : 0.82,
+              transform: active ? "scale(1.02)" : "scale(1)",
+            }}
           >
             {tab.label}
           </button>

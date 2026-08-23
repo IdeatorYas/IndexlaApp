@@ -27,6 +27,7 @@ function parseProductTab(raw: string | null): ProductTab {
 }
 
 function parseAssetCategory(raw: string | null): AssetCategory {
+  if (raw === "All") return "All";
   if (
     raw === "Crypto" ||
     raw === "Tokenized Stocks" ||
@@ -35,7 +36,7 @@ function parseAssetCategory(raw: string | null): AssetCategory {
   ) {
     return raw;
   }
-  return "All";
+  return "Crypto";
 }
 
 function parseSort(raw: string | null): DiscoverSort {

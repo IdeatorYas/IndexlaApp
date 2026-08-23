@@ -48,8 +48,14 @@ test.describe("Discover marketplace", () => {
 
   test("filters indexes tab and narrative", async ({ page }) => {
     await page.goto(APP_ROUTES.discover);
+    await expect(
+      page.getByRole("tablist", { name: "Marketplace product type" })
+        .getByRole("tab", { name: "Indexes" }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("button", { name: "Layer 1", exact: true })).toBeVisible();
     await page.getByRole("tab", { name: "Portfolios" }).click();
     await expect(page).toHaveURL(/tab=portfolios/);
+    await expect(page.getByRole("button", { name: "Layer 1", exact: true })).toHaveCount(0);
     await page.getByRole("tab", { name: "Indexes" }).click();
     await page
       .getByRole("tablist", { name: "Asset category" })
