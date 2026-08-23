@@ -18,10 +18,10 @@ export function ExactProductTypeBadge({
         compact ? "px-1.5 py-0.5 text-[8px]" : "px-2 py-0.5 text-[9px]",
       ].join(" ")}
       style={{
-        color: style.color,
+        color: style.textOnFill,
         borderColor: style.border,
-        backgroundColor: style.surface,
-        boxShadow: `0 0 12px -4px ${style.glow}`,
+        backgroundColor: style.fill,
+        boxShadow: `0 0 14px -4px ${style.glow}`,
       }}
     >
       {style.label}

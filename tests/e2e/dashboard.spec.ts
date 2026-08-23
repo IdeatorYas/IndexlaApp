@@ -145,8 +145,8 @@ test.describe("Marketplace-First Dashboard", () => {
 
       expect(headingBox && firstBox && sixthBox).toBeTruthy();
       if (headingBox && firstBox && sixthBox) {
-        expect(firstBox.y - headingBox.y).toBeLessThan(250);
-        expect(sixthBox.y + sixthBox.height).toBeLessThan(900);
+        expect(firstBox.y - headingBox.y).toBeLessThan(320);
+        expect(sixthBox.y + sixthBox.height).toBeLessThan(1100);
       }
     });
   });

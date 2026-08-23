@@ -24,11 +24,11 @@ export function MarketplaceProductCard({
   const typeStyle = getProductTypeStyle(product);
 
   const shellClass = [
-    "group relative flex h-full flex-col overflow-hidden rounded-[14px] border bg-gradient-to-br from-app-elevated via-app-panel to-app-soft/25",
+    "group relative flex h-full flex-col overflow-hidden rounded-[14px] border bg-app-elevated",
     compact
       ? "shadow-[0_4px_16px_-8px_rgba(0,0,0,0.4)]"
       : "shadow-[0_10px_28px_-14px_rgba(0,0,0,0.45)]",
-    "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-14px_rgba(0,0,0,0.5)]",
+    "transition-all duration-200 hover:-translate-y-0.5",
   ].join(" ");
 
   const pad = compact ? "p-2" : "p-3 sm:p-3.5";
@@ -90,22 +90,23 @@ export function MarketplaceProductCard({
 
         <div
           className={[
-            "mx-auto mt-2 w-full rounded-[12px] border px-2.5 py-2 text-center",
-            compact ? "mt-1.5 py-1.5" : "",
+            "mx-auto mt-2 w-full rounded-[12px] px-2.5 py-2.5 text-center",
+            compact ? "mt-1.5 py-2" : "",
           ].join(" ")}
           style={{
-            borderColor: typeStyle.border,
-            background: `linear-gradient(180deg, ${typeStyle.surface} 0%, rgba(0,0,0,0) 100%)`,
-            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 0 20px -8px ${typeStyle.glow}`,
+            background: `linear-gradient(145deg, ${typeStyle.fill} 0%, color-mix(in srgb, ${typeStyle.fill} 78%, #000) 100%)`,
+            border: `1px solid ${typeStyle.border}`,
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.22), 0 8px 22px -10px ${typeStyle.glow}`,
           }}
         >
           <h3
             className={[
-              "app-display line-clamp-2 font-bold text-app-ink group-hover:text-app-brand",
+              "app-display line-clamp-2 font-bold",
               compact
                 ? "text-[12px] leading-snug"
                 : "text-[15px] leading-tight sm:text-base",
             ].join(" ")}
+            style={{ color: typeStyle.textOnFill }}
           >
             {product.name}
           </h3>

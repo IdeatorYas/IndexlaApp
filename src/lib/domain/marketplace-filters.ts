@@ -36,7 +36,7 @@ export const NARRATIVES_BY_INDEX_TYPE: Record<
     { id: "rwa", label: "RWA" },
     { id: "defi", label: "DeFi" },
     { id: "privacy", label: "Privacy" },
-    { id: "oracles", label: "Oracles" },
+    { id: "oracles", label: "Oracle" },
   ],
   "Tokenized Stocks": [
     { id: "all", label: "All" },
@@ -84,9 +84,10 @@ export interface MarketplaceFilterState {
   sort: DiscoverSort;
 }
 
+/** Indexes + Crypto so asset-category and index narratives appear immediately. */
 export const DEFAULT_FILTER_STATE: MarketplaceFilterState = {
   productTab: "indexes",
-  assetCategory: "All",
+  assetCategory: "Crypto",
   narrative: "all",
   query: "",
   sort: "trending",
