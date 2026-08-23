@@ -141,61 +141,137 @@ export function hasVerifiedAssetLogo(assetId: string): boolean {
 }
 
 export const ASSET_COLORS: Record<string, string> = {
-  nvda: "#76b900",
-  msft: "#00a4ef",
-  googl: "#4285f4",
-  amzn: "#ff9900",
+  /* Crypto — native brand hues */
+  btc: "#F7931A",
+  eth: "#627EEA",
+  sol: "#14F195",
+  xrp: "#23292F",
+  bnb: "#F3BA2F",
+  trx: "#FF0013",
+  hype: "#97FCE4",
+  ada: "#0033AD",
+  avax: "#E84142",
+  sui: "#4DA2FF",
+  mnt: "#000000",
+  pol: "#8247E5",
+  arb: "#28A0F0",
+  op: "#FF0420",
+  strk: "#EC796B",
+  imx: "#00D1FF",
+  zk: "#8C8DFC",
+  metis: "#00DACC",
+  tao: "#FFFFFF",
+  near: "#000000",
+  icp: "#29ABE2",
+  render: "#C40000",
+  fet: "#1E3448",
+  virtual: "#6E3AFF",
+  grt: "#6747ED",
+  theta: "#2AB8E6",
+  ar: "#222326",
+  akt: "#ED3524",
+  fil: "#0090FF",
+  hnt: "#474DFF",
+  iotx: "#00D4D5",
+  sand: "#00ADEF",
+  gala: "#000000",
+  mana: "#FF2D55",
+  ape: "#0054F9",
+  axs: "#0055D5",
+  beam: "#5CFFE5",
+  ron: "#1273ED",
+  enj: "#7866D5",
+  link: "#2A5ADA",
+  xlm: "#000000",
+  ondo: "#183CFF",
+  uni: "#FF007A",
+  aave: "#B6509E",
+  ena: "#5CE1E6",
+  jup: "#00D18C",
+  pendle: "#1A1A1A",
+  morpho: "#2470FF",
+  crv: "#FF0000",
+  xmr: "#FF6600",
+  zec: "#F4B728",
+  dash: "#008DE4",
+  dcr: "#2970FF",
+  scrt: "#1B1B1B",
+  rose: "#0092F6",
+  pyth: "#E6DAFE",
+  band: "#516AFF",
+  inj: "#00F2FE",
+  aero: "#0052FF",
+  ath: "#FF5A1F",
+  wif: "#E84133",
+  peaq: "#B4FF39",
+  paxg: "#D4AF37",
+  slvon: "#C0C0C0",
+  cperon: "#B87333",
+  /* Stocks / RWAs */
+  nvda: "#76B900",
+  msft: "#00A4EF",
+  googl: "#4285F4",
+  amzn: "#FF9900",
   meta: "#0668E1",
   pltr: "#101010",
-  crm: "#00a1e0",
-  now: "#81b5a1",
-  snow: "#29b5e8",
   aapl: "#555555",
-  amd: "#ed1c24",
-  tsm: "#e31937",
-  avgo: "#cc0000",
-  asml: "#0066cc",
-  arm: "#0091bd",
-  mu: "#0071ce",
-  mrvl: "#000000",
-  tsla: "#cc0000",
-  coin: "#0052ff",
-  mstr: "#fa6600",
-  hood: "#00c805",
-  crcl: "#0066cc",
-  mara: "#000000",
-  riot: "#f7931a",
-  iren: "#00d4aa",
-  rklb: "#0066cc",
-  asts: "#0066cc",
-  ionq: "#6600cc",
-  rgti: "#0066cc",
-  qqq: "#0066cc",
-  xlk: "#0066cc",
-  smh: "#0066cc",
-  soxx: "#0066cc",
-  botz: "#0066cc",
-  isrg: "#0066cc",
-  abb: "#ff0000",
-  rok: "#0066cc",
-  sym: "#0066cc",
+  amd: "#ED1C24",
+  arm: "#0091BD",
+  tsla: "#CC0000",
+  coin: "#0052FF",
+  hood: "#00C805",
   blk: "#000000",
-  jpm: "#0066cc",
-  ndaq: "#009639",
-  ice: "#0066cc",
-  rblx: "#0066cc",
-  u: "#000000",
-  ttwo: "#0066cc",
-  ea: "#0066cc",
-  eqix: "#ed1c24",
-  vrt: "#0066cc",
-  anet: "#0066cc",
-  amt: "#0066cc",
-  v: "#1a1f71",
-  ma: "#eb001b",
-  pypl: "#003087",
-  xyz: "#0066cc",
+  jpm: "#0066CC",
+  v: "#1A1F71",
+  ma: "#EB001B",
+  spy: "#0066CC",
+  qqq: "#0066CC",
+  ionq: "#6600CC",
+  rklb: "#0066CC",
+  asts: "#0066CC",
+  rgti: "#0066CC",
+  sofi: "#00A0DF",
 };
+
+const FALLBACK_ASSET_COLORS = [
+  "#F7931A",
+  "#627EEA",
+  "#14F195",
+  "#E84142",
+  "#4DA2FF",
+  "#F3BA2F",
+  "#8247E5",
+  "#FF007A",
+  "#2A5ADA",
+  "#00C805",
+];
+
+export function getAssetBrandColor(assetId: string, fallbackIndex = 0): string {
+  const id = assetId.toLowerCase();
+  return (
+    ASSET_COLORS[id] ??
+    FALLBACK_ASSET_COLORS[fallbackIndex % FALLBACK_ASSET_COLORS.length]
+  );
+}
+
+/** Brand color tuned for donut segments (lift pure black / white for contrast). */
+export function getAssetDonutColor(assetId: string, fallbackIndex = 0): string {
+  const color = getAssetBrandColor(assetId, fallbackIndex).toLowerCase();
+  if (
+    color === "#000000" ||
+    color === "#000" ||
+    color === "#101010" ||
+    color === "#1b1b1b" ||
+    color === "#1a1a1a" ||
+    color === "#23292f"
+  ) {
+    return "#3D4450";
+  }
+  if (color === "#ffffff" || color === "#fff" || color === "#e6dafe") {
+    return "#7C6AE8";
+  }
+  return getAssetBrandColor(assetId, fallbackIndex);
+}
 
 export function assetLabel(symbol: string): string {
   return symbol.toUpperCase();
