@@ -7,6 +7,7 @@ import {
   getCreatorsWorkspace,
   getCreatorPublicProfile,
   getDegenClubWorkspace,
+  getCreatorDashboardWorkspace,
   getLeaderboardWorkspace,
   getMyPortfolioWorkspace,
   getPortfolios,
@@ -44,6 +45,12 @@ describe("data-access layer", () => {
     expect(getCreatorsWorkspace().data.creators.length).toBeGreaterThanOrEqual(25);
     expect(getCreatorPublicProfile("indexla").data?.handle).toBe("indexla");
     expect(getCreatorPublicProfile("missing-handle-xyz").data).toBeNull();
+    expect(getCreatorDashboardWorkspace("indexla").data.identity.handle).toBe(
+      "indexla",
+    );
+    expect(
+      getCreatorDashboardWorkspace("indexla").data.liveProducts.length,
+    ).toBeGreaterThan(0);
   });
 
   it("switches to live provider when illustrative demo data is disabled", () => {

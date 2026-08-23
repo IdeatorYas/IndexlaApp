@@ -2,8 +2,10 @@ import type { DashboardData } from "@/lib/domain/dashboard";
 import type { IndexlaDataProvider, DataResult } from "@/lib/data/types";
 import { getEmptyDashboardData } from "@/lib/fixtures/dashboard";
 import { getEmptyCreatorsWorkspace } from "@/lib/fixtures/creators";
+import { getEmptyCreatorDashboardWorkspace } from "@/lib/fixtures/creator-dashboard";
 import { getEmptyDegenClubWorkspace } from "@/lib/fixtures/degen-club";
 import { getEmptyLeaderboardWorkspace } from "@/lib/fixtures/leaderboard";
+import type { CreatorDashboardWorkspace } from "@/lib/domain/creator-dashboard";
 
 /**
  * Live / testnet provider stub.
@@ -152,6 +154,12 @@ export const liveDataProvider: IndexlaDataProvider = {
   },
   getDegenClubWorkspace() {
     return unavailable(getEmptyDegenClubWorkspace(), LIVE_REASON);
+  },
+  getCreatorDashboardWorkspace() {
+    return unavailable<CreatorDashboardWorkspace>(
+      getEmptyCreatorDashboardWorkspace(),
+      LIVE_REASON,
+    );
   },
   getFixtureLabel() {
     return "Live";

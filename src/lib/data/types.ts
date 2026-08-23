@@ -1,5 +1,6 @@
 import type { DashboardData } from "@/lib/domain/dashboard";
 import type { CreatorsWorkspace, CreatorPublicProfile } from "@/lib/domain/creators";
+import type { CreatorDashboardWorkspace } from "@/lib/domain/creator-dashboard";
 import type { DegenClubWorkspace } from "@/lib/domain/degen-club";
 import type { LeaderboardWorkspace } from "@/lib/domain/leaderboard";
 import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
@@ -49,5 +50,6 @@ export interface IndexlaDataProvider {
   getStrategiesWorkspace(): DataResult<StrategiesWorkspace>;
   getLeaderboardWorkspace(): DataResult<LeaderboardWorkspace>;
   getDegenClubWorkspace(): DataResult<DegenClubWorkspace>;
+  getCreatorDashboardWorkspace(handle?: string): DataResult<CreatorDashboardWorkspace>;
   getFixtureLabel(): string;
 }

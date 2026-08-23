@@ -660,8 +660,8 @@ export function CreatorActivationView({
               4. Creator Access Approved
             </h2>
             <p className="mt-1 text-sm text-app-muted">
-              Preview approval complete. Creator Dashboard remains a separate
-              screen and is not built in this phase.
+              Preview approval complete. Open your Creator Dashboard to manage
+              earnings, live products and audience tools.
             </p>
           </div>
           <ul className="space-y-2 text-sm text-app-ink">

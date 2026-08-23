@@ -90,6 +90,10 @@ export function getDegenClubWorkspace() {
   return getDataProvider().getDegenClubWorkspace();
 }
 
+export function getCreatorDashboardWorkspace(handle?: string) {
+  return getDataProvider().getCreatorDashboardWorkspace(handle);
+}
+
 export function getDataLabel() {
   return getDataProvider().getFixtureLabel();
 }

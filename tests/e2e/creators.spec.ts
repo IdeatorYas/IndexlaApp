@@ -184,3 +184,110 @@ test.describe("Creator Activation", () => {
     await expect(page).toHaveURL(/\/app\/creators\/activate/);
   });
 });
+
+test.describe("Creator Dashboard", () => {
+  test.setTimeout(90_000);
+
+  test("locked state links to Continue Creator Setup", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.removeItem("indexla.creator.activation.v1");
+    });
+    await page.goto(APP_ROUTES.creatorDashboard);
+    await expect(
+      page.getByRole("heading", { name: "Creator Dashboard locked" }),
+    ).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("link", { name: "Continue Creator Setup" }).click();
+    await expect(page).toHaveURL(/\/app\/creators\/activate/);
+  });
+
+  test("approved creator sees earnings, products and feature confirmation", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const draft = {
+        version: 1,
+        status: "approved",
+        step: "approved",
+        selectedPortfolioId: "ai-infra-index",
+        selectedPortfolioName: "AI Infrastructure Index",
+        socials: [
+          {
+            platform: "X",
+            connected: true,
+            handle: "@indexla",
+            profileUrl: "https://x.com/indexla",
+          },
+          {
+            platform: "LinkedIn",
+            connected: true,
+            handle: "indexla",
+            profileUrl: "https://www.linkedin.com/in/indexla",
+          },
+          {
+            platform: "YouTube",
+            connected: true,
+            handle: "@indexla",
+            profileUrl: "https://youtube.com/@indexla",
+          },
+        ],
+        displayName: "INDEXLA",
+        handle: "indexla",
+        bio: "Illustrative",
+        specialty: "Hybrid",
+        disclosuresAccepted: true,
+        submittedAt: "2026-08-22T00:00:00.000Z",
+        approvedAt: "2026-08-22T00:00:00.000Z",
+        needsChangesNote: null,
+        updatedAt: "2026-08-22T00:00:00.000Z",
+      };
+      window.localStorage.setItem(
+        "indexla.creator.activation.v1",
+        JSON.stringify(draft),
+      );
+    });
+    await page.goto(APP_ROUTES.creatorDashboard);
+    await expect(
+      page.getByRole("heading", { name: "INDEXLA", exact: true }),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole("heading", { name: "Creator overview" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Earnings Overview" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/USD and \$DEXLA are separate ledgers/i),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Live products" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Audience analytics · Illustrative" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Portfolio Leaderboard position" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/never ranked as one combined portfolio/i),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "My Strategies" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Recent activity · Illustrative" }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Connect Wallet" }).first().click();
+    await expect(page.getByRole("button", { name: /0x742d/i })).toBeVisible({
+      timeout: 10_000,
+    });
+    await page
+      .getByRole("button", { name: "Feature Portfolio" })
+      .first()
+      .click();
+    await expect(page.getByText("Feature confirmation")).toBeVisible();
+    await expect(page.getByText("2,500 $DEXLA")).toBeVisible();
+    await expect(page.getByText(/Seven-day Featured placement/i)).toBeVisible();
+    await expect(page.getByText("100% burned")).toBeVisible();
+  });
+});

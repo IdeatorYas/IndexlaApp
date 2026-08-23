@@ -1,20 +1,31 @@
-import { EmptyState, UtilityGateState } from "@/components/states/AppStates";
-import { ScreenStub } from "@/components/screens/ScreenStub";
+import { Suspense } from "react";
+import { CreatorDashboardView } from "@/components/creators/CreatorDashboardView";
+import { LoadingSkeleton } from "@/components/states/AppStates";
+import {
+  getCreatorDashboardWorkspace,
+  isIllustrativeDataMode,
+} from "@/lib/data";
 import { getFeatureFlags } from "@/lib/feature-flags";
-import { APP_SCREENS } from "@/lib/routes";
 
 export default function CreatorDashboardPage() {
+  const workspace = getCreatorDashboardWorkspace("indexla");
   const flags = getFeatureFlags();
+  const illustrative =
+    isIllustrativeDataMode() || workspace.data.isIllustrative;
+
   return (
-    <ScreenStub screen={APP_SCREENS[11]}>
-      <EmptyState
-        title="Creator business dashboard"
-        description="Earnings overview, live portfolios, audience metrics and strategy revenue stub."
+    <Suspense
+      fallback={
+        <LoadingSkeleton title="Loading creator dashboard" lines={7} />
+      }
+    >
+      <CreatorDashboardView
+        workspace={workspace.data}
+        illustrative={illustrative}
+        featuredPlacementsEnabled={flags.FEATURED_PLACEMENTS_ENABLED}
+        dexlaDemoMode={flags.DEXLA_DEMO_MODE}
+        initialError={workspace.availability === "unavailable"}
       />
-      <UtilityGateState
-        featureName="Feature Portfolio Placement"
-        demoMode={flags.DEXLA_DEMO_MODE}
-      />
-    </ScreenStub>
+    </Suspense>
   );
 }
