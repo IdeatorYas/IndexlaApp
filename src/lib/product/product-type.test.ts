@@ -78,8 +78,13 @@ describe("product type styles", () => {
       kind: "Index",
       indexType: "Tokenized Stocks",
     });
+    const stockPortfolio = getProductTypeStyle({
+      kind: "Portfolio",
+      indexType: "Tokenized Stocks",
+    });
     expect(cryptoIndex.fill).toBe("#D97706");
     expect(stockIndex.fill).toBe("#0284C7");
+    expect(stockPortfolio.fill).toBe("#0047AB");
     expect(cryptoIndex.fill).not.toBe(stockIndex.fill);
   });
 

@@ -14,7 +14,7 @@ import { MiniLineChart } from "@/components/ui/MiniLineChart";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
-import { getProductTypeStyle, isIndexlaProduct, productNameBoxStyle } from "@/lib/product/product-type";
+import { getProductTypeStyle, isIndexlaProduct, PRODUCT_NAME_BOX_CLASS, productNameBoxStyle } from "@/lib/product/product-type";
 
 export function ProductPageView({ product }: { product: MarketplaceProduct }) {
   const router = useRouter();
@@ -77,13 +77,13 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
               ) : null}
             </div>
             <div
-              className="mt-3 w-full max-w-2xl rounded-[14px] px-4 py-3.5 text-center sm:text-left"
+              className={[
+                "mt-3 w-full max-w-2xl rounded-[14px] px-4 py-3.5 text-center sm:text-left",
+                PRODUCT_NAME_BOX_CLASS,
+              ].join(" ")}
               style={productNameBoxStyle(typeStyle)}
             >
-              <h1
-                className="app-display text-2xl font-bold sm:text-3xl"
-                style={{ color: typeStyle.textOnFill }}
-              >
+              <h1 className="app-display text-2xl font-bold sm:text-3xl">
                 {product.name}
               </h1>
             </div>

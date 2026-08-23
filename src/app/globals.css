@@ -563,4 +563,28 @@
     transform: translateY(-1px);
     box-shadow: 0 6px 20px -4px rgba(168, 85, 247, 0.5);
   }
+
+  /* ─── Product name boxes (~50% lighter tint; hue via border/text/glow) ─── */
+  .app-product-name-box {
+    border-width: 1.5px;
+    border-style: solid;
+  }
+
+  [data-theme="light"] .app-product-name-box {
+    background: linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--pt-accent) 24%, var(--color-bg-elevated)) 0%,
+      color-mix(in srgb, var(--pt-accent) 14%, var(--color-bg-elevated)) 100%
+    );
+    color: color-mix(in srgb, var(--pt-fill) 88%, #0a1220);
+  }
+
+  [data-theme="dark"] .app-product-name-box {
+    background: linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--pt-accent) 30%, var(--color-bg-elevated)) 0%,
+      color-mix(in srgb, var(--pt-accent) 18%, var(--color-bg-elevated)) 100%
+    );
+    color: color-mix(in srgb, var(--pt-accent) 78%, #ffffff);
+  }
 }

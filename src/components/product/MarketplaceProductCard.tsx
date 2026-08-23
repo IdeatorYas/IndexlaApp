@@ -6,7 +6,7 @@ import { InvestChoiceLink } from "@/components/product/InvestmentChoiceModal";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
-import { getProductTypeStyle, productNameBoxStyle } from "@/lib/product/product-type";
+import { getProductTypeStyle, PRODUCT_NAME_BOX_CLASS, productNameBoxStyle } from "@/lib/product/product-type";
 import { APP_ROUTES } from "@/lib/routes";
 
 export function MarketplaceProductCard({
@@ -91,6 +91,7 @@ export function MarketplaceProductCard({
         <div
           className={[
             "mx-auto mt-2 w-full rounded-[12px] px-2.5 py-2.5 text-center",
+            PRODUCT_NAME_BOX_CLASS,
             compact ? "mt-1.5 py-2" : "",
           ].join(" ")}
           style={productNameBoxStyle(typeStyle)}
@@ -102,7 +103,6 @@ export function MarketplaceProductCard({
                 ? "text-[12px] leading-snug"
                 : "text-[15px] leading-tight sm:text-base",
             ].join(" ")}
-            style={{ color: typeStyle.textOnFill }}
           >
             {product.name}
           </h3>

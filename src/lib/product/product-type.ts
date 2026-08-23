@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+
 import type { IndexType, MarketplaceProduct } from "@/lib/domain/marketplace";
 
 
@@ -37,11 +38,11 @@ export interface ProductTypeStyle {
 
   surface: string;
 
-  /** Solid fill for product-name containers */
+  /** Badge / accent anchor (saturated category hue) */
 
   fill: string;
 
-  /** High-contrast text on solid fill */
+  /** High-contrast text on solid type badges */
 
   textOnFill: string;
 
@@ -59,11 +60,11 @@ const PRODUCT_TYPE_STYLES: Record<ProductTypeBadgeId, ProductTypeStyle> = {
 
     color: "#F59E0B",
 
-    glow: "rgba(245,158,11,0.55)",
+    glow: "rgba(245,158,11,0.42)",
 
-    border: "rgba(217,119,6,0.75)",
+    border: "rgba(217,119,6,0.55)",
 
-    surface: "rgba(245,158,11,0.16)",
+    surface: "rgba(245,158,11,0.12)",
 
     fill: "#D97706",
 
@@ -79,11 +80,11 @@ const PRODUCT_TYPE_STYLES: Record<ProductTypeBadgeId, ProductTypeStyle> = {
 
     color: "#0EA5E9",
 
-    glow: "rgba(14,165,233,0.55)",
+    glow: "rgba(14,165,233,0.42)",
 
-    border: "rgba(2,132,199,0.75)",
+    border: "rgba(2,132,199,0.55)",
 
-    surface: "rgba(14,165,233,0.16)",
+    surface: "rgba(14,165,233,0.12)",
 
     fill: "#0284C7",
 
@@ -99,11 +100,11 @@ const PRODUCT_TYPE_STYLES: Record<ProductTypeBadgeId, ProductTypeStyle> = {
 
     color: "#CD7F32",
 
-    glow: "rgba(205,127,50,0.55)",
+    glow: "rgba(205,127,50,0.42)",
 
-    border: "rgba(161,98,7,0.75)",
+    border: "rgba(161,98,7,0.55)",
 
-    surface: "rgba(205,127,50,0.16)",
+    surface: "rgba(205,127,50,0.12)",
 
     fill: "#A16207",
 
@@ -119,11 +120,11 @@ const PRODUCT_TYPE_STYLES: Record<ProductTypeBadgeId, ProductTypeStyle> = {
 
     color: "#8B5CF6",
 
-    glow: "rgba(139,92,246,0.55)",
+    glow: "rgba(139,92,246,0.42)",
 
-    border: "rgba(124,58,237,0.75)",
+    border: "rgba(124,58,237,0.55)",
 
-    surface: "rgba(139,92,246,0.16)",
+    surface: "rgba(139,92,246,0.12)",
 
     fill: "#7C3AED",
 
@@ -139,11 +140,11 @@ const PRODUCT_TYPE_STYLES: Record<ProductTypeBadgeId, ProductTypeStyle> = {
 
     color: "#F97316",
 
-    glow: "rgba(249,115,22,0.55)",
+    glow: "rgba(249,115,22,0.42)",
 
-    border: "rgba(234,88,12,0.75)",
+    border: "rgba(234,88,12,0.55)",
 
-    surface: "rgba(249,115,22,0.16)",
+    surface: "rgba(249,115,22,0.12)",
 
     fill: "#EA580C",
 
@@ -157,15 +158,15 @@ const PRODUCT_TYPE_STYLES: Record<ProductTypeBadgeId, ProductTypeStyle> = {
 
     label: "Stock Portfolio",
 
-    color: "#14B8A6",
+    color: "#2563EB",
 
-    glow: "rgba(20,184,166,0.55)",
+    glow: "rgba(0,71,171,0.42)",
 
-    border: "rgba(13,148,136,0.75)",
+    border: "rgba(0,71,171,0.55)",
 
-    surface: "rgba(20,184,166,0.16)",
+    surface: "rgba(0,71,171,0.12)",
 
-    fill: "#0D9488",
+    fill: "#0047AB",
 
     textOnFill: "#FFFFFF",
 
@@ -179,11 +180,11 @@ const PRODUCT_TYPE_STYLES: Record<ProductTypeBadgeId, ProductTypeStyle> = {
 
     color: "#EAB308",
 
-    glow: "rgba(234,179,8,0.55)",
+    glow: "rgba(234,179,8,0.42)",
 
-    border: "rgba(202,138,4,0.75)",
+    border: "rgba(202,138,4,0.55)",
 
-    surface: "rgba(234,179,8,0.16)",
+    surface: "rgba(234,179,8,0.12)",
 
     fill: "#CA8A04",
 
@@ -199,11 +200,11 @@ const PRODUCT_TYPE_STYLES: Record<ProductTypeBadgeId, ProductTypeStyle> = {
 
     color: "#EC4899",
 
-    glow: "rgba(236,72,153,0.55)",
+    glow: "rgba(236,72,153,0.42)",
 
-    border: "rgba(219,39,119,0.75)",
+    border: "rgba(219,39,119,0.55)",
 
-    surface: "rgba(236,72,153,0.16)",
+    surface: "rgba(236,72,153,0.12)",
 
     fill: "#DB2777",
 
@@ -319,19 +320,19 @@ export const ALLOCATION_SEGMENT_COLORS = [
 
   "#EA580C",
 
-  "#0D9488",
+  "#0047AB",
 
   "#CA8A04",
 
   "#DB2777",
 
-  "#10B981",
-
   "#64748B",
 
   "#F59E0B",
 
-  "#14B8A6",
+  "#2563EB",
+
+  "#CD7F32",
 
 ];
 
@@ -345,21 +346,25 @@ export function allocationSegmentColor(index: number): string {
 
 
 
-/** Product-name box background — shared by cards and product pages. */
+export const PRODUCT_NAME_BOX_CLASS = "app-product-name-box";
+
+
+
+/** ~50% lighter tinted name box — borders, category text and glow carry the hue. */
 
 export function productNameBoxStyle(typeStyle: ProductTypeStyle): CSSProperties {
 
   return {
 
-    background: `linear-gradient(145deg, ${typeStyle.fill} 0%, color-mix(in srgb, ${typeStyle.fill} 78%, #000) 100%)`,
+    borderColor: typeStyle.border,
 
-    border: `1px solid ${typeStyle.border}`,
+    boxShadow: `0 0 22px -10px ${typeStyle.glow}, inset 0 1px 0 rgba(255,255,255,0.14)`,
 
-    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.22), 0 8px 22px -10px ${typeStyle.glow}`,
+    ["--pt-accent" as string]: typeStyle.color,
 
-    color: typeStyle.textOnFill,
+    ["--pt-fill" as string]: typeStyle.fill,
 
-  };
+  } as CSSProperties;
 
 }
 
