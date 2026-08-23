@@ -4,13 +4,21 @@ import {
   ILLUSTRATIVE_MARKET_CATALOG,
   supportStatusForNetworks,
 } from "@/lib/fixtures/market-assets";
+import type {
+  AssetPerformancePoint,
+  AssetPerformanceResult,
+  CoinGeckoAvailability,
+} from "@/lib/market/asset-performance";
+import {
+  resolveCoinGeckoIds,
+} from "@/lib/market/coingecko-ids";
 
-export type CoinGeckoAvailability =
-  | "live"
-  | "fallback"
-  | "rate-limited"
-  | "error"
-  | "unconfigured";
+export type {
+  AssetPerformancePoint,
+  AssetPerformanceResult,
+  AssetPerfStatus,
+  CoinGeckoAvailability,
+} from "@/lib/market/asset-performance";
 
 export interface CoinGeckoCategory {
   category_id: string;
@@ -377,5 +385,159 @@ export async function listMarketAssets(input: {
     fetchedAt: new Date().toISOString(),
     stale: availability !== "live",
     reason,
+  };
+}
+
+type MarketsPerfCoin = {
+  id: string;
+  symbol: string;
+  current_price?: number | null;
+  price_change_percentage_24h?: number | null;
+  price_change_percentage_24h_in_currency?: number | null;
+  price_change_percentage_7d_in_currency?: number | null;
+  price_change_percentage_30d_in_currency?: number | null;
+};
+
+function unavailablePoint(ticker: string): AssetPerformancePoint {
+  return {
+    ticker,
+    coingeckoId: null,
+    priceUsd: null,
+    change24hPercent: null,
+    change7dPercent: null,
+    change30dPercent: null,
+    status: "unavailable",
+  };
+}
+
+/**
+ * Live 24H / 7D / 30D performance for catalog tickers via CoinGecko markets.
+ * Unmapped tickers (tokenized stocks / unsupported commodities) → Unavailable.
+ * Never fabricates percentages.
+ */
+export async function fetchAssetPerformance(
+  assetIds: string[],
+): Promise<AssetPerformanceResult> {
+  const { mapped, unmapped } = resolveCoinGeckoIds(assetIds);
+  const byTicker: Record<string, AssetPerformancePoint> = {};
+
+  for (const ticker of unmapped) {
+    byTicker[ticker] = unavailablePoint(ticker);
+  }
+
+  if (mapped.length === 0) {
+    return {
+      byTicker,
+      availability: "live",
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+      reason:
+        unmapped.length > 0
+          ? "No CoinGecko-backed assets in request"
+          : undefined,
+    };
+  }
+
+  const idsKey = mapped
+    .map((m) => m.coingeckoId)
+    .sort()
+    .join(",");
+  const cacheKey = `perf:${idsKey}`;
+  const cached = getCached<Record<string, AssetPerformancePoint>>(cacheKey);
+
+  if (cached && !cached.stale) {
+    return {
+      byTicker: { ...byTicker, ...cached.value },
+      availability: "live",
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+    };
+  }
+
+  const path =
+    `/coins/markets?vs_currency=usd&ids=${encodeURIComponent(idsKey)}` +
+    `&order=market_cap_desc&per_page=${mapped.length}&page=1&sparkline=false` +
+    `&price_change_percentage=24h,7d,30d`;
+
+  const result = await cgFetch<MarketsPerfCoin[]>(path);
+
+  if (result.ok && Array.isArray(result.data)) {
+    const byGeckoId = new Map(result.data.map((coin) => [coin.id, coin]));
+    const liveSlice: Record<string, AssetPerformancePoint> = {};
+
+    for (const { ticker, coingeckoId } of mapped) {
+      const coin = byGeckoId.get(coingeckoId);
+      if (!coin) {
+        liveSlice[ticker] = {
+          ticker,
+          coingeckoId,
+          priceUsd: null,
+          change24hPercent: null,
+          change7dPercent: null,
+          change30dPercent: null,
+          status: "unavailable",
+        };
+        continue;
+      }
+
+      const change24h =
+        coin.price_change_percentage_24h_in_currency ??
+        coin.price_change_percentage_24h ??
+        null;
+      const change7d = coin.price_change_percentage_7d_in_currency ?? null;
+      const change30d = coin.price_change_percentage_30d_in_currency ?? null;
+
+      liveSlice[ticker] = {
+        ticker,
+        coingeckoId,
+        priceUsd: coin.current_price ?? null,
+        change24hPercent: change24h,
+        change7dPercent: change7d,
+        change30dPercent: change30d,
+        status: "live",
+      };
+    }
+
+    setCache(cacheKey, liveSlice);
+    return {
+      byTicker: { ...byTicker, ...liveSlice },
+      availability: "live",
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+    };
+  }
+
+  if (cached) {
+    return {
+      byTicker: { ...byTicker, ...cached.value },
+      availability: result.rateLimited ? "rate-limited" : "fallback",
+      fetchedAt: new Date().toISOString(),
+      stale: true,
+      reason: result.error,
+    };
+  }
+
+  for (const { ticker, coingeckoId } of mapped) {
+    byTicker[ticker] = {
+      ticker,
+      coingeckoId,
+      priceUsd: null,
+      change24hPercent: null,
+      change7dPercent: null,
+      change30dPercent: null,
+      status: "error",
+    };
+  }
+
+  return {
+    byTicker,
+    availability: result.rateLimited
+      ? "rate-limited"
+      : getEnv().configured
+        ? "error"
+        : "unconfigured",
+    fetchedAt: new Date().toISOString(),
+    stale: true,
+    reason: result.error,
   };
 }

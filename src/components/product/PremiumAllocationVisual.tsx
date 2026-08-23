@@ -1,16 +1,20 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { AssetIcon } from "@/components/ui/AssetIcons";
-import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { formatPercent } from "@/lib/dashboard/data";
 import type { AllocationPreview } from "@/lib/domain/dashboard";
+import type {
+  AssetPerformancePoint,
+  CoinGeckoAvailability,
+} from "@/lib/market/asset-performance";
 import {
   getAssetBrandColor,
   getAssetDisplayName,
   getAssetDonutColor,
   resolveAssetTicker,
 } from "@/lib/fixtures/asset-registry";
-import { getIllustrativeAssetPerformance } from "@/lib/product/illustrative-asset-performance";
+import { normalizeTickerKey } from "@/lib/market/coingecko-ids";
 
 function polarToCartesian(
   cx: number,
@@ -70,7 +74,25 @@ function logoSizeForSegment(
   return Math.max(14, Math.min(byCount, byChord, byRing, ringThickness - 18));
 }
 
-function PerfCell({ value }: { value: number }) {
+function PerfCell({
+  value,
+  loading,
+  unavailable,
+}: {
+  value: number | null | undefined;
+  loading?: boolean;
+  unavailable?: boolean;
+}) {
+  if (loading) {
+    return <span className="tabular-nums text-app-dim">…</span>;
+  }
+  if (unavailable || value == null || Number.isNaN(value)) {
+    return (
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-app-dim">
+        Unavailable
+      </span>
+    );
+  }
   const positive = value >= 0;
   return (
     <span
@@ -83,6 +105,8 @@ function PerfCell({ value }: { value: number }) {
     </span>
   );
 }
+
+type LoadState = "idle" | "loading" | "ready" | "error";
 
 export function PremiumAllocationVisual({
   allocations,
@@ -100,6 +124,60 @@ export function PremiumAllocationVisual({
   const innerR = outerR * 0.52;
   const ringThickness = outerR - innerR;
   const logoR = (innerR + outerR) / 2 - ringThickness * 0.08;
+
+  const tickersKey = useMemo(
+    () =>
+      allocations
+        .map((a) => normalizeTickerKey(a.assetId))
+        .filter(Boolean)
+        .join(","),
+    [allocations],
+  );
+
+  const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [availability, setAvailability] =
+    useState<CoinGeckoAvailability>("live");
+  const [byTicker, setByTicker] = useState<
+    Record<string, AssetPerformancePoint>
+  >({});
+  const [reason, setReason] = useState<string | undefined>();
+
+  useEffect(() => {
+    if (!tickersKey) return;
+    let cancelled = false;
+    const controller = new AbortController();
+
+    async function load() {
+      setLoadState("loading");
+      try {
+        const res = await fetch(
+          `/api/market/performance?tickers=${encodeURIComponent(tickersKey)}`,
+          { signal: controller.signal, cache: "no-store" },
+        );
+        const json = (await res.json()) as {
+          byTicker?: Record<string, AssetPerformancePoint>;
+          availability?: CoinGeckoAvailability;
+          reason?: string;
+        };
+        if (cancelled) return;
+        setByTicker(json.byTicker ?? {});
+        setAvailability(json.availability ?? "error");
+        setReason(json.reason);
+        setLoadState(res.ok ? "ready" : "error");
+      } catch {
+        if (cancelled) return;
+        setLoadState("error");
+        setAvailability("error");
+        setReason("Failed to load market performance");
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [tickersKey]);
 
   let cursor = -Math.PI / 2;
   const segments = allocations.map((alloc, index) => {
@@ -135,6 +213,12 @@ export function PremiumAllocationVisual({
 
   const rowPad = compact ? "px-2 py-1" : "px-2.5 py-1.5";
   const nameSize = compact ? "text-[12px]" : "text-[13px]";
+  const loading = loadState === "loading" || loadState === "idle";
+  const showFeedNote =
+    loadState === "error" ||
+    availability === "rate-limited" ||
+    availability === "unconfigured" ||
+    availability === "error";
 
   return (
     <div
@@ -249,17 +333,35 @@ export function PremiumAllocationVisual({
       </div>
 
       <div className="min-w-0">
-        <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
+        <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 px-0.5">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-app-dim">
             Holdings
           </p>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-[9px] font-semibold text-app-muted">
               24H · 7D · 30D
             </span>
-            <IllustrativeBadge compact />
+            {loading ? (
+              <span className="text-[9px] font-bold uppercase tracking-wide text-app-brand">
+                Loading
+              </span>
+            ) : null}
+            {availability === "live" && loadState === "ready" ? (
+              <span className="text-[9px] font-bold uppercase tracking-wide text-app-success">
+                Live
+              </span>
+            ) : null}
           </div>
         </div>
+        {showFeedNote ? (
+          <p className="mb-1.5 text-[10px] text-app-warning">
+            {availability === "unconfigured"
+              ? "CoinGecko not configured — asset performance unavailable."
+              : availability === "rate-limited"
+                ? "Market feed rate-limited — showing Unavailable until refresh."
+                : reason || "Market performance unavailable."}
+          </p>
+        ) : null}
         <div className="overflow-hidden rounded-[14px] border border-app-line/50 bg-gradient-to-b from-app-elevated/95 to-app-panel/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
           <div
             className={[
@@ -277,7 +379,16 @@ export function PremiumAllocationVisual({
             {allocations.map((alloc, index) => {
               const color = getAssetBrandColor(alloc.assetId, index);
               const ticker = resolveAssetTicker(alloc.assetId);
-              const perf = getIllustrativeAssetPerformance(alloc.assetId);
+              const key = normalizeTickerKey(alloc.assetId);
+              const point = byTicker[key];
+              const rowUnavailable =
+                !loading &&
+                (point?.status === "unavailable" ||
+                  (loadState === "ready" && point == null) ||
+                  (point?.status === "error" &&
+                    point.change24hPercent == null &&
+                    point.change7dPercent == null &&
+                    point.change30dPercent == null));
               return (
                 <li
                   key={`${alloc.assetId}-${index}`}
@@ -316,21 +427,63 @@ export function PremiumAllocationVisual({
                     {alloc.percent}%
                   </p>
                   <p className="hidden text-right text-[11px] sm:block">
-                    <PerfCell value={perf.h24} />
+                    <PerfCell
+                      value={point?.change24hPercent}
+                      loading={loading}
+                      unavailable={
+                        rowUnavailable ||
+                        (!loading && point?.change24hPercent == null)
+                      }
+                    />
                   </p>
                   <p className="hidden text-right text-[11px] sm:block">
-                    <PerfCell value={perf.d7} />
+                    <PerfCell
+                      value={point?.change7dPercent}
+                      loading={loading}
+                      unavailable={
+                        rowUnavailable ||
+                        (!loading && point?.change7dPercent == null)
+                      }
+                    />
                   </p>
                   <p className="hidden text-right text-[11px] sm:block">
-                    <PerfCell value={perf.d30} />
+                    <PerfCell
+                      value={point?.change30dPercent}
+                      loading={loading}
+                      unavailable={
+                        rowUnavailable ||
+                        (!loading && point?.change30dPercent == null)
+                      }
+                    />
                   </p>
-                  <div className="col-span-2 flex justify-end gap-2 text-[10px] sm:hidden">
+                  <div className="col-span-2 flex flex-wrap justify-end gap-x-2 gap-y-0.5 text-[10px] sm:hidden">
                     <span className="text-app-dim">24H</span>
-                    <PerfCell value={perf.h24} />
+                    <PerfCell
+                      value={point?.change24hPercent}
+                      loading={loading}
+                      unavailable={
+                        rowUnavailable ||
+                        (!loading && point?.change24hPercent == null)
+                      }
+                    />
                     <span className="text-app-dim">7D</span>
-                    <PerfCell value={perf.d7} />
+                    <PerfCell
+                      value={point?.change7dPercent}
+                      loading={loading}
+                      unavailable={
+                        rowUnavailable ||
+                        (!loading && point?.change7dPercent == null)
+                      }
+                    />
                     <span className="text-app-dim">30D</span>
-                    <PerfCell value={perf.d30} />
+                    <PerfCell
+                      value={point?.change30dPercent}
+                      loading={loading}
+                      unavailable={
+                        rowUnavailable ||
+                        (!loading && point?.change30dPercent == null)
+                      }
+                    />
                   </div>
                 </li>
               );
