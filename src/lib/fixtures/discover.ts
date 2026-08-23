@@ -3,7 +3,6 @@ import type {
   DiscoverCatalog,
   IndexType,
   MarketplaceProduct,
-  MarketplaceStrategyTag,
   NarrativeId,
 } from "@/lib/domain/marketplace";
 import type { Portfolio } from "@/lib/domain/types";
@@ -12,10 +11,20 @@ import {
   getTrendingIndexes,
 } from "@/lib/fixtures/index-catalog";
 import {
+  INDEXLA_PORTFOLIO_CATALOG,
+  getOfficialPortfolioById,
+} from "@/lib/fixtures/portfolio-catalog";
+import {
   FIXTURE_LABEL,
   ILLUSTRATIVE_NETWORKS,
   ILLUSTRATIVE_PORTFOLIOS,
 } from "@/lib/fixtures/index";
+import {
+  buildPerformanceChart,
+  PRODUCT_STRATEGY_LIBRARY,
+  resolveProductStrategy,
+  strategyTagsForId,
+} from "@/lib/fixtures/product-strategies";
 import { APP_ROUTES } from "@/lib/routes";
 
 const PORTFOLIO_INDEX_TYPE: Record<string, IndexType> = {
@@ -42,10 +51,10 @@ const PORTFOLIO_RISK: Record<string, ProductRisk> = {
   "rwa-income": "Low",
 };
 
-const PORTFOLIO_STRATEGY_TAGS: Record<string, MarketplaceStrategyTag[]> = {
-  "degen-ten-shots": ["momentum"],
-  "defi-core": ["momentum"],
-  "rwa-income": ["buy-fear-sell-greed"],
+const PORTFOLIO_STRATEGY_ID: Record<string, string> = {
+  "degen-ten-shots": "degen-guardrails",
+  "defi-core": "momentum-alpha",
+  "rwa-income": "income-harvest",
 };
 
 const PORTFOLIO_VOLUME: Record<string, number> = {
@@ -61,8 +70,22 @@ const PORTFOLIO_ADDED: Record<string, string> = {
 };
 
 function portfolioHref(portfolio: Portfolio): string {
-  if (portfolio.id === "degen-ten-shots") return APP_ROUTES.degenClub;
-  return `${APP_ROUTES.discover}?tab=portfolios&id=${portfolio.id}`;
+  return APP_ROUTES.product(portfolio.id);
+}
+
+function portfolioStrategy(portfolio: Portfolio) {
+  const id = PORTFOLIO_STRATEGY_ID[portfolio.id];
+  if (id) return resolveProductStrategy(id);
+  const name = portfolio.strategyName;
+  const match = Object.values(PRODUCT_STRATEGY_LIBRARY).find(
+    (s) => s.name === name,
+  );
+  if (match) return match;
+  return {
+    ...resolveProductStrategy("weekly-rebalance"),
+    name,
+    explanation: `Creator-selected ${name} rules for this portfolio.`,
+  };
 }
 
 export function portfolioToMarketplaceProduct(
@@ -70,6 +93,9 @@ export function portfolioToMarketplaceProduct(
 ): MarketplaceProduct {
   const indexType = PORTFOLIO_INDEX_TYPE[portfolio.id] ?? "Crypto";
   const narrative = PORTFOLIO_NARRATIVE[portfolio.id] ?? "all";
+  const selectedStrategy = portfolioStrategy(portfolio);
+  const strategyId =
+    PORTFOLIO_STRATEGY_ID[portfolio.id] ?? selectedStrategy.id;
   return {
     id: portfolio.id,
     name: portfolio.name,
@@ -82,12 +108,14 @@ export function portfolioToMarketplaceProduct(
     verified: true,
     description: portfolio.thesis,
     thesis: portfolio.thesis,
-    strategy: portfolio.strategyName,
-    strategyTags: PORTFOLIO_STRATEGY_TAGS[portfolio.id] ?? ["momentum"],
-    strategyComposition: [
-      { label: portfolio.strategyName, percent: 100 },
-    ],
+    strategy: selectedStrategy.name,
+    strategyTags: strategyTagsForId(strategyId),
+    selectedStrategy,
     performance30d: portfolio.performance30d,
+    performanceChart: buildPerformanceChart(
+      portfolio.aumUsd / 1000,
+      portfolio.performance30d,
+    ),
     aumUsd: portfolio.aumUsd,
     volumeUsd: PORTFOLIO_VOLUME[portfolio.id] ?? 500_000,
     investors: portfolio.investorCount,
@@ -113,10 +141,15 @@ export function toMarketplaceProduct(portfolio: Portfolio): MarketplaceProduct {
   return portfolioToMarketplaceProduct(portfolio);
 }
 
-export function getDiscoverCatalog(): DiscoverCatalog {
-  const portfolios = ILLUSTRATIVE_PORTFOLIOS.filter(
+export function getCommunityMarketplacePortfolios(): MarketplaceProduct[] {
+  return ILLUSTRATIVE_PORTFOLIOS.filter(
     (p) => p.discoveryLabel === "Portfolio",
   ).map(portfolioToMarketplaceProduct);
+}
+
+export function getDiscoverCatalog(): DiscoverCatalog {
+  const communityPortfolios = getCommunityMarketplacePortfolios();
+  const portfolios = [...INDEXLA_PORTFOLIO_CATALOG, ...communityPortfolios];
 
   const products = [...INDEXLA_INDEX_CATALOG, ...portfolios];
 
@@ -141,7 +174,11 @@ export function getDiscoverCatalog(): DiscoverCatalog {
 export function getMarketplaceProductById(
   id: string,
 ): MarketplaceProduct | undefined {
-  return getDiscoverCatalog().products.find((p) => p.id === id);
+  const official = getOfficialPortfolioById(id);
+  if (official) return official;
+  const indexProduct = INDEXLA_INDEX_CATALOG.find((p) => p.id === id);
+  if (indexProduct) return indexProduct;
+  return getCommunityMarketplacePortfolios().find((p) => p.id === id);
 }
 
 export { FIXTURE_LABEL };

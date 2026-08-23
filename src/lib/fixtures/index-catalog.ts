@@ -2,27 +2,17 @@ import type { ProductRisk } from "@/lib/domain/dashboard";
 import type {
   IndexType,
   MarketplaceProduct,
-  MarketplaceStrategyTag,
   NarrativeId,
-  StrategyCompositionEntry,
 } from "@/lib/domain/marketplace";
 import type { NetworkId } from "@/lib/domain/types";
 import { assetLabel } from "@/lib/fixtures/asset-registry";
+import {
+  buildPerformanceChart,
+  resolveProductStrategy,
+  strategyIdForIndexOrdinal,
+  strategyTagsForId,
+} from "@/lib/fixtures/product-strategies";
 import { APP_ROUTES } from "@/lib/routes";
-
-const CRYPTO_STRATEGY_COMPOSITION: StrategyCompositionEntry[] = [
-  { label: "Buy Fear / Sell Greed", percent: 40 },
-  { label: "RSI Oversold / Overbought", percent: 30 },
-  { label: "Take Profit / Stop Loss", percent: 20 },
-  { label: "Momentum Trend", percent: 10 },
-];
-
-const CRYPTO_STRATEGY_TAGS: MarketplaceStrategyTag[] = [
-  "buy-fear-sell-greed",
-  "rsi",
-  "tp-sl",
-  "momentum",
-];
 
 interface IndexDef {
   id: string;
@@ -43,9 +33,7 @@ interface IndexDef {
   isNew?: boolean;
   addedAt: string;
   rankMonthly?: number | null;
-  strategyComposition?: StrategyCompositionEntry[];
-  strategyTags?: MarketplaceStrategyTag[];
-  strategy?: string;
+  strategyId?: string;
 }
 
 function equalAllocations(symbols: string[]) {
@@ -58,20 +46,13 @@ function equalAllocations(symbols: string[]) {
   }));
 }
 
-function buildIndex(def: IndexDef): MarketplaceProduct {
+function buildIndex(def: IndexDef, ordinal: number): MarketplaceProduct {
   const assetIds = def.assets.map((s) => s.toLowerCase());
   const allocations = equalAllocations(def.assets);
-  const strategyComposition =
-    def.strategyComposition ??
-    (def.indexType === "Crypto" ? CRYPTO_STRATEGY_COMPOSITION : [
-      { label: "Buy Fear / Sell Greed", percent: 50 },
-      { label: "Momentum Trend", percent: 50 },
-    ]);
-  const strategyTags =
-    def.strategyTags ??
-    (def.indexType === "Crypto"
-      ? CRYPTO_STRATEGY_TAGS
-      : (["buy-fear-sell-greed", "momentum"] as MarketplaceStrategyTag[]));
+  const strategyId =
+    def.strategyId ?? strategyIdForIndexOrdinal(ordinal);
+  const selectedStrategy = resolveProductStrategy(strategyId);
+  const strategyTags = strategyTagsForId(strategyId);
 
   return {
     id: def.id,
@@ -85,12 +66,14 @@ function buildIndex(def: IndexDef): MarketplaceProduct {
     verified: true,
     description: def.description,
     thesis: def.description,
-    strategy:
-      def.strategy ??
-      "Multi-strategy · Buy Fear/Sell Greed · RSI · TP/SL · Momentum",
+    strategy: selectedStrategy.name,
     strategyTags,
-    strategyComposition,
+    selectedStrategy,
     performance30d: def.performance30d,
+    performanceChart: buildPerformanceChart(
+      def.aumUsd / 1000,
+      def.performance30d,
+    ),
     aumUsd: def.aumUsd,
     volumeUsd: def.volumeUsd,
     investors: def.investors,
@@ -99,7 +82,7 @@ function buildIndex(def: IndexDef): MarketplaceProduct {
     networkIds: def.networkIds,
     allocations,
     assetIds,
-    href: `${APP_ROUTES.discover}?tab=indexes&id=${def.id}`,
+    href: APP_ROUTES.product(def.id),
     featured: def.featured ?? false,
     isNew: def.isNew ?? false,
     addedAt: def.addedAt,
@@ -586,7 +569,7 @@ const INDEX_DEFS: IndexDef[] = [
 ];
 
 export const INDEXLA_INDEX_CATALOG: MarketplaceProduct[] =
-  INDEX_DEFS.map(buildIndex);
+  INDEX_DEFS.map((def, i) => buildIndex(def, i));
 
 export function getIndexById(id: string): MarketplaceProduct | undefined {
   return INDEXLA_INDEX_CATALOG.find((p) => p.id === id);

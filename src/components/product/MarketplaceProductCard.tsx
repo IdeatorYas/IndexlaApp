@@ -4,41 +4,40 @@ import {
   ProductAttribution,
   ProductTypeBadge,
 } from "@/components/product/ProductIdentity";
+import { InvestChoiceLink } from "@/components/product/InvestmentChoiceModal";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
+import { APP_ROUTES } from "@/lib/routes";
 
 export function MarketplaceProductCard({
   product,
   featured = false,
-  interactive = true,
   compact = false,
 }: {
   product: MarketplaceProduct;
   featured?: boolean;
-  interactive?: boolean;
   compact?: boolean;
 }) {
   const positive = product.performance30d >= 0;
   const showFeatured = featured || product.featured;
+  const detailsHref = APP_ROUTES.product(product.id);
+
   const shellClass = [
-    "group relative block overflow-hidden rounded-[12px] border border-app-line/80",
+    "group relative flex h-full flex-col overflow-hidden rounded-[12px] border border-app-line/80",
     "bg-gradient-to-br from-app-elevated via-app-panel to-app-soft/30",
     compact
       ? "shadow-[0_4px_16px_-8px_rgba(0,0,0,0.4)]"
       : "shadow-[0_8px_24px_-12px_rgba(0,0,0,0.45)]",
-    "transition-all duration-200",
-    interactive
-      ? "hover:-translate-y-0.5 hover:border-app-brand/35 hover:shadow-[0_12px_32px_-12px_rgba(59,130,246,0.35)]"
-      : "",
+    "transition-all duration-200 hover:-translate-y-0.5 hover:border-app-brand/35 hover:shadow-[0_12px_32px_-12px_rgba(59,130,246,0.35)]",
   ].join(" ");
 
   const pad = compact ? "p-2" : "p-3.5 sm:p-4";
 
-  const body = (
-    <>
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-app-brand/40 to-transparent" />
-      <div className={pad}>
+  return (
+    <article className={shellClass}>
+      <Link href={detailsHref} className={`block min-h-0 flex-1 ${pad}`}>
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-app-brand/40 to-transparent" />
         <div className="flex items-start justify-between gap-1.5">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-0.5">
@@ -68,11 +67,7 @@ export function MarketplaceProductCard({
               creatorName={product.creatorName}
               creatorHandle={product.creatorHandle}
               verified={product.verified}
-              className={
-                compact
-                  ? "sr-only"
-                  : undefined
-              }
+              className={compact ? "sr-only" : undefined}
             />
           </div>
           <div className="shrink-0 rounded-[8px] border border-app-line/60 bg-app-panel/80 px-1.5 py-0.5 text-right">
@@ -105,7 +100,6 @@ export function MarketplaceProductCard({
         <div className={compact ? "mt-1 flex flex-wrap gap-0.5" : "mt-2.5 flex flex-wrap gap-1"}>
           <MetaChip label={product.indexType} compact={compact} />
           <MetaChip label={product.narrativeLabel} accent compact={compact} />
-          <MetaChip label={product.risk} compact={compact} />
         </div>
 
         <div
@@ -127,7 +121,7 @@ export function MarketplaceProductCard({
 
         {!compact ? (
           <p className="mt-2 truncate text-[10px] font-medium text-app-muted">
-            {product.strategy}
+            {product.selectedStrategy.name}
           </p>
         ) : null}
 
@@ -157,39 +151,40 @@ export function MarketplaceProductCard({
           />
         </div>
 
-        <div
-          className={
-            compact
-              ? "mt-1 flex items-center justify-end"
-              : "mt-2 flex items-center justify-between gap-2"
-          }
-        >
-          {!compact ? <IllustrativeBadge compact /> : null}
-          <span
-            className={[
-              "inline-flex items-center justify-center rounded-[8px] font-bold",
-              compact ? "h-7 px-2.5 text-[10px]" : "h-9 px-3 text-[11px]",
-              interactive
-                ? "bg-gradient-to-r from-app-brand to-[color:var(--color-accent-cyan)] text-white group-hover:shadow-md group-hover:shadow-app-brand/25"
-                : "border border-app-line bg-app-elevated text-app-ink",
-            ].join(" ")}
-          >
-            View Index →
-          </span>
-        </div>
-      </div>
-    </>
-  );
-
-  if (interactive) {
-    return (
-      <Link href={product.href} className={shellClass}>
-        {body}
+        {!compact ? (
+          <div className="mt-2">
+            <IllustrativeBadge compact />
+          </div>
+        ) : null}
       </Link>
-    );
-  }
 
-  return <div className={shellClass}>{body}</div>;
+      <div
+        className={[
+          "flex gap-1 border-t border-app-line/60 bg-app-panel/40 p-1.5",
+          compact ? "" : "sm:p-2",
+        ].join(" ")}
+      >
+        <Link
+          href={detailsHref}
+          className={[
+            "inline-flex flex-1 items-center justify-center rounded-[8px] border border-app-line bg-app-elevated font-bold text-app-ink hover:border-app-brand/35",
+            compact ? "h-7 text-[10px]" : "h-9 text-[11px]",
+          ].join(" ")}
+        >
+          View Details
+        </Link>
+        <InvestChoiceLink
+          productId={product.id}
+          className={[
+            "inline-flex flex-1 items-center justify-center rounded-[8px] bg-gradient-to-r from-app-brand to-[color:var(--color-accent-cyan)] font-bold text-white",
+            compact ? "h-7 text-[10px]" : "h-9 text-[11px]",
+          ].join(" ")}
+        >
+          Invest
+        </InvestChoiceLink>
+      </div>
+    </article>
+  );
 }
 
 function MetaChip({
@@ -221,19 +216,16 @@ const METRIC_STYLES = {
     "border-[color:var(--color-accent-blue)]/50",
     "bg-gradient-to-b from-[color:var(--color-accent-blue)]/35 to-[color:var(--color-accent-blue)]/10",
     "shadow-[0_0_14px_-3px_rgba(59,130,246,0.55)]",
-    "text-[color:var(--color-accent-blue)]",
   ].join(" "),
   volume: [
     "border-[color:var(--color-accent-violet)]/50",
     "bg-gradient-to-b from-[color:var(--color-accent-violet)]/35 to-[color:var(--color-accent-violet)]/10",
     "shadow-[0_0_14px_-3px_rgba(124,58,237,0.5)]",
-    "text-[color:var(--color-accent-violet)]",
   ].join(" "),
   investors: [
     "border-[color:var(--color-accent-cyan)]/50",
     "bg-gradient-to-b from-[color:var(--color-accent-cyan)]/35 to-[color:var(--color-accent-cyan)]/10",
     "shadow-[0_0_14px_-3px_rgba(34,211,238,0.45)]",
-    "text-[color:var(--color-accent-cyan)]",
   ].join(" "),
 };
 
@@ -258,7 +250,7 @@ function MetricStat({
     >
       <p
         className={[
-          "font-bold uppercase tracking-wide opacity-90",
+          "font-bold uppercase tracking-wide text-[color:var(--color-accent-blue)] opacity-90",
           compact ? "text-[7px]" : "text-[8px]",
         ].join(" ")}
       >
