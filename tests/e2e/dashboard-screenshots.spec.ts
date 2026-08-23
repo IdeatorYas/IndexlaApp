@@ -22,9 +22,9 @@ test.describe("Dashboard screenshots", () => {
       .getByRole("banner")
       .getByRole("button", { name: "Connect Wallet" })
       .click();
-    await expect(page.getByText("Total Portfolio Value")).toBeVisible({
-      timeout: 5000,
-    });
+    await expect(
+      page.getByRole("button", { name: /0x742d/ }),
+    ).toBeVisible({ timeout: 5000 });
   }
 
   test("capture desktop dark", async ({ page }) => {

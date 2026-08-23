@@ -2,128 +2,50 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type {
-  MarketplaceCategory,
-  MarketplacePreview,
-  MarketplaceProductPreview,
-  MarketplaceTab,
-} from "@/lib/domain/dashboard";
-import { AssetIconStack } from "@/components/ui/AssetIcons";
-import { SectionHeader } from "@/components/ui/SectionHeader";
-import { formatPercent, formatUsd } from "@/lib/dashboard/data";
+import type { MarketplaceCategory } from "@/lib/domain/dashboard";
+import type { MarketplaceProduct } from "@/lib/domain/marketplace";
+import { MarketplaceProductCard } from "@/components/product/MarketplaceProductCard";
+import { getDiscoverCatalog } from "@/lib/data";
 import { APP_ROUTES } from "@/lib/routes";
 
-const TABS: MarketplaceTab[] = ["All", "Indexes", "Portfolios"];
+type ExploreTab = "All" | "Indexes" | "Portfolios";
 
-function matchesTab(product: MarketplaceProductPreview, tab: MarketplaceTab) {
+const TABS: ExploreTab[] = ["All", "Indexes", "Portfolios"];
+
+const CATEGORY_FILTERS: MarketplaceCategory[] = [
+  "Crypto",
+  "AI",
+  "DeFi",
+  "RWAs",
+  "Tokenized Stocks",
+  "Commodities",
+  "Hybrid",
+];
+
+function matchesTab(product: MarketplaceProduct, tab: ExploreTab) {
   if (tab === "All") return true;
   if (tab === "Indexes") return product.kind === "Index";
   return product.kind === "Portfolio";
 }
 
 function matchesCategory(
-  product: MarketplaceProductPreview,
+  product: MarketplaceProduct,
   category: MarketplaceCategory | "All",
 ) {
   if (category === "All") return true;
   return product.category === category;
 }
 
-function Row({
-  title,
-  products,
-  tab,
-  category,
-  accent,
-}: {
-  title: string;
-  products: MarketplaceProductPreview[];
-  tab: MarketplaceTab;
-  category: MarketplaceCategory | "All";
-  accent: string;
-}) {
-  const filtered = products.filter(
-    (p) => matchesTab(p, tab) && matchesCategory(p, category),
-  );
-
-  return (
-    <div className={`app-panel overflow-hidden ${accent}`}>
-      <div className="flex items-center justify-between gap-2 border-b border-app-line px-3 py-2.5">
-        <h3 className="app-display text-[14px] font-bold text-app-ink">{title}</h3>
-        <Link
-          href={`${APP_ROUTES.discover}?tab=${tab === "All" ? "" : tab.toLowerCase()}${category !== "All" ? `&category=${encodeURIComponent(category)}` : ""}`}
-          className="text-[11px] font-bold text-app-brand hover:underline"
-        >
-          View All →
-        </Link>
-      </div>
-      {filtered.length === 0 ? (
-        <p className="px-3 py-3 text-[12px] text-app-dim">No products in this filter.</p>
-      ) : (
-        <div className="divide-y divide-app-line">
-          {filtered.map((product) => {
-            const positive = product.performance30d >= 0;
-            return (
-              <Link
-                key={`${title}-${product.id}`}
-                href={product.href}
-                className="flex items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-app-panel"
-              >
-                <AssetIconStack assetIds={product.assetIds} size={22} max={3} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <p className="truncate text-[13px] font-bold text-app-ink">
-                      {product.name}
-                    </p>
-                    <span
-                      className={[
-                        "shrink-0 rounded px-1 py-px text-[9px] font-bold uppercase",
-                        product.kind === "Index"
-                          ? "bg-[color:var(--color-accent-blue)]/15 text-[color:var(--color-accent-blue)]"
-                          : "bg-[color:var(--color-accent-violet)]/15 text-[color:var(--color-accent-violet)]",
-                      ].join(" ")}
-                    >
-                      {product.kind}
-                    </span>
-                    {product.isNew ? (
-                      <span className="shrink-0 rounded bg-app-success/15 px-1 py-px text-[9px] font-bold uppercase text-app-success">
-                        New
-                      </span>
-                    ) : null}
-                  </div>
-                  <p className="truncate text-[11px] text-app-dim">
-                    {product.creatorName.toUpperCase() === "INDEXLA"
-                      ? "INDEXLA · Verified"
-                      : `${product.creatorName} · Verified · @${product.creatorHandle}`}{" "}
-                    · {formatUsd(product.aumUsd, true)}
-                  </p>
-                </div>
-                <p
-                  className={[
-                    "app-metric shrink-0 text-[13px]",
-                    positive ? "text-app-success" : "text-app-danger",
-                  ].join(" ")}
-                >
-                  {formatPercent(product.performance30d, true)}
-                </p>
-              </Link>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function ExploreMarketplaceSection({
-  marketplace,
-  categories,
-}: {
-  marketplace: MarketplacePreview;
-  categories: MarketplaceCategory[];
-}) {
-  const [tab, setTab] = useState<MarketplaceTab>("All");
+export function ExploreMarketplaceSection() {
+  const catalog = getDiscoverCatalog().data;
+  const [tab, setTab] = useState<ExploreTab>("All");
   const [category, setCategory] = useState<MarketplaceCategory | "All">("All");
+
+  const filtered = useMemo(() => {
+    return catalog.products.filter(
+      (p) => matchesTab(p, tab) && matchesCategory(p, category),
+    );
+  }, [catalog.products, tab, category]);
 
   const discoverHref = useMemo(() => {
     const params = new URLSearchParams();
@@ -134,24 +56,21 @@ export function ExploreMarketplaceSection({
   }, [tab, category]);
 
   return (
-    <section>
-      <SectionHeader
-        title="Explore Marketplace"
-        description="Trending, most invested and new — browse without a wallet."
-        action={
-          <Link
-            href={discoverHref}
-            className="text-[13px] font-bold text-app-brand hover:underline"
-          >
-            View All →
-          </Link>
-        }
-      />
+    <section className="space-y-5">
+      <header className="mx-auto max-w-2xl text-center">
+        <h2 className="app-display text-2xl font-bold text-app-ink sm:text-[1.75rem]">
+          Explore Marketplace
+        </h2>
+        <p className="mt-2 text-sm text-app-muted">
+          Browse indexes and portfolios by type and narrative category. Every
+          product opens full details — preview only, no wallet required to browse.
+        </p>
+      </header>
 
       <div
-        className="mb-2.5 flex flex-wrap gap-1.5"
+        className="flex flex-wrap items-center justify-center gap-2"
         role="tablist"
-        aria-label="Marketplace tabs"
+        aria-label="Explore marketplace product type"
       >
         {TABS.map((item) => {
           const selected = item === tab;
@@ -163,26 +82,32 @@ export function ExploreMarketplaceSection({
               aria-selected={selected}
               onClick={() => setTab(item)}
               className={[
-                "h-8 rounded-full px-3 text-[12px] font-bold transition-colors",
+                "h-10 rounded-full px-5 text-[13px] font-bold transition-colors sm:text-sm",
                 selected
-                  ? "bg-app-brand text-white"
-                  : "border border-app-line bg-app-elevated text-app-muted hover:text-app-ink",
+                  ? "bg-app-brand text-white shadow-sm"
+                  : "border border-app-line bg-app-elevated text-app-muted hover:border-app-brand/35 hover:text-app-ink",
               ].join(" ")}
             >
               {item}
             </button>
           );
         })}
+        <Link
+          href={APP_ROUTES.degenClub}
+          className="inline-flex h-10 items-center rounded-full border border-app-danger/45 bg-gradient-to-r from-app-danger/15 to-app-warning/10 px-5 text-[13px] font-bold text-app-danger shadow-sm transition-colors hover:from-app-danger/25 hover:to-app-warning/15 sm:text-sm"
+        >
+          🔥 Degen Club
+        </Link>
       </div>
 
-      <div className="mb-3 flex gap-1.5 overflow-x-auto pb-0.5">
-        <Chip
+      <div className="flex flex-wrap justify-center gap-1.5">
+        <CategoryChip
           label="All"
           active={category === "All"}
           onClick={() => setCategory("All")}
         />
-        {categories.map((item) => (
-          <Chip
+        {CATEGORY_FILTERS.map((item) => (
+          <CategoryChip
             key={item}
             label={item}
             active={category === item}
@@ -191,34 +116,31 @@ export function ExploreMarketplaceSection({
         ))}
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-3">
-        <Row
-          title="Trending Now"
-          products={marketplace.trending}
-          tab={tab}
-          category={category}
-          accent="app-accent-bar-cyan"
-        />
-        <Row
-          title="Most Invested"
-          products={marketplace.mostInvested}
-          tab={tab}
-          category={category}
-          accent="app-accent-bar-violet"
-        />
-        <Row
-          title="New This Week"
-          products={marketplace.newThisWeek}
-          tab={tab}
-          category={category}
-          accent="app-accent-bar-emerald"
-        />
+      {filtered.length === 0 ? (
+        <p className="app-panel px-4 py-8 text-center text-sm text-app-muted">
+          No products match this filter. Try another category or tab.
+        </p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {filtered.map((product) => (
+            <MarketplaceProductCard key={product.id} product={product} />
+          ))}
+        </div>
+      )}
+
+      <div className="flex justify-center pt-1">
+        <Link
+          href={discoverHref}
+          className="app-gradient-btn inline-flex h-11 items-center justify-center rounded-[10px] px-6 text-sm font-bold"
+        >
+          View All
+        </Link>
       </div>
     </section>
   );
 }
 
-function Chip({
+function CategoryChip({
   label,
   active,
   onClick,
@@ -232,7 +154,7 @@ function Chip({
       type="button"
       onClick={onClick}
       className={[
-        "h-7 shrink-0 rounded-full px-2.5 text-[11px] font-semibold transition-colors",
+        "h-8 shrink-0 rounded-full px-3 text-[11px] font-semibold transition-colors sm:text-[12px]",
         active
           ? "border border-app-brand/40 bg-app-soft text-app-brand"
           : "border border-app-line bg-app-elevated text-app-muted hover:text-app-ink",

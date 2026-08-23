@@ -1,54 +1,25 @@
 "use client";
 
+import { DiscoveryListsSection } from "@/components/dashboard/DiscoveryListsSection";
 import { ExploreMarketplaceSection } from "@/components/dashboard/ExploreMarketplaceSection";
-import { FeaturedProductsSection } from "@/components/dashboard/FeaturedProductsSection";
-import { HowIndexlaWorksSection } from "@/components/dashboard/HowIndexlaWorksSection";
+import { FeaturedCarouselSection } from "@/components/dashboard/FeaturedCarouselSection";
 import { MarketplaceHeroSection } from "@/components/dashboard/MarketplaceHeroSection";
-import { PersonalSnapshotSection } from "@/components/dashboard/PersonalSnapshotSection";
-import { ProductPathwaysSection } from "@/components/dashboard/ProductPathwaysSection";
 import { TrustStripSection } from "@/components/dashboard/TrustStripSection";
-import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
-import {
-  getActivePortfolios,
-} from "@/lib/dashboard/data";
 import { getDashboard } from "@/lib/data";
 
 export function DashboardView() {
-  const { wallet, loadState, connectDemo, retryLoad } = useDemoWallet();
   const dashboardResult = getDashboard();
   const data = dashboardResult.data;
-  const activePortfolios = getActivePortfolios(data.activePortfolioIds);
-  const activityItems =
-    wallet.state === "connected" && loadState === "ready"
-      ? data.recentActivity
-      : [];
 
   return (
     <div
-      className="mx-auto space-y-5 md:space-y-6"
+      className="mx-auto space-y-4 md:space-y-5"
       style={{ maxWidth: "var(--content-max)" }}
     >
+      <FeaturedCarouselSection products={data.featuredProducts} />
       <MarketplaceHeroSection />
-      <FeaturedProductsSection
-        products={data.featuredProducts}
-        illustrative={dashboardResult.isIllustrative}
-      />
-      <ExploreMarketplaceSection
-        marketplace={data.marketplace}
-        categories={data.categories}
-      />
-      <ProductPathwaysSection pathways={data.pathways} />
-      <HowIndexlaWorksSection />
-      <PersonalSnapshotSection
-        overview={data.overview}
-        portfolios={activePortfolios}
-        automation={data.automation}
-        activity={activityItems}
-        wallet={wallet}
-        loadState={loadState}
-        onConnect={connectDemo}
-        onRetry={retryLoad}
-      />
+      <DiscoveryListsSection marketplace={data.marketplace} />
+      <ExploreMarketplaceSection />
       <TrustStripSection />
     </div>
   );
