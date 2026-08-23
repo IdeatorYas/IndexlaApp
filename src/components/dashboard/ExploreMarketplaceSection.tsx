@@ -57,7 +57,7 @@ export function ExploreMarketplaceSection() {
   }, [tab, category]);
 
   return (
-    <section className="space-y-2">
+    <section className="space-y-1.5">
       <header className="mx-auto max-w-2xl text-center">
         <div className="flex justify-center">
           <DashboardSectionHeading
@@ -67,7 +67,7 @@ export function ExploreMarketplaceSection() {
             as="h2"
           />
         </div>
-        <p className="mt-1 text-[11px] text-app-muted sm:text-[12px]">
+        <p className="mt-0.5 text-[10px] text-app-muted sm:text-[11px]">
           Browse indexes and portfolios by type and narrative category. Every
           product opens full details — preview only, no wallet required to browse.
         </p>

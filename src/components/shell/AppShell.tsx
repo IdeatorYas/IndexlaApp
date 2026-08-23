@@ -2,9 +2,9 @@
 
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { FeaturedCarouselSection } from "@/components/dashboard/FeaturedCarouselSection";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { AppSidebar } from "@/components/shell/AppSidebar";
+import { DashboardTopBar } from "@/components/shell/DashboardTopBar";
 import { GlobalCommandSearch } from "@/components/shell/GlobalCommandSearch";
 import { getDashboard } from "@/lib/data";
 import { APP_ROUTES } from "@/lib/routes";
@@ -38,10 +38,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         {isDashboard ? (
-          <FeaturedCarouselSection products={featuredProducts} placement="top" />
-        ) : null}
-        <AppHeader onMenuClick={() => setMobileNavOpen(true)} />
-        <main className="flex-1 px-3 py-2 sm:px-5 lg:px-6 lg:py-3">{children}</main>
+          <DashboardTopBar
+            products={featuredProducts}
+            onMenuClick={() => setMobileNavOpen(true)}
+          />
+        ) : (
+          <AppHeader onMenuClick={() => setMobileNavOpen(true)} />
+        )}
+        <main
+          className={[
+            "flex-1 px-3 sm:px-5 lg:px-6",
+            isDashboard ? "py-1 lg:py-1.5" : "py-2 lg:py-3",
+          ].join(" ")}
+        >
+          {children}
+        </main>
       </div>
       <GlobalCommandSearch />
     </div>

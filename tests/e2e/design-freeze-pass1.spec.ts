@@ -54,7 +54,7 @@ test.describe("Design freeze pass 1 — deep links & search", () => {
   });
 
   test("⌘K / header search opens global command modal", async ({ page }) => {
-    await page.goto(APP_ROUTES.dashboard);
+    await page.goto(APP_ROUTES.discover);
     await page
       .getByRole("button", {
         name: "Search portfolios, indexes, creators and strategies",

@@ -20,7 +20,7 @@ export function DiscoveryListsSection({
   marketplace: MarketplacePreview;
 }) {
   return (
-    <section className="grid gap-1.5 md:grid-cols-2 xl:grid-cols-3">
+    <section className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
       <DiscoveryColumn title="Trending Now" products={marketplace.trending} />
       <DiscoveryColumn title="Most Invested" products={marketplace.mostInvested} />
       <DiscoveryColumn

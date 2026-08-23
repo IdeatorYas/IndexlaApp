@@ -12,7 +12,7 @@ export function DashboardView() {
 
   return (
     <div
-      className="mx-auto space-y-1.5 sm:space-y-2"
+      className="mx-auto space-y-1 sm:space-y-1.5"
       style={{ maxWidth: "var(--content-max)" }}
     >
       <MarketplaceHeroSection />

@@ -68,11 +68,17 @@ test.describe("Marketplace-First Dashboard", () => {
 
       expect(headerBox && heroBox && carouselBox && trendingBox && exploreBox).toBeTruthy();
       if (headerBox && heroBox && carouselBox && trendingBox && exploreBox) {
-        expect(carouselBox.y).toBeLessThan(headerBox.y);
-        expect(headerBox.y).toBeLessThan(heroBox.y);
+        expect(carouselBox.y).toBeGreaterThanOrEqual(headerBox.y - 2);
+        expect(carouselBox.y).toBeLessThan(heroBox.y);
         expect(heroBox.y).toBeLessThan(trendingBox.y);
         expect(trendingBox.y).toBeLessThan(exploreBox.y);
       }
+
+      await expect(
+        page.getByRole("button", {
+          name: "Search portfolios, indexes, creators and strategies",
+        }),
+      ).toHaveCount(0);
 
       await expect(
         page.getByText("0% Management · 0% Performance · 0% Exit"),
@@ -98,9 +104,12 @@ test.describe("Marketplace-First Dashboard", () => {
     });
 
     test("featured carousel opens product details", async ({ page }) => {
-      await page
-        .getByRole("region", { name: "Featured products carousel" })
-        .getByRole("link")
+      const carousel = page.getByRole("region", {
+        name: "Featured products carousel",
+      });
+      await carousel.hover();
+      await carousel
+        .getByRole("link", { name: /AI Infrastructure Index/i })
         .first()
         .click();
       await expect(page).toHaveURL(/\/app\/(discover|degen-club)/);
