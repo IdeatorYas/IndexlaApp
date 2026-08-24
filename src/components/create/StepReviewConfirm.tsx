@@ -22,11 +22,8 @@ import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
 import { calculateFees } from "@/lib/fees/fee-calculator";
 import { getDexlaBalance } from "@/lib/data";
 import { formatUsd } from "@/lib/dashboard/data";
+import { resolveAssetTicker } from "@/lib/fixtures/asset-registry";
 import { APP_ROUTES } from "@/lib/routes";
-
-function logoKey(asset: MarketAsset | undefined, fallback: string) {
-  return (asset?.symbol || asset?.id || fallback).trim() || fallback;
-}
 
 type SummaryRow = { label: string; value: string };
 
@@ -119,11 +116,14 @@ function ReviewSection({
   title,
   children,
   accent = "brand",
+  clipContent = true,
 }: {
   eyebrow: string;
   title?: string;
   children: ReactNode;
   accent?: "brand" | "violet" | "success";
+  /** Set false for allocation donut so in-segment logos are not clipped. */
+  clipContent?: boolean;
 }) {
   const accentBar =
     accent === "violet"
@@ -133,7 +133,12 @@ function ReviewSection({
         : "from-[var(--color-brand-grad-from)]/70 to-transparent";
 
   return (
-    <article className="overflow-hidden rounded-[18px] border border-app-line/55 bg-gradient-to-br from-app-elevated via-app-elevated to-app-panel/90 shadow-[0_18px_48px_-32px_rgba(0,0,0,0.45)]">
+    <article
+      className={[
+        "rounded-[18px] border border-app-line/55 bg-gradient-to-br from-app-elevated via-app-elevated to-app-panel/90 shadow-[0_18px_48px_-32px_rgba(0,0,0,0.45)]",
+        clipContent ? "overflow-hidden" : "overflow-visible",
+      ].join(" ")}
+    >
       <div className={`h-1 bg-gradient-to-r ${accentBar}`} />
       <div className="space-y-3 p-4 sm:p-5">
         <div>
@@ -224,15 +229,21 @@ export function StepReviewConfirm({
     [draft, dexla.balance, networks.length],
   );
 
-  const donutSegments = draft.allocations.map((row) => {
-    const asset = byId.get(row.assetId);
-    return {
-      assetKey: logoKey(asset, row.assetId),
-      label: asset?.symbol ?? row.assetId,
-      percent: row.percent,
-      imageUrl: asset?.imageUrl,
-    };
-  });
+  const donutSegments = useMemo(() => {
+    const map = new Map(assets.map((a) => [a.id, a]));
+    return draft.allocations.map((row) => {
+      const asset = map.get(row.assetId);
+      const assetKey = asset?.symbol?.trim()
+        ? asset.symbol.trim()
+        : resolveAssetTicker(row.assetId);
+      return {
+        assetKey,
+        label: asset?.symbol ?? asset?.name ?? row.assetId,
+        percent: row.percent,
+        imageUrl: asset?.imageUrl ?? null,
+      };
+    });
+  }, [draft.allocations, assets]);
 
   const canOpenModal =
     riskAcknowledged &&
@@ -363,12 +374,13 @@ export function StepReviewConfirm({
           eyebrow="Allocations"
           title={`${total.toFixed(2)}% allocated`}
           accent={Math.abs(total - 100) < 0.005 ? "success" : "brand"}
+          clipContent={false}
         >
           <CreateAllocationDonut
             segments={donutSegments}
-            size={260}
+            size={380}
             totalPercent={total}
-            compact
+            compact={draft.allocations.length >= 8}
           />
         </ReviewSection>
       </div>
