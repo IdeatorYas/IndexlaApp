@@ -11,12 +11,17 @@ type CacheEntry<T> = { expires: number; value: T };
 
 const cache = new Map<string, CacheEntry<unknown>>();
 const QUOTE_TTL_MS = 60_000;
-const HISTORY_TTL_MS = 15 * 60_000;
-const PERF_TTL_MS = 60_000;
+/** Daily bars change slowly; long TTL avoids burning free-tier credits. */
+const HISTORY_TTL_MS = 60 * 60_000;
+const PERF_TTL_MS = 5 * 60_000;
 
-/** Minimum spacing between outbound Twelve Data HTTP calls (rate-limit protection). */
-const MIN_REQUEST_GAP_MS = 1_200;
-let lastRequestAt = 0;
+/**
+ * Twelve Data counts each symbol in a batch as one credit.
+ * Allow a short burst (free-tier ~8/min), then wait for the window to refill.
+ */
+const MAX_CREDITS_PER_MINUTE = 8;
+let creditWindowStartedAt = 0;
+let creditsUsedInWindow = 0;
 let requestQueue: Promise<void> = Promise.resolve();
 
 function getEnv() {
@@ -50,11 +55,24 @@ function asFiniteNumber(value: unknown): number | null {
   return null;
 }
 
-async function throttle(): Promise<void> {
+async function throttle(credits = 1): Promise<void> {
+  const cost = Math.max(1, credits);
   requestQueue = requestQueue.then(async () => {
-    const wait = Math.max(0, MIN_REQUEST_GAP_MS - (Date.now() - lastRequestAt));
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    lastRequestAt = Date.now();
+    const now = Date.now();
+    if (now - creditWindowStartedAt >= 60_000) {
+      creditWindowStartedAt = now;
+      creditsUsedInWindow = 0;
+    }
+    if (creditsUsedInWindow + cost > MAX_CREDITS_PER_MINUTE) {
+      const wait = Math.max(
+        0,
+        60_000 - (now - creditWindowStartedAt) + 250,
+      );
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      creditWindowStartedAt = Date.now();
+      creditsUsedInWindow = 0;
+    }
+    creditsUsedInWindow += cost;
   });
   await requestQueue;
 }
@@ -81,15 +99,20 @@ async function tdFetch<T>(
     };
   }
 
-  await throttle();
+  const symbolParam = pathWithQuery.match(/[?&]symbol=([^&]+)/)?.[1];
+  const creditCost = symbolParam
+    ? Math.max(1, decodeURIComponent(symbolParam).split(",").filter(Boolean).length)
+    : 1;
+  await throttle(creditCost);
 
   const sep = pathWithQuery.includes("?") ? "&" : "?";
   const url = `${baseUrl}${pathWithQuery}${sep}apikey=${encodeURIComponent(apiKey)}`;
 
   try {
+    // Never let Next.js Data Cache store 429/error bodies — that locks Unavailable.
     const res = await fetch(url, {
       headers: { Accept: "application/json" },
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
 
     if (res.status === 429) {
@@ -210,7 +233,11 @@ function parseBars(raw: TimeSeriesPayload): DailyBar[] {
   return bars;
 }
 
-/** Find close on or before target YYYY-MM-DD (bars newest-first). */
+/**
+ * Most recent trading-day close on or before target YYYY-MM-DD (bars newest-first).
+ * Skips weekends/holidays by walking back to the prior session — never uses a
+ * newer bar, and never fabricates a close when history does not reach the target.
+ */
 export function closeOnOrBefore(
   bars: DailyBar[],
   targetDate: string,
@@ -218,7 +245,7 @@ export function closeOnOrBefore(
   for (const bar of bars) {
     if (bar.date <= targetDate) return bar.close;
   }
-  return bars.length ? bars[bars.length - 1].close : null;
+  return null;
 }
 
 export function shiftCalendarDays(isoDate: string, deltaDays: number): string {
@@ -228,8 +255,9 @@ export function shiftCalendarDays(isoDate: string, deltaDays: number): string {
 }
 
 /**
- * 7D / 30D % change from trading-day closes vs calendar lookback.
- * Uses the most recent close on or before (latestDate - N days).
+ * 7D / 30D % change from Twelve Data daily closes.
+ * Lookback is calendar days from the latest session; the comparison close is
+ * the last trading day on or before that date (weekend/holiday safe).
  */
 export function performanceFromDailyCloses(bars: DailyBar[]): {
   latestClose: number | null;
@@ -292,7 +320,8 @@ export async function fetchStockQuotes(
   let rateLimited = false;
   let lastError: string | undefined;
 
-  for (const group of chunk(unique, 8)) {
+  // Small batches — each symbol costs one credit; keep headroom for history.
+  for (const group of chunk(unique, 4)) {
     const cacheKey = `td:quote:${group.slice().sort().join(",")}`;
     const cached = getCached<Record<string, StockQuote>>(cacheKey);
     if (cached) {
@@ -332,16 +361,20 @@ export async function fetchStockQuotes(
     }
 
     setCache(cacheKey, slice, QUOTE_TTL_MS);
+    for (const [sym, q] of Object.entries(slice)) {
+      setCache(`td:quote:1:${sym}`, { [sym]: q }, QUOTE_TTL_MS);
+    }
     Object.assign(bySymbol, slice);
   }
 
-  const availability: CoinGeckoAvailability = rateLimited
-    ? "rate-limited"
-    : Object.keys(bySymbol).length > 0
+  const availability: CoinGeckoAvailability =
+    Object.keys(bySymbol).length > 0
       ? "live"
-      : lastError?.includes("not configured")
-        ? "unconfigured"
-        : "error";
+      : rateLimited
+        ? "rate-limited"
+        : lastError?.includes("not configured")
+          ? "unconfigured"
+          : "error";
 
   return { bySymbol, availability, reason: lastError };
 }
@@ -374,14 +407,15 @@ export async function fetchStockDailyHistory(
   let rateLimited = false;
   let lastError: string | undefined;
 
-  for (const group of chunk(unique, 5)) {
-    const cacheKey = `td:hist:${outputsize}:${group.slice().sort().join(",")}`;
-    const cached = getCached<Record<string, StockHistory>>(cacheKey);
-    if (cached) {
-      Object.assign(bySymbol, cached);
-      continue;
-    }
+  // Resolve from per-symbol cache first so overlapping portfolios share bars.
+  const missing: string[] = [];
+  for (const sym of unique) {
+    const cached = getCached<StockHistory>(`td:hist:1:${outputsize}:${sym}`);
+    if (cached) bySymbol[sym] = cached;
+    else missing.push(sym);
+  }
 
+  for (const group of chunk(missing, 4)) {
     const path =
       `/time_series?symbol=${encodeURIComponent(group.join(","))}` +
       `&interval=1day&outputsize=${outputsize}&order=DESC`;
@@ -415,17 +449,20 @@ export async function fetchStockDailyHistory(
       }
     }
 
-    setCache(cacheKey, slice, HISTORY_TTL_MS);
-    Object.assign(bySymbol, slice);
+    for (const [sym, hist] of Object.entries(slice)) {
+      setCache(`td:hist:1:${outputsize}:${sym}`, hist, HISTORY_TTL_MS);
+      bySymbol[sym] = hist;
+    }
   }
 
-  const availability: CoinGeckoAvailability = rateLimited
-    ? "rate-limited"
-    : Object.keys(bySymbol).length > 0
+  const availability: CoinGeckoAvailability =
+    Object.keys(bySymbol).length > 0
       ? "live"
-      : lastError?.includes("not configured")
-        ? "unconfigured"
-        : "error";
+      : rateLimited
+        ? "rate-limited"
+        : lastError?.includes("not configured")
+          ? "unconfigured"
+          : "error";
 
   return { bySymbol, availability, reason: lastError };
 }
@@ -443,8 +480,9 @@ function unavailableStock(ticker: string): AssetPerformancePoint {
 }
 
 /**
- * Stock/ETF performance via Twelve Data quotes + daily closes.
- * 7D/30D computed from trading-day closing prices (never fabricated).
+ * Stock/ETF performance via Twelve Data daily historical closes.
+ * Price, 7D, and 30D all derive from daily bars so weekend lookbacks stay
+ * consistent and quote batches cannot starve the history credit budget.
  */
 export async function fetchStockAssetPerformance(
   assetIds: string[],
@@ -481,26 +519,21 @@ export async function fetchStockAssetPerformance(
     };
   }
 
-  const [quotes, history] = await Promise.all([
-    fetchStockQuotes(symbols),
-    fetchStockDailyHistory(symbols, 40),
-  ]);
+  // Daily history is the sole source for stock/ETF 7D and 30D returns.
+  const history = await fetchStockDailyHistory(symbols, 45);
 
   const liveSlice: Record<string, AssetPerformancePoint> = {};
 
   for (const { ticker, symbol } of mapped) {
-    const quote = quotes.bySymbol[symbol];
     const hist = history.bySymbol[symbol];
     const fromCloses = performanceFromDailyCloses(hist?.bars ?? []);
 
-    const priceUsd = quote?.priceUsd ?? fromCloses.latestClose;
-    const change24hPercent = quote?.change24hPercent ?? null;
+    const priceUsd = fromCloses.latestClose;
     const change7dPercent = fromCloses.change7dPercent;
     const change30dPercent = fromCloses.change30dPercent;
 
     const hasAny =
       priceUsd != null ||
-      change24hPercent != null ||
       change7dPercent != null ||
       change30dPercent != null;
 
@@ -508,25 +541,19 @@ export async function fetchStockAssetPerformance(
       ticker,
       coingeckoId: null,
       priceUsd,
-      change24hPercent,
+      change24hPercent: null,
       change7dPercent,
       change30dPercent,
       status: hasAny ? "live" : "unavailable",
     };
   }
 
-  const availability: CoinGeckoAvailability =
-    quotes.availability === "rate-limited" ||
-    history.availability === "rate-limited"
-      ? "rate-limited"
-      : quotes.availability === "unconfigured" ||
-          history.availability === "unconfigured"
-        ? "unconfigured"
-        : Object.values(liveSlice).some((p) => p.status === "live")
-          ? "live"
-          : "error";
+  const anyLive = Object.values(liveSlice).some((p) => p.status === "live");
+  const availability: CoinGeckoAvailability = anyLive
+    ? "live"
+    : history.availability;
 
-  if (availability === "live") {
+  if (anyLive) {
     setCache(cacheKey, liveSlice, PERF_TTL_MS);
   }
 
@@ -535,6 +562,6 @@ export async function fetchStockAssetPerformance(
     availability,
     fetchedAt: new Date().toISOString(),
     stale: availability !== "live",
-    reason: quotes.reason || history.reason,
+    reason: history.reason,
   };
 }
