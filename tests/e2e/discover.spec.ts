@@ -34,7 +34,7 @@ test.describe("Discover marketplace", () => {
     await expect(page.getByText("100% Allocated")).toBeVisible();
     await expect(page.getByText("24H · 7D · 30D")).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Portfolio Allocation" }),
+      page.getByRole("heading", { name: "Holdings" }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Selected Strategy" }),
