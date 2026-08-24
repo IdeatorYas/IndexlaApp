@@ -225,7 +225,7 @@ export function DegenAllocationDonut({
         width={size}
         height={size}
         viewBox={`0 0 ${size} ${size}`}
-        className="block h-full w-full drop-shadow-[0_8px_24px_-10px_rgba(168,85,247,0.55)]"
+        className="block h-full w-full drop-shadow-[0_8px_24px_-10px_rgba(56,189,248,0.45)]"
       >
         <defs>
           {drawn.map((segment) => (
@@ -268,7 +268,7 @@ export function DegenAllocationDonut({
             key={`fill-${segment.seg.assetKey}-${segment.index}`}
             d={segment.path}
             fill={segment.color}
-            stroke="rgba(6,4,12,0.55)"
+            stroke="rgba(7,11,24,0.55)"
             strokeWidth="1.25"
           />
         ))}
@@ -293,11 +293,11 @@ export function DegenAllocationDonut({
         {/* Hollow center — text only, no logo */}
         <defs>
           <radialGradient id={`degenCenterGlow-${uid}`} cx="50%" cy="40%" r="70%">
-            <stop offset="0%" stopColor="#a855f7" stopOpacity="0.18" />
+            <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.22" />
             <stop offset="100%" stopColor="transparent" stopOpacity="0" />
           </radialGradient>
         </defs>
-        <circle cx={cx} cy={cy} r={innerR - 1} fill="#0e0818" />
+        <circle cx={cx} cy={cy} r={innerR - 1} fill="#10172a" />
         <circle
           cx={cx}
           cy={cy}
@@ -313,7 +313,7 @@ export function DegenAllocationDonut({
               y={cy - size * 0.035}
               textAnchor="middle"
               dominantBaseline="middle"
-              fill="#f4f0ff"
+              fill="#f8fafc"
               style={{
                 fontSize: Math.max(12, size * 0.075),
                 fontWeight: 800,
@@ -327,7 +327,7 @@ export function DegenAllocationDonut({
               y={cy + size * 0.055}
               textAnchor="middle"
               dominantBaseline="middle"
-              fill="#a855f7"
+              fill="#22d3ee"
               style={{
                 fontSize: Math.max(10, size * 0.045),
                 fontWeight: 700,
@@ -342,7 +342,7 @@ export function DegenAllocationDonut({
             y={cy + 1}
             textAnchor="middle"
             dominantBaseline="middle"
-            fill="#f4f0ff"
+            fill="#f8fafc"
             style={{ fontSize: Math.max(11, size * 0.12), fontWeight: 800 }}
           >
             {segments.length}

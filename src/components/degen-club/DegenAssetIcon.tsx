@@ -28,7 +28,7 @@ export function DegenAssetIcon({
   if (src) {
     return (
       <span
-        className="inline-flex shrink-0 overflow-hidden rounded-full border-2 border-[#0e0818] bg-[#1a1028] shadow-[0_0_8px_rgba(168,85,247,0.25)]"
+        className="inline-flex shrink-0 overflow-hidden rounded-full border-2 border-[#070b18] bg-[#10172a] shadow-[0_0_8px_rgba(56,189,248,0.25)]"
         style={{ width: size, height: size }}
         title={ticker}
       >
@@ -47,7 +47,7 @@ export function DegenAssetIcon({
 
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-[#0e0818] bg-gradient-to-br from-[#a855f7]/30 to-[#ff00aa]/20 text-[9px] font-black uppercase text-[#f4f0ff] shadow-[0_0_8px_rgba(168,85,247,0.2)]"
+      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-[#070b18] bg-gradient-to-br from-[#38bdf8]/30 to-[#22d3ee]/20 text-[9px] font-black uppercase text-[#f8fafc] shadow-[0_0_8px_rgba(56,189,248,0.2)]"
       style={{ width: size, height: size }}
       title={ticker}
     >

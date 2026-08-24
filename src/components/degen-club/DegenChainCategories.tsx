@@ -78,7 +78,7 @@ export function DegenMultiChainBanner() {
           ).map((chain) => (
             <span
               key={chain}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--degen-panel-border)] bg-[var(--degen-bg-soft)] shadow-[0_0_12px_rgba(168,85,247,0.15)]"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--degen-panel-border)] bg-[var(--degen-bg-soft)] shadow-[0_0_12px_rgba(56,189,248,0.18)]"
               title={
                 chain === "bnb"
                   ? "BNB Chain"

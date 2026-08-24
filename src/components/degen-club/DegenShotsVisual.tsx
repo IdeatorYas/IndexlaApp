@@ -103,8 +103,8 @@ function CrashChart() {
     <svg viewBox="0 0 120 36" className="degen-crash-chart mt-1.5 h-9 w-full" aria-hidden>
       <defs>
         <linearGradient id="degen-crash-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(255,51,102,0.35)" />
-          <stop offset="100%" stopColor="rgba(255,51,102,0)" />
+          <stop offset="0%" stopColor="rgba(255,77,77,0.35)" />
+          <stop offset="100%" stopColor="rgba(255,77,77,0)" />
         </linearGradient>
       </defs>
       <path
@@ -129,8 +129,8 @@ function PortfolioChart() {
     <svg viewBox="0 0 120 32" className="degen-portfolio-chart mt-2 h-8 w-full" aria-hidden>
       <defs>
         <linearGradient id="degen-portfolio-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(57,255,20,0.28)" />
-          <stop offset="100%" stopColor="rgba(57,255,20,0)" />
+          <stop offset="0%" stopColor="rgba(57,255,136,0.28)" />
+          <stop offset="100%" stopColor="rgba(57,255,136,0)" />
         </linearGradient>
       </defs>
       <path
@@ -186,7 +186,7 @@ export function DegenShotsVisual({
           <div className="degen-shot-col degen-shot-one border-b border-[var(--degen-panel-border)] sm:border-b-0 sm:border-r">
             <p className="degen-shots-label degen-shots-label-danger">1 Shot</p>
             <div className="relative mx-auto mt-1.5 flex h-[4.5rem] w-full items-center justify-center sm:h-[4.75rem]">
-              <TargetReticle active color="#ff6b2c" size="lg" />
+              <TargetReticle active color="#ff4d4d" size="lg" />
               <div className="degen-single-coin relative z-10">
                 <DegenAssetIcon
                   assetKey={SINGLE}

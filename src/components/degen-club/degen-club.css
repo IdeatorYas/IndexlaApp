@@ -1,24 +1,28 @@
-/* Scoped DEGEN CLUB hub — does not affect main INDEXLA app chrome. */
+/* Scoped DEGEN CLUB hub — INDEXLA blue/cyan identity (no pink/magenta). */
 .degen-hub {
-  --degen-bg: #06040c;
-  --degen-bg-soft: #0e0818;
-  --degen-panel: rgba(18, 10, 32, 0.92);
-  --degen-panel-border: rgba(168, 85, 247, 0.28);
-  --degen-ink: #f4f0ff;
-  --degen-muted: rgba(212, 196, 255, 0.62);
-  --degen-neon-green: #39ff14;
-  --degen-neon-magenta: #ff00aa;
-  --degen-neon-orange: #ff6b2c;
-  --degen-neon-gold: #ffd700;
-  --degen-purple: #a855f7;
-  --degen-danger: #ff3366;
+  --degen-bg: #070b18;
+  --degen-bg-soft: #10172a;
+  --degen-panel: #10172a;
+  --degen-panel-border: rgba(56, 189, 248, 0.28);
+  --degen-ink: #f8fafc;
+  --degen-muted: rgba(248, 250, 252, 0.62);
+  --degen-blue: #38bdf8;
+  --degen-cyan: #22d3ee;
+  --degen-neon-green: #39ff88;
+  --degen-neon-magenta: #22d3ee; /* legacy alias → cyan */
+  --degen-neon-orange: #38bdf8; /* legacy alias → blue (filters/accents) */
+  --degen-neon-gold: #ffd166;
+  --degen-purple: #38bdf8; /* legacy alias → primary blue */
+  --degen-danger: #ff4d4d;
+  --degen-glow-blue: rgba(56, 189, 248, 0.22);
+  --degen-glow-cyan: rgba(34, 211, 238, 0.18);
 
   /* Scoped overrides so shared donut/chart components read correctly on dark hub. */
-  --color-bg-elevated: #0e0818;
-  --color-ink: #f4f0ff;
-  --color-muted: rgba(212, 196, 255, 0.62);
-  --color-success: #39ff14;
-  --color-panel: rgba(168, 85, 247, 0.15);
+  --color-bg-elevated: #10172a;
+  --color-ink: #f8fafc;
+  --color-muted: rgba(248, 250, 252, 0.62);
+  --color-success: #39ff88;
+  --color-panel: rgba(56, 189, 248, 0.12);
 
   position: relative;
   margin: -1rem -0.75rem;
@@ -27,9 +31,9 @@
   color: var(--degen-ink);
   position: relative;
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(168, 85, 247, 0.22), transparent 55%),
-    radial-gradient(ellipse 60% 40% at 100% 20%, rgba(255, 0, 170, 0.12), transparent 50%),
-    radial-gradient(ellipse 50% 35% at 0% 60%, rgba(57, 255, 20, 0.08), transparent 45%),
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(56, 189, 248, 0.2), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 20%, rgba(34, 211, 238, 0.12), transparent 50%),
+    radial-gradient(ellipse 50% 35% at 0% 60%, rgba(57, 255, 136, 0.06), transparent 45%),
     var(--degen-bg);
   overflow-x: clip;
   overflow-y: visible;
@@ -41,11 +45,11 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(168, 85, 247, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(168, 85, 247, 0.04) 1px, transparent 1px);
+    linear-gradient(rgba(56, 189, 248, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.045) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 85%);
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
 .degen-hub > * {
@@ -60,17 +64,17 @@
 
 .degen-risk-banner {
   border-radius: 12px;
-  border: 1px solid rgba(255, 51, 102, 0.55);
+  border: 1px solid rgba(255, 77, 77, 0.55);
   background: linear-gradient(
     135deg,
-    rgba(255, 51, 102, 0.16),
-    rgba(255, 0, 170, 0.07)
+    rgba(255, 77, 77, 0.16),
+    rgba(255, 77, 77, 0.06)
   );
   box-shadow:
-    0 0 24px rgba(255, 51, 102, 0.12),
+    0 0 24px rgba(255, 77, 77, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
   padding: 0.85rem 1rem;
-  color: #ff8fab;
+  color: #fca5a5;
 }
 
 .degen-risk-banner-compact {
@@ -85,7 +89,7 @@
   font-weight: 900;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #ff6b8a;
+  color: #ff6b6b;
 }
 
 .degen-risk-body {
@@ -100,7 +104,7 @@
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.45;
-  color: #ff8fab;
+  color: #fca5a5;
   letter-spacing: 0.005em;
 }
 
@@ -114,15 +118,15 @@
   align-items: center;
   gap: 0.35rem;
   border-radius: 999px;
-  border: 1px solid rgba(57, 255, 20, 0.35);
-  background: rgba(57, 255, 20, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.1);
   padding: 0.25rem 0.65rem;
   font-size: 0.625rem;
   font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--degen-neon-green);
-  box-shadow: 0 0 16px rgba(57, 255, 20, 0.2);
+  color: var(--degen-cyan);
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.22);
 }
 
 .degen-headline {
@@ -134,8 +138,8 @@
   background: linear-gradient(
     120deg,
     #fff 0%,
-    var(--degen-neon-green) 35%,
-    var(--degen-neon-magenta) 70%,
+    var(--degen-blue) 40%,
+    var(--degen-cyan) 75%,
     var(--degen-neon-gold) 100%
   );
   -webkit-background-clip: text;
@@ -159,8 +163,8 @@
 
 .degen-trust-badge {
   border-radius: 999px;
-  border: 1px solid rgba(255, 215, 0, 0.28);
-  background: rgba(255, 215, 0, 0.06);
+  border: 1px solid rgba(255, 209, 102, 0.28);
+  background: rgba(255, 209, 102, 0.06);
   padding: 0.3rem 0.65rem;
   font-size: 0.6875rem;
   font-weight: 700;
@@ -172,7 +176,7 @@
   border: 1px solid var(--degen-panel-border);
   background: var(--degen-panel);
   box-shadow:
-    0 0 40px rgba(168, 85, 247, 0.12),
+    0 0 40px rgba(56, 189, 248, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(12px);
 }
@@ -188,15 +192,15 @@
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.02em;
-  color: #06040c;
+  color: #070b18;
   background: linear-gradient(
     135deg,
     var(--degen-neon-green),
-    #7dff5a 45%,
-    var(--degen-neon-gold)
+    #6bffa8 55%,
+    #22c55e
   );
   box-shadow:
-    0 0 20px rgba(57, 255, 20, 0.35),
+    0 0 20px rgba(57, 255, 136, 0.35),
     0 4px 16px rgba(0, 0, 0, 0.35);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
@@ -204,7 +208,7 @@
 .degen-btn-primary:hover {
   transform: translateY(-1px);
   box-shadow:
-    0 0 28px rgba(57, 255, 20, 0.45),
+    0 0 28px rgba(57, 255, 136, 0.45),
     0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
@@ -214,25 +218,25 @@
   justify-content: center;
   height: 2.5rem;
   border-radius: 10px;
-  border: 1px solid rgba(255, 0, 170, 0.45);
+  border: 1px solid rgba(34, 211, 238, 0.45);
   padding: 0 1.1rem;
   font-size: 0.75rem;
   font-weight: 800;
-  color: var(--degen-neon-magenta);
-  background: rgba(255, 0, 170, 0.08);
-  box-shadow: 0 0 16px rgba(255, 0, 170, 0.15);
+  color: var(--degen-cyan);
+  background: rgba(56, 189, 248, 0.1);
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.15);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .degen-btn-secondary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 0 24px rgba(255, 0, 170, 0.25);
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.25);
 }
 
 .degen-tab {
   border-radius: 999px;
-  border: 1px solid rgba(168, 85, 247, 0.25);
-  background: rgba(14, 8, 24, 0.7);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: rgba(16, 23, 42, 0.7);
   padding: 0.4rem 0.85rem;
   font-size: 0.6875rem;
   font-weight: 700;
@@ -241,34 +245,34 @@
 }
 
 .degen-tab:hover {
-  border-color: rgba(168, 85, 247, 0.45);
+  border-color: rgba(56, 189, 248, 0.45);
   color: var(--degen-ink);
 }
 
 .degen-tab-active {
-  border-color: rgba(57, 255, 20, 0.5);
-  background: rgba(57, 255, 20, 0.1);
-  color: var(--degen-neon-green);
-  box-shadow: 0 0 14px rgba(57, 255, 20, 0.2);
+  border-color: rgba(56, 189, 248, 0.65);
+  background: rgba(56, 189, 248, 0.14);
+  color: var(--degen-cyan);
+  box-shadow: 0 0 14px rgba(34, 211, 238, 0.22);
 }
 
 .degen-filter {
   border-radius: 8px;
-  border: 1px solid rgba(255, 107, 44, 0.25);
-  background: rgba(255, 107, 44, 0.05);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: rgba(56, 189, 248, 0.05);
   padding: 0.35rem 0.7rem;
   font-size: 0.625rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: rgba(255, 180, 140, 0.85);
+  color: rgba(125, 211, 252, 0.85);
 }
 
 .degen-filter-active {
-  border-color: rgba(255, 107, 44, 0.65);
-  background: rgba(255, 107, 44, 0.15);
-  color: var(--degen-neon-orange);
-  box-shadow: 0 0 12px rgba(255, 107, 44, 0.2);
+  border-color: rgba(56, 189, 248, 0.65);
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--degen-cyan);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
 }
 
 .degen-card {
@@ -276,16 +280,16 @@
   flex-direction: column;
   gap: 0.5rem;
   border-radius: 16px;
-  border: 1px solid rgba(168, 85, 247, 0.22);
+  border: 1px solid rgba(56, 189, 248, 0.22);
   background: linear-gradient(
     160deg,
-    rgba(22, 12, 38, 0.95) 0%,
-    rgba(10, 6, 18, 0.98) 100%
+    #10172a 0%,
+    #0c1224 100%
   );
   padding: 0.875rem;
   min-height: 0;
   box-shadow:
-    0 0 30px rgba(168, 85, 247, 0.1),
+    0 0 30px rgba(56, 189, 248, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
@@ -326,9 +330,9 @@
 
 .degen-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(57, 255, 20, 0.35);
+  border-color: rgba(56, 189, 248, 0.45);
   box-shadow:
-    0 0 40px rgba(57, 255, 20, 0.12),
+    0 0 40px rgba(56, 189, 248, 0.16),
     0 8px 32px rgba(0, 0, 0, 0.35);
 }
 
@@ -341,26 +345,26 @@
 
 .degen-badge-extreme {
   border-radius: 6px;
-  background: rgba(255, 51, 102, 0.18);
-  border: 1px solid rgba(255, 51, 102, 0.4);
+  background: rgba(255, 77, 77, 0.18);
+  border: 1px solid rgba(255, 77, 77, 0.4);
   padding: 0.15rem 0.45rem;
   font-size: 0.5625rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #ff8fab;
+  color: #fca5a5;
 }
 
 .degen-badge-kind {
   border-radius: 6px;
-  background: rgba(168, 85, 247, 0.15);
-  border: 1px solid rgba(168, 85, 247, 0.35);
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.35);
   padding: 0.15rem 0.45rem;
   font-size: 0.5625rem;
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #d8b4fe;
+  color: #7dd3fc;
 }
 
 .degen-logo-stack {
@@ -370,7 +374,7 @@
 
 .degen-logo-stack > * {
   margin-left: -6px;
-  border: 2px solid #0e0818;
+  border: 2px solid #10172a;
   border-radius: 999px;
 }
 
@@ -402,14 +406,14 @@
 
 .degen-shots-visual {
   border-radius: 16px;
-  border: 1px solid rgba(168, 85, 247, 0.3);
+  border: 1px solid rgba(56, 189, 248, 0.3);
   background: linear-gradient(
     145deg,
-    rgba(14, 8, 24, 0.95),
-    rgba(6, 4, 12, 0.98)
+    rgba(16, 23, 42, 0.95),
+    rgba(7, 11, 24, 0.98)
   );
   padding: 1rem;
-  box-shadow: inset 0 0 40px rgba(168, 85, 247, 0.08);
+  box-shadow: inset 0 0 40px rgba(56, 189, 248, 0.08);
 }
 
 .degen-shot-col {
@@ -419,13 +423,13 @@
 }
 
 .degen-shot-one {
-  border: 1px solid rgba(255, 51, 102, 0.4);
-  background: rgba(255, 51, 102, 0.08);
+  border: 1px solid rgba(255, 77, 77, 0.4);
+  background: rgba(255, 77, 77, 0.08);
 }
 
 .degen-shot-ten {
-  border: 1px solid rgba(57, 255, 20, 0.35);
-  background: rgba(57, 255, 20, 0.06);
+  border: 1px solid rgba(57, 255, 136, 0.35);
+  background: rgba(57, 255, 136, 0.06);
 }
 
 .degen-shot-orb {
@@ -447,8 +451,8 @@
 .degen-shot-dot:nth-child(10) { animation-delay: 0.9s; }
 
 @keyframes degen-pulse-danger {
-  0%, 100% { box-shadow: 0 0 12px rgba(255, 51, 102, 0.3); }
-  50% { box-shadow: 0 0 24px rgba(255, 51, 102, 0.55); }
+  0%, 100% { box-shadow: 0 0 12px rgba(255, 77, 77, 0.3); }
+  50% { box-shadow: 0 0 24px rgba(255, 77, 77, 0.55); }
 }
 
 @keyframes degen-pulse-green {
@@ -493,22 +497,22 @@
 
 .degen-detail-panel {
   border-radius: 16px;
-  border: 1px solid rgba(168, 85, 247, 0.35);
-  background: rgba(12, 7, 22, 0.96);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(7, 11, 24, 0.96);
   overflow: hidden;
-  box-shadow: 0 0 48px rgba(168, 85, 247, 0.15);
+  box-shadow: 0 0 48px rgba(56, 189, 248, 0.15);
 }
 
 .degen-modal-backdrop {
-  background: rgba(4, 2, 8, 0.82);
+  background: rgba(7, 11, 24, 0.82);
   backdrop-filter: blur(6px);
 }
 
 .degen-modal {
   border-radius: 16px;
-  border: 1px solid rgba(168, 85, 247, 0.35);
-  background: linear-gradient(160deg, #140a24, #0a0612);
-  box-shadow: 0 0 48px rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: linear-gradient(160deg, #10172a, #070b18);
+  box-shadow: 0 0 48px rgba(56, 189, 248, 0.2);
 }
 
 .degen-illustrative-tag {
@@ -516,16 +520,16 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 215, 0, 0.75);
-  border: 1px dashed rgba(255, 215, 0, 0.35);
+  color: rgba(255, 209, 102, 0.75);
+  border: 1px dashed rgba(255, 209, 102, 0.35);
   border-radius: 4px;
   padding: 0.1rem 0.35rem;
 }
 
 .degen-wallet-strip {
   border-radius: 12px;
-  border: 1px solid rgba(168, 85, 247, 0.25);
-  background: rgba(14, 8, 24, 0.8);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: rgba(16, 23, 42, 0.8);
   padding: 0.85rem 1rem;
 }
 
@@ -550,39 +554,75 @@
 
 /* ── Light theme ── */
 [data-theme="light"] .degen-hub {
-  --degen-bg: #f6f2ff;
-  --degen-bg-soft: #ede8f8;
-  --degen-panel: rgba(255, 255, 255, 0.92);
-  --degen-panel-border: rgba(124, 58, 237, 0.22);
-  --degen-ink: #1a0f2e;
-  --degen-muted: rgba(60, 40, 90, 0.65);
+  --degen-bg: #f5faff;
+  --degen-bg-soft: #ffffff;
+  --degen-panel: #ffffff;
+  --degen-panel-border: rgba(2, 132, 199, 0.22);
+  --degen-ink: #0f172a;
+  --degen-muted: rgba(15, 23, 42, 0.62);
+  --degen-blue: #0284c7;
+  --degen-cyan: #06b6d4;
+  --degen-neon-green: #00a86b;
+  --degen-neon-magenta: #06b6d4;
+  --degen-neon-orange: #0284c7;
+  --degen-neon-gold: #d97706;
+  --degen-purple: #0284c7;
+  --degen-danger: #dc2626;
   --color-bg-elevated: #ffffff;
-  --color-ink: #1a0f2e;
-  --color-muted: rgba(60, 40, 90, 0.65);
-  --color-success: #059669;
-  --color-panel: rgba(124, 58, 237, 0.08);
+  --color-ink: #0f172a;
+  --color-muted: rgba(15, 23, 42, 0.62);
+  --color-success: #00a86b;
+  --color-panel: rgba(2, 132, 199, 0.08);
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(168, 85, 247, 0.12), transparent 55%),
-    radial-gradient(ellipse 60% 40% at 100% 20%, rgba(255, 0, 170, 0.06), transparent 50%),
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(2, 132, 199, 0.12), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 20%, rgba(6, 182, 212, 0.08), transparent 50%),
     var(--degen-bg);
 }
 
 [data-theme="light"] .degen-hub::before {
-  opacity: 0.35;
+  opacity: 0.28;
+  background-image:
+    linear-gradient(rgba(2, 132, 199, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(2, 132, 199, 0.05) 1px, transparent 1px);
 }
 
 [data-theme="light"] .degen-card {
-  background: linear-gradient(160deg, #ffffff 0%, #f3edff 100%);
+  background: #ffffff;
 }
 
 [data-theme="light"] .degen-headline {
-  background: linear-gradient(120deg, #1a0f2e 0%, #059669 35%, #db2777 70%, #ca8a04 100%);
+  background: linear-gradient(120deg, #0f172a 0%, #0284c7 45%, #06b6d4 80%, #d97706 100%);
   -webkit-background-clip: text;
   background-clip: text;
 }
 
 [data-theme="light"] .degen-btn-primary {
-  color: #0a0612;
+  color: #ffffff;
+  background: linear-gradient(135deg, #00a86b, #059669 55%, #047857);
+  box-shadow:
+    0 0 18px rgba(0, 168, 107, 0.28),
+    0 4px 14px rgba(15, 23, 42, 0.12);
+}
+
+[data-theme="light"] .degen-btn-secondary {
+  color: #0284c7;
+  border-color: rgba(2, 132, 199, 0.4);
+  background: rgba(2, 132, 199, 0.06);
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.12);
+}
+
+[data-theme="light"] .degen-risk-banner {
+  border-color: rgba(220, 38, 38, 0.45);
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.1), rgba(220, 38, 38, 0.04));
+  color: #b91c1c;
+}
+
+[data-theme="light"] .degen-risk-title {
+  color: #dc2626;
+}
+
+[data-theme="light"] .degen-risk-body p {
+  color: #b91c1c;
 }
 
 /* ── Compact hero ── */
@@ -598,9 +638,9 @@
   line-height: 1;
   background: linear-gradient(
     120deg,
-    var(--degen-neon-green) 0%,
-    var(--degen-neon-gold) 45%,
-    var(--degen-neon-magenta) 100%
+    var(--degen-blue) 0%,
+    var(--degen-cyan) 55%,
+    var(--degen-neon-gold) 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
@@ -628,20 +668,20 @@
 
 .degen-marketplace-tab:hover {
   color: var(--degen-ink);
-  border-color: rgba(168, 85, 247, 0.4);
+  border-color: rgba(56, 189, 248, 0.4);
 }
 
 .degen-marketplace-tab-active {
-  border-color: rgba(57, 255, 20, 0.45);
-  background: rgba(57, 255, 20, 0.1);
-  color: var(--degen-neon-green);
-  box-shadow: 0 0 16px rgba(57, 255, 20, 0.15);
+  border-color: rgba(56, 189, 248, 0.55);
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--degen-cyan);
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.2);
 }
 
 .degen-allocation-donut,
 .degen-card-donut {
   flex-shrink: 0;
-  filter: drop-shadow(0 0 12px rgba(168, 85, 247, 0.18));
+  filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.18));
 }
 
 .degen-headline-compact {
@@ -655,8 +695,8 @@
   letter-spacing: 0.1em;
   line-height: 1.25;
   text-transform: uppercase;
-  color: var(--degen-neon-magenta);
-  text-shadow: 0 0 20px rgba(255, 0, 170, 0.28);
+  color: var(--degen-cyan);
+  text-shadow: 0 0 20px rgba(34, 211, 238, 0.28);
 }
 
 .degen-hero-tagline {
@@ -695,7 +735,7 @@
 }
 
 .degen-shots-label-danger {
-  color: #ff8fab;
+  color: #fca5a5;
 }
 
 .degen-shots-label-win {
@@ -721,14 +761,14 @@
   border-radius: 14px;
   border: 1px solid var(--degen-panel-border);
   background: var(--degen-bg-soft);
-  box-shadow: inset 0 0 32px rgba(168, 85, 247, 0.06);
+  box-shadow: inset 0 0 32px rgba(56, 189, 248, 0.06);
 }
 
 .degen-game-over {
   display: inline-block;
   border-radius: 6px;
-  border: 1px solid rgba(255, 51, 102, 0.55);
-  background: rgba(255, 51, 102, 0.14);
+  border: 1px solid rgba(255, 77, 77, 0.55);
+  background: rgba(255, 77, 77, 0.14);
   padding: 0.15rem 0.45rem;
   font-size: 0.5625rem;
   font-weight: 900;
@@ -754,20 +794,20 @@
 }
 
 .degen-outcome-fail {
-  border: 1px solid rgba(255, 51, 102, 0.5);
-  background: rgba(255, 51, 102, 0.2);
+  border: 1px solid rgba(255, 77, 77, 0.5);
+  background: rgba(255, 77, 77, 0.2);
   color: var(--degen-danger);
 }
 
 .degen-outcome-survive {
-  border: 1px solid rgba(168, 85, 247, 0.35);
-  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.12);
   color: var(--degen-muted);
 }
 
 .degen-outcome-launch {
-  border: 1px solid rgba(57, 255, 20, 0.55);
-  background: rgba(57, 255, 20, 0.18);
+  border: 1px solid rgba(57, 255, 136, 0.55);
+  background: rgba(57, 255, 136, 0.18);
   color: var(--degen-neon-green);
   animation: degen-launch-badge 1.8s ease-in-out infinite;
 }
@@ -821,17 +861,17 @@
 
 @keyframes degen-game-over-pulse {
   0%, 100% { opacity: 0.75; transform: scale(0.98); }
-  50% { opacity: 1; transform: scale(1); box-shadow: 0 0 14px rgba(255, 51, 102, 0.35); }
+  50% { opacity: 1; transform: scale(1); box-shadow: 0 0 14px rgba(255, 77, 77, 0.35); }
 }
 
 @keyframes degen-launch-badge {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.12); box-shadow: 0 0 10px rgba(57, 255, 20, 0.45); }
+  50% { transform: scale(1.12); box-shadow: 0 0 10px rgba(57, 255, 136, 0.45); }
 }
 
 @keyframes degen-launch-glow {
-  0%, 100% { filter: drop-shadow(0 0 4px rgba(57, 255, 20, 0.25)); }
-  50% { filter: drop-shadow(0 0 10px rgba(57, 255, 20, 0.55)); }
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(57, 255, 136, 0.25)); }
+  50% { filter: drop-shadow(0 0 10px rgba(57, 255, 136, 0.55)); }
 }
 
 @keyframes degen-draw-crash {
@@ -891,21 +931,21 @@
 }
 
 [data-theme="light"] .degen-hero-brand {
-  background: linear-gradient(120deg, #059669 0%, #ca8a04 45%, #db2777 100%);
+  background: linear-gradient(120deg, #0284c7 0%, #06b6d4 55%, #d97706 100%);
   -webkit-background-clip: text;
   background-clip: text;
 }
 
 [data-theme="light"] .degen-marketplace-tab-active {
-  color: #059669;
+  color: #0284c7;
 }
 
 [data-theme="light"] .degen-hero-tagline {
-  color: #1a0f2e;
+  color: #0f172a;
 }
 
 [data-theme="light"] .degen-hero-trust-line {
-  color: #b45309;
+  color: #0284c7;
 }
 
 .degen-shots-tagline {
@@ -951,15 +991,15 @@
 }
 
 .degen-chain-cat:hover {
-  border-color: rgba(168, 85, 247, 0.45);
+  border-color: rgba(56, 189, 248, 0.45);
   color: var(--degen-ink);
 }
 
 .degen-chain-cat-active {
-  border-color: rgba(57, 255, 20, 0.45);
-  background: rgba(57, 255, 20, 0.08);
+  border-color: rgba(57, 255, 136, 0.45);
+  background: rgba(57, 255, 136, 0.08);
   color: var(--degen-neon-green);
-  box-shadow: 0 0 20px rgba(57, 255, 20, 0.15);
+  box-shadow: 0 0 20px rgba(57, 255, 136, 0.15);
 }
 
 .degen-chain-cat-icon {
@@ -989,20 +1029,20 @@
 /* ── Multi-chain banner ── */
 .degen-multichain-banner {
   border-radius: 14px;
-  border: 1px solid rgba(255, 215, 0, 0.35);
+  border: 1px solid rgba(255, 209, 102, 0.35);
   background: linear-gradient(
     135deg,
-    rgba(255, 215, 0, 0.1),
-    rgba(255, 0, 170, 0.06)
+    rgba(255, 209, 102, 0.1),
+    rgba(34, 211, 238, 0.06)
   );
   padding: 0.85rem 1rem;
-  box-shadow: 0 0 24px rgba(255, 215, 0, 0.12);
+  box-shadow: 0 0 24px rgba(255, 209, 102, 0.12);
 }
 
 .degen-stale-banner {
   border-radius: 10px;
-  border: 1px solid rgba(255, 215, 0, 0.35);
-  background: rgba(255, 215, 0, 0.08);
+  border: 1px solid rgba(255, 209, 102, 0.35);
+  background: rgba(255, 209, 102, 0.08);
   padding: 0.65rem 0.85rem;
   font-size: 0.75rem;
   color: var(--degen-neon-gold);
@@ -1027,7 +1067,7 @@
   border: 1px solid var(--degen-panel-border);
   background: var(--degen-panel);
   padding: 0.55rem 0.7rem;
-  box-shadow: 0 0 40px rgba(168, 85, 247, 0.1);
+  box-shadow: 0 0 40px rgba(56, 189, 248, 0.1);
 }
 
 .degen-detail-title {
@@ -1124,8 +1164,8 @@
 
 .degen-detail-disclaimer {
   border-radius: 14px;
-  border: 1px solid rgba(255, 51, 102, 0.25);
-  background: rgba(255, 51, 102, 0.06);
+  border: 1px solid rgba(255, 77, 77, 0.25);
+  background: rgba(255, 77, 77, 0.06);
   padding: 0.85rem 1rem;
   font-size: 0.75rem;
   color: var(--degen-muted);
