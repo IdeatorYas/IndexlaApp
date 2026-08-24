@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CREATE_STRATEGY_OPTIONS,
   INDEX_CATEGORIES,
   INDEX_OTHER_PINNED_CATEGORIES,
   allocationTotal,
@@ -7,6 +8,7 @@ import {
   createEmptyDraft,
   equalAllocate,
   normalizeAllocations,
+  normalizeStrategyConfig,
   wizardStepsFor,
 } from "@/lib/domain/create";
 
@@ -66,5 +68,26 @@ describe("create builder helpers", () => {
     expect(built.some((c) => c.category_id.includes("meme"))).toBe(false);
     expect(built.some((c) => c.category_id === "layer-1")).toBe(false);
     expect(built.some((c) => c.category_id === "storage")).toBe(true);
+  });
+
+  it("exposes combined Create strategies without split fear/greed or TP/SL", () => {
+    const ids = CREATE_STRATEGY_OPTIONS.map((s) => s.id);
+    expect(ids).toContain("fear-greed");
+    expect(ids).toContain("take-profit-stop-loss");
+    expect(ids).toContain("rsi");
+    expect(ids).toContain("momentum");
+    expect(ids).not.toContain("buy-fear");
+    expect(ids).not.toContain("sell-greed");
+    expect(ids).not.toContain("take-profit");
+    expect(ids).not.toContain("stop-loss");
+  });
+
+  it("normalizes legacy strategy ids into combined strategies", () => {
+    expect(
+      normalizeStrategyConfig({ strategyId: "buy-fear" as never }).strategyId,
+    ).toBe("fear-greed");
+    expect(
+      normalizeStrategyConfig({ strategyId: "stop-loss" as never }).strategyId,
+    ).toBe("take-profit-stop-loss");
   });
 });

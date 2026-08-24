@@ -12,18 +12,18 @@ import {
 import { AssetIcon } from "@/components/ui/AssetIcons";
 import {
   INDEX_CATEGORIES,
+  INDEX_OTHER_PINNED_CATEGORIES,
   allocationTotal,
   equalAllocate,
   normalizeAllocations,
   type CreateAllocationRow,
   type CreateDraft,
+  type IndexNarrativeCategory,
   type MarketAsset,
 } from "@/lib/domain/create";
 import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { getAssetDonutColor } from "@/lib/fixtures/asset-registry";
-
-type AssetTypeFilter = "all" | MarketAsset["assetType"];
 
 const SUPPORT_LABEL: Record<MarketAsset["supportStatus"], string> = {
   supported: "Supported",
@@ -32,12 +32,20 @@ const SUPPORT_LABEL: Record<MarketAsset["supportStatus"], string> = {
   "unsupported-network": "Unsupported Network",
 };
 
+const MAIN_NARRATIVES = INDEX_CATEGORIES.filter((c) => c.id !== "other");
+
 function logoKey(asset: Pick<MarketAsset, "id" | "symbol">) {
   return (asset.symbol || asset.id).trim() || asset.id;
 }
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
+}
+
+function isMemeAsset(asset: MarketAsset): boolean {
+  if (asset.assetType === "memecoin") return true;
+  const hay = `${asset.id} ${asset.symbol} ${asset.name} ${asset.categoryIds.join(" ")}`.toLowerCase();
+  return hay.includes("meme");
 }
 
 export function StepAssetsAllocations({
@@ -52,26 +60,58 @@ export function StepAssetsAllocations({
   const [assets, setAssets] = useState<MarketAsset[]>([]);
   const [query, setQuery] = useState("");
   const [network, setNetwork] = useState("all");
-  const [assetType, setAssetType] = useState<AssetTypeFilter>("all");
-  const [availability, setAvailability] = useState("loading");
+  const [narrativeId, setNarrativeId] = useState<IndexNarrativeCategory | "">(
+    draft.categoryId ?? "",
+  );
+  const [otherNarrativeId, setOtherNarrativeId] = useState(
+    draft.otherCategoryId ?? "",
+  );
+  const [availability, setAvailability] = useState("idle");
   const [stale, setStale] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
 
   const categoryMeta = INDEX_CATEGORIES.find((c) => c.id === draft.categoryId);
   const isDegenCategory =
     Boolean(categoryMeta?.isDegen) || draft.otherCategoryId === "meme-token";
-  const narrative =
-    draft.productType === "index" ? draft.categoryId : null;
-  const otherCategory =
-    draft.productType === "index" && draft.categoryId === "other"
-      ? draft.otherCategoryId
-      : null;
+
+  // Keep Index category step and Assets narrative filter aligned.
+  useEffect(() => {
+    if (draft.productType !== "index") return;
+    setNarrativeId(draft.categoryId ?? "");
+    setOtherNarrativeId(draft.otherCategoryId ?? "");
+  }, [draft.productType, draft.categoryId, draft.otherCategoryId]);
+
+  const activeNarrative: IndexNarrativeCategory | null =
+    narrativeId === "" ? null : narrativeId;
+  const activeOtherId =
+    activeNarrative === "other" ? otherNarrativeId || null : null;
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!activeNarrative) {
+      setAssets([]);
+      setAvailability("idle");
+      setReason(null);
+      setStale(false);
+      onAssetsLoaded?.([]);
+      return;
+    }
+    if (activeNarrative === "other" && !activeOtherId) {
+      setAssets([]);
+      setAvailability("idle");
+      setReason(null);
+      setStale(false);
+      onAssetsLoaded?.([]);
+      return;
+    }
+
     const params = new URLSearchParams();
-    if (narrative && narrative !== "other") params.set("narrative", narrative);
-    if (otherCategory) params.set("category", otherCategory);
+    if (activeNarrative !== "other") {
+      params.set("narrative", activeNarrative);
+    } else if (activeOtherId) {
+      params.set("category", activeOtherId);
+    }
     if (query.trim()) params.set("q", query.trim());
     if (network !== "all") params.set("network", network);
     if (draft.productType === "index") params.set("tokenized", "0");
@@ -82,11 +122,14 @@ export function StepAssetsAllocations({
         .then(async (res) => {
           const json = await res.json();
           if (cancelled) return;
-          setAssets(json.assets ?? []);
+          const next = ((json.assets ?? []) as MarketAsset[]).filter(
+            (a) => !isMemeAsset(a),
+          );
+          setAssets(next);
           setAvailability(json.availability ?? "error");
           setStale(Boolean(json.stale));
           setReason(json.reason ?? null);
-          onAssetsLoaded?.(json.assets ?? []);
+          onAssetsLoaded?.(next);
         })
         .catch(() => {
           if (!cancelled) {
@@ -102,12 +145,16 @@ export function StepAssetsAllocations({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [narrative, otherCategory, query, network, draft.productType, onAssetsLoaded]);
+  }, [
+    activeNarrative,
+    activeOtherId,
+    query,
+    network,
+    draft.productType,
+    onAssetsLoaded,
+  ]);
 
-  const filtered = useMemo(() => {
-    if (assetType === "all") return assets;
-    return assets.filter((a) => a.assetType === assetType);
-  }, [assets, assetType]);
+  const filtered = assets;
 
   const selectedMap = useMemo(() => {
     return new Map(draft.allocations.map((r) => [r.assetId, r.percent]));
@@ -210,20 +257,22 @@ export function StepAssetsAllocations({
       <div className="flex flex-wrap gap-2 text-[11px]">
         <StatusChip
           label={
-            availability === "loading"
-              ? "Loading market data"
-              : availability === "live"
-                ? "Live CoinGecko"
-                : availability === "rate-limited"
-                  ? "Rate limited · fixtures"
-                  : availability === "fallback"
-                    ? "Fixture fallback"
-                    : "Market data error"
+            availability === "idle"
+              ? "Select a narrative"
+              : availability === "loading"
+                ? "Loading market data"
+                : availability === "live"
+                  ? "Live CoinGecko"
+                  : availability === "rate-limited"
+                    ? "Rate limited · fixtures"
+                    : availability === "fallback"
+                      ? "Fixture fallback"
+                      : "Market data error"
           }
           tone={
             availability === "live"
               ? "ok"
-              : availability === "loading"
+              : availability === "loading" || availability === "idle"
                 ? "muted"
                 : "warn"
           }
@@ -235,12 +284,12 @@ export function StepAssetsAllocations({
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.95fr)]">
         {/* Catalog */}
         <div className={`${createCardClass} flex min-h-0 flex-col p-3 sm:p-4`}>
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search name, symbol or contract"
-              className={`${createInputClass} flex-1`}
+              className={`${createInputClass} min-w-[12rem] flex-1`}
             />
             <select
               value={network}
@@ -256,28 +305,54 @@ export function StepAssetsAllocations({
               <option value="sui">Sui</option>
             </select>
             <select
-              value={assetType}
-              onChange={(e) => setAssetType(e.target.value as AssetTypeFilter)}
+              value={narrativeId}
+              onChange={(e) => {
+                const next = e.target.value as IndexNarrativeCategory | "";
+                setNarrativeId(next);
+                if (next !== "other") setOtherNarrativeId("");
+              }}
               className={createSelectClass}
+              aria-label="Narratives"
             >
-              <option value="all">All types</option>
-              <option value="crypto">Crypto</option>
-              <option value="memecoin">Memecoin</option>
-              <option value="tokenized-stock">Tokenized stocks</option>
-              <option value="tokenized-commodity">Commodities</option>
-              <option value="tokenized-real-estate">Real estate</option>
-              <option value="rwa">RWA</option>
+              <option value="">Select narrative</option>
+              {MAIN_NARRATIVES.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.label}
+                </option>
+              ))}
+              <option value="other">Others</option>
             </select>
+            {narrativeId === "other" ? (
+              <select
+                value={otherNarrativeId}
+                onChange={(e) => setOtherNarrativeId(e.target.value)}
+                className={createSelectClass}
+                aria-label="Others narratives"
+              >
+                <option value="">Select from Others</option>
+                {INDEX_OTHER_PINNED_CATEGORIES.map((n) => (
+                  <option key={n.category_id} value={n.category_id}>
+                    {n.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
           </div>
 
           <div className="mt-3 min-h-0 flex-1">
-            {availability === "loading" ? (
+            {!activeNarrative ||
+            (activeNarrative === "other" && !activeOtherId) ? (
+              <div className="rounded-[12px] border border-dashed border-app-line/70 bg-app-panel/40 p-8 text-sm text-app-muted">
+                Select a narrative to load its assets. Memecoins stay in Degen
+                Club only.
+              </div>
+            ) : availability === "loading" ? (
               <div className="animate-pulse rounded-[12px] border border-app-line/50 bg-app-panel/50 p-8 text-sm text-app-dim">
                 Loading assets…
               </div>
             ) : filtered.length === 0 ? (
               <div className="rounded-[12px] border border-app-line/50 bg-app-panel/40 p-8 text-sm text-app-muted">
-                No assets match. Try another search or clear filters.
+                No assets match. Try another search or narrative.
               </div>
             ) : (
               <ul className="max-h-[min(52vh,34rem)] space-y-2 overflow-y-auto pr-1">

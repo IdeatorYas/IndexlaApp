@@ -129,9 +129,21 @@ export function StepReviewConfirm({
             value={
               draft.strategy.strategyId === "none"
                 ? "None"
-                : draft.strategy.strategyId
+                : draft.strategy.strategyId === "fear-greed"
+                  ? "Fear & Greed"
+                  : draft.strategy.strategyId === "take-profit-stop-loss"
+                    ? "Take Profit & Stop Loss"
+                    : draft.strategy.strategyId === "momentum"
+                      ? `Momentum (${draft.strategy.momentumTimeframe})`
+                      : draft.strategy.strategyId
             }
           />
+          {draft.strategy.strategyId !== "none" ? (
+            <Row
+              label="Execution %"
+              value={`${draft.strategy.executionPercent}% of deposited balance`}
+            />
+          ) : null}
           <Row label="Networks" value={networks.join(", ") || "—"} />
           <p className="border-t border-app-line/50 pt-3 text-app-muted">
             {draft.thesis || "No thesis yet."}

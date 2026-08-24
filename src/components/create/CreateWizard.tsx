@@ -62,12 +62,15 @@ export function CreateWizard() {
           draft.allocations.length > 0 &&
           allocationTotal(draft.allocations) === 100
         );
-      case "strategy":
-        if (draft.strategy.strategyId === "creator-strategy") {
-          return Boolean(draft.strategy.creatorStrategyId);
+      case "strategy": {
+        const { strategyId, creatorStrategyId, executionPercent } =
+          draft.strategy;
+        if (strategyId === "none") return true;
+        if (strategyId === "creator-strategy" && !creatorStrategyId) {
+          return false;
         }
-        return true;
-      case "details":
+        return executionPercent > 0 && executionPercent <= 100;
+      }      case "details":
         return (
           draft.name.trim().length > 0 &&
           draft.thesis.trim().length > 0 &&

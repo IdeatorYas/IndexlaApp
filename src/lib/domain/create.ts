@@ -16,13 +16,13 @@ export type CreateStrategyId =
   | "none"
   | "dca"
   | "rebalance"
-  | "buy-fear"
-  | "sell-greed"
+  | "fear-greed"
   | "rsi"
   | "momentum"
-  | "take-profit"
-  | "stop-loss"
+  | "take-profit-stop-loss"
   | "creator-strategy";
+
+export type MomentumTimeframe = "daily" | "weekly";
 
 export type CreateWizardStep =
   | "product"
@@ -87,15 +87,20 @@ export interface CreateAllocationRow {
 export interface CreateStrategyConfig {
   strategyId: CreateStrategyId;
   creatorStrategyId: string | null;
+  /** Legacy fields retained for draft compatibility — not shown in simplified UI. */
   condition: string;
   action: string;
   frequency: string;
+  /** Percentage of deposited wallet balance used per execution (1–100). */
+  executionPercent: number;
   amountOrPercent: string;
   slippageBps: number;
   tradeLimitUsd: string;
   dailyLimitUsd: string;
   expiry: string;
   circuitBreaker: boolean;
+  /** Momentum only: Daily or Weekly trend. */
+  momentumTimeframe: MomentumTimeframe;
 }
 
 export interface CreateDraft {
@@ -253,14 +258,112 @@ export function defaultStrategyConfig(): CreateStrategyConfig {
     condition: "",
     action: "",
     frequency: "weekly",
+    executionPercent: 0,
     amountOrPercent: "",
     slippageBps: 50,
     tradeLimitUsd: "",
     dailyLimitUsd: "",
     expiry: "",
     circuitBreaker: true,
+    momentumTimeframe: "daily",
   };
 }
+
+/** Migrate legacy strategy ids / fields from older local drafts. */
+export function normalizeStrategyConfig(
+  raw: Partial<CreateStrategyConfig> & { strategyId?: string },
+): CreateStrategyConfig {
+  const base = defaultStrategyConfig();
+  const rawId = String(raw.strategyId || "none");
+  let strategyId: CreateStrategyId = "none";
+  if (rawId === "buy-fear" || rawId === "sell-greed") {
+    strategyId = "fear-greed";
+  } else if (rawId === "take-profit" || rawId === "stop-loss") {
+    strategyId = "take-profit-stop-loss";
+  } else if (
+    (
+      [
+        "none",
+        "dca",
+        "rebalance",
+        "fear-greed",
+        "rsi",
+        "momentum",
+        "take-profit-stop-loss",
+        "creator-strategy",
+      ] as string[]
+    ).includes(rawId)
+  ) {
+    strategyId = rawId as CreateStrategyId;
+  }
+
+  let executionPercent = Number(raw.executionPercent);
+  if (!Number.isFinite(executionPercent) || executionPercent <= 0) {
+    const fromLegacy = parseFloat(
+      String(raw.amountOrPercent ?? "").replace("%", ""),
+    );
+    executionPercent =
+      Number.isFinite(fromLegacy) && fromLegacy > 0 ? fromLegacy : 0;
+  }
+  executionPercent = Math.max(0, Math.min(100, executionPercent));
+
+  const momentumTimeframe: MomentumTimeframe =
+    raw.momentumTimeframe === "weekly" || raw.frequency === "weekly"
+      ? "weekly"
+      : "daily";
+
+  return {
+    ...base,
+    ...raw,
+    strategyId,
+    executionPercent,
+    amountOrPercent:
+      executionPercent > 0 ? String(executionPercent) : raw.amountOrPercent ?? "",
+    momentumTimeframe,
+  };
+}
+
+export const FEAR_GREED_FIXED_RULES = [
+  { threshold: "Below 20", label: "Fear" },
+  { threshold: "Below 10", label: "Extreme Fear" },
+  { threshold: "Above 60", label: "Greed" },
+  { threshold: "Above 80", label: "Extreme Greed" },
+] as const;
+
+export const CREATE_STRATEGY_OPTIONS: {
+  id: CreateStrategyId;
+  label: string;
+  hint: string;
+}[] = [
+  { id: "none", label: "None", hint: "Manual management only" },
+  { id: "dca", label: "DCA", hint: "Recurring buys on a schedule" },
+  { id: "rebalance", label: "Rebalance", hint: "Restore target weights" },
+  {
+    id: "fear-greed",
+    label: "Fear & Greed",
+    hint: "Buy during Fear/Extreme Fear and sell during Greed/Extreme Greed.",
+  },
+  {
+    id: "rsi",
+    label: "RSI",
+    hint: "Buy when oversold and sell when overbought.",
+  },
+  {
+    id: "take-profit-stop-loss",
+    label: "Take Profit & Stop Loss",
+    hint: "Exit on upside targets and protect on downside limits.",
+  },
+  {
+    id: "momentum",
+    label: "Momentum",
+    hint: "Buy when the daily or weekly trend turns bullish.",
+  },
+  {
+    id: "creator-strategy",
+    label: "Eligible creator strategy",
+    hint: "Apply a marketplace strategy",
+  },
+];
 
 export function createEmptyDraft(): CreateDraft {
   return {

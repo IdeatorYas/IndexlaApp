@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CREATE_DRAFT_STORAGE_KEY,
   createEmptyDraft,
+  normalizeStrategyConfig,
   type CreateDraft,
   type CreateWizardStep,
   type IndexNarrativeCategory,
@@ -23,21 +24,22 @@ const VALID_CATEGORIES = new Set<IndexNarrativeCategory>([
 ]);
 
 function normalizeStoredDraft(parsed: CreateDraft): CreateDraft {
+  let next = { ...parsed, strategy: normalizeStrategyConfig(parsed.strategy ?? {}) };
   // Legacy Index Builder memecoins → Degen Club-only meme narrative via Others id.
-  if ((parsed.categoryId as string) === "memecoins") {
-    return {
-      ...parsed,
+  if ((next.categoryId as string) === "memecoins") {
+    next = {
+      ...next,
       categoryId: "other",
-      otherCategoryId: parsed.otherCategoryId ?? "meme-token",
+      otherCategoryId: next.otherCategoryId ?? "meme-token",
     };
   }
   if (
-    parsed.categoryId != null &&
-    !VALID_CATEGORIES.has(parsed.categoryId)
+    next.categoryId != null &&
+    !VALID_CATEGORIES.has(next.categoryId)
   ) {
-    return { ...parsed, categoryId: null, otherCategoryId: null };
+    next = { ...next, categoryId: null, otherCategoryId: null };
   }
-  return parsed;
+  return next;
 }
 
 export function useCreateDraft() {
