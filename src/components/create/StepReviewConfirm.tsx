@@ -22,7 +22,6 @@ import {
 import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
 import { calculateFees } from "@/lib/fees/fee-calculator";
 import { getDexlaBalance } from "@/lib/data";
-import { formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
 
 function logoKey(asset: MarketAsset | undefined, fallback: string) {

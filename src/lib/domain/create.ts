@@ -496,8 +496,10 @@ export function normalizeAllocations(
 
 /** Fixed 4-step Create flow for Portfolio and Index. */
 export function wizardStepsFor(
-  _productType?: CreateProductType | null,
+  // Kept for call-site compatibility with product-type branching.
+  productType?: CreateProductType | null,
 ): CreateWizardStep[] {
+  void productType;
   return ["basics", "assets", "strategy", "review"];
 }
 
