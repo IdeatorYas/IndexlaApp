@@ -81,10 +81,13 @@ describe("create builder helpers", () => {
 
   it("exposes combined Create strategies without split fear/greed or TP/SL", () => {
     const ids = CREATE_STRATEGY_OPTIONS.map((s) => s.id);
+    expect(ids).toContain("buy-now");
+    expect(ids).toContain("buy-now-automate-sells");
     expect(ids).toContain("fear-greed");
     expect(ids).toContain("take-profit-stop-loss");
     expect(ids).toContain("rsi");
     expect(ids).toContain("momentum");
+    expect(ids).not.toContain("none");
     expect(ids).not.toContain("buy-fear");
     expect(ids).not.toContain("sell-greed");
     expect(ids).not.toContain("take-profit");
@@ -92,6 +95,9 @@ describe("create builder helpers", () => {
   });
 
   it("normalizes legacy strategy ids into combined strategies", () => {
+    expect(
+      normalizeStrategyConfig({ strategyId: "none" as never }).strategyId,
+    ).toBe("buy-now");
     expect(
       normalizeStrategyConfig({ strategyId: "buy-fear" as never }).strategyId,
     ).toBe("fear-greed");
@@ -103,9 +109,26 @@ describe("create builder helpers", () => {
   it("validates strategy configuration for continue", () => {
     expect(
       strategyIsConfigured({
-        ...normalizeStrategyConfig({ strategyId: "none" }),
+        ...normalizeStrategyConfig({ strategyId: "buy-now" }),
       }),
     ).toBe(true);
+    expect(
+      strategyIsConfigured({
+        ...normalizeStrategyConfig({
+          strategyId: "buy-now-automate-sells",
+          executionPercent: 10,
+        }),
+        automateSellId: "rsi",
+      }),
+    ).toBe(true);
+    expect(
+      strategyIsConfigured({
+        ...normalizeStrategyConfig({
+          strategyId: "buy-now-automate-sells",
+        }),
+        automateSellId: null,
+      }),
+    ).toBe(false);
     expect(
       strategyIsConfigured({
         ...normalizeStrategyConfig({ strategyId: "rsi", executionPercent: 10 }),

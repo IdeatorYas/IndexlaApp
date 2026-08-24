@@ -163,6 +163,7 @@ export function CreateWizard() {
           <StepStrategyAutomation
             draft={draft}
             onChange={(strategy) => update({ strategy })}
+            onInvestmentChange={(investmentUsd) => update({ investmentUsd })}
           />
         ) : null}
 

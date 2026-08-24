@@ -7,9 +7,12 @@ import {
   createSectionTitleClass,
   createSelectClass,
 } from "@/components/create/createUi";
+import { DcaFutureCalendar } from "@/components/create/DcaFutureCalendar";
 import {
+  AUTOMATE_SELL_OPTIONS,
   CREATE_STRATEGY_OPTIONS,
   FEAR_GREED_FIXED_RULES,
+  FEAR_GREED_SELL_RULES,
   type CreateDraft,
   type CreateStrategyId,
   type DcaMode,
@@ -17,18 +20,23 @@ import {
   type MomentumTimeframe,
   type RsiTimeframe,
 } from "@/lib/domain/create";
+import { formatUsd } from "@/lib/dashboard/data";
 import { getStrategies } from "@/lib/data";
+
+const NO_SETUP_IDS = new Set<CreateStrategyId>(["buy-now"]);
 
 export function StepStrategyAutomation({
   draft,
   onChange,
+  onInvestmentChange,
 }: {
   draft: CreateDraft;
   onChange: (strategy: CreateDraft["strategy"]) => void;
+  onInvestmentChange?: (investmentUsd: number) => void;
 }) {
   const creators = getStrategies().data.filter((s) => !s.isIndexlaCore);
   const id = draft.strategy.strategyId;
-  const needsSetup = id !== "none";
+  const needsSetup = !NO_SETUP_IDS.has(id);
 
   function patch(partial: Partial<CreateDraft["strategy"]>) {
     onChange({ ...draft.strategy, ...partial });
@@ -40,6 +48,10 @@ export function StepStrategyAutomation({
       creatorStrategyId:
         strategyId === "creator-strategy"
           ? draft.strategy.creatorStrategyId
+          : null,
+      automateSellId:
+        strategyId === "buy-now-automate-sells"
+          ? draft.strategy.automateSellId
           : null,
       condition: "",
       action: "",
@@ -54,12 +66,8 @@ export function StepStrategyAutomation({
     });
   }
 
-  function toggleDcaDate(iso: string) {
-    const set = new Set(draft.strategy.dcaDates);
-    if (set.has(iso)) set.delete(iso);
-    else set.add(iso);
-    patch({ dcaDates: [...set].sort() });
-  }
+  const showInvestmentField =
+    id === "buy-now" || id === "buy-now-automate-sells";
 
   return (
     <section className="space-y-5">
@@ -93,6 +101,41 @@ export function StepStrategyAutomation({
         ))}
       </div>
 
+      {showInvestmentField && onInvestmentChange ? (
+        <div className={`${createCardClass} space-y-2 p-4 sm:p-5`}>
+          <label className="block text-sm">
+            <span className="font-semibold text-app-ink">
+              Investment amount (USD)
+            </span>
+            <p className="mt-0.5 text-[11px] text-app-dim">
+              Buys execute immediately on confirmation. Adjust anytime on
+              review.
+            </p>
+            <input
+              type="number"
+              min={0}
+              value={draft.investmentUsd}
+              onChange={(e) =>
+                onInvestmentChange(Number(e.target.value) || 0)
+              }
+              className={`${createInputClass} mt-2 max-w-xs`}
+            />
+          </label>
+          {draft.investmentUsd > 0 ? (
+            <p className="text-xs font-semibold text-app-brand">
+              Immediate buy preview: {formatUsd(draft.investmentUsd)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {id === "buy-now" ? (
+        <p className={`${createCardClass} px-4 py-3 text-sm text-app-muted`}>
+          Immediate purchase only — no automated sells. Continue when ready to
+          review.
+        </p>
+      ) : null}
+
       {id === "creator-strategy" ? (
         <label className={`${createCardClass} block p-4 text-sm`}>
           <span className="font-semibold text-app-ink">Creator strategy</span>
@@ -113,7 +156,115 @@ export function StepStrategyAutomation({
         </label>
       ) : null}
 
-      {needsSetup ? (
+      {id === "buy-now-automate-sells" ? (
+        <div className={`${createCardClass} space-y-5 p-4 sm:p-5`}>
+          <div>
+            <p className="text-sm font-semibold text-app-ink">
+              Automated sell strategy
+            </p>
+            <p className="mt-0.5 text-[11px] text-app-dim">
+              After your immediate buy, automate exits when the selected sell
+              condition triggers.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {AUTOMATE_SELL_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => patch({ automateSellId: opt.id })}
+                  className={[
+                    "rounded-[12px] border p-3 text-left transition",
+                    draft.strategy.automateSellId === opt.id
+                      ? "border-app-brand/50 bg-app-brand/10 ring-2 ring-app-brand/60"
+                      : "border-app-line/70 bg-app-elevated/80 hover:border-app-brand/30",
+                  ].join(" ")}
+                >
+                  <p className="text-sm font-bold text-app-ink">{opt.label}</p>
+                  <p className="mt-1 text-[10px] leading-snug text-app-dim">
+                    {opt.hint}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {draft.strategy.automateSellId === "fear-greed" ? (
+            <div className="rounded-[12px] border border-app-line/60 bg-app-panel/50 p-3.5">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-app-dim">
+                Sell triggers
+              </p>
+              <ul className="mt-3 grid gap-1.5 sm:grid-cols-2">
+                {FEAR_GREED_SELL_RULES.map((rule) => (
+                  <li
+                    key={rule.label}
+                    className="flex items-center justify-between rounded-[10px] border border-app-line/50 bg-app-elevated/80 px-2.5 py-1.5 text-xs"
+                  >
+                    <span className="font-semibold text-app-ink">
+                      {rule.label}
+                    </span>
+                    <span className="tabular-nums text-app-dim">
+                      {rule.threshold}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {draft.strategy.automateSellId === "rsi" ? (
+            <TimeframePicker
+              label="RSI timeframe"
+              hint="Sell when the selected RSI becomes overbought."
+              value={draft.strategy.rsiTimeframe}
+              onChange={(rsiTimeframe: RsiTimeframe) => patch({ rsiTimeframe })}
+            />
+          ) : null}
+
+          {draft.strategy.automateSellId === "momentum" ? (
+            <TimeframePicker
+              label="Momentum timeframe"
+              hint="Sell when the selected trend turns bearish."
+              value={draft.strategy.momentumTimeframe}
+              onChange={(momentumTimeframe: MomentumTimeframe) =>
+                patch({ momentumTimeframe, frequency: momentumTimeframe })
+              }
+            />
+          ) : null}
+
+          {draft.strategy.automateSellId ? (
+            <label className="block text-sm">
+              <span className="font-semibold text-app-ink">
+                Sell % per triggered execution
+              </span>
+              <p className="mt-0.5 text-[11px] text-app-dim">
+                10% DCAs out 10% per trigger; 100% fully exits when the sell
+                condition fires.
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={
+                    draft.strategy.executionPercent > 0
+                      ? draft.strategy.executionPercent
+                      : ""
+                  }
+                  placeholder="e.g. 10"
+                  onChange={(e) =>
+                    setExecutionPercent(Number(e.target.value) || 0)
+                  }
+                  className={`${createInputClass} max-w-[10rem]`}
+                />
+                <span className="text-sm font-bold text-app-dim">%</span>
+              </div>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
+      {needsSetup && id !== "buy-now-automate-sells" ? (
         <div className={`${createCardClass} space-y-5 p-4 sm:p-5`}>
           {id === "fear-greed" ? (
             <div className="rounded-[12px] border border-app-line/60 bg-app-panel/50 p-3.5">
@@ -224,42 +375,15 @@ export function StepStrategyAutomation({
                   label="DCA schedule"
                   hint="Recurring purchases on the selected cadence."
                   value={draft.strategy.dcaSchedule}
-                  onChange={(dcaSchedule: DcaSchedule) => patch({ dcaSchedule })}
+                  onChange={(dcaSchedule: DcaSchedule) =>
+                    patch({ dcaSchedule })
+                  }
                 />
               ) : (
-                <div className="space-y-2">
-                  <p className="text-sm font-semibold text-app-ink">
-                    Purchase dates
-                  </p>
-                  <input
-                    type="date"
-                    className={createInputClass}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v) toggleDcaDate(v);
-                      e.target.value = "";
-                    }}
-                  />
-                  {draft.strategy.dcaDates.length > 0 ? (
-                    <ul className="flex flex-wrap gap-1.5">
-                      {draft.strategy.dcaDates.map((d) => (
-                        <li key={d}>
-                          <button
-                            type="button"
-                            onClick={() => toggleDcaDate(d)}
-                            className="rounded-full border border-app-brand/40 bg-app-brand/10 px-2.5 py-1 text-[11px] font-semibold text-app-brand"
-                          >
-                            {d} ×
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-app-dim">
-                      Add one or more calendar dates for DCA purchases.
-                    </p>
-                  )}
-                </div>
+                <DcaFutureCalendar
+                  selectedDates={draft.strategy.dcaDates}
+                  onChange={(dcaDates) => patch({ dcaDates })}
+                />
               )}
             </div>
           ) : null}
@@ -294,11 +418,7 @@ export function StepStrategyAutomation({
             </label>
           ) : null}
         </div>
-      ) : (
-        <p className={`${createCardClass} px-4 py-3 text-sm text-app-muted`}>
-          No automation — continue when you are ready to review.
-        </p>
-      )}
+      ) : null}
     </section>
   );
 }

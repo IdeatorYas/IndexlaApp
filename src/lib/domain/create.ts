@@ -13,7 +13,8 @@ export type AssetSupportStatus =
   | "unsupported-network";
 
 export type CreateStrategyId =
-  | "none"
+  | "buy-now"
+  | "buy-now-automate-sells"
   | "dca"
   | "rebalance"
   | "fear-greed"
@@ -21,6 +22,8 @@ export type CreateStrategyId =
   | "momentum"
   | "take-profit-stop-loss"
   | "creator-strategy";
+
+export type AutomateSellId = "fear-greed" | "rsi" | "momentum";
 
 export type MomentumTimeframe = "daily" | "weekly";
 export type RsiTimeframe = "daily" | "weekly";
@@ -114,6 +117,8 @@ export interface CreateStrategyConfig {
   /** ISO date strings (YYYY-MM-DD) when dcaMode is calendar. */
   dcaDates: string[];
   dcaSchedule: DcaSchedule;
+  /** When strategyId is buy-now-automate-sells: automated sell signal. */
+  automateSellId: AutomateSellId | null;
 }
 
 export interface CreateDraft {
@@ -307,7 +312,7 @@ export function buildIndexOtherCategories(
 
 export function defaultStrategyConfig(): CreateStrategyConfig {
   return {
-    strategyId: "none",
+    strategyId: "buy-now",
     creatorStrategyId: null,
     condition: "",
     action: "",
@@ -328,6 +333,7 @@ export function defaultStrategyConfig(): CreateStrategyConfig {
     dcaMode: "schedule",
     dcaDates: [],
     dcaSchedule: "weekly",
+    automateSellId: null,
   };
 }
 
@@ -336,16 +342,19 @@ export function normalizeStrategyConfig(
   raw: Partial<CreateStrategyConfig> & { strategyId?: string },
 ): CreateStrategyConfig {
   const base = defaultStrategyConfig();
-  const rawId = String(raw.strategyId || "none");
-  let strategyId: CreateStrategyId = "none";
-  if (rawId === "buy-fear" || rawId === "sell-greed") {
+  const rawId = String(raw.strategyId || "buy-now");
+  let strategyId: CreateStrategyId = "buy-now";
+  if (rawId === "none") {
+    strategyId = "buy-now";
+  } else if (rawId === "buy-fear" || rawId === "sell-greed") {
     strategyId = "fear-greed";
   } else if (rawId === "take-profit" || rawId === "stop-loss") {
     strategyId = "take-profit-stop-loss";
   } else if (
     (
       [
-        "none",
+        "buy-now",
+        "buy-now-automate-sells",
         "dca",
         "rebalance",
         "fear-greed",
@@ -357,6 +366,12 @@ export function normalizeStrategyConfig(
     ).includes(rawId)
   ) {
     strategyId = rawId as CreateStrategyId;
+  }
+
+  let automateSellId: AutomateSellId | null = null;
+  const rawSell = raw.automateSellId;
+  if (rawSell === "fear-greed" || rawSell === "rsi" || rawSell === "momentum") {
+    automateSellId = rawSell;
   }
 
   let executionPercent = Number(raw.executionPercent);
@@ -398,6 +413,7 @@ export function normalizeStrategyConfig(
     dcaMode,
     dcaDates,
     dcaSchedule,
+    automateSellId,
   };
 }
 
@@ -408,12 +424,48 @@ export const FEAR_GREED_FIXED_RULES = [
   { threshold: "Above 80", label: "Extreme Greed" },
 ] as const;
 
+export const FEAR_GREED_SELL_RULES = [
+  { threshold: "Above 60", label: "Greed" },
+  { threshold: "Above 80", label: "Extreme Greed" },
+] as const;
+
+export const AUTOMATE_SELL_OPTIONS: {
+  id: AutomateSellId;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    id: "fear-greed",
+    label: "Fear & Greed",
+    hint: "Sell during Greed and Extreme Greed.",
+  },
+  {
+    id: "rsi",
+    label: "RSI",
+    hint: "Sell when RSI becomes overbought.",
+  },
+  {
+    id: "momentum",
+    label: "Momentum",
+    hint: "Sell when the selected trend turns bearish.",
+  },
+];
+
 export const CREATE_STRATEGY_OPTIONS: {
   id: CreateStrategyId;
   label: string;
   hint: string;
 }[] = [
-  { id: "none", label: "None", hint: "Manual management only" },
+  {
+    id: "buy-now",
+    label: "BUY NOW",
+    hint: "Invest immediately with no automated sells.",
+  },
+  {
+    id: "buy-now-automate-sells",
+    label: "BUY NOW + AUTOMATE SELLS",
+    hint: "Invest immediately, then automate exits on sell signals.",
+  },
   { id: "dca", label: "DCA", hint: "Recurring buys on a schedule" },
   { id: "rebalance", label: "Rebalance", hint: "Restore target weights" },
   {
@@ -535,7 +587,10 @@ export function stepLabel(step: CreateWizardStep): string {
 
 export function strategyIsConfigured(strategy: CreateStrategyConfig): boolean {
   const { strategyId, executionPercent, creatorStrategyId } = strategy;
-  if (strategyId === "none") return true;
+  if (strategyId === "buy-now") return true;
+  if (strategyId === "buy-now-automate-sells") {
+    return Boolean(strategy.automateSellId) && executionPercent > 0;
+  }
   if (strategyId === "creator-strategy" && !creatorStrategyId) return false;
   if (strategyId === "take-profit-stop-loss") {
     return (
