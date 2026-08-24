@@ -5,10 +5,10 @@ import {
 
 export type DegenCardDonutSegment = DegenDonutSegment;
 
-/** Marketplace card donut — 180px, asset count in center. */
+/** Marketplace card donut — brand segments + embedded logos, Assets/100% center. */
 export function DegenCardDonut({
   segments,
-  size = 180,
+  size = 188,
 }: {
   segments: DegenCardDonutSegment[];
   size?: number;
