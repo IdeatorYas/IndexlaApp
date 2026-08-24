@@ -59,7 +59,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
   return (
     <div
       className={[
-        "relative mx-auto space-y-2.5 pb-24 transition-all duration-500 lg:space-y-3 lg:pb-5",
+        "relative mx-auto space-y-2 pb-24 transition-all duration-500 lg:space-y-2 lg:pb-4",
         entered ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
       ].join(" ")}
       style={{ maxWidth: "var(--content-max)" }}
@@ -84,7 +84,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
           aria-hidden
         />
 
-        <div className="relative px-3 py-2.5 sm:px-4 sm:py-3">
+        <div className="relative px-3 py-2 sm:px-4 sm:py-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <ExactProductTypeBadge
               kind={product.kind}
@@ -103,20 +103,20 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
             {showIllustrative ? <IllustrativeBadge compact /> : null}
           </div>
 
-          <div className="mt-1.5 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between lg:gap-4">
+          <div className="mt-1 flex flex-col gap-1.5 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
             <div className="min-w-0 flex-1">
               <div
                 className={[
-                  "w-full rounded-[10px] px-3 py-1.5 sm:px-3.5 sm:py-2",
+                  "w-full rounded-[10px] px-3 py-1 sm:px-3.5 sm:py-1.5",
                   PRODUCT_NAME_BOX_CLASS,
                 ].join(" ")}
                 style={productNameBoxStyle(typeStyle)}
               >
-                <h1 className="app-display text-[1.2rem] font-bold leading-tight sm:text-[1.45rem]">
+                <h1 className="app-display text-[1.15rem] font-bold leading-tight sm:text-[1.35rem]">
                   {product.name}
                 </h1>
               </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
                 <div className="flex items-center gap-2">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-app-dim">
                     Creator
@@ -135,12 +135,12 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
                   </Link>
                 ) : null}
               </div>
-              <p className="mt-1 line-clamp-1 max-w-3xl text-[12px] leading-snug text-app-muted sm:text-[13px]">
+              <p className="mt-0.5 line-clamp-1 max-w-3xl text-[11px] leading-snug text-app-muted sm:text-[12px]">
                 {product.description}
               </p>
             </div>
 
-            <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-4 lg:w-auto lg:min-w-[480px] lg:shrink-0">
+            <div className="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-4 lg:w-auto lg:min-w-[460px] lg:shrink-0">
               <MetricTile
                 label="30D"
                 value={formatPercent(product.performance30d, true)}
@@ -170,20 +170,20 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
       </section>
 
       {/* Allocation — lifted under compact hero for first-screen focus */}
-      <section className="relative overflow-hidden rounded-[18px] border border-app-line/50 bg-gradient-to-b from-app-elevated via-app-elevated to-app-panel/85 p-2 shadow-[0_20px_48px_-32px_rgba(0,0,0,0.4)] sm:p-2.5 lg:p-3">
-        <header className="mb-1 flex flex-wrap items-end justify-between gap-2">
+      <section className="relative overflow-hidden rounded-[16px] border border-app-line/50 bg-gradient-to-b from-app-elevated via-app-elevated to-app-panel/85 p-2 shadow-[0_14px_36px_-28px_rgba(0,0,0,0.35)] sm:p-2.5 lg:px-3 lg:py-2.5">
+        <header className="mb-1 flex flex-wrap items-end justify-between gap-1.5">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
               Composition
             </p>
-            <h2 className="app-display mt-0.5 text-lg font-bold text-app-ink sm:text-xl">
+            <h2 className="app-display mt-0.5 text-base font-bold text-app-ink sm:text-lg">
               Portfolio Allocation
             </h2>
           </div>
         </header>
         <PremiumAllocationVisual
           allocations={product.allocations}
-          size={dense ? 220 : 252}
+          size={dense ? 300 : 340}
           compact={dense}
         />
       </section>
@@ -282,7 +282,7 @@ function MetricTile({
 }) {
   return (
     <div
-      className="flex min-h-[52px] flex-col items-center justify-center rounded-[12px] border bg-gradient-to-b from-app-elevated to-app-panel/80 px-2 py-1.5 text-center sm:min-h-[58px]"
+      className="flex min-h-[44px] flex-col items-center justify-center rounded-[10px] border bg-gradient-to-b from-app-elevated to-app-panel/80 px-2 py-1 text-center sm:min-h-[48px]"
       style={{
         borderColor: `color-mix(in srgb, ${accent} 42%, transparent)`,
         boxShadow: `0 8px 18px -14px ${accent}`,
@@ -296,7 +296,7 @@ function MetricTile({
       </p>
       <p
         className={[
-          "mt-1 text-[16px] font-bold leading-none sm:text-[18px]",
+          "mt-0.5 text-[15px] font-bold leading-none sm:text-[17px]",
           valueClass ?? "text-app-ink",
         ].join(" ")}
       >

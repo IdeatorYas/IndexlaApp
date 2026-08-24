@@ -93,10 +93,10 @@ function logoSizeForSegment(
   count: number,
 ) {
   const chord = 2 * logoR * Math.sin(Math.max(sweep, 0.06) / 2);
-  const byChord = chord * 0.55;
-  const byRing = ringThickness * 0.48;
-  const byCount = count <= 5 ? 34 : count <= 7 ? 28 : count <= 8 ? 24 : 20;
-  return Math.max(14, Math.min(byCount, byChord, byRing, ringThickness - 18));
+  const byChord = chord * 0.62;
+  const byRing = ringThickness * 0.58;
+  const byCount = count <= 5 ? 42 : count <= 7 ? 34 : count <= 8 ? 30 : 26;
+  return Math.max(16, Math.min(byCount, byChord, byRing, ringThickness - 10));
 }
 
 function PerfCell({
@@ -113,8 +113,8 @@ function PerfCell({
   }
   if (unavailable || value == null || Number.isNaN(value)) {
     return (
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-app-dim">
-        Unavailable
+      <span className="text-[9px] font-semibold uppercase tracking-wide text-app-dim">
+        —
       </span>
     );
   }
@@ -135,7 +135,7 @@ type LoadState = "idle" | "loading" | "ready" | "error";
 
 export function PremiumAllocationVisual({
   allocations,
-  size = 320,
+  size = 340,
   compact = false,
 }: {
   allocations: AllocationPreview[];
@@ -146,7 +146,7 @@ export function PremiumAllocationVisual({
   const cx = size / 2;
   const cy = size / 2;
   const outerR = size / 2 - 3;
-  const innerR = outerR * 0.52;
+  const innerR = outerR * 0.48;
   const ringThickness = outerR - innerR;
   const logoR = (innerR + outerR) / 2 - ringThickness * 0.08;
 
@@ -236,8 +236,8 @@ export function PremiumAllocationVisual({
     };
   });
 
-  const rowPad = compact ? "px-2 py-1" : "px-2.5 py-1.5";
-  const nameSize = compact ? "text-[12px]" : "text-[13px]";
+  const rowPad = compact ? "px-1.5 py-[3px]" : "px-2 py-1";
+  const nameSize = compact ? "text-[11px]" : "text-[12px]";
   const loading = loadState === "loading" || loadState === "idle";
   const showFeedNote =
     loadState === "error" ||
@@ -248,19 +248,19 @@ export function PremiumAllocationVisual({
   return (
     <div
       className={[
-        "grid grid-cols-1 gap-3",
-        "md:grid-cols-[minmax(200px,0.88fr)_minmax(0,1.35fr)] md:items-start",
-        "lg:gap-4",
+        "grid grid-cols-1 items-start gap-2",
+        "md:grid-cols-[minmax(260px,0.95fr)_minmax(0,1.2fr)] md:items-start md:gap-3",
+        "lg:gap-3",
       ].join(" ")}
     >
       {/* LEFT: allocation donut — sits beside holdings on md+ */}
-      <div className="relative mx-auto flex w-full max-w-[min(100%,260px)] shrink-0 items-center justify-center md:mx-0 md:max-w-[240px] lg:max-w-[252px]">
-        <div className="pointer-events-none absolute inset-[12%] rounded-full bg-[radial-gradient(circle_at_50%_45%,color-mix(in_srgb,var(--color-brand)_18%,transparent),transparent_68%)]" />
+      <div className="relative mx-auto flex w-full max-w-[min(100%,340px)] shrink-0 items-start justify-center md:mx-0 md:max-w-[300px] lg:max-w-[340px]">
+        <div className="pointer-events-none absolute inset-[10%] rounded-full bg-[radial-gradient(circle_at_50%_42%,color-mix(in_srgb,var(--color-ink)_6%,transparent),transparent_70%)]" />
         <svg
           width="100%"
           height="auto"
           viewBox={`0 0 ${size} ${size}`}
-          className="relative mx-auto block h-auto w-full max-w-full aspect-square drop-shadow-[0_18px_40px_-28px_rgba(0,0,0,0.55)]"
+          className="relative mx-auto block h-auto w-full max-w-full aspect-square drop-shadow-[0_10px_28px_-18px_rgba(0,0,0,0.45)]"
           role="img"
           aria-label="Asset allocation chart with logos and percentages"
         >
@@ -270,7 +270,7 @@ export function PremiumAllocationVisual({
               d={segment.path}
               fill={segment.color}
               stroke="var(--color-bg-elevated)"
-              strokeWidth="2"
+              strokeWidth="1.5"
             />
           ))}
           <circle
@@ -290,8 +290,8 @@ export function PremiumAllocationVisual({
             <radialGradient id="allocCenterGlow" cx="50%" cy="40%" r="70%">
               <stop
                 offset="0%"
-                stopColor="var(--color-brand)"
-                stopOpacity="0.22"
+                stopColor="var(--color-ink)"
+                stopOpacity="0.06"
               />
               <stop offset="100%" stopColor="transparent" stopOpacity="0" />
             </radialGradient>
@@ -302,7 +302,7 @@ export function PremiumAllocationVisual({
             textAnchor="middle"
             fill="var(--color-ink)"
             style={{
-              fontSize: compact ? 18 : 20,
+              fontSize: compact ? 16 : 18,
               fontWeight: 700,
               fontFamily: "var(--font-display)",
             }}
@@ -311,16 +311,17 @@ export function PremiumAllocationVisual({
           </text>
           <text
             x={cx}
-            y={cy + 14}
+            y={cy + 12}
             textAnchor="middle"
-            fill="var(--color-brand)"
-            style={{ fontSize: 11, fontWeight: 700 }}
+            fill="var(--color-muted)"
+            style={{ fontSize: 10, fontWeight: 600 }}
           >
             100% Allocated
           </text>
           {segments.map((segment) => {
-            const blockH = segment.iconSize + segment.pctFont + 6;
-            const blockW = Math.max(segment.iconSize + 4, 36);
+            const icon = Math.floor(segment.iconSize);
+            const blockH = icon + segment.pctFont + 8;
+            const blockW = Math.max(icon + 6, 40);
             return (
               <foreignObject
                 key={`logo-${segment.alloc.assetId}-${segment.index}`}
@@ -331,23 +332,23 @@ export function PremiumAllocationVisual({
                 className="pointer-events-none overflow-visible"
               >
                 <div
-                  className="flex h-full w-full flex-col items-center justify-center gap-0.5"
+                  className="flex h-full w-full flex-col items-center justify-center gap-[2px]"
                   title={`${segment.alloc.label} ${segment.alloc.percent}%`}
                 >
                   <AssetIcon
                     assetId={segment.alloc.assetId}
-                    size={Math.floor(segment.iconSize)}
-                    framed={false}
+                    size={icon}
+                    variant="donut"
                   />
                   <span
                     className="font-bold tabular-nums leading-none"
                     style={{
-                      fontSize: segment.pctFont,
+                      fontSize: Math.max(10, segment.pctFont),
                       color: segment.ink,
                       textShadow:
                         segment.ink === "#FFFFFF"
-                          ? "0 1px 2px rgba(0,0,0,0.45)"
-                          : "0 1px 1px rgba(255,255,255,0.35)",
+                          ? "0 1px 2px rgba(0,0,0,0.5)"
+                          : "0 1px 1px rgba(255,255,255,0.4)",
                     }}
                   >
                     {segment.alloc.percent}%
@@ -361,7 +362,7 @@ export function PremiumAllocationVisual({
 
       {/* RIGHT: holdings list — same vertical band as donut */}
       <div className="min-w-0 w-full">
-        <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 px-0.5">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-1.5 px-0.5">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-app-dim">
             Holdings
           </p>
@@ -397,7 +398,7 @@ export function PremiumAllocationVisual({
               rowPad,
             ].join(" ")}
           >
-            <span className="text-center">Asset</span>
+            <span>Asset</span>
             <span className="text-right">Alloc</span>
             <span className="text-right">Price</span>
             <span className="text-right">24H</span>
@@ -427,42 +428,46 @@ export function PremiumAllocationVisual({
                     "transition-colors hover:bg-app-soft/35",
                   ].join(" ")}
                 >
-                  <div className="mx-auto flex min-w-0 w-full max-w-[7.5rem] flex-col items-center justify-center gap-0.5">
+                  <div className="flex min-w-0 items-center gap-1.5">
                     <span
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full ring-1 ring-black/10 dark:ring-white/10"
+                      className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/10 dark:ring-white/15"
                       style={{ backgroundColor: color }}
                     >
                       <AssetIcon
                         assetId={alloc.assetId}
-                        size={16}
-                        framed={false}
+                        size={14}
+                        variant="donut"
                       />
                     </span>
-                    <div className="min-w-0 text-center">
+                    <div className="min-w-0 leading-tight">
                       <p
                         className={[
                           "truncate font-bold text-app-ink",
                           nameSize,
                         ].join(" ")}
                       >
-                        {ticker}
+                        {getAssetDisplayName(alloc.assetId)}
                       </p>
-                      <p className="truncate text-[10px] font-semibold text-app-dim sm:hidden">
-                        {loading
-                          ? "…"
-                          : formatAssetPriceUsd(point?.priceUsd) ?? "—"}
+                      <p className="truncate text-[9px] font-semibold uppercase tracking-wide text-app-dim">
+                        {ticker}
+                        <span className="sm:hidden">
+                          {" · "}
+                          {loading
+                            ? "…"
+                            : formatAssetPriceUsd(point?.priceUsd) ?? "—"}
+                        </span>
                       </p>
                     </div>
                   </div>
-                  <p className="text-right text-[12px] font-bold tabular-nums text-app-ink sm:text-[13px]">
+                  <p className="text-right text-[11px] font-bold tabular-nums text-app-ink sm:text-[12px]">
                     {alloc.percent}%
                   </p>
-                  <p className="hidden text-right text-[11px] font-semibold tabular-nums text-app-ink sm:block">
+                  <p className="hidden text-right text-[10px] font-semibold tabular-nums text-app-ink sm:block">
                     {loading
                       ? "…"
                       : formatAssetPriceUsd(point?.priceUsd) ?? "—"}
                   </p>
-                  <p className="hidden text-right text-[11px] sm:block">
+                  <p className="hidden text-right text-[10px] sm:block">
                     <PerfCell
                       value={point?.change24hPercent}
                       loading={loading}
@@ -472,7 +477,7 @@ export function PremiumAllocationVisual({
                       }
                     />
                   </p>
-                  <p className="hidden text-right text-[11px] sm:block">
+                  <p className="hidden text-right text-[10px] sm:block">
                     <PerfCell
                       value={point?.change7dPercent}
                       loading={loading}
@@ -482,7 +487,7 @@ export function PremiumAllocationVisual({
                       }
                     />
                   </p>
-                  <p className="hidden text-right text-[11px] sm:block">
+                  <p className="hidden text-right text-[10px] sm:block">
                     <PerfCell
                       value={point?.change30dPercent}
                       loading={loading}
@@ -530,8 +535,8 @@ export function PremiumAllocationVisual({
                 rowPad,
               ].join(" ")}
             >
-              <p className="text-[12px] font-bold text-app-ink">Total</p>
-              <p className="text-right text-[13px] font-bold tabular-nums text-app-brand sm:col-start-2">
+              <p className="text-[11px] font-bold text-app-ink">Total</p>
+              <p className="text-right text-[12px] font-bold tabular-nums text-app-brand sm:col-start-2">
                 100%
               </p>
             </li>
