@@ -55,7 +55,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
   const official = isIndexlaProduct(product);
   const dense = product.allocations.length >= 8;
   const showIllustrative = product.isIllustrative !== false;
-  const donutSize = dense ? 236 : 256;
+  const donutSize = dense ? 220 : 240;
 
   return (
     <div
@@ -108,7 +108,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
             {showIllustrative ? <IllustrativeBadge compact /> : null}
           </div>
 
-          <div className="mt-2 grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:items-stretch lg:gap-4">
+          <div className="mt-2 grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)] lg:items-stretch lg:gap-5">
             <div className="min-w-0">
               <div
                 className={[
@@ -145,7 +145,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
+            <div className="grid min-h-0 grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3">
               <MetricTile
                 label="30D"
                 value={formatPercent(product.performance30d, true)}
@@ -173,8 +173,8 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
           </div>
 
           {/* Donut lifted into hero — fully visible on desktop first screen */}
-          <div className="mt-3 border-t border-app-line/30 pt-2.5 sm:mt-3.5 sm:pt-3">
-            <p className="mb-1.5 text-center text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
+          <div className="mt-2 border-t border-app-line/30 pt-2 sm:mt-2.5 sm:pt-2">
+            <p className="mb-1 text-center text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
               Composition
             </p>
             <PremiumAllocationVisual
@@ -188,8 +188,8 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
         </div>
       </section>
 
-      {/* Holdings — horizontally centered */}
-      <section className="rounded-[18px] border border-app-line/50 bg-gradient-to-b from-app-elevated via-app-elevated to-app-panel/85 px-3 py-3 shadow-[0_16px_40px_-28px_rgba(0,0,0,0.35)] sm:px-4 sm:py-4">
+      {/* Holdings — horizontally centered container */}
+      <section className="mx-auto w-full max-w-3xl rounded-[18px] border border-app-line/50 bg-gradient-to-b from-app-elevated via-app-elevated to-app-panel/85 px-3 py-3 shadow-[0_16px_40px_-28px_rgba(0,0,0,0.35)] sm:px-4 sm:py-4">
         <header className="mb-2.5 text-center">
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
             Assets
@@ -298,10 +298,10 @@ function MetricTile({
 }) {
   return (
     <div
-      className="flex h-full min-h-[58px] flex-col items-center justify-center rounded-[12px] border bg-gradient-to-b from-app-elevated to-app-panel/80 px-2 py-2 text-center sm:min-h-[64px]"
+      className="flex h-full min-h-[68px] flex-col items-center justify-center rounded-[14px] border bg-gradient-to-b from-app-elevated to-app-panel/80 px-2.5 py-2.5 text-center sm:min-h-[76px] sm:px-3 sm:py-3 lg:min-h-[84px]"
       style={{
         borderColor: `color-mix(in srgb, ${accent} 45%, transparent)`,
-        boxShadow: `0 10px 22px -14px ${accent}`,
+        boxShadow: `0 12px 26px -14px ${accent}`,
       }}
     >
       <p
@@ -312,7 +312,7 @@ function MetricTile({
       </p>
       <p
         className={[
-          "mt-1 text-[17px] font-bold leading-none sm:text-[18px]",
+          "mt-1.5 text-[18px] font-bold leading-none sm:text-[20px] lg:text-[22px]",
           valueClass ?? "text-app-ink",
         ].join(" ")}
       >

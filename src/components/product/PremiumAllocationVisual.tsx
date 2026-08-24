@@ -235,7 +235,7 @@ export function PremiumAllocationVisual({
       ].join(" ")}
     >
       {showDonut ? (
-      <div className="relative mx-auto flex w-full max-w-[min(100%,300px)] items-center justify-center lg:max-w-[280px]">
+      <div className="relative mx-auto flex w-full max-w-[min(100%,280px)] items-center justify-center lg:max-w-[260px]">
         <div className="pointer-events-none absolute inset-[12%] rounded-full bg-[radial-gradient(circle_at_50%_45%,color-mix(in_srgb,var(--color-brand)_18%,transparent),transparent_68%)]" />
         <svg
           width="100%"
