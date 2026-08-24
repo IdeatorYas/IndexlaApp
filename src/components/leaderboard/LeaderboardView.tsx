@@ -579,6 +579,7 @@ function PodiumCard({ entry }: { entry: LeaderboardEntry }) {
           segments={entry.allocations.map((a) => ({
             label: a.label,
             percent: a.percent,
+            assetId: a.assetId,
           }))}
           size={52}
         />

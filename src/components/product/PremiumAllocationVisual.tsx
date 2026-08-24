@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AssetIcon } from "@/components/ui/AssetIcons";
+import { EmbeddedAllocationDonut } from "@/components/ui/EmbeddedAllocationDonut";
 import { formatPercent } from "@/lib/dashboard/data";
 
 function formatAssetPriceUsd(value: number | null | undefined): string | null {
@@ -36,68 +37,9 @@ import type {
 import {
   getAssetBrandColor,
   getAssetDisplayName,
-  getAssetDonutColor,
   resolveAssetTicker,
 } from "@/lib/fixtures/asset-registry";
 import { normalizeTickerKey } from "@/lib/market/coingecko-ids";
-
-function polarToCartesian(
-  cx: number,
-  cy: number,
-  radius: number,
-  angleRad: number,
-) {
-  return {
-    x: cx + radius * Math.cos(angleRad),
-    y: cy + radius * Math.sin(angleRad),
-  };
-}
-
-function describeDonutSegment(
-  cx: number,
-  cy: number,
-  innerR: number,
-  outerR: number,
-  startAngle: number,
-  endAngle: number,
-) {
-  const startOuter = polarToCartesian(cx, cy, outerR, startAngle);
-  const endOuter = polarToCartesian(cx, cy, outerR, endAngle);
-  const startInner = polarToCartesian(cx, cy, innerR, endAngle);
-  const endInner = polarToCartesian(cx, cy, innerR, startAngle);
-  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
-
-  return [
-    `M ${startOuter.x} ${startOuter.y}`,
-    `A ${outerR} ${outerR} 0 ${largeArc} 1 ${endOuter.x} ${endOuter.y}`,
-    `L ${startInner.x} ${startInner.y}`,
-    `A ${innerR} ${innerR} 0 ${largeArc} 0 ${endInner.x} ${endInner.y}`,
-    "Z",
-  ].join(" ");
-}
-
-function segmentInk(hex: string): string {
-  const raw = hex.replace("#", "");
-  if (raw.length !== 6) return "#FFFFFF";
-  const r = parseInt(raw.slice(0, 2), 16) / 255;
-  const g = parseInt(raw.slice(2, 4), 16) / 255;
-  const b = parseInt(raw.slice(4, 6), 16) / 255;
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return luminance > 0.62 ? "#0B1220" : "#FFFFFF";
-}
-
-function logoSizeForSegment(
-  sweep: number,
-  logoR: number,
-  ringThickness: number,
-  count: number,
-) {
-  const chord = 2 * logoR * Math.sin(Math.max(sweep, 0.06) / 2);
-  const byChord = chord * 0.62;
-  const byRing = ringThickness * 0.58;
-  const byCount = count <= 5 ? 42 : count <= 7 ? 34 : count <= 8 ? 30 : 26;
-  return Math.max(16, Math.min(byCount, byChord, byRing, ringThickness - 10));
-}
 
 function holdingsScale(count: number) {
   // 5 assets → roomy (1); 10+ → compact (0); 6–9 interpolate.
@@ -210,20 +152,10 @@ type LoadState = "idle" | "loading" | "ready" | "error";
 export function PremiumAllocationVisual({
   allocations,
   size = 380,
-  compact = false,
 }: {
   allocations: AllocationPreview[];
   size?: number;
-  compact?: boolean;
 }) {
-  const total = allocations.reduce((sum, a) => sum + a.percent, 0) || 100;
-  const cx = size / 2;
-  const cy = size / 2;
-  const outerR = size / 2 - 3;
-  const innerR = outerR * 0.48;
-  const ringThickness = outerR - innerR;
-  const logoR = (innerR + outerR) / 2 - ringThickness * 0.08;
-
   const tickersKey = useMemo(
     () =>
       allocations
@@ -295,39 +227,12 @@ export function PremiumAllocationVisual({
     };
   }, [tickersKey]);
 
-  let cursor = -Math.PI / 2;
-  const segments = allocations.map((alloc, index) => {
-    const sweep = (alloc.percent / total) * Math.PI * 2;
-    const startAngle = cursor;
-    const endAngle = cursor + sweep;
-    cursor = endAngle;
-    const midAngle = startAngle + sweep / 2;
-    const logoPos = polarToCartesian(cx, cy, logoR, midAngle);
-    const iconSize = logoSizeForSegment(
-      sweep,
-      logoR,
-      ringThickness,
-      allocations.length,
-    );
-    const color = getAssetDonutColor(alloc.assetId, index);
-    const ink = segmentInk(color);
-    const pctFont = Math.max(
-      9,
-      Math.min(13, iconSize * 0.42, sweep * 28),
-    );
-    return {
-      alloc,
-      index,
-      logoPos,
-      iconSize,
-      color,
-      ink,
-      pctFont,
-      path: describeDonutSegment(cx, cy, innerR, outerR, startAngle, endAngle),
-    };
-  });
-
   const scale = holdingsScale(allocations.length);
+  const donutSegments = allocations.map((alloc) => ({
+    assetKey: alloc.assetId,
+    label: alloc.label,
+    percent: alloc.percent,
+  }));
   const loading = loadState === "loading" || loadState === "idle";
   const feedFailed =
     loadState === "error" ||
@@ -347,108 +252,13 @@ export function PremiumAllocationVisual({
       {/* LEFT: allocation donut — sits beside holdings on md+ */}
       <div className="relative mx-auto flex w-full max-w-[min(100%,400px)] shrink-0 items-start justify-center md:mx-0 md:max-w-[380px] lg:max-w-[400px]">
         <div className="pointer-events-none absolute inset-[10%] rounded-full bg-[radial-gradient(circle_at_50%_42%,color-mix(in_srgb,var(--color-ink)_6%,transparent),transparent_70%)]" />
-        <svg
-          width={size}
-          height={size}
-          viewBox={`0 0 ${size} ${size}`}
-          className="relative mx-auto block h-auto w-full max-w-full aspect-square drop-shadow-[0_10px_28px_-18px_rgba(0,0,0,0.45)]"
-          role="img"
-          aria-label="Asset allocation chart with logos and percentages"
-        >
-          {segments.map((segment) => (
-            <path
-              key={`${segment.alloc.assetId}-${segment.index}`}
-              d={segment.path}
-              fill={segment.color}
-              stroke="var(--color-bg-elevated)"
-              strokeWidth="1.5"
-            />
-          ))}
-          <circle
-            cx={cx}
-            cy={cy}
-            r={innerR - 1}
-            fill="var(--color-bg-elevated)"
-          />
-          <circle
-            cx={cx}
-            cy={cy}
-            r={innerR - 1}
-            fill="url(#allocCenterGlow)"
-            opacity="0.55"
-          />
-          <defs>
-            <radialGradient id="allocCenterGlow" cx="50%" cy="40%" r="70%">
-              <stop
-                offset="0%"
-                stopColor="var(--color-ink)"
-                stopOpacity="0.06"
-              />
-              <stop offset="100%" stopColor="transparent" stopOpacity="0" />
-            </radialGradient>
-          </defs>
-          <text
-            x={cx}
-            y={cy - 6}
-            textAnchor="middle"
-            fill="var(--color-ink)"
-            style={{
-              fontSize: compact ? 16 : 18,
-              fontWeight: 700,
-              fontFamily: "var(--font-display)",
-            }}
-          >
-            {allocations.length} Assets
-          </text>
-          <text
-            x={cx}
-            y={cy + 12}
-            textAnchor="middle"
-            fill="var(--color-muted)"
-            style={{ fontSize: 10, fontWeight: 600 }}
-          >
-            100% Allocated
-          </text>
-          {segments.map((segment) => {
-            const icon = Math.floor(segment.iconSize);
-            const blockH = icon + segment.pctFont + 8;
-            const blockW = Math.max(icon + 6, 40);
-            return (
-              <foreignObject
-                key={`logo-${segment.alloc.assetId}-${segment.index}`}
-                x={segment.logoPos.x - blockW / 2}
-                y={segment.logoPos.y - blockH / 2}
-                width={blockW}
-                height={blockH}
-                className="pointer-events-none overflow-visible"
-              >
-                <div
-                  className="flex h-full w-full flex-col items-center justify-center gap-[2px]"
-                  title={`${segment.alloc.label} ${segment.alloc.percent}%`}
-                >
-                  <AssetIcon
-                    assetId={segment.alloc.assetId}
-                    size={icon}
-                    variant="donut"
-                  />
-                  <span
-                    className="font-bold tabular-nums leading-none"
-                    style={{
-                      fontSize: Math.max(10, segment.pctFont),
-                      color: segment.ink,
-                      textShadow:
-                        segment.ink === "#FFFFFF"
-                          ? "0 1px 2px rgba(0,0,0,0.5)"
-                          : "0 1px 1px rgba(255,255,255,0.4)",
-                    }}
-                  >
-                    {segment.alloc.percent}%
-                  </span>
-                </div>
-              </foreignObject>
-            );
-          })}
-        </svg>
+        <EmbeddedAllocationDonut
+          segments={donutSegments}
+          size={size}
+          centerSubLabel="100% Allocated"
+          showCenterLabels
+          className="relative mx-auto h-auto w-full max-w-full"
+        />
       </div>
 
       {/* RIGHT: holdings list — fills donut column height; row scale by asset count */}

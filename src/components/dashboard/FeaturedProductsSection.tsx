@@ -57,6 +57,7 @@ export function FeaturedProductsSection({
           const segments = product.allocations.map((a) => ({
             label: a.label,
             percent: a.percent,
+            assetId: a.assetId,
           }));
 
           return (

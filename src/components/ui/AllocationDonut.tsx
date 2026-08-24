@@ -1,61 +1,30 @@
-const COLORS = ["#6366f1", "#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6"];
+import {
+  EmbeddedAllocationDonut,
+  toEmbeddedDonutSegments,
+} from "@/components/ui/EmbeddedAllocationDonut";
 
+export type AllocationDonutSegment = {
+  label: string;
+  percent: number;
+  assetId?: string;
+  assetKey?: string;
+  imageUrl?: string | null;
+};
+
+/** Compact or card-sized allocation donut — brand segments with embedded logos. */
 export function AllocationDonut({
   segments,
   size = 56,
 }: {
-  segments: { label: string; percent: number }[];
+  segments: AllocationDonutSegment[];
   size?: number;
 }) {
-  const total = segments.reduce((sum, s) => sum + s.percent, 0) || 100;
-  let offset = 0;
-  const radius = size / 2 - 5;
-  const circumference = 2 * Math.PI * radius;
-  const stroke = Math.max(7, Math.round(size / 8));
-
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox={`0 0 ${size} ${size}`}
-      className="shrink-0"
-      aria-hidden
-    >
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke="var(--color-panel)"
-        strokeWidth={stroke}
-      />
-      {segments.map((segment, index) => {
-        const length = (segment.percent / total) * circumference;
-        const dasharray = `${length} ${circumference - length}`;
-        const dashoffset = -offset;
-        offset += length;
-        return (
-          <circle
-            key={`${segment.label}-${index}`}
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={COLORS[index % COLORS.length]}
-            strokeWidth={stroke}
-            strokeDasharray={dasharray}
-            strokeDashoffset={dashoffset}
-            strokeLinecap="butt"
-            transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          />
-        );
-      })}
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={Math.max(8, radius - stroke)}
-        fill="var(--color-bg-elevated)"
-      />
-    </svg>
+    <EmbeddedAllocationDonut
+      segments={toEmbeddedDonutSegments(segments)}
+      size={size}
+      showCenterLabels={size >= 56}
+      centerSubLabel="100%"
+    />
   );
 }

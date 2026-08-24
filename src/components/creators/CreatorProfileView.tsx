@@ -374,6 +374,7 @@ export function CreatorProfileView({
                       segments={product.allocations.map((a) => ({
                         label: a.label,
                         percent: a.percent,
+                        assetId: a.assetId,
                       }))}
                       size={48}
                     />

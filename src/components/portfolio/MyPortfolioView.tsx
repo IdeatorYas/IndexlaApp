@@ -397,8 +397,9 @@ export function MyPortfolioView({
                 segments={detail.assets.map((a) => ({
                   label: a.symbol,
                   percent: a.allocationPercent,
+                  assetId: a.assetId,
                 }))}
-                size={96}
+                size={160}
               />
               <ul className="space-y-1 text-xs">
                 {detail.assets.map((a) => (
