@@ -366,8 +366,9 @@ export function getDegenClubWorkspace(): DegenClubWorkspace {
     hero: {
       title: "DEGEN CLUB",
       headline: "The New Way To Play Memecoins.",
-      subheadline: "Stop Betting Everything On One Coin.",
-      tagline: "Multiple shots. Rules-based baskets. Extreme risk by design.",
+      subheadline: "STOP BETTING EVERYTHING ON ONE COIN.",
+      tagline:
+        "One click. Multiple shots. Your next 100x might already be inside the bundle.",
       points: [
         "One memecoin is one concentrated bet.",
         "A diversified memecoin index gives you multiple shots.",

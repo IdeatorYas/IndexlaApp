@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   type DegenClubWorkspace,
@@ -100,15 +100,6 @@ export function DegenClubView({
     return list;
   }, [enrichedProducts, marketTab, chainFilter]);
 
-  const scrollToMarketplace = useCallback(() => {
-    setMarketTab("indexes");
-    setChainFilter("all");
-    document.getElementById("degen-marketplace")?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, []);
-
   function preview(action: string) {
     setMessage(
       `${action} — preview only. No real wallet signing, invest or execution was submitted.`,
@@ -189,28 +180,24 @@ export function DegenClubView({
       {message ? <PreviewOnlyMessage>{message}</PreviewOnlyMessage> : null}
 
       {/* Compact hero */}
-      <section className="degen-hero-compact degen-panel p-3 sm:p-4">
-        <div className="grid gap-4 lg:grid-cols-[1fr_1fr] lg:items-center lg:gap-5">
-          <div className="space-y-2.5">
+      <section className="degen-hero-compact degen-panel p-2.5 sm:p-3">
+        <div className="grid gap-3 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-4">
+          <div className="space-y-1.5 sm:space-y-2">
             <h1 className="degen-headline degen-headline-compact">
               {workspace.hero.headline}
             </h1>
-            <p className="degen-subheadline degen-subheadline-compact">
-              {workspace.hero.subheadline}
+            <p className="degen-hero-shout">{workspace.hero.subheadline}</p>
+            <p className="degen-hero-tagline">{workspace.hero.tagline}</p>
+            <p className="degen-hero-trust-line">
+              {workspace.hero.trustBadges.join(" · ")}
             </p>
-            <div className="degen-trust-row">
-              {workspace.hero.trustBadges.map((badge) => (
-                <span key={badge} className="degen-trust-badge">
-                  {badge}
-                </span>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-2 pt-0.5">
-              <button type="button" onClick={scrollToMarketplace} className="degen-btn-primary h-9 px-3 text-[11px]">
-                Discover Indexes
-              </button>
-              <button type="button" onClick={() => setBuildOpen(true)} className="degen-btn-secondary h-9 px-3 text-[11px]">
-                Build Your Basket
+            <div className="pt-0.5">
+              <button
+                type="button"
+                onClick={() => setBuildOpen(true)}
+                className="degen-btn-primary degen-hero-cta h-9 px-4 text-[11px]"
+              >
+                BUILD YOUR BASKET
               </button>
             </div>
           </div>

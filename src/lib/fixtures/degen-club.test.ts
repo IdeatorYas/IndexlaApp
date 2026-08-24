@@ -11,7 +11,8 @@ describe("degen club fixtures", () => {
     expect(ws.products.filter((p) => p.kind === "Index")).toHaveLength(4);
     expect(ws.products.filter((p) => p.kind === "Portfolio")).toHaveLength(3);
     expect(ws.hero.headline).toBe("The New Way To Play Memecoins.");
-    expect(ws.hero.subheadline).toBe("Stop Betting Everything On One Coin.");
+    expect(ws.hero.subheadline).toBe("STOP BETTING EVERYTHING ON ONE COIN.");
+    expect(ws.hero.tagline).toContain("One click. Multiple shots.");
   });
 
   it("exports canonical risk warning copy", () => {

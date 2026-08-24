@@ -13,11 +13,12 @@ test.describe("Degen Club", () => {
       page.getByText(/Extreme Risk — Memecoins are highly volatile/),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Discover Indexes" }),
+      page.getByText(/STOP BETTING EVERYTHING ON ONE COIN\./),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Build Your Basket" }),
+      page.getByRole("button", { name: "BUILD YOUR BASKET" }),
     ).toBeVisible();
+    await expect(page.getByText("Illustrative scenario.")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Marketplace" })).toBeVisible();
     await page.locator("#degen-marketplace").scrollIntoViewIfNeeded();
     await expect(page.getByRole("tab", { name: "Indexes" })).toBeVisible();
@@ -32,7 +33,7 @@ test.describe("Degen Club", () => {
     await expect(
       page.getByRole("heading", { name: "The New Way To Play Memecoins." }),
     ).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: "Build Your Basket" }).click();
+    await page.getByRole("button", { name: "BUILD YOUR BASKET" }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await expect(
       page.getByText(/Extreme Risk — Memecoins are highly volatile/).nth(1),
