@@ -110,12 +110,18 @@ type LoadState = "idle" | "loading" | "ready" | "error";
 
 export function PremiumAllocationVisual({
   allocations,
-  size = 320,
+  size = 280,
   compact = false,
+  showDonut = true,
+  showHoldings = true,
 }: {
   allocations: AllocationPreview[];
   size?: number;
   compact?: boolean;
+  /** When false, only the holdings table is rendered. */
+  showDonut?: boolean;
+  /** When false, only the donut is rendered. */
+  showHoldings?: boolean;
 }) {
   const total = allocations.reduce((sum, a) => sum + a.percent, 0) || 100;
   const cx = size / 2;
@@ -223,11 +229,13 @@ export function PremiumAllocationVisual({
   return (
     <div
       className={[
-        "grid gap-3 lg:items-stretch",
-        "lg:grid-cols-[minmax(220px,0.9fr)_minmax(0,1.25fr)]",
+        showDonut && showHoldings
+          ? "grid gap-3 lg:items-stretch lg:grid-cols-[minmax(220px,0.9fr)_minmax(0,1.25fr)]"
+          : "w-full",
       ].join(" ")}
     >
-      <div className="relative mx-auto flex w-full max-w-[min(100%,340px)] items-center justify-center lg:max-w-none">
+      {showDonut ? (
+      <div className="relative mx-auto flex w-full max-w-[min(100%,300px)] items-center justify-center lg:max-w-[280px]">
         <div className="pointer-events-none absolute inset-[12%] rounded-full bg-[radial-gradient(circle_at_50%_45%,color-mix(in_srgb,var(--color-brand)_18%,transparent),transparent_68%)]" />
         <svg
           width="100%"
@@ -331,8 +339,10 @@ export function PremiumAllocationVisual({
           })}
         </svg>
       </div>
+      ) : null}
 
-      <div className="min-w-0">
+      {showHoldings ? (
+      <div className="mx-auto w-full min-w-0 max-w-3xl">
         <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 px-0.5">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-app-dim">
             Holdings
@@ -502,6 +512,7 @@ export function PremiumAllocationVisual({
           </ul>
         </div>
       </div>
+      ) : null}
     </div>
   );
 }
