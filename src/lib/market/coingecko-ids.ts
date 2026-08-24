@@ -1,7 +1,7 @@
 /**
- * Central ticker → CoinGecko coin id mapping for INDEXLA catalog assets.
- * Tickers without a CoinGecko id are unsupported here (tokenized stocks /
- * most commodities) and must surface as Unavailable — never fabricate.
+ * Central ticker → CoinGecko coin id mapping for INDEXLA crypto assets.
+ * Equities / ETFs are handled by Twelve Data (twelve-data-symbols.ts).
+ * Tickers with neither mapping surface as Unavailable — never fabricate.
  */
 
 export const COINGECKO_ID_BY_TICKER: Record<string, string> = {

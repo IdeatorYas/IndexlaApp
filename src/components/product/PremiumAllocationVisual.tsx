@@ -486,7 +486,7 @@ export function PremiumAllocationVisual({
         {showFeedNote ? (
           <p className="mb-1 shrink-0 text-[10px] text-app-warning">
             {availability === "unconfigured"
-              ? "CoinGecko not configured — asset performance unavailable."
+              ? "Market data not configured — asset performance unavailable."
               : availability === "rate-limited"
                 ? "Market feed rate-limited — showing Unavailable until refresh."
                 : reason || "Market performance unavailable."}

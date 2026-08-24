@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
-import { fetchAssetPerformance } from "@/lib/adapters/coingecko";
+import { fetchUnifiedAssetPerformance } from "@/lib/market/fetch-asset-performance";
 
+/**
+ * Unified performance: CoinGecko (crypto) + Twelve Data (stocks/ETFs).
+ * Secrets stay server-side only.
+ */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const raw =
@@ -27,7 +31,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const result = await fetchAssetPerformance(tickers);
+  const result = await fetchUnifiedAssetPerformance(tickers);
   return NextResponse.json(result, {
     headers: {
       "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",

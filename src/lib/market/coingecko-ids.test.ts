@@ -11,7 +11,7 @@ describe("coingecko-ids", () => {
     expect(getCoinGeckoIdForTicker("PAXG")).toBe("pax-gold");
   });
 
-  it("returns null for unsupported tokenized stocks", () => {
+  it("returns null for equities (Twelve Data, not CoinGecko)", () => {
     expect(getCoinGeckoIdForTicker("NVDA")).toBeNull();
     expect(getCoinGeckoIdForTicker("AAPL")).toBeNull();
     expect(getCoinGeckoIdForTicker("SPY")).toBeNull();
