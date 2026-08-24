@@ -580,3 +580,137 @@ export async function fetchAssetPerformance(
     reason: result.error,
   };
 }
+
+export interface DegenCoinMarketPoint {
+  coingeckoId: string;
+  symbol: string;
+  name: string;
+  priceUsd: number | null;
+  imageUrl: string | null;
+  change24hPercent: number | null;
+  status: "live" | "unavailable" | "error";
+}
+
+export interface DegenClubPriceResult {
+  byId: Record<string, DegenCoinMarketPoint>;
+  availability: CoinGeckoAvailability;
+  fetchedAt: string;
+  stale: boolean;
+  reason?: string;
+}
+
+/** Batch CoinGecko market data for Degen Club assets (logos + live USD prices). */
+export async function fetchDegenClubPrices(
+  coingeckoIds: string[],
+): Promise<DegenClubPriceResult> {
+  const unique = [...new Set(coingeckoIds.filter(Boolean))];
+  if (unique.length === 0) {
+    return {
+      byId: {},
+      availability: "live",
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+    };
+  }
+
+  const idsKey = unique.sort().join(",");
+  const cacheKey = `degen-prices:${idsKey}`;
+  const cached = getCached<Record<string, DegenCoinMarketPoint>>(cacheKey);
+
+  if (cached && !cached.stale) {
+    return {
+      byId: cached.value,
+      availability: "live",
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+    };
+  }
+
+  type MarketsCoin = {
+    id: string;
+    symbol: string;
+    name: string;
+    image?: string;
+    current_price?: number | null;
+    price_change_percentage_24h?: number | null;
+  };
+
+  const path =
+    `/coins/markets?vs_currency=usd&ids=${encodeURIComponent(idsKey)}` +
+    `&order=market_cap_desc&per_page=${Math.max(unique.length, 1)}&page=1&sparkline=false`;
+
+  const result = await cgFetch<MarketsCoin[]>(path);
+
+  if (result.ok && Array.isArray(result.data)) {
+    const byId: Record<string, DegenCoinMarketPoint> = {};
+    const returned = new Map(result.data.map((c) => [c.id, c]));
+
+    for (const id of unique) {
+      const coin = returned.get(id);
+      if (!coin) {
+        byId[id] = {
+          coingeckoId: id,
+          symbol: "",
+          name: id,
+          priceUsd: null,
+          imageUrl: null,
+          change24hPercent: null,
+          status: "unavailable",
+        };
+        continue;
+      }
+      byId[id] = {
+        coingeckoId: coin.id,
+        symbol: coin.symbol,
+        name: coin.name,
+        priceUsd: asFiniteNumber(coin.current_price),
+        imageUrl: coin.image ?? null,
+        change24hPercent: asFiniteNumber(coin.price_change_percentage_24h),
+        status: "live",
+      };
+    }
+
+    setCache(cacheKey, byId);
+    return {
+      byId,
+      availability: "live",
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+    };
+  }
+
+  if (cached) {
+    return {
+      byId: cached.value,
+      availability: result.rateLimited ? "rate-limited" : "fallback",
+      fetchedAt: new Date().toISOString(),
+      stale: true,
+      reason: result.error,
+    };
+  }
+
+  const byId: Record<string, DegenCoinMarketPoint> = {};
+  for (const id of unique) {
+    byId[id] = {
+      coingeckoId: id,
+      symbol: "",
+      name: id,
+      priceUsd: null,
+      imageUrl: null,
+      change24hPercent: null,
+      status: "error",
+    };
+  }
+
+  return {
+    byId,
+    availability: result.rateLimited
+      ? "rate-limited"
+      : getEnv().configured
+        ? "error"
+        : "unconfigured",
+    fetchedAt: new Date().toISOString(),
+    stale: true,
+    reason: result.error,
+  };
+}

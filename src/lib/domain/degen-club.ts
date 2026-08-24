@@ -10,10 +10,9 @@ export type DegenDiscoverFilter =
   | "ethereum"
   | "base"
   | "bnb"
-  | "multi-chain"
-  | "featured"
-  | "trending"
-  | "new";
+  | "multi-chain";
+
+export type DegenMarketTab = "all" | "indexes" | "portfolios";
 
 export type DegenChainLabel =
   | "Solana"
@@ -26,6 +25,14 @@ export interface DegenAllocation {
   assetId: string;
   label: string;
   percent: number;
+  /** Full asset name for detail views. */
+  name?: string;
+  ticker?: string;
+  coingeckoId?: string;
+  networkLabel?: string;
+  /** Populated at runtime from CoinGecko. */
+  imageUrl?: string | null;
+  priceUsd?: number | null;
 }
 
 export interface DegenActivityItem {
@@ -75,7 +82,10 @@ export interface DegenClubWorkspace {
   isIllustrative: boolean;
   hero: {
     title: string;
+    headline: string;
+    subheadline: string;
     tagline: string;
     points: string[];
+    trustBadges: string[];
   };
 }
