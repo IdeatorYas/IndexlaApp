@@ -16,7 +16,13 @@ describe("degen club fixtures", () => {
   });
 
   it("exports canonical risk warning copy", () => {
-    expect(DEGEN_RISK_WARNING).toContain("Extreme Risk");
-    expect(DEGEN_RISK_WARNING).toContain("Diversification does not remove risk");
+    expect(DEGEN_RISK_WARNING).toContain("EXTREME RISK WARNING");
+    expect(DEGEN_RISK_WARNING).toContain(
+      "Diversification and automation do not remove these risks",
+    );
+    expect(DEGEN_RISK_WARNING).toContain(
+      "INDEXLA is not responsible for investment losses",
+    );
+    expect(DEGEN_RISK_WARNING.toLowerCase()).not.toContain("gambling");
   });
 });

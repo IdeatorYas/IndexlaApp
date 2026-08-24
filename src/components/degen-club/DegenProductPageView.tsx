@@ -18,7 +18,8 @@ import {
 import { ProductAttribution } from "@/components/product/ProductIdentity";
 import { PreviewOnlyMessage } from "@/components/ui/PreviewOnlyMessage";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
-import { DEGEN_RISK_WARNING, type DegenProduct } from "@/lib/domain/degen-club";
+import { type DegenProduct } from "@/lib/domain/degen-club";
+import { DegenRiskCopy } from "@/components/degen-club/DegenRiskCopy";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
 
@@ -182,7 +183,9 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
           You hold the real underlying assets in your wallet. INDEXLA cannot withdraw
           funds or expand its own permissions.
         </p>
-        <p className="mt-2 font-semibold text-[#ff8fab]">{DEGEN_RISK_WARNING}</p>
+        <div className="degen-risk-banner mt-3">
+          <DegenRiskCopy />
+        </div>
       </div>
 
       {tradeOpen ? (

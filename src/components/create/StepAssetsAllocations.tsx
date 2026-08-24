@@ -20,7 +20,7 @@ import {
   type IndexNarrativeCategory,
   type MarketAsset,
 } from "@/lib/domain/create";
-import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
+import { DegenRiskCopy } from "@/components/degen-club/DegenRiskCopy";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { getAssetDonutColor } from "@/lib/fixtures/asset-registry";
 
@@ -220,10 +220,10 @@ export function StepAssetsAllocations({
 
       {isDegenCategory ? (
         <div
-          className="rounded-[12px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
+          className="rounded-[12px] border border-app-danger/40 bg-app-danger/10 px-4 py-3"
           role="alert"
         >
-          {DEGEN_RISK_WARNING}
+          <DegenRiskCopy variant="app" />
         </div>
       ) : null}
 

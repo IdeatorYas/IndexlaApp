@@ -1,11 +1,17 @@
-import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
+import { DegenRiskCopy } from "@/components/degen-club/DegenRiskCopy";
 import type { DegenProduct } from "@/lib/domain/degen-club";
 import { formatUsd } from "@/lib/dashboard/data";
 
-export function DegenRiskBanner() {
+export function DegenRiskBanner({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="degen-risk-banner" role="alert" aria-live="polite">
-      {DEGEN_RISK_WARNING}
+    <div
+      className={["degen-risk-banner", compact ? "degen-risk-banner-compact" : ""].join(
+        " ",
+      )}
+      role="alert"
+      aria-live="polite"
+    >
+      <DegenRiskCopy variant={compact ? "modal" : "hub"} />
     </div>
   );
 }
@@ -28,7 +34,7 @@ export function DegenBuildModal({
         <h3 id="build-degen-title" className="text-lg font-black text-[var(--degen-ink)]">
           Build Your Basket
         </h3>
-        <div className="degen-risk-banner text-sm">{DEGEN_RISK_WARNING}</div>
+        <DegenRiskBanner compact />
         <p className="text-sm text-[var(--degen-muted)]">
           Continue to Create with the Degen Index template. Preview only — no real
           execution.
@@ -70,7 +76,7 @@ export function DegenTradeModal({
       aria-modal="true"
       aria-labelledby="trade-degen-title"
     >
-      <div className="degen-modal w-full max-w-md space-y-4 p-5">
+      <div className="degen-modal max-h-[90vh] w-full max-w-lg space-y-4 overflow-y-auto p-5">
         <h3 id="trade-degen-title" className="text-lg font-black text-[var(--degen-ink)]">
           Trade confirmation
         </h3>
@@ -78,15 +84,17 @@ export function DegenTradeModal({
           {product.name} · Est. fees {formatUsd(product.feeEstimateUsd)} · Est. costs{" "}
           {formatUsd(product.estimatedCostUsd)} · Illustrative
         </p>
-        <div className="degen-risk-banner text-sm">{DEGEN_RISK_WARNING}</div>
+        <DegenRiskBanner compact />
         <label className="flex items-start gap-2 text-sm font-semibold text-[var(--degen-ink)]">
           <input
             type="checkbox"
             checked={acknowledged}
             onChange={(e) => onAckChange(e.target.checked)}
             className="mt-1"
+            aria-label="I understand and acknowledge this extreme risk"
           />
-          I understand and acknowledge this extreme risk.
+          I understand and acknowledge this extreme risk. By continuing, I confirm
+          that I understand and accept these risks.
         </label>
         {!walletConnected ? (
           <button type="button" onClick={onConnect} className="degen-btn-secondary h-9 w-full text-[12px]">
@@ -130,14 +138,14 @@ export function DegenFullExitModal({
       aria-modal="true"
       aria-labelledby="exit-degen-title"
     >
-      <div className="degen-modal w-full max-w-md space-y-4 p-5">
+      <div className="degen-modal max-h-[90vh] w-full max-w-lg space-y-4 overflow-y-auto p-5">
         <h3 id="exit-degen-title" className="text-lg font-black text-[var(--degen-ink)]">
           Full Exit Preview
         </h3>
         <p className="text-sm text-[var(--degen-muted)]">
           Exit entire {productName} portfolio in one action · Illustrative preview only
         </p>
-        <div className="degen-risk-banner text-sm">{DEGEN_RISK_WARNING}</div>
+        <DegenRiskBanner compact />
         <div className="flex flex-wrap justify-end gap-2">
           <button type="button" onClick={onCancel} className="degen-btn-secondary h-9 px-3 text-[12px]">
             Cancel

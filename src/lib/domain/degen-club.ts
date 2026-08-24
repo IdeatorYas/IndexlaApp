@@ -1,8 +1,20 @@
 import type { NetworkId } from "@/lib/domain/types";
 
 /** Canonical Degen Club risk copy — non-dismissible wherever Degen is active. */
-export const DEGEN_RISK_WARNING =
-  "Extreme Risk — Memecoins are highly volatile and may lose most or all of their value. Diversification does not remove risk.";
+export const DEGEN_RISK_TITLE = "EXTREME RISK WARNING";
+
+export const DEGEN_RISK_PARAGRAPHS = [
+  "Memecoins are highly speculative and extremely volatile. Most memecoins may lose substantial value or go to zero. You may lose your entire investment.",
+  "Prices can move rapidly, liquidity can disappear, and assets may be affected by manipulation, scams, abandoned projects or smart-contract vulnerabilities. Diversification and automation do not remove these risks.",
+  "INDEXLA provides non-custodial technology—not investment advice, asset recommendations or guaranteed returns. Users invest entirely at their own risk and remain responsible for their decisions, transactions and losses. INDEXLA is not responsible for investment losses.",
+  "Only invest funds you can afford to lose. By continuing, you confirm that you understand and accept these risks.",
+] as const;
+
+/** Flat string for tests / plain-text surfaces. Prefer DEGEN_RISK_TITLE + paragraphs in UI. */
+export const DEGEN_RISK_WARNING = [
+  DEGEN_RISK_TITLE,
+  ...DEGEN_RISK_PARAGRAPHS,
+].join("\n\n");
 
 export type DegenDiscoverFilter =
   | "all"

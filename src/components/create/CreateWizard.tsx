@@ -15,7 +15,7 @@ import {
   wizardStepsFor,
   type MarketAsset,
 } from "@/lib/domain/create";
-import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
+import { DegenRiskCopy } from "@/components/degen-club/DegenRiskCopy";
 import { LoadingSkeleton } from "@/components/states/AppStates";
 
 export function CreateWizard() {
@@ -127,10 +127,10 @@ export function CreateWizard() {
         </div>
         {isDegenTemplate ? (
           <div
-            className="mt-4 rounded-[12px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
+            className="mt-4 rounded-[12px] border border-app-danger/40 bg-app-danger/10 px-4 py-3"
             role="alert"
           >
-            {DEGEN_RISK_WARNING}
+            <DegenRiskCopy variant="app" />
           </div>
         ) : null}
         <div className="mt-4 space-y-2">

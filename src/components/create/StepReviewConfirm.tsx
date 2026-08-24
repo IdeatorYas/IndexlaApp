@@ -18,7 +18,7 @@ import {
   INDEX_CATEGORIES,
   allocationTotal,
 } from "@/lib/domain/create";
-import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
+import { DegenRiskCopy } from "@/components/degen-club/DegenRiskCopy";
 import { calculateFees } from "@/lib/fees/fee-calculator";
 import { getDexlaBalance } from "@/lib/data";
 import { formatUsd } from "@/lib/dashboard/data";
@@ -286,11 +286,11 @@ export function StepReviewConfirm({
 
       {isDegen ? (
         <div
-          className="rounded-[14px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
+          className="rounded-[14px] border border-app-danger/40 bg-app-danger/10 px-4 py-3"
           role="alert"
         >
-          {DEGEN_RISK_WARNING}
-          <label className="mt-3 flex items-start gap-2 font-semibold text-app-ink">
+          <DegenRiskCopy variant="app" />
+          <label className="mt-3 flex items-start gap-2 text-sm font-semibold text-app-ink">
             <input
               type="checkbox"
               checked={draft.degenAcknowledged}
@@ -299,7 +299,8 @@ export function StepReviewConfirm({
               }
               className="mt-1 accent-[var(--color-brand)]"
             />
-            I understand and acknowledge this extreme risk.
+            I understand and acknowledge this extreme risk. By continuing, I
+            confirm that I understand and accept these risks.
           </label>
         </div>
       ) : null}
