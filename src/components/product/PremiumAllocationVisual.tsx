@@ -250,17 +250,17 @@ export function PremiumAllocationVisual({
       className={[
         "grid grid-cols-1 gap-3",
         "md:grid-cols-[minmax(200px,0.88fr)_minmax(0,1.35fr)] md:items-start",
-        "lg:items-stretch lg:gap-4",
+        "lg:gap-4",
       ].join(" ")}
     >
       {/* LEFT: allocation donut — sits beside holdings on md+ */}
-      <div className="relative mx-auto flex w-full max-w-[min(100%,300px)] shrink-0 items-center justify-center md:max-w-[280px] lg:max-w-[300px]">
+      <div className="relative mx-auto flex w-full max-w-[min(100%,260px)] shrink-0 items-center justify-center md:mx-0 md:max-w-[240px] lg:max-w-[252px]">
         <div className="pointer-events-none absolute inset-[12%] rounded-full bg-[radial-gradient(circle_at_50%_45%,color-mix(in_srgb,var(--color-brand)_18%,transparent),transparent_68%)]" />
         <svg
           width="100%"
-          height="100%"
+          height="auto"
           viewBox={`0 0 ${size} ${size}`}
-          className="relative block aspect-square drop-shadow-[0_18px_40px_-28px_rgba(0,0,0,0.55)]"
+          className="relative mx-auto block h-auto w-full max-w-full aspect-square drop-shadow-[0_18px_40px_-28px_rgba(0,0,0,0.55)]"
           role="img"
           aria-label="Asset allocation chart with logos and percentages"
         >

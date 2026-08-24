@@ -170,7 +170,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
       </section>
 
       {/* Allocation — lifted under compact hero for first-screen focus */}
-      <section className="relative overflow-hidden rounded-[18px] border border-app-line/50 bg-gradient-to-b from-app-elevated via-app-elevated to-app-panel/85 p-2 shadow-[0_20px_48px_-32px_rgba(0,0,0,0.4)] sm:p-3 lg:min-h-[min(58vh,600px)] lg:p-3.5">
+      <section className="relative overflow-hidden rounded-[18px] border border-app-line/50 bg-gradient-to-b from-app-elevated via-app-elevated to-app-panel/85 p-2 shadow-[0_20px_48px_-32px_rgba(0,0,0,0.4)] sm:p-2.5 lg:p-3">
         <header className="mb-1 flex flex-wrap items-end justify-between gap-2">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
@@ -183,7 +183,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
         </header>
         <PremiumAllocationVisual
           allocations={product.allocations}
-          size={dense ? 240 : 280}
+          size={dense ? 220 : 252}
           compact={dense}
         />
       </section>
