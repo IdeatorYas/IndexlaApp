@@ -1122,16 +1122,16 @@
 
 .degen-detail-allocation-grid {
   display: grid;
-  gap: 0.5rem;
-  margin-top: 0.2rem;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
   grid-template-columns: 1fr;
 }
 
 @media (min-width: 768px) {
   .degen-detail-allocation-grid {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(280px, 0.92fr) minmax(0, 1.08fr);
     align-items: center;
-    gap: 0.65rem;
+    gap: 0.85rem;
   }
 }
 
@@ -1139,27 +1139,83 @@
   display: flex;
   justify-content: center;
   align-items: center;
+  min-height: 0;
+}
+
+.degen-detail-donut-wrap .degen-allocation-donut {
+  flex-shrink: 0;
 }
 
 .degen-detail-holdings {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.28rem 0.4rem;
   overflow: visible;
   max-height: none;
   padding-right: 0;
+  align-content: center;
 }
 
 .degen-detail-holding-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
+  gap: 0.35rem;
   border-radius: 7px;
   border: 1px solid var(--degen-panel-border);
   background: var(--degen-bg-soft);
-  padding: 0.22rem 0.4rem;
+  padding: 0.28rem 0.4rem;
   min-height: 0;
+}
+
+.degen-detail-holding-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.02rem;
+  min-width: 0;
+}
+
+.degen-detail-holding-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--degen-ink);
+}
+
+.degen-detail-holding-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.35rem;
+  min-width: 0;
+}
+
+.degen-detail-holding-chain,
+.degen-detail-holding-price {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--degen-muted);
+}
+
+.degen-detail-holding-price {
+  font-variant-numeric: tabular-nums;
+  color: var(--degen-cyan);
+}
+
+.degen-detail-holding-pct {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  color: var(--degen-neon-gold);
 }
 
 .degen-detail-disclaimer {
@@ -1200,35 +1256,57 @@
   backdrop-filter: none;
 }
 
-/* Desktop: keep product content in first viewport; disclaimer may scroll below */
+/* Desktop: header + large donut + 2×5 assets in first viewport; disclaimer below */
 @media (min-width: 1024px) {
   .degen-detail-main {
-    /* Target first viewport; no internal scroll — holdings stay fully visible */
+    gap: 0.35rem;
   }
 
   .degen-detail-allocation-grid {
     min-height: 0;
+    grid-template-columns: minmax(300px, 0.95fr) minmax(0, 1.05fr);
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .degen-detail-donut-wrap {
+    align-self: center;
+    justify-content: center;
   }
 
   .degen-detail-holdings {
-    justify-content: center;
-    gap: 0.14rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: center;
+    gap: 0.22rem 0.45rem;
   }
 
   .degen-detail-holding-row {
-    padding: 0.14rem 0.36rem;
+    padding: 0.2rem 0.38rem;
+  }
+
+  .degen-detail-holding-name {
+    font-size: 0.6875rem;
+  }
+
+  .degen-detail-holding-chain,
+  .degen-detail-holding-price {
+    font-size: 0.5625rem;
   }
 
   .degen-detail-hero {
-    padding: 0.45rem 0.65rem;
+    padding: 0.4rem 0.6rem;
+  }
+
+  .degen-detail-thesis {
+    -webkit-line-clamp: 1;
   }
 
   .degen-detail-allocation {
-    padding: 0.35rem 0.55rem 0.45rem;
+    padding: 0.35rem 0.6rem 0.4rem;
   }
 
   .degen-detail-actions-inline {
-    padding: 0.35rem;
+    padding: 0.3rem;
   }
 }
 

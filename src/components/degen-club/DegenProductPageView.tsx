@@ -54,7 +54,8 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
 
   const positive = enriched.performance30d >= 0;
   const holdingCount = enriched.allocations.length;
-  const donutSize = holdingCount >= 10 ? 188 : holdingCount >= 8 ? 200 : 212;
+  /* Large dominant donut — sized to fit with 2×5 holdings in one desktop viewport */
+  const donutSize = holdingCount >= 10 ? 300 : holdingCount >= 8 ? 288 : 276;
 
   function preview(action: string) {
     setMessage(`${action} — preview only. No real execution was submitted.`);
@@ -138,25 +139,25 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
             >
               {enriched.allocations.map((a) => (
                 <li key={a.assetId} className="degen-detail-holding-row">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <DegenAssetIcon
-                      assetKey={a.assetId}
-                      size={20}
-                      imageUrl={a.imageUrl}
-                    />
-                    <span className="min-w-0">
-                      <span className="block truncate text-[11px] font-bold leading-tight text-[var(--degen-ink)]">
-                        {a.name ?? a.label}
+                  <DegenAssetIcon
+                    assetKey={a.assetId}
+                    size={22}
+                    imageUrl={a.imageUrl}
+                  />
+                  <span className="degen-detail-holding-meta min-w-0">
+                    <span className="degen-detail-holding-name">
+                      {a.name ?? a.label}
+                    </span>
+                    <span className="degen-detail-holding-sub">
+                      <span className="degen-detail-holding-chain">
+                        {a.networkLabel ?? enriched.chainLabel}
                       </span>
-                      <span className="text-[9px] leading-tight text-[var(--degen-muted)]">
-                        {a.networkLabel ?? enriched.chainLabel} ·{" "}
+                      <span className="degen-detail-holding-price">
                         {formatDegenLivePrice(a.priceUsd)}
                       </span>
                     </span>
                   </span>
-                  <span className="shrink-0 text-[11px] font-black text-[var(--degen-neon-gold)]">
-                    {a.percent}%
-                  </span>
+                  <span className="degen-detail-holding-pct">{a.percent}%</span>
                 </li>
               ))}
             </ul>
