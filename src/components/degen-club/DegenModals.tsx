@@ -46,7 +46,7 @@ export function DegenBuildModal({
   );
 }
 
-export function DegenInvestModal({
+export function DegenTradeModal({
   product,
   acknowledged,
   walletConnected,
@@ -68,11 +68,11 @@ export function DegenInvestModal({
       className="degen-modal-backdrop fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="invest-degen-title"
+      aria-labelledby="trade-degen-title"
     >
       <div className="degen-modal w-full max-w-md space-y-4 p-5">
-        <h3 id="invest-degen-title" className="text-lg font-black text-[var(--degen-ink)]">
-          Investment confirmation
+        <h3 id="trade-degen-title" className="text-lg font-black text-[var(--degen-ink)]">
+          Trade confirmation
         </h3>
         <p className="text-sm text-[var(--degen-muted)]">
           {product.name} · Est. fees {formatUsd(product.feeEstimateUsd)} · Est. costs{" "}
@@ -103,13 +103,16 @@ export function DegenInvestModal({
             onClick={onConfirm}
             className="degen-btn-primary h-9 px-3 text-[12px] disabled:opacity-40"
           >
-            Confirm Invest Preview
+            Confirm Trade Preview
           </button>
         </div>
       </div>
     </div>
   );
 }
+
+/** @deprecated Use DegenTradeModal */
+export const DegenInvestModal = DegenTradeModal;
 
 export function DegenFullExitModal({
   productName,

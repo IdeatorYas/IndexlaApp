@@ -10,6 +10,8 @@ export type DegenDiscoverFilter =
   | "ethereum"
   | "base"
   | "bnb"
+  | "sui"
+  | "robinhood"
   | "multi-chain";
 
 export type DegenMarketTab = "indexes" | "portfolios";

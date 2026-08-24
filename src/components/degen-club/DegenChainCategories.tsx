@@ -4,13 +4,22 @@ import { DegenChainLogo } from "@/components/degen-club/DegenChainLogo";
 const CATEGORIES: {
   id: DegenDiscoverFilter;
   label: string;
-  chain: "all" | "ethereum" | "solana" | "base" | "bnb";
+  chain:
+    | "all"
+    | "ethereum"
+    | "solana"
+    | "base"
+    | "bnb"
+    | "sui"
+    | "robinhood";
 }[] = [
   { id: "all", label: "All", chain: "all" },
   { id: "ethereum", label: "Ethereum", chain: "ethereum" },
   { id: "solana", label: "Solana", chain: "solana" },
   { id: "base", label: "Base", chain: "base" },
   { id: "bnb", label: "BNB Chain", chain: "bnb" },
+  { id: "sui", label: "Sui", chain: "sui" },
+  { id: "robinhood", label: "Robinhood Chain", chain: "robinhood" },
 ];
 
 export function DegenChainCategories({
@@ -22,7 +31,7 @@ export function DegenChainCategories({
 }) {
   return (
     <div
-      className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5"
+      className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-4"
       role="tablist"
       aria-label="Chain categories"
     >
@@ -63,11 +72,20 @@ export function DegenMultiChainBanner() {
             Cross-chain degen portfolios · One basket · Multiple chains
           </p>
         </div>
-        <div className="degen-multichain-logos ml-auto flex items-center gap-2">
-          {(["ethereum", "solana", "base", "bnb"] as const).map((chain) => (
+        <div className="degen-multichain-logos ml-auto flex flex-wrap items-center justify-end gap-2">
+          {(
+            ["ethereum", "solana", "base", "bnb", "sui", "robinhood"] as const
+          ).map((chain) => (
             <span
               key={chain}
               className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--degen-panel-border)] bg-[var(--degen-bg-soft)] shadow-[0_0_12px_rgba(168,85,247,0.15)]"
+              title={
+                chain === "bnb"
+                  ? "BNB Chain"
+                  : chain === "robinhood"
+                    ? "Robinhood Chain"
+                    : chain.charAt(0).toUpperCase() + chain.slice(1)
+              }
             >
               <DegenChainLogo chain={chain} size={24} />
             </span>

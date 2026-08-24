@@ -17,7 +17,7 @@ import {
 import { DegenShotsVisual } from "@/components/degen-club/DegenShotsVisual";
 import {
   DegenBuildModal,
-  DegenInvestModal,
+  DegenTradeModal,
   DegenRiskBanner,
 } from "@/components/degen-club/DegenModals";
 import {
@@ -50,7 +50,7 @@ export function DegenClubView({
 }) {
   const router = useRouter();
   const { wallet, connectDemo } = useDemoWallet();
-  const { prices, stale: pricesStale } = useDegenPrices();
+  const { prices } = useDegenPrices();
 
   const [viewState, setViewState] = useState<ViewState>(
     initialError ? "error" : "loading",
@@ -58,10 +58,9 @@ export function DegenClubView({
   const [marketTab, setMarketTab] = useState<DegenMarketTab>("indexes");
   const [chainFilter, setChainFilter] = useState<DegenDiscoverFilter>("all");
   const [message, setMessage] = useState<string | null>(null);
-  const [staleOverride, setStaleOverride] = useState(workspace.marketDataStale);
   const [buildOpen, setBuildOpen] = useState(false);
-  const [investProduct, setInvestProduct] = useState<DegenProduct | null>(null);
-  const [investAck, setInvestAck] = useState(false);
+  const [tradeProduct, setTradeProduct] = useState<DegenProduct | null>(null);
+  const [tradeAck, setTradeAck] = useState(false);
 
   useEffect(() => {
     if (initialError) return;
@@ -153,36 +152,21 @@ export function DegenClubView({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       <DegenRiskBanner />
-
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <span className="degen-brand-pill">{workspace.hero.title}</span>
-        {illustrative ? <span className="degen-illustrative-tag">Illustrative</span> : null}
-      </header>
-
-      {(staleOverride || workspace.marketDataStale || pricesStale) ? (
-        <div className="degen-stale-banner" role="status">
-          AUM, 30D performance, investors and activity are Illustrative. Live
-          CoinGecko prices and logos may be delayed.
-          <button
-            type="button"
-            className="ml-2 font-bold underline"
-            onClick={() => {
-              setStaleOverride(false);
-            }}
-          >
-            Dismiss
-          </button>
-        </div>
-      ) : null}
 
       {message ? <PreviewOnlyMessage>{message}</PreviewOnlyMessage> : null}
 
       {/* Compact hero */}
-      <section className="degen-hero-compact degen-panel p-2.5 sm:p-3">
-        <div className="grid gap-3 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-4">
-          <div className="space-y-1.5 sm:space-y-2">
+      <section className="degen-hero-compact degen-panel p-2 sm:p-2.5">
+        <div className="grid gap-2.5 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-3">
+          <div className="space-y-1 sm:space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="degen-hero-brand">DEGEN CLUB</p>
+              {illustrative ? (
+                <span className="degen-illustrative-tag">Illustrative</span>
+              ) : null}
+            </div>
             <h1 className="degen-headline degen-headline-compact">
               {workspace.hero.headline}
             </h1>
@@ -215,22 +199,27 @@ export function DegenClubView({
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Marketplace category">
-          {DEGEN_MARKET_TABS.map((item) => {
-            const active = item.id === marketTab;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setMarketTab(item.id)}
-                className={["degen-tab degen-tab-lg", active ? "degen-tab-active" : ""].join(" ")}
-              >
-                {item.label}
-              </button>
-            );
-          })}
+        <div className="mx-auto max-w-lg">
+          <div className="degen-marketplace-tabs" role="tablist" aria-label="Marketplace category">
+            {DEGEN_MARKET_TABS.map((item) => {
+              const active = item.id === marketTab;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setMarketTab(item.id)}
+                  className={[
+                    "degen-marketplace-tab",
+                    active ? "degen-marketplace-tab-active" : "",
+                  ].join(" ")}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {marketTab === "indexes" ? (
@@ -250,10 +239,10 @@ export function DegenClubView({
               <ProductCard
                 key={product.id}
                 product={product}
-                onInvest={() => {
+                onTrade={() => {
                   if (wallet.state !== "connected") connectDemo();
-                  setInvestAck(false);
-                  setInvestProduct(product);
+                  setTradeAck(false);
+                  setTradeProduct(product);
                 }}
               />
             ))}
@@ -271,17 +260,17 @@ export function DegenClubView({
         />
       ) : null}
 
-      {investProduct ? (
-        <DegenInvestModal
-          product={investProduct}
-          acknowledged={investAck}
+      {tradeProduct ? (
+        <DegenTradeModal
+          product={tradeProduct}
+          acknowledged={tradeAck}
           walletConnected={wallet.state === "connected"}
-          onAckChange={setInvestAck}
-          onCancel={() => setInvestProduct(null)}
+          onAckChange={setTradeAck}
+          onCancel={() => setTradeProduct(null)}
           onConnect={connectDemo}
           onConfirm={() => {
-            setInvestProduct(null);
-            preview(`Invest preview · ${investProduct.name}`);
+            setTradeProduct(null);
+            preview(`Trade preview · ${tradeProduct.name}`);
           }}
         />
       ) : null}
@@ -291,10 +280,10 @@ export function DegenClubView({
 
 function ProductCard({
   product,
-  onInvest,
+  onTrade,
 }: {
   product: DegenProduct;
-  onInvest: () => void;
+  onTrade: () => void;
 }) {
   const positive = product.performance30d >= 0;
 
@@ -346,10 +335,10 @@ function ProductCard({
       <div className="degen-card-actions">
         <button
           type="button"
-          onClick={onInvest}
+          onClick={onTrade}
           className="degen-btn-primary h-9 text-[11px] uppercase tracking-wide"
         >
-          Invest
+          Trade
         </button>
         <Link
           href={APP_ROUTES.degenProduct(product.id)}
