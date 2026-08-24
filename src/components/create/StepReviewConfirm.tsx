@@ -9,7 +9,6 @@ import {
   createSectionTitleClass,
 } from "@/components/create/createUi";
 import { TransactionConfirmModal } from "@/components/create/TransactionConfirmModal";
-import { AssetIcon } from "@/components/ui/AssetIcons";
 import { RiskDisclosure } from "@/components/product/RiskDisclosure";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import type { CreateDraft, MarketAsset } from "@/lib/domain/create";
@@ -371,32 +370,6 @@ export function StepReviewConfirm({
             totalPercent={total}
             compact
           />
-          <ul className="max-h-64 space-y-1.5 overflow-y-auto pt-1">
-            {draft.allocations.map((row) => {
-              const asset = byId.get(row.assetId);
-              return (
-                <li
-                  key={row.assetId}
-                  className="flex items-center justify-between gap-2 rounded-[12px] border border-app-line/45 bg-app-panel/50 px-3 py-2"
-                >
-                  <span className="flex min-w-0 items-center gap-2.5 font-semibold text-app-ink">
-                    <AssetIcon
-                      assetId={logoKey(asset, row.assetId)}
-                      size={24}
-                      variant="donut"
-                      imageUrl={asset?.imageUrl}
-                    />
-                    <span className="truncate text-sm">
-                      {(asset?.symbol || row.assetId).toUpperCase()}
-                    </span>
-                  </span>
-                  <span className="text-sm font-bold tabular-nums text-app-brand">
-                    {row.percent}%
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
         </ReviewSection>
       </div>
 
