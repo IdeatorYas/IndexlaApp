@@ -99,15 +99,68 @@ function logoSizeForSegment(
   return Math.max(16, Math.min(byCount, byChord, byRing, ringThickness - 10));
 }
 
+function holdingsScale(count: number) {
+  // 5 assets → roomy (1); 10+ → compact (0); 6–9 interpolate.
+  const roomy = Math.min(1, Math.max(0, (10 - Math.max(count, 5)) / 5));
+  if (roomy >= 0.85) {
+    return {
+      name: "text-[14px]",
+      symbol: "text-[11px]",
+      alloc: "text-[13px]",
+      price: "text-[12px]",
+      perf: "text-[12px]",
+      header: "text-[10px]",
+      title: "text-[11px]",
+      meta: "text-[10px]",
+      logoBox: 28,
+      logoIcon: 18,
+      gap: "gap-2.5",
+      rowPad: "px-2.5 py-1",
+    };
+  }
+  if (roomy >= 0.45) {
+    return {
+      name: "text-[13px]",
+      symbol: "text-[10px]",
+      alloc: "text-[12px]",
+      price: "text-[11px]",
+      perf: "text-[11px]",
+      header: "text-[10px]",
+      title: "text-[10px]",
+      meta: "text-[9px]",
+      logoBox: 24,
+      logoIcon: 16,
+      gap: "gap-2",
+      rowPad: "px-2 py-0.5",
+    };
+  }
+  return {
+    name: "text-[12px]",
+    symbol: "text-[10px]",
+    alloc: "text-[12px]",
+    price: "text-[11px]",
+    perf: "text-[11px]",
+    header: "text-[9px]",
+    title: "text-[10px]",
+    meta: "text-[9px]",
+    logoBox: 20,
+    logoIcon: 14,
+    gap: "gap-1.5",
+    rowPad: "px-1.5 py-0.5",
+  };
+}
+
 function PerfCell({
   value,
   loading,
   failed,
+  className,
 }: {
   value: number | null | undefined;
   loading?: boolean;
   /** True only after a genuine API failure / unmapped asset. */
   failed?: boolean;
+  className?: string;
 }) {
   if (loading) {
     return (
@@ -119,13 +172,22 @@ function PerfCell({
   }
   if (failed) {
     return (
-      <span className="text-[9px] font-semibold uppercase tracking-wide text-app-dim">
+      <span
+        className={[
+          "font-semibold uppercase tracking-wide text-app-dim",
+          className ?? "text-[9px]",
+        ].join(" ")}
+      >
         Unavailable
       </span>
     );
   }
   if (value == null || Number.isNaN(value)) {
-    return <span className="tabular-nums text-app-dim">—</span>;
+    return (
+      <span className={["tabular-nums text-app-dim", className].filter(Boolean).join(" ")}>
+        —
+      </span>
+    );
   }
   const positive = value >= 0;
   return (
@@ -133,7 +195,10 @@ function PerfCell({
       className={[
         "tabular-nums font-bold",
         positive ? "text-app-success" : "text-app-danger",
-      ].join(" ")}
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       {formatPercent(value, true)}
     </span>
@@ -262,8 +327,7 @@ export function PremiumAllocationVisual({
     };
   });
 
-  const rowPad = "px-1.5 py-[2px]";
-  const nameSize = compact ? "text-[11px]" : "text-[12px]";
+  const scale = holdingsScale(allocations.length);
   const loading = loadState === "loading" || loadState === "idle";
   const feedFailed =
     loadState === "error" ||
@@ -276,7 +340,7 @@ export function PremiumAllocationVisual({
     <div
       className={[
         "grid grid-cols-1 items-start gap-2",
-        "md:grid-cols-[minmax(360px,0.92fr)_minmax(0,1.15fr)] md:items-start md:gap-2.5",
+        "md:grid-cols-[minmax(360px,0.92fr)_minmax(0,1.15fr)] md:items-stretch md:gap-2.5",
         "lg:gap-3",
       ].join(" ")}
     >
@@ -387,14 +451,24 @@ export function PremiumAllocationVisual({
         </svg>
       </div>
 
-      {/* RIGHT: holdings list — same vertical band as donut */}
-      <div className="min-w-0 w-full">
-        <div className="mb-1 flex flex-wrap items-center justify-between gap-1.5 px-0.5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-app-dim">
+      {/* RIGHT: holdings list — fills donut column height; row scale by asset count */}
+      <div className="flex min-h-0 w-full min-w-0 flex-col md:h-full">
+        <div className="mb-1 flex shrink-0 flex-wrap items-center justify-between gap-1.5 px-0.5">
+          <p
+            className={[
+              "font-bold uppercase tracking-[0.14em] text-app-dim",
+              scale.title,
+            ].join(" ")}
+          >
             Holdings
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[9px] font-semibold text-app-muted">
+            <span
+              className={[
+                "font-semibold text-app-muted",
+                scale.meta,
+              ].join(" ")}
+            >
               Price · 7D · 30D
             </span>
             {loading ? (
@@ -410,7 +484,7 @@ export function PremiumAllocationVisual({
           </div>
         </div>
         {showFeedNote ? (
-          <p className="mb-1 text-[10px] text-app-warning">
+          <p className="mb-1 shrink-0 text-[10px] text-app-warning">
             {availability === "unconfigured"
               ? "CoinGecko not configured — asset performance unavailable."
               : availability === "rate-limited"
@@ -418,11 +492,12 @@ export function PremiumAllocationVisual({
                 : reason || "Market performance unavailable."}
           </p>
         ) : null}
-        <div className="overflow-hidden rounded-[12px] border border-app-line/50 bg-gradient-to-b from-app-elevated/95 to-app-panel/70">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[12px] border border-app-line/50 bg-gradient-to-b from-app-elevated/95 to-app-panel/70">
           <div
             className={[
-              "hidden grid-cols-[minmax(0,1.35fr)_2.5rem_4.5rem_3.25rem_3.25rem] gap-1 border-b border-app-line/40 text-[9px] font-bold uppercase tracking-wider text-app-dim sm:grid",
-              rowPad,
+              "hidden shrink-0 grid-cols-[minmax(0,1.35fr)_2.75rem_4.75rem_3.5rem_3.5rem] gap-1 border-b border-app-line/40 font-bold uppercase tracking-wider text-app-dim sm:grid",
+              scale.header,
+              scale.rowPad,
             ].join(" ")}
           >
             <span>Asset</span>
@@ -431,7 +506,7 @@ export function PremiumAllocationVisual({
             <span className="text-right">7D</span>
             <span className="text-right">30D</span>
           </div>
-          <ul className="divide-y divide-app-line/30">
+          <ul className="flex min-h-0 flex-1 flex-col divide-y divide-app-line/30">
             {allocations.map((alloc, index) => {
               const color = getAssetBrandColor(alloc.assetId, index);
               const ticker = resolveAssetTicker(alloc.assetId);
@@ -449,19 +524,28 @@ export function PremiumAllocationVisual({
                 <li
                   key={`${alloc.assetId}-${index}`}
                   className={[
-                    "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 sm:grid-cols-[minmax(0,1.35fr)_2.5rem_4.5rem_3.25rem_3.25rem] sm:gap-1",
-                    rowPad,
+                    "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 sm:grid-cols-[minmax(0,1.35fr)_2.75rem_4.75rem_3.5rem_3.5rem] sm:gap-1",
+                    scale.rowPad,
                     "transition-colors hover:bg-app-soft/30",
                   ].join(" ")}
                 >
-                  <div className="flex min-w-0 items-center gap-1.5">
+                  <div
+                    className={[
+                      "flex min-w-0 items-center",
+                      scale.gap,
+                    ].join(" ")}
+                  >
                     <span
-                      className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/10 dark:ring-white/15"
-                      style={{ backgroundColor: color }}
+                      className="flex shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/10 dark:ring-white/15"
+                      style={{
+                        backgroundColor: color,
+                        width: scale.logoBox,
+                        height: scale.logoBox,
+                      }}
                     >
                       <AssetIcon
                         assetId={alloc.assetId}
-                        size={14}
+                        size={scale.logoIcon}
                         variant="donut"
                       />
                     </span>
@@ -469,20 +553,35 @@ export function PremiumAllocationVisual({
                       <p
                         className={[
                           "truncate font-bold text-app-ink",
-                          nameSize,
+                          scale.name,
                         ].join(" ")}
                       >
                         {getAssetDisplayName(alloc.assetId)}
                       </p>
-                      <p className="truncate text-[9px] font-semibold uppercase tracking-wide text-app-dim">
+                      <p
+                        className={[
+                          "truncate font-semibold uppercase tracking-wide text-app-dim",
+                          scale.symbol,
+                        ].join(" ")}
+                      >
                         {ticker}
                       </p>
                     </div>
                   </div>
-                  <p className="text-right text-[11px] font-bold tabular-nums text-app-ink">
+                  <p
+                    className={[
+                      "text-right font-bold tabular-nums text-app-ink",
+                      scale.alloc,
+                    ].join(" ")}
+                  >
                     {alloc.percent}%
                   </p>
-                  <p className="hidden text-right text-[10px] font-semibold tabular-nums text-app-ink sm:block">
+                  <p
+                    className={[
+                      "hidden text-right font-semibold tabular-nums text-app-ink sm:block",
+                      scale.price,
+                    ].join(" ")}
+                  >
                     {loading ? (
                       <span
                         className="inline-block h-3 w-12 animate-pulse rounded bg-app-soft/70"
@@ -496,35 +595,46 @@ export function PremiumAllocationVisual({
                       (priceLabel ?? "—")
                     )}
                   </p>
-                  <p className="hidden text-right text-[10px] sm:block">
+                  <p className="hidden text-right sm:block">
                     <PerfCell
                       value={point?.change7dPercent}
                       loading={loading}
                       failed={rowFailed && point?.change7dPercent == null}
+                      className={scale.perf}
                     />
                   </p>
-                  <p className="hidden text-right text-[10px] sm:block">
+                  <p className="hidden text-right sm:block">
                     <PerfCell
                       value={point?.change30dPercent}
                       loading={loading}
                       failed={rowFailed && point?.change30dPercent == null}
+                      className={scale.perf}
                     />
                   </p>
-                  <div className="col-span-2 flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 text-[10px] sm:hidden">
+                  <div
+                    className={[
+                      "col-span-2 flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 sm:hidden",
+                      scale.price,
+                    ].join(" ")}
+                  >
                     <span className="font-semibold tabular-nums text-app-ink">
-                      {loading ? "…" : priceLabel ?? (rowFailed ? "Unavailable" : "—")}
+                      {loading
+                        ? "…"
+                        : priceLabel ?? (rowFailed ? "Unavailable" : "—")}
                     </span>
                     <span className="text-app-dim">7D</span>
                     <PerfCell
                       value={point?.change7dPercent}
                       loading={loading}
                       failed={rowFailed && point?.change7dPercent == null}
+                      className={scale.perf}
                     />
                     <span className="text-app-dim">30D</span>
                     <PerfCell
                       value={point?.change30dPercent}
                       loading={loading}
                       failed={rowFailed && point?.change30dPercent == null}
+                      className={scale.perf}
                     />
                   </div>
                 </li>
@@ -532,12 +642,24 @@ export function PremiumAllocationVisual({
             })}
             <li
               className={[
-                "flex items-center justify-between bg-app-soft/25 sm:grid sm:grid-cols-[minmax(0,1.35fr)_2.5rem_4.5rem_3.25rem_3.25rem] sm:gap-1",
-                rowPad,
+                "flex min-h-0 flex-[0.85] items-center justify-between bg-app-soft/25 sm:grid sm:grid-cols-[minmax(0,1.35fr)_2.75rem_4.75rem_3.5rem_3.5rem] sm:gap-1",
+                scale.rowPad,
               ].join(" ")}
             >
-              <p className="text-[11px] font-bold text-app-ink">Total</p>
-              <p className="text-right text-[11px] font-bold tabular-nums text-app-brand sm:col-start-2">
+              <p
+                className={[
+                  "font-bold text-app-ink",
+                  scale.name,
+                ].join(" ")}
+              >
+                Total
+              </p>
+              <p
+                className={[
+                  "text-right font-bold tabular-nums text-app-brand sm:col-start-2",
+                  scale.alloc,
+                ].join(" ")}
+              >
                 100%
               </p>
             </li>
