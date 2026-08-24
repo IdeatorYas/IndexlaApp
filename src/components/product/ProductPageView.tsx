@@ -59,7 +59,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
   return (
     <div
       className={[
-        "relative mx-auto space-y-2 pb-24 transition-all duration-500 lg:space-y-2 lg:pb-4",
+        "relative mx-auto space-y-1.5 pb-24 transition-all duration-500 lg:space-y-2 lg:pb-4",
         entered ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
       ].join(" ")}
       style={{ maxWidth: "var(--content-max)" }}
@@ -84,7 +84,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
           aria-hidden
         />
 
-        <div className="relative px-3 py-2 sm:px-4 sm:py-2">
+        <div className="relative px-3 py-1.5 sm:px-4 sm:py-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <ExactProductTypeBadge
               kind={product.kind}
@@ -170,20 +170,20 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
       </section>
 
       {/* Allocation — lifted under compact hero for first-screen focus */}
-      <section className="relative overflow-hidden rounded-[16px] border border-app-line/50 bg-gradient-to-b from-app-elevated via-app-elevated to-app-panel/85 p-2 shadow-[0_14px_36px_-28px_rgba(0,0,0,0.35)] sm:p-2.5 lg:px-3 lg:py-2.5">
-        <header className="mb-1 flex flex-wrap items-end justify-between gap-1.5">
+      <section className="relative overflow-hidden rounded-[16px] border border-app-line/50 bg-gradient-to-b from-app-elevated via-app-elevated to-app-panel/85 px-2 py-1.5 shadow-[0_14px_36px_-28px_rgba(0,0,0,0.35)] sm:px-2.5 sm:py-2 lg:px-3 lg:py-2">
+        <header className="mb-1 flex flex-wrap items-end justify-between gap-1">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
+            <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-app-dim">
               Composition
             </p>
-            <h2 className="app-display mt-0.5 text-base font-bold text-app-ink sm:text-lg">
+            <h2 className="app-display mt-0.5 text-[15px] font-bold text-app-ink sm:text-base">
               Portfolio Allocation
             </h2>
           </div>
         </header>
         <PremiumAllocationVisual
           allocations={product.allocations}
-          size={dense ? 300 : 340}
+          size={dense ? 360 : 380}
           compact={dense}
         />
       </section>

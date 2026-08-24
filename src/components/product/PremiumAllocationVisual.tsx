@@ -102,21 +102,30 @@ function logoSizeForSegment(
 function PerfCell({
   value,
   loading,
-  unavailable,
+  failed,
 }: {
   value: number | null | undefined;
   loading?: boolean;
-  unavailable?: boolean;
+  /** True only after a genuine API failure / unmapped asset. */
+  failed?: boolean;
 }) {
   if (loading) {
-    return <span className="tabular-nums text-app-dim">…</span>;
+    return (
+      <span
+        className="inline-block h-3 w-9 animate-pulse rounded bg-app-soft/70"
+        aria-hidden
+      />
+    );
   }
-  if (unavailable || value == null || Number.isNaN(value)) {
+  if (failed) {
     return (
       <span className="text-[9px] font-semibold uppercase tracking-wide text-app-dim">
-        —
+        Unavailable
       </span>
     );
+  }
+  if (value == null || Number.isNaN(value)) {
+    return <span className="tabular-nums text-app-dim">—</span>;
   }
   const positive = value >= 0;
   return (
@@ -135,7 +144,7 @@ type LoadState = "idle" | "loading" | "ready" | "error";
 
 export function PremiumAllocationVisual({
   allocations,
-  size = 340,
+  size = 380,
   compact = false,
 }: {
   allocations: AllocationPreview[];
@@ -189,11 +198,28 @@ export function PremiumAllocationVisual({
         setAvailability(json.availability ?? "error");
         setReason(json.reason);
         setLoadState(res.ok ? "ready" : "error");
-      } catch {
+        if (
+          process.env.NODE_ENV === "development" &&
+          (!res.ok ||
+            json.availability === "error" ||
+            json.availability === "rate-limited" ||
+            json.availability === "unconfigured")
+        ) {
+          console.error("[Holdings][performance]", {
+            status: res.status,
+            availability: json.availability,
+            reason: json.reason,
+            tickers: tickersKey,
+          });
+        }
+      } catch (err) {
         if (cancelled) return;
         setLoadState("error");
         setAvailability("error");
         setReason("Failed to load market performance");
+        if (process.env.NODE_ENV === "development") {
+          console.error("[Holdings][performance] fetch failed", err);
+        }
       }
     }
 
@@ -236,29 +262,30 @@ export function PremiumAllocationVisual({
     };
   });
 
-  const rowPad = compact ? "px-1.5 py-[3px]" : "px-2 py-1";
+  const rowPad = "px-1.5 py-[2px]";
   const nameSize = compact ? "text-[11px]" : "text-[12px]";
   const loading = loadState === "loading" || loadState === "idle";
-  const showFeedNote =
+  const feedFailed =
     loadState === "error" ||
     availability === "rate-limited" ||
     availability === "unconfigured" ||
     availability === "error";
+  const showFeedNote = feedFailed;
 
   return (
     <div
       className={[
         "grid grid-cols-1 items-start gap-2",
-        "md:grid-cols-[minmax(260px,0.95fr)_minmax(0,1.2fr)] md:items-start md:gap-3",
+        "md:grid-cols-[minmax(360px,0.92fr)_minmax(0,1.15fr)] md:items-start md:gap-2.5",
         "lg:gap-3",
       ].join(" ")}
     >
       {/* LEFT: allocation donut — sits beside holdings on md+ */}
-      <div className="relative mx-auto flex w-full max-w-[min(100%,340px)] shrink-0 items-start justify-center md:mx-0 md:max-w-[300px] lg:max-w-[340px]">
+      <div className="relative mx-auto flex w-full max-w-[min(100%,400px)] shrink-0 items-start justify-center md:mx-0 md:max-w-[380px] lg:max-w-[400px]">
         <div className="pointer-events-none absolute inset-[10%] rounded-full bg-[radial-gradient(circle_at_50%_42%,color-mix(in_srgb,var(--color-ink)_6%,transparent),transparent_70%)]" />
         <svg
-          width="100%"
-          height="auto"
+          width={size}
+          height={size}
           viewBox={`0 0 ${size} ${size}`}
           className="relative mx-auto block h-auto w-full max-w-full aspect-square drop-shadow-[0_10px_28px_-18px_rgba(0,0,0,0.45)]"
           role="img"
@@ -368,7 +395,7 @@ export function PremiumAllocationVisual({
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[9px] font-semibold text-app-muted">
-              24H · 7D · 30D
+              Price · 7D · 30D
             </span>
             {loading ? (
               <span className="text-[9px] font-bold uppercase tracking-wide text-app-brand">
@@ -383,7 +410,7 @@ export function PremiumAllocationVisual({
           </div>
         </div>
         {showFeedNote ? (
-          <p className="mb-1.5 text-[10px] text-app-warning">
+          <p className="mb-1 text-[10px] text-app-warning">
             {availability === "unconfigured"
               ? "CoinGecko not configured — asset performance unavailable."
               : availability === "rate-limited"
@@ -391,41 +418,40 @@ export function PremiumAllocationVisual({
                 : reason || "Market performance unavailable."}
           </p>
         ) : null}
-        <div className="overflow-hidden rounded-[14px] border border-app-line/50 bg-gradient-to-b from-app-elevated/95 to-app-panel/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+        <div className="overflow-hidden rounded-[12px] border border-app-line/50 bg-gradient-to-b from-app-elevated/95 to-app-panel/70">
           <div
             className={[
-              "hidden grid-cols-[minmax(0,1.15fr)_2.75rem_4.25rem_3.1rem_3.1rem_3.1rem] gap-1 border-b border-app-line/40 text-[9px] font-bold uppercase tracking-wider text-app-dim sm:grid",
+              "hidden grid-cols-[minmax(0,1.35fr)_2.5rem_4.5rem_3.25rem_3.25rem] gap-1 border-b border-app-line/40 text-[9px] font-bold uppercase tracking-wider text-app-dim sm:grid",
               rowPad,
             ].join(" ")}
           >
             <span>Asset</span>
             <span className="text-right">Alloc</span>
             <span className="text-right">Price</span>
-            <span className="text-right">24H</span>
             <span className="text-right">7D</span>
             <span className="text-right">30D</span>
           </div>
-          <ul className="divide-y divide-app-line/35">
+          <ul className="divide-y divide-app-line/30">
             {allocations.map((alloc, index) => {
               const color = getAssetBrandColor(alloc.assetId, index);
               const ticker = resolveAssetTicker(alloc.assetId);
               const key = normalizeTickerKey(alloc.assetId);
-              const point = byTicker[key];
-              const rowUnavailable =
+              const tickerKey = normalizeTickerKey(ticker);
+              const point = byTicker[key] ?? byTicker[tickerKey];
+              const rowFailed =
                 !loading &&
-                (point?.status === "unavailable" ||
-                  (loadState === "ready" && point == null) ||
-                  (point?.status === "error" &&
-                    point.change24hPercent == null &&
-                    point.change7dPercent == null &&
-                    point.change30dPercent == null));
+                (feedFailed ||
+                  point?.status === "unavailable" ||
+                  point?.status === "error" ||
+                  (loadState === "ready" && point == null));
+              const priceLabel = formatAssetPriceUsd(point?.priceUsd);
               return (
                 <li
                   key={`${alloc.assetId}-${index}`}
                   className={[
-                    "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[minmax(0,1.15fr)_2.75rem_4.25rem_3.1rem_3.1rem_3.1rem] sm:gap-1",
+                    "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 sm:grid-cols-[minmax(0,1.35fr)_2.5rem_4.5rem_3.25rem_3.25rem] sm:gap-1",
                     rowPad,
-                    "transition-colors hover:bg-app-soft/35",
+                    "transition-colors hover:bg-app-soft/30",
                   ].join(" ")}
                 >
                   <div className="flex min-w-0 items-center gap-1.5">
@@ -450,80 +476,55 @@ export function PremiumAllocationVisual({
                       </p>
                       <p className="truncate text-[9px] font-semibold uppercase tracking-wide text-app-dim">
                         {ticker}
-                        <span className="sm:hidden">
-                          {" · "}
-                          {loading
-                            ? "…"
-                            : formatAssetPriceUsd(point?.priceUsd) ?? "—"}
-                        </span>
                       </p>
                     </div>
                   </div>
-                  <p className="text-right text-[11px] font-bold tabular-nums text-app-ink sm:text-[12px]">
+                  <p className="text-right text-[11px] font-bold tabular-nums text-app-ink">
                     {alloc.percent}%
                   </p>
                   <p className="hidden text-right text-[10px] font-semibold tabular-nums text-app-ink sm:block">
-                    {loading
-                      ? "…"
-                      : formatAssetPriceUsd(point?.priceUsd) ?? "—"}
-                  </p>
-                  <p className="hidden text-right text-[10px] sm:block">
-                    <PerfCell
-                      value={point?.change24hPercent}
-                      loading={loading}
-                      unavailable={
-                        rowUnavailable ||
-                        (!loading && point?.change24hPercent == null)
-                      }
-                    />
+                    {loading ? (
+                      <span
+                        className="inline-block h-3 w-12 animate-pulse rounded bg-app-soft/70"
+                        aria-hidden
+                      />
+                    ) : rowFailed && priceLabel == null ? (
+                      <span className="text-[9px] font-semibold uppercase tracking-wide text-app-dim">
+                        Unavailable
+                      </span>
+                    ) : (
+                      (priceLabel ?? "—")
+                    )}
                   </p>
                   <p className="hidden text-right text-[10px] sm:block">
                     <PerfCell
                       value={point?.change7dPercent}
                       loading={loading}
-                      unavailable={
-                        rowUnavailable ||
-                        (!loading && point?.change7dPercent == null)
-                      }
+                      failed={rowFailed && point?.change7dPercent == null}
                     />
                   </p>
                   <p className="hidden text-right text-[10px] sm:block">
                     <PerfCell
                       value={point?.change30dPercent}
                       loading={loading}
-                      unavailable={
-                        rowUnavailable ||
-                        (!loading && point?.change30dPercent == null)
-                      }
+                      failed={rowFailed && point?.change30dPercent == null}
                     />
                   </p>
-                  <div className="col-span-2 flex flex-wrap justify-end gap-x-2 gap-y-0.5 text-[10px] sm:hidden">
-                    <span className="text-app-dim">24H</span>
-                    <PerfCell
-                      value={point?.change24hPercent}
-                      loading={loading}
-                      unavailable={
-                        rowUnavailable ||
-                        (!loading && point?.change24hPercent == null)
-                      }
-                    />
+                  <div className="col-span-2 flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 text-[10px] sm:hidden">
+                    <span className="font-semibold tabular-nums text-app-ink">
+                      {loading ? "…" : priceLabel ?? (rowFailed ? "Unavailable" : "—")}
+                    </span>
                     <span className="text-app-dim">7D</span>
                     <PerfCell
                       value={point?.change7dPercent}
                       loading={loading}
-                      unavailable={
-                        rowUnavailable ||
-                        (!loading && point?.change7dPercent == null)
-                      }
+                      failed={rowFailed && point?.change7dPercent == null}
                     />
                     <span className="text-app-dim">30D</span>
                     <PerfCell
                       value={point?.change30dPercent}
                       loading={loading}
-                      unavailable={
-                        rowUnavailable ||
-                        (!loading && point?.change30dPercent == null)
-                      }
+                      failed={rowFailed && point?.change30dPercent == null}
                     />
                   </div>
                 </li>
@@ -531,12 +532,12 @@ export function PremiumAllocationVisual({
             })}
             <li
               className={[
-                "flex items-center justify-between bg-app-soft/25 sm:grid sm:grid-cols-[minmax(0,1.15fr)_2.75rem_4.25rem_3.1rem_3.1rem_3.1rem] sm:gap-1",
+                "flex items-center justify-between bg-app-soft/25 sm:grid sm:grid-cols-[minmax(0,1.35fr)_2.5rem_4.5rem_3.25rem_3.25rem] sm:gap-1",
                 rowPad,
               ].join(" ")}
             >
               <p className="text-[11px] font-bold text-app-ink">Total</p>
-              <p className="text-right text-[12px] font-bold tabular-nums text-app-brand sm:col-start-2">
+              <p className="text-right text-[11px] font-bold tabular-nums text-app-brand sm:col-start-2">
                 100%
               </p>
             </li>

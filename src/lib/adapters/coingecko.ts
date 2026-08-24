@@ -396,7 +396,19 @@ type MarketsPerfCoin = {
   price_change_percentage_24h_in_currency?: number | null;
   price_change_percentage_7d_in_currency?: number | null;
   price_change_percentage_30d_in_currency?: number | null;
+  // Some CoinGecko responses omit `_in_currency` suffix
+  price_change_percentage_7d?: number | null;
+  price_change_percentage_30d?: number | null;
 };
+
+function asFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
 
 function unavailablePoint(ticker: string): AssetPerformancePoint {
   return {
@@ -456,10 +468,20 @@ export async function fetchAssetPerformance(
 
   const path =
     `/coins/markets?vs_currency=usd&ids=${encodeURIComponent(idsKey)}` +
-    `&order=market_cap_desc&per_page=${mapped.length}&page=1&sparkline=false` +
+    `&order=market_cap_desc&per_page=${Math.max(mapped.length, 1)}&page=1&sparkline=false` +
     `&price_change_percentage=24h,7d,30d`;
 
   const result = await cgFetch<MarketsPerfCoin[]>(path);
+
+  if (process.env.NODE_ENV === "development" && !result.ok) {
+    console.error("[CoinGecko][performance]", {
+      path,
+      status: result.status,
+      rateLimited: result.rateLimited,
+      error: result.error,
+      tickers: mapped.map((m) => m.ticker),
+    });
+  }
 
   if (result.ok && Array.isArray(result.data)) {
     const byGeckoId = new Map(result.data.map((coin) => [coin.id, coin]));
@@ -468,6 +490,13 @@ export async function fetchAssetPerformance(
     for (const { ticker, coingeckoId } of mapped) {
       const coin = byGeckoId.get(coingeckoId);
       if (!coin) {
+        if (process.env.NODE_ENV === "development") {
+          console.error("[CoinGecko][performance] missing coin in response", {
+            ticker,
+            coingeckoId,
+            returnedIds: result.data.map((c) => c.id),
+          });
+        }
         liveSlice[ticker] = {
           ticker,
           coingeckoId,
@@ -480,21 +509,31 @@ export async function fetchAssetPerformance(
         continue;
       }
 
+      const priceUsd = asFiniteNumber(coin.current_price);
       const change24h =
-        coin.price_change_percentage_24h_in_currency ??
-        coin.price_change_percentage_24h ??
-        null;
-      const change7d = coin.price_change_percentage_7d_in_currency ?? null;
-      const change30d = coin.price_change_percentage_30d_in_currency ?? null;
+        asFiniteNumber(coin.price_change_percentage_24h_in_currency) ??
+        asFiniteNumber(coin.price_change_percentage_24h);
+      const change7d =
+        asFiniteNumber(coin.price_change_percentage_7d_in_currency) ??
+        asFiniteNumber(coin.price_change_percentage_7d);
+      const change30d =
+        asFiniteNumber(coin.price_change_percentage_30d_in_currency) ??
+        asFiniteNumber(coin.price_change_percentage_30d);
+
+      const hasAny =
+        priceUsd != null ||
+        change24h != null ||
+        change7d != null ||
+        change30d != null;
 
       liveSlice[ticker] = {
         ticker,
         coingeckoId,
-        priceUsd: coin.current_price ?? null,
+        priceUsd,
         change24hPercent: change24h,
         change7dPercent: change7d,
         change30dPercent: change30d,
-        status: "live",
+        status: hasAny ? "live" : "unavailable",
       };
     }
 
