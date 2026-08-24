@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { DashboardSectionHeading } from "@/components/dashboard/DashboardSectionHeading";
+import { NavIcon } from "@/components/shell/NavIcons";
 import { APP_ROUTES } from "@/lib/routes";
 
 export function MarketplaceHeroSection() {
@@ -30,14 +31,26 @@ export function MarketplaceHeroSection() {
           </p>
         </div>
 
-        <div className="flex shrink-0 flex-col gap-0.5 sm:items-end">
+        <div className="flex shrink-0 flex-col gap-1.5 sm:items-end sm:self-center">
           <Link
             href={APP_ROUTES.create}
-            className="app-gradient-btn inline-flex h-7 items-center justify-center rounded-[7px] px-2.5 text-[10px] font-bold"
+            className="group relative inline-flex w-full min-w-[220px] flex-col overflow-hidden rounded-[12px] border border-app-brand/35 bg-gradient-to-br from-app-elevated via-app-panel to-app-elevated p-[1px] shadow-[0_12px_32px_-18px_rgba(37,99,235,0.55)] transition hover:border-app-brand/55 hover:shadow-[0_14px_36px_-16px_rgba(37,99,235,0.65)] sm:w-auto"
           >
-            Create Portfolio / Index
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--color-brand-grad-from)] to-transparent opacity-80"
+            />
+            <span className="app-gradient-btn relative inline-flex min-h-[42px] items-center justify-center gap-2 rounded-[11px] px-4 py-2.5 text-white">
+              <NavIcon
+                name="Create Portfolio / Index"
+                className="h-4 w-4 shrink-0 opacity-95"
+              />
+              <span className="text-[12px] font-bold leading-none tracking-[0.02em] sm:text-[13px]">
+                Create Portfolio / Index
+              </span>
+            </span>
           </Link>
-          <p className="text-[8px] text-app-dim sm:text-right">
+          <p className="max-w-[240px] text-[9px] leading-snug text-app-dim sm:text-right">
             Browse without connecting a wallet.
           </p>
         </div>
