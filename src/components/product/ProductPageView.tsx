@@ -103,11 +103,11 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
             {showIllustrative ? <IllustrativeBadge compact /> : null}
           </div>
 
-          <div className="mt-1 flex flex-col gap-1.5 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
-            <div className="min-w-0 flex-1">
+          <div className="mt-1">
+            <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
               <div
                 className={[
-                  "w-full rounded-[10px] px-3 py-1 sm:px-3.5 sm:py-1.5",
+                  "min-w-0 flex-1 rounded-[10px] px-3 py-1 sm:px-3.5 sm:py-1.5",
                   PRODUCT_NAME_BOX_CLASS,
                 ].join(" ")}
                 style={productNameBoxStyle(typeStyle)}
@@ -116,55 +116,56 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
                   {product.name}
                 </h1>
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-app-dim">
-                    Creator
-                  </span>
-                  <ProductCreatorLine
-                    creatorName={product.creatorName}
-                    creatorHandle={product.creatorHandle}
-                  />
-                </div>
-                {!official ? (
-                  <Link
-                    href={APP_ROUTES.creatorProfile(product.creatorHandle)}
-                    className="text-[11px] font-semibold text-app-brand hover:underline"
-                  >
-                    Profile →
-                  </Link>
-                ) : null}
+
+              <div className="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-4 lg:w-auto lg:min-w-[460px] lg:shrink-0">
+                <MetricTile
+                  label="30D"
+                  value={formatPercent(product.performance30d, true)}
+                  accent={
+                    positive ? "var(--color-success)" : "var(--color-danger)"
+                  }
+                  valueClass={positive ? "text-app-success" : "text-app-danger"}
+                />
+                <MetricTile
+                  label="AUM"
+                  value={formatUsd(product.aumUsd, true)}
+                  accent="var(--color-accent-blue)"
+                />
+                <MetricTile
+                  label="Volume"
+                  value={formatUsd(product.volumeUsd, true)}
+                  accent="var(--color-accent-violet)"
+                />
+                <MetricTile
+                  label="Investors"
+                  value={String(product.investors)}
+                  accent="var(--color-accent-cyan)"
+                />
               </div>
-              <p className="mt-0.5 line-clamp-1 max-w-3xl text-[11px] leading-snug text-app-muted sm:text-[12px]">
-                {product.description}
-              </p>
             </div>
 
-            <div className="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-4 lg:w-auto lg:min-w-[460px] lg:shrink-0">
-              <MetricTile
-                label="30D"
-                value={formatPercent(product.performance30d, true)}
-                accent={
-                  positive ? "var(--color-success)" : "var(--color-danger)"
-                }
-                valueClass={positive ? "text-app-success" : "text-app-danger"}
-              />
-              <MetricTile
-                label="AUM"
-                value={formatUsd(product.aumUsd, true)}
-                accent="var(--color-accent-blue)"
-              />
-              <MetricTile
-                label="Volume"
-                value={formatUsd(product.volumeUsd, true)}
-                accent="var(--color-accent-violet)"
-              />
-              <MetricTile
-                label="Investors"
-                value={String(product.investors)}
-                accent="var(--color-accent-cyan)"
-              />
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-app-dim">
+                  Creator
+                </span>
+                <ProductCreatorLine
+                  creatorName={product.creatorName}
+                  creatorHandle={product.creatorHandle}
+                />
+              </div>
+              {!official ? (
+                <Link
+                  href={APP_ROUTES.creatorProfile(product.creatorHandle)}
+                  className="text-[11px] font-semibold text-app-brand hover:underline"
+                >
+                  Profile →
+                </Link>
+              ) : null}
             </div>
+            <p className="mt-0.5 line-clamp-1 max-w-3xl text-[11px] leading-snug text-app-muted sm:text-[12px]">
+              {product.description}
+            </p>
           </div>
         </div>
       </section>
