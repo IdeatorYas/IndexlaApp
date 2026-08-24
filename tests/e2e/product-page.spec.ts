@@ -9,8 +9,9 @@ test.describe("Product page flow", () => {
       .first()
       .click();
     await expect(page).toHaveURL(/\/app\/product\//);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Holdings" }),
+      page.getByRole("heading", { name: "Portfolio Allocation" }),
     ).toBeVisible();
     await expect(page.getByText("100% Allocated")).toBeVisible();
     await expect(page.getByText("24H · 7D · 30D")).toBeVisible();
