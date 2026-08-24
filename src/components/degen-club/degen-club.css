@@ -22,9 +22,10 @@
 
   position: relative;
   margin: -1rem -0.75rem;
-  padding: 1rem 0.75rem 2.5rem;
+  padding: 0.65rem 0.75rem 2rem;
   min-height: calc(100vh - 4rem);
   color: var(--degen-ink);
+  position: relative;
   background:
     radial-gradient(ellipse 80% 50% at 50% -10%, rgba(168, 85, 247, 0.22), transparent 55%),
     radial-gradient(ellipse 60% 40% at 100% 20%, rgba(255, 0, 170, 0.12), transparent 50%),
@@ -475,6 +476,220 @@
 @media (max-width: 640px) {
   .degen-hub {
     margin: -0.75rem -0.5rem;
-    padding: 0.75rem 0.5rem 2rem;
+    padding: 0.5rem 0.5rem 2rem;
+  }
+}
+
+/* ── Light theme ── */
+[data-theme="light"] .degen-hub {
+  --degen-bg: #f6f2ff;
+  --degen-bg-soft: #ede8f8;
+  --degen-panel: rgba(255, 255, 255, 0.92);
+  --degen-panel-border: rgba(124, 58, 237, 0.22);
+  --degen-ink: #1a0f2e;
+  --degen-muted: rgba(60, 40, 90, 0.65);
+  --color-bg-elevated: #ffffff;
+  --color-ink: #1a0f2e;
+  --color-muted: rgba(60, 40, 90, 0.65);
+  --color-success: #059669;
+  --color-panel: rgba(124, 58, 237, 0.08);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(168, 85, 247, 0.12), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 20%, rgba(255, 0, 170, 0.06), transparent 50%),
+    var(--degen-bg);
+}
+
+[data-theme="light"] .degen-hub::before {
+  opacity: 0.35;
+}
+
+[data-theme="light"] .degen-card {
+  background: linear-gradient(160deg, #ffffff 0%, #f3edff 100%);
+}
+
+[data-theme="light"] .degen-headline {
+  background: linear-gradient(120deg, #1a0f2e 0%, #059669 35%, #db2777 70%, #ca8a04 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+[data-theme="light"] .degen-btn-primary {
+  color: #0a0612;
+}
+
+/* ── Compact hero ── */
+.degen-hero-compact {
+  padding-top: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
+}
+
+.degen-headline-compact {
+  font-size: clamp(1.35rem, 3.2vw, 2rem);
+}
+
+.degen-subheadline-compact {
+  font-size: clamp(0.875rem, 1.8vw, 1.05rem);
+}
+
+.degen-shots-wrap {
+  max-width: 100%;
+}
+
+.degen-shots-tagline {
+  font-size: clamp(0.95rem, 2vw, 1.15rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.degen-shots-panel {
+  border-radius: 14px;
+  border: 1px solid var(--degen-panel-border);
+  background: var(--degen-bg-soft);
+  box-shadow: inset 0 0 32px rgba(168, 85, 247, 0.06);
+}
+
+.degen-single-coin {
+  animation: degen-float 2.8s ease-in-out infinite;
+}
+
+.degen-portfolio-coin {
+  animation: degen-fade-in 0.5s ease-out backwards;
+}
+
+.degen-reticle-pulse {
+  animation: degen-reticle-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes degen-reticle-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+@keyframes degen-fade-in {
+  from { opacity: 0; transform: scale(0.88); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ── Chain category tiles ── */
+.degen-chain-cat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 14px;
+  border: 1px solid var(--degen-panel-border);
+  background: var(--degen-bg-soft);
+  padding: 0.75rem 0.5rem;
+  transition: all 0.15s ease;
+  color: var(--degen-muted);
+}
+
+.degen-chain-cat:hover {
+  border-color: rgba(168, 85, 247, 0.45);
+  color: var(--degen-ink);
+}
+
+.degen-chain-cat-active {
+  border-color: rgba(57, 255, 20, 0.45);
+  background: rgba(57, 255, 20, 0.08);
+  color: var(--degen-neon-green);
+  box-shadow: 0 0 20px rgba(57, 255, 20, 0.15);
+}
+
+.degen-chain-cat-icon {
+  display: flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--degen-panel-border);
+  background: var(--degen-panel);
+}
+
+.degen-chain-cat-label {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.degen-tab-lg {
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ── Multi-chain banner ── */
+.degen-multichain-banner {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 215, 0, 0.1),
+    rgba(255, 0, 170, 0.06)
+  );
+  padding: 0.85rem 1rem;
+  box-shadow: 0 0 24px rgba(255, 215, 0, 0.12);
+}
+
+.degen-stale-banner {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  background: rgba(255, 215, 0, 0.08);
+  padding: 0.65rem 0.85rem;
+  font-size: 0.75rem;
+  color: var(--degen-neon-gold);
+}
+
+/* ── Product detail page ── */
+.degen-detail-hero {
+  border-radius: 16px;
+  border: 1px solid var(--degen-panel-border);
+  background: var(--degen-panel);
+  padding: 1rem;
+  box-shadow: 0 0 40px rgba(168, 85, 247, 0.1);
+}
+
+.degen-detail-title {
+  font-size: clamp(1.25rem, 3vw, 1.75rem);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--degen-ink);
+}
+
+.degen-detail-section {
+  border-radius: 14px;
+  border: 1px solid var(--degen-panel-border);
+  background: var(--degen-panel);
+  padding: 1rem;
+}
+
+.degen-detail-metric {
+  border-radius: 10px;
+  border: 1px solid var(--degen-panel-border);
+  background: var(--degen-bg-soft);
+  padding: 0.5rem 0.65rem;
+}
+
+.degen-detail-actions {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  gap: 0.65rem;
+  border-top: 1px solid var(--degen-panel-border);
+  background: color-mix(in srgb, var(--degen-panel) 92%, transparent);
+  padding: 0.65rem 0.75rem;
+  backdrop-filter: blur(10px);
+}
+
+@media (min-width: 1024px) {
+  .degen-detail-actions {
+    position: static;
+    border-radius: 14px;
+    border: 1px solid var(--degen-panel-border);
+    padding: 0.85rem;
   }
 }

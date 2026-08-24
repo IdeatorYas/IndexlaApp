@@ -64,7 +64,7 @@ function buildProduct(
     allocations: equalAllocations(assetKeys),
     chartSeries: series(chartBase, chartDrift),
     activity: activity(rest.id, activityRows),
-    href: `${APP_ROUTES.degenClub}?id=${rest.id}`,
+    href: APP_ROUTES.degenProduct(rest.id),
     isIllustrative: true,
   };
 }
@@ -408,17 +408,16 @@ export const DEGEN_CHAIN_FILTERS: {
   label: string;
   networkId: NetworkId;
 }[] = [
-  { id: "solana", label: "Solana", networkId: "solana" },
   { id: "ethereum", label: "Ethereum", networkId: "ethereum" },
-  { id: "bnb", label: "BNB", networkId: "bnb" },
+  { id: "solana", label: "Solana", networkId: "solana" },
   { id: "base", label: "Base", networkId: "base" },
+  { id: "bnb", label: "BNB Chain", networkId: "bnb" },
 ];
 
 export const DEGEN_MARKET_TABS: {
   id: import("@/lib/domain/degen-club").DegenMarketTab;
   label: string;
 }[] = [
-  { id: "all", label: "All" },
-  { id: "indexes", label: "Memecoin Indexes" },
-  { id: "portfolios", label: "Memecoin Portfolios" },
+  { id: "indexes", label: "Indexes" },
+  { id: "portfolios", label: "Portfolios" },
 ];

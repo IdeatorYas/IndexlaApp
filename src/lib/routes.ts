@@ -5,6 +5,7 @@ export const APP_ROUTES = {
   dashboard: "/app",
   discover: "/app/discover",
   degenClub: "/app/degen-club",
+  degenProduct: (id: string) => `/app/degen-club/product/${id}`,
   create: "/app/create",
   portfolio: "/app/portfolio",
   strategies: "/app/strategies",

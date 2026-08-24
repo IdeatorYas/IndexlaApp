@@ -12,7 +12,7 @@ export type DegenDiscoverFilter =
   | "bnb"
   | "multi-chain";
 
-export type DegenMarketTab = "all" | "indexes" | "portfolios";
+export type DegenMarketTab = "indexes" | "portfolios";
 
 export type DegenChainLabel =
   | "Solana"

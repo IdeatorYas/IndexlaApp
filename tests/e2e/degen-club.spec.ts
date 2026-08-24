@@ -13,16 +13,15 @@ test.describe("Degen Club", () => {
       page.getByText(/Extreme Risk — Memecoins are highly volatile/),
     ).toBeVisible();
     await expect(
-      page.getByText("Stop Betting Everything On One Coin."),
-    ).toBeVisible();
-    await expect(
       page.getByRole("button", { name: "Discover Indexes" }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Build Your Basket" }),
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Marketplace" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "View Product" })).toHaveCount(7);
+    await page.locator("#degen-marketplace").scrollIntoViewIfNeeded();
+    await expect(page.getByRole("tab", { name: "Indexes" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "View Details" })).toHaveCount(4);
     await expect(page.getByText("Illustrative").first()).toBeVisible();
   });
 
@@ -49,17 +48,15 @@ test.describe("Degen Club", () => {
     ).toBeVisible({ timeout: 15_000 });
   });
 
-  test("product detail shows warning and invest confirmation", async ({
+  test("product detail page shows warning and invest confirmation", async ({
     page,
   }) => {
-    await page.goto(`${APP_ROUTES.degenClub}?id=solana-memecoin-index`);
+    await page.goto(APP_ROUTES.degenProduct("solana-memecoin-index"));
     await expect(
-      page.getByRole("heading", { name: "The New Way To Play Memecoins." }),
+      page.getByRole("heading", { name: "Solana Memecoin Index", level: 1 }),
     ).toBeVisible({ timeout: 20_000 });
-    await expect(
-      page.getByRole("heading", { name: "Solana Memecoin Index", level: 2 }),
-    ).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText("Rebalance rules")).toBeVisible();
+    await expect(page.getByText("Rules & Strategy")).toBeVisible();
+    await page.getByRole("banner").getByRole("button", { name: "Connect Wallet" }).click();
     await page.getByRole("button", { name: "Invest" }).click();
     await expect(
       page.getByRole("heading", { name: "Investment confirmation" }),
@@ -67,11 +64,22 @@ test.describe("Degen Club", () => {
     await expect(
       page.getByRole("button", { name: "Confirm Invest Preview" }),
     ).toBeDisabled();
-    await page.getByRole("dialog").getByRole("button", { name: "Connect Wallet" }).click();
     await page
       .getByLabel(/I understand and acknowledge this extreme risk/)
       .check();
     await page.getByRole("button", { name: "Confirm Invest Preview" }).click();
     await expect(page.getByText(/preview only/i)).toBeVisible();
+  });
+
+  test("portfolios tab shows multi-chain banner and three products", async ({
+    page,
+  }) => {
+    await page.goto(APP_ROUTES.degenClub);
+    await expect(
+      page.getByRole("heading", { name: "The New Way To Play Memecoins." }),
+    ).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("tab", { name: "Portfolios" }).click();
+    await expect(page.getByText("Multi-Chain Memecoins")).toBeVisible();
+    await expect(page.getByRole("link", { name: "View Details" })).toHaveCount(3);
   });
 });
