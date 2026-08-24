@@ -11,7 +11,6 @@ import { StepReviewConfirm } from "@/components/create/StepReviewConfirm";
 import { StepStrategyAutomation } from "@/components/create/StepStrategyAutomation";
 import { useCreateDraft } from "@/components/create/useCreateDraft";
 import {
-  INDEX_CATEGORIES,
   allocationTotal,
   createEmptyDraft,
   wizardStepsFor,
@@ -29,9 +28,7 @@ export function CreateWizard() {
 
   const steps = wizardStepsFor(draft.productType);
   const stepIndex = steps.indexOf(draft.step);
-  const isDegenTemplate =
-    draft.categoryId === "memecoins" ||
-    searchParams.get("template") === "degen";
+  const isDegenTemplate = searchParams.get("template") === "degen";
 
   useEffect(() => {
     if (!hydrated || templateApplied.current) return;
@@ -40,7 +37,8 @@ export function CreateWizard() {
     const next = {
       ...createEmptyDraft(),
       productType: "index" as const,
-      categoryId: "memecoins" as const,
+      categoryId: "other" as const,
+      otherCategoryId: "meme-token",
       step: "assets" as const,
       name: "My Degen Index",
       thesis:
@@ -76,15 +74,14 @@ export function CreateWizard() {
           draft.investmentUsd > 0
         );
       case "review": {
-        const degen = INDEX_CATEGORIES.find(
-          (c) => c.id === draft.categoryId,
-        )?.isDegen;
+        const degen =
+          isDegenTemplate || draft.otherCategoryId === "meme-token";
         return !degen || draft.degenAcknowledged;
       }
       default:
         return false;
     }
-  }, [draft]);
+  }, [draft, isDegenTemplate]);
 
   function goNext() {
     const idx = steps.indexOf(draft.step);
@@ -144,9 +141,7 @@ export function CreateWizard() {
         <p className="text-[11px] text-app-dim">
           Draft autosaved locally · step {Math.max(1, stepIndex + 1)} of{" "}
           {steps.length}
-          {draft.categoryId === "memecoins"
-            ? " · Degen Index template"
-            : ""}
+          {isDegenTemplate ? " · Degen Index template" : ""}
         </p>
       </header>
 

@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   INDEX_CATEGORIES,
+  buildIndexOtherCategories,
   type CreateDraft,
   type IndexNarrativeCategory,
 } from "@/lib/domain/create";
-import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
 
 type CgCategory = { category_id: string; name: string };
 
@@ -51,6 +51,11 @@ export function StepIndexCategory({
     };
   }, [draft.categoryId]);
 
+  const othersList = useMemo(
+    () => buildIndexOtherCategories(otherCats),
+    [otherCats],
+  );
+
   return (
     <section className="space-y-4">
       <div>
@@ -74,33 +79,20 @@ export function StepIndexCategory({
               draft.categoryId === cat.id ? "ring-2 ring-app-brand" : "",
             ].join(" ")}
           >
-            <div className="flex items-center gap-2">
-              <p className="font-bold text-app-ink">{cat.label}</p>
-              {cat.isDegen ? (
-                <span className="rounded bg-app-danger/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-app-danger">
-                  Extreme risk
-                </span>
-              ) : null}
-            </div>
+            <p className="font-bold text-app-ink">{cat.label}</p>
             <p className="mt-1 text-xs text-app-muted">{cat.description}</p>
           </button>
         ))}
       </div>
 
-      {draft.categoryId === "memecoins" ? (
-        <div
-          className="rounded-[10px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
-          role="alert"
-        >
-          {DEGEN_RISK_WARNING}
-        </div>
-      ) : null}
-
       {draft.categoryId === "other" ? (
         <div className="app-panel p-4">
-          <h3 className="text-sm font-bold text-app-ink">
-            Other CoinGecko categories
-          </h3>
+          <h3 className="text-sm font-bold text-app-ink">Others</h3>
+          <p className="mt-1 text-xs text-app-muted">
+            Liquid Staking, Restaking, Privacy, Interoperability, Modular
+            Blockchain, DEX, and NFT appear first. Memecoins stay in Degen
+            Club only.
+          </p>
           {loadState === "loading" ? (
             <p className="mt-2 text-sm text-app-dim">Loading categories…</p>
           ) : null}
@@ -114,11 +106,11 @@ export function StepIndexCategory({
               Categories unavailable. {reason}
             </p>
           ) : null}
-          {loadState === "ready" && otherCats.length === 0 ? (
+          {loadState === "ready" && othersList.length === 0 ? (
             <p className="mt-2 text-sm text-app-dim">No categories returned.</p>
           ) : null}
           <div className="mt-3 flex max-h-56 flex-wrap gap-1.5 overflow-y-auto">
-            {otherCats.slice(0, 80).map((cat) => (
+            {othersList.slice(0, 80).map((cat) => (
               <button
                 key={cat.category_id}
                 type="button"

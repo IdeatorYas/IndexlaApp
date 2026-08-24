@@ -30,7 +30,8 @@ export function StepReviewConfirm({
   const [riskAcknowledged, setRiskAcknowledged] = useState(false);
 
   const category = INDEX_CATEGORIES.find((c) => c.id === draft.categoryId);
-  const isDegen = Boolean(category?.isDegen);
+  const isDegen =
+    Boolean(category?.isDegen) || draft.otherCategoryId === "meme-token";
   const byId = new Map(assets.map((a) => [a.id, a]));
   const networks = [
     ...new Set(

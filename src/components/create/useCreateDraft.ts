@@ -6,7 +6,39 @@ import {
   createEmptyDraft,
   type CreateDraft,
   type CreateWizardStep,
+  type IndexNarrativeCategory,
 } from "@/lib/domain/create";
+
+const VALID_CATEGORIES = new Set<IndexNarrativeCategory>([
+  "rwa",
+  "defi",
+  "depin",
+  "ai",
+  "layer-1",
+  "layer-2",
+  "gaming",
+  "oracles",
+  "ai-agents",
+  "other",
+]);
+
+function normalizeStoredDraft(parsed: CreateDraft): CreateDraft {
+  // Legacy Index Builder memecoins → Degen Club-only meme narrative via Others id.
+  if ((parsed.categoryId as string) === "memecoins") {
+    return {
+      ...parsed,
+      categoryId: "other",
+      otherCategoryId: parsed.otherCategoryId ?? "meme-token",
+    };
+  }
+  if (
+    parsed.categoryId != null &&
+    !VALID_CATEGORIES.has(parsed.categoryId)
+  ) {
+    return { ...parsed, categoryId: null, otherCategoryId: null };
+  }
+  return parsed;
+}
 
 export function useCreateDraft() {
   const [draft, setDraft] = useState<CreateDraft>(() => createEmptyDraft());
@@ -18,7 +50,7 @@ export function useCreateDraft() {
       if (raw) {
         const parsed = JSON.parse(raw) as CreateDraft;
         if (parsed?.version === 1) {
-          setDraft(parsed);
+          setDraft(normalizeStoredDraft(parsed));
         }
       }
     } catch {

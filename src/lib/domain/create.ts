@@ -33,14 +33,15 @@ export type CreateWizardStep =
   | "review";
 
 export type IndexNarrativeCategory =
-  | "ai"
+  | "rwa"
   | "defi"
   | "depin"
+  | "ai"
   | "layer-1"
   | "layer-2"
-  | "memecoins"
   | "gaming"
-  | "rwa"
+  | "oracles"
+  | "ai-agents"
   | "other";
 
 export interface CreateCategoryOption {
@@ -118,10 +119,10 @@ export const CREATE_DRAFT_STORAGE_KEY = "indexla.create.draft.v1";
 
 export const INDEX_CATEGORIES: CreateCategoryOption[] = [
   {
-    id: "ai",
-    label: "AI",
-    description: "Artificial intelligence and compute narratives.",
-    coingeckoCategoryId: "artificial-intelligence",
+    id: "rwa",
+    label: "RWA",
+    description: "Real-world asset linked crypto tokens.",
+    coingeckoCategoryId: "real-world-assets-rwa",
     isDegen: false,
   },
   {
@@ -139,6 +140,13 @@ export const INDEX_CATEGORIES: CreateCategoryOption[] = [
     isDegen: false,
   },
   {
+    id: "ai",
+    label: "AI",
+    description: "Artificial intelligence and compute narratives.",
+    coingeckoCategoryId: "artificial-intelligence",
+    isDegen: false,
+  },
+  {
     id: "layer-1",
     label: "Layer 1",
     description: "Base-layer blockchain networks.",
@@ -153,13 +161,6 @@ export const INDEX_CATEGORIES: CreateCategoryOption[] = [
     isDegen: false,
   },
   {
-    id: "memecoins",
-    label: "Memecoins",
-    description: "High-speculation meme narratives — extreme risk.",
-    coingeckoCategoryId: "meme-token",
-    isDegen: true,
-  },
-  {
     id: "gaming",
     label: "Gaming",
     description: "Gaming, metaverse and entertainment tokens.",
@@ -167,20 +168,83 @@ export const INDEX_CATEGORIES: CreateCategoryOption[] = [
     isDegen: false,
   },
   {
-    id: "rwa",
-    label: "RWA",
-    description: "Real-world asset linked crypto tokens.",
-    coingeckoCategoryId: "real-world-assets-rwa",
+    id: "oracles",
+    label: "Oracles",
+    description: "Oracle networks and data infrastructure.",
+    coingeckoCategoryId: "oracle",
+    isDegen: false,
+  },
+  {
+    id: "ai-agents",
+    label: "AI Agents",
+    description: "Autonomous AI agent tokens and platforms.",
+    coingeckoCategoryId: "ai-agents",
     isDegen: false,
   },
   {
     id: "other",
-    label: "Other CoinGecko categories",
-    description: "Browse additional CoinGecko narrative categories.",
+    label: "Others",
+    description:
+      "Liquid Staking, Restaking, Privacy, Interoperability, Modular Blockchain, DEX, NFT, and more.",
     coingeckoCategoryId: null,
     isDegen: false,
   },
 ];
+
+/** Shown first under Others in the Index Builder. */
+export const INDEX_OTHER_PINNED_CATEGORIES: {
+  category_id: string;
+  name: string;
+}[] = [
+  { category_id: "liquid-staking", name: "Liquid Staking" },
+  { category_id: "restaking", name: "Restaking" },
+  { category_id: "privacy", name: "Privacy" },
+  { category_id: "interoperability", name: "Interoperability" },
+  { category_id: "modular-blockchain", name: "Modular Blockchain" },
+  { category_id: "decentralized-exchange", name: "DEX" },
+  { category_id: "non-fungible-tokens-nft", name: "NFT" },
+];
+
+const MAIN_COINGECKO_CATEGORY_IDS = new Set(
+  INDEX_CATEGORIES.map((c) => c.coingeckoCategoryId).filter(
+    (id): id is string => Boolean(id),
+  ),
+);
+
+const PINNED_OTHER_IDS = new Set(
+  INDEX_OTHER_PINNED_CATEGORIES.map((c) => c.category_id),
+);
+
+function isMemeCoinGeckoCategory(categoryId: string, name: string): boolean {
+  const hay = `${categoryId} ${name}`.toLowerCase();
+  return (
+    hay.includes("meme") ||
+    categoryId === "meme-token" ||
+    categoryId.startsWith("meme")
+  );
+}
+
+/**
+ * Others list for Index Builder: pinned narratives first, then remaining
+ * CoinGecko categories (excluding main tiles and memecoins / Degen Club).
+ */
+export function buildIndexOtherCategories(
+  all: { category_id: string; name: string }[],
+): { category_id: string; name: string }[] {
+  const byId = new Map(all.map((c) => [c.category_id, c]));
+  const pinned = INDEX_OTHER_PINNED_CATEGORIES.map(
+    (p) => byId.get(p.category_id) ?? p,
+  );
+  const rest = all
+    .filter(
+      (c) =>
+        !MAIN_COINGECKO_CATEGORY_IDS.has(c.category_id) &&
+        !PINNED_OTHER_IDS.has(c.category_id) &&
+        !isMemeCoinGeckoCategory(c.category_id, c.name),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return [...pinned, ...rest];
+}
 
 export function defaultStrategyConfig(): CreateStrategyConfig {
   return {

@@ -42,6 +42,8 @@ export function StepAssetsAllocations({
   const [reason, setReason] = useState<string | null>(null);
 
   const categoryMeta = INDEX_CATEGORIES.find((c) => c.id === draft.categoryId);
+  const isDegenCategory =
+    Boolean(categoryMeta?.isDegen) || draft.otherCategoryId === "meme-token";
   const narrative =
     draft.productType === "index" ? draft.categoryId : null;
   const otherCategory =
@@ -151,7 +153,7 @@ export function StepAssetsAllocations({
         </p>
       </div>
 
-      {categoryMeta?.isDegen ? (
+      {isDegenCategory ? (
         <div
           className="rounded-[10px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
           role="alert"
