@@ -1,7 +1,15 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import { CreateAllocationDonut } from "@/components/create/CreateAllocationDonut";
+import {
+  createCardClass,
+  createInputClass,
+  createSectionSubClass,
+  createSectionTitleClass,
+  createSelectClass,
+} from "@/components/create/createUi";
+import { AssetIcon } from "@/components/ui/AssetIcons";
 import {
   INDEX_CATEGORIES,
   allocationTotal,
@@ -12,8 +20,8 @@ import {
   type MarketAsset,
 } from "@/lib/domain/create";
 import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
-import { AllocationDonut } from "@/components/ui/AllocationDonut";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
+import { getAssetDonutColor } from "@/lib/fixtures/asset-registry";
 
 type AssetTypeFilter = "all" | MarketAsset["assetType"];
 
@@ -23,6 +31,14 @@ const SUPPORT_LABEL: Record<MarketAsset["supportStatus"], string> = {
   "coming-soon": "Coming Soon",
   "unsupported-network": "Unsupported Network",
 };
+
+function logoKey(asset: Pick<MarketAsset, "id" | "symbol">) {
+  return (asset.symbol || asset.id).trim() || asset.id;
+}
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
 
 export function StepAssetsAllocations({
   draft,
@@ -94,26 +110,25 @@ export function StepAssetsAllocations({
   }, [assets, assetType]);
 
   const selectedMap = useMemo(() => {
-    const map = new Map(draft.allocations.map((r) => [r.assetId, r.percent]));
-    return map;
+    return new Map(draft.allocations.map((r) => [r.assetId, r.percent]));
   }, [draft.allocations]);
 
   const selectedAssets = useMemo(() => {
-    return draft.allocations
-      .map((row) => {
-        const asset =
-          assets.find((a) => a.id === row.assetId) ||
-          ({
-            id: row.assetId,
-            name: row.assetId,
-            symbol: row.assetId,
-            imageUrl: null,
-          } as MarketAsset);
-        return { ...row, asset };
-      });
+    return draft.allocations.map((row) => {
+      const asset =
+        assets.find((a) => a.id === row.assetId) ||
+        ({
+          id: row.assetId,
+          name: row.assetId,
+          symbol: row.assetId,
+          imageUrl: null,
+        } as MarketAsset);
+      return { ...row, asset };
+    });
   }, [draft.allocations, assets]);
 
   const total = allocationTotal(draft.allocations);
+  const exact = Math.abs(total - 100) < 0.005;
 
   function toggleAsset(asset: MarketAsset) {
     const exists = draft.allocations.some((r) => r.assetId === asset.id);
@@ -127,35 +142,65 @@ export function StepAssetsAllocations({
     onChangeAllocations(equalAllocate(nextIds));
   }
 
+  /** Clamp 0–100 and keep combined total ≤ 100. */
   function setPercent(assetId: string, percent: number) {
+    const others = draft.allocations
+      .filter((r) => r.assetId !== assetId)
+      .reduce((sum, r) => sum + r.percent, 0);
+    const maxAllowed = round2(Math.max(0, 100 - others));
+    const next = round2(Math.max(0, Math.min(100, percent, maxAllowed)));
     onChangeAllocations(
       draft.allocations.map((row) =>
-        row.assetId === assetId
-          ? { ...row, percent: Math.max(0, Math.min(100, percent)) }
-          : row,
+        row.assetId === assetId ? { ...row, percent: next } : row,
       ),
     );
   }
 
+  const donutSegments = selectedAssets.map((row) => ({
+    assetKey: logoKey(row.asset),
+    label: row.asset.symbol || row.asset.name,
+    percent: row.percent,
+  }));
+
   return (
     <section className="space-y-4">
-      <div>
-        <h2 className="app-display text-xl font-bold text-app-ink">
-          Assets & Allocations
-        </h2>
-        <p className="mt-1 text-sm text-app-muted">
-          {draft.productType === "index"
-            ? `Showing assets for ${categoryMeta?.label ?? "selected"} narrative.`
-            : "Search the full supported catalog across categories and networks."}
-        </p>
-        <p className="mt-1 text-[11px] text-app-dim">
-          CoinGecko-listed does not automatically mean INDEXLA-supported.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className={createSectionTitleClass}>Assets & Allocations</h2>
+          <p className={createSectionSubClass}>
+            {draft.productType === "index"
+              ? `Showing assets for ${categoryMeta?.label ?? "selected"} narrative.`
+              : "Search the full supported catalog across categories and networks."}
+          </p>
+          <p className="mt-1 text-[11px] text-app-dim">
+            CoinGecko-listed does not automatically mean INDEXLA-supported.
+          </p>
+        </div>
+        <div
+          className={[
+            "rounded-[12px] border px-3.5 py-2 text-right",
+            exact
+              ? "border-app-success/40 bg-app-success/10"
+              : "border-app-danger/35 bg-app-danger/10",
+          ].join(" ")}
+        >
+          <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-app-dim">
+            Live total
+          </p>
+          <p
+            className={[
+              "app-display text-xl font-bold tabular-nums",
+              exact ? "text-app-success" : "text-app-danger",
+            ].join(" ")}
+          >
+            {total.toFixed(2)}%
+          </p>
+        </div>
       </div>
 
       {isDegenCategory ? (
         <div
-          className="rounded-[10px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
+          className="rounded-[12px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
           role="alert"
         >
           {DEGEN_RISK_WARNING}
@@ -184,24 +229,23 @@ export function StepAssetsAllocations({
           }
         />
         {stale ? <StatusChip label="Stale data" tone="warn" /> : null}
-        {reason ? (
-          <span className="text-app-dim">{reason}</span>
-        ) : null}
+        {reason ? <span className="text-app-dim">{reason}</span> : null}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.4fr_0.8fr]">
-        <div className="space-y-3">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.95fr)]">
+        {/* Catalog */}
+        <div className={`${createCardClass} flex min-h-0 flex-col p-3 sm:p-4`}>
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search name, symbol or contract"
-              className="h-10 flex-1 rounded-[10px] border border-app-line bg-app-elevated px-3 text-sm text-app-ink outline-none focus:ring-2 focus:ring-app-brand/30"
+              className={`${createInputClass} flex-1`}
             />
             <select
               value={network}
               onChange={(e) => setNetwork(e.target.value)}
-              className="h-10 rounded-[10px] border border-app-line bg-app-elevated px-3 text-sm font-semibold text-app-ink"
+              className={createSelectClass}
             >
               <option value="all">All networks</option>
               <option value="ethereum">Ethereum</option>
@@ -214,7 +258,7 @@ export function StepAssetsAllocations({
             <select
               value={assetType}
               onChange={(e) => setAssetType(e.target.value as AssetTypeFilter)}
-              className="h-10 rounded-[10px] border border-app-line bg-app-elevated px-3 text-sm font-semibold text-app-ink"
+              className={createSelectClass}
             >
               <option value="all">All types</option>
               <option value="crypto">Crypto</option>
@@ -226,178 +270,219 @@ export function StepAssetsAllocations({
             </select>
           </div>
 
-          {availability === "loading" ? (
-            <div className="app-panel animate-pulse p-6 text-sm text-app-dim">
-              Loading assets…
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="app-panel p-6 text-sm text-app-muted">
-              No assets match. Try another search or clear filters.
-            </div>
-          ) : (
-            <ul className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
-              {filtered.map((asset) => {
-                const selected = selectedMap.has(asset.id);
-                const change = asset.change24hPercent ?? 0;
-                return (
-                  <li key={asset.id}>
-                    <button
-                      type="button"
-                      onClick={() => toggleAsset(asset)}
-                      className={[
-                        "flex w-full items-center gap-3 rounded-[10px] border px-3 py-2.5 text-left",
-                        selected
-                          ? "border-app-brand/50 bg-app-soft"
-                          : "border-app-line bg-app-elevated hover:border-app-brand/30",
-                      ].join(" ")}
-                    >
-                      <AssetAvatar asset={asset} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <p className="truncate text-sm font-bold text-app-ink">
-                            {asset.name}
-                          </p>
-                          <span className="text-[10px] font-bold uppercase text-app-dim">
-                            {asset.symbol}
-                          </span>
-                          <span className="rounded bg-app-panel px-1.5 py-0.5 text-[9px] font-bold uppercase text-app-muted">
-                            {SUPPORT_LABEL[asset.supportStatus]}
-                          </span>
-                          {asset.isIllustrative ? (
-                            <span className="rounded bg-app-soft px-1.5 py-0.5 text-[9px] font-bold uppercase text-app-muted">
-                              Illustrative
+          <div className="mt-3 min-h-0 flex-1">
+            {availability === "loading" ? (
+              <div className="animate-pulse rounded-[12px] border border-app-line/50 bg-app-panel/50 p-8 text-sm text-app-dim">
+                Loading assets…
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="rounded-[12px] border border-app-line/50 bg-app-panel/40 p-8 text-sm text-app-muted">
+                No assets match. Try another search or clear filters.
+              </div>
+            ) : (
+              <ul className="max-h-[min(52vh,34rem)] space-y-2 overflow-y-auto pr-1">
+                {filtered.map((asset) => {
+                  const selected = selectedMap.has(asset.id);
+                  const change = asset.change24hPercent ?? 0;
+                  return (
+                    <li key={asset.id}>
+                      <button
+                        type="button"
+                        onClick={() => toggleAsset(asset)}
+                        className={[
+                          "flex w-full items-center gap-3 rounded-[12px] border px-3 py-2.5 text-left transition",
+                          selected
+                            ? "border-app-brand/45 bg-app-brand/[0.07] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-brand)_20%,transparent)]"
+                            : "border-app-line/70 bg-app-elevated/90 hover:border-app-brand/30",
+                        ].join(" ")}
+                      >
+                        <AssetIcon
+                          assetId={logoKey(asset)}
+                          size={36}
+                          variant="donut"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="truncate text-sm font-bold text-app-ink">
+                              {asset.name}
+                            </p>
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-app-dim">
+                              {asset.symbol}
                             </span>
-                          ) : null}
+                            <span className="rounded-md bg-app-panel px-1.5 py-0.5 text-[9px] font-bold uppercase text-app-muted">
+                              {SUPPORT_LABEL[asset.supportStatus]}
+                            </span>
+                            {asset.isIllustrative ? (
+                              <span className="rounded-md bg-app-soft px-1.5 py-0.5 text-[9px] font-bold uppercase text-app-muted">
+                                Illustrative
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-0.5 text-[11px] text-app-dim">
+                            {asset.networkIds.join(" · ")} · {asset.assetType}
+                          </p>
                         </div>
-                        <p className="mt-0.5 text-[11px] text-app-dim">
-                          {asset.networkIds.join(" · ")} · {asset.assetType}
+                        <div className="shrink-0 text-right text-[11px]">
+                          <p className="font-bold tabular-nums text-app-ink">
+                            {asset.priceUsd != null
+                              ? formatUsd(asset.priceUsd)
+                              : "—"}
+                          </p>
+                          <p
+                            className={
+                              change >= 0
+                                ? "text-app-success"
+                                : "text-app-danger"
+                            }
+                          >
+                            {formatPercent(change, true)}
+                          </p>
+                          <p className="text-app-dim">
+                            MC{" "}
+                            {asset.marketCapUsd != null
+                              ? formatUsd(asset.marketCapUsd, true)
+                              : "—"}
+                          </p>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        {/* Allocation studio */}
+        <aside className={`${createCardClass} flex h-fit flex-col gap-3 p-3 sm:p-4`}>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-app-dim">
+                Composition
+              </p>
+              <h3 className="app-display mt-0.5 text-base font-bold text-app-ink">
+                Portfolio Allocation
+              </h3>
+            </div>
+            <div className="flex flex-wrap justify-end gap-1.5">
+              <button
+                type="button"
+                className="rounded-[10px] border border-app-line/80 bg-app-elevated px-2.5 py-1.5 text-[11px] font-bold text-app-ink transition hover:border-app-brand/40"
+                onClick={() =>
+                  onChangeAllocations(
+                    equalAllocate(draft.allocations.map((r) => r.assetId)),
+                  )
+                }
+                disabled={draft.allocations.length === 0}
+              >
+                Equal split
+              </button>
+              <button
+                type="button"
+                className="rounded-[10px] border border-app-line/80 bg-app-elevated px-2.5 py-1.5 text-[11px] font-bold text-app-ink transition hover:border-app-brand/40 disabled:opacity-40"
+                onClick={() =>
+                  onChangeAllocations(normalizeAllocations(draft.allocations))
+                }
+                disabled={draft.allocations.length === 0}
+              >
+                Normalize to 100%
+              </button>
+            </div>
+          </div>
+
+          <CreateAllocationDonut
+            segments={donutSegments}
+            size={300}
+            totalPercent={total}
+            compact={selectedAssets.length >= 8}
+          />
+
+          {selectedAssets.length === 0 ? (
+            <p className="rounded-[12px] border border-dashed border-app-line/70 bg-app-panel/40 px-3 py-4 text-center text-sm text-app-dim">
+              Select assets from the catalog to allocate weights.
+            </p>
+          ) : (
+            <ul className="max-h-[min(40vh,22rem)] space-y-2.5 overflow-y-auto pr-0.5">
+              {selectedAssets.map((row, index) => {
+                const others = total - row.percent;
+                const maxForRow = round2(Math.max(0, 100 - others));
+                const accent = getAssetDonutColor(logoKey(row.asset), index);
+                return (
+                  <li
+                    key={row.assetId}
+                    className="rounded-[12px] border border-app-line/60 bg-app-elevated/90 p-2.5 sm:p-3"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <AssetIcon
+                        assetId={logoKey(row.asset)}
+                        size={32}
+                        variant="donut"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold text-app-ink">
+                          {row.asset.name}
+                        </p>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-app-dim">
+                          {row.asset.symbol}
                         </p>
                       </div>
-                      <div className="shrink-0 text-right text-[11px]">
-                        <p className="font-bold text-app-ink">
-                          {asset.priceUsd != null
-                            ? formatUsd(asset.priceUsd)
-                            : "—"}
-                        </p>
-                        <p
-                          className={
-                            change >= 0 ? "text-app-success" : "text-app-danger"
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={maxForRow}
+                          step={0.01}
+                          value={row.percent}
+                          aria-label={`${row.asset.symbol} allocation percent`}
+                          onChange={(e) =>
+                            setPercent(
+                              row.assetId,
+                              Number(e.target.value) || 0,
+                            )
                           }
-                        >
-                          {formatPercent(change, true)}
-                        </p>
-                        <p className="text-app-dim">
-                          MC{" "}
-                          {asset.marketCapUsd != null
-                            ? formatUsd(asset.marketCapUsd, true)
-                            : "—"}
-                        </p>
+                          className="h-9 w-[4.5rem] rounded-[10px] border border-app-line/80 bg-app-panel px-2 text-right text-sm font-bold tabular-nums text-app-ink outline-none focus:border-app-brand/45 focus:ring-2 focus:ring-app-brand/20"
+                        />
+                        <span className="text-xs font-bold text-app-dim">%</span>
                       </div>
-                    </button>
+                    </div>
+                    <div className="mt-2.5 flex items-center gap-2.5">
+                      <input
+                        type="range"
+                        min={0}
+                        max={maxForRow > 0 ? maxForRow : 0}
+                        step={0.01}
+                        value={Math.min(row.percent, maxForRow)}
+                        aria-label={`${row.asset.symbol} allocation slider`}
+                        onChange={(e) =>
+                          setPercent(row.assetId, Number(e.target.value) || 0)
+                        }
+                        className="h-2 w-full cursor-pointer appearance-none rounded-full bg-app-soft accent-[var(--color-brand)]"
+                        style={{
+                          background: `linear-gradient(90deg, ${accent} 0%, ${accent} ${(maxForRow > 0 ? (row.percent / maxForRow) * 100 : 0)}%, color-mix(in srgb, var(--color-panel-border) 55%, transparent) ${(maxForRow > 0 ? (row.percent / maxForRow) * 100 : 0)}%, color-mix(in srgb, var(--color-panel-border) 55%, transparent) 100%)`,
+                        }}
+                      />
+                    </div>
                   </li>
                 );
               })}
             </ul>
           )}
-        </div>
 
-        <aside className="app-panel h-fit space-y-3 p-4">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-bold text-app-ink">Allocation</h3>
-            <p
-              className={[
-                "text-sm font-bold",
-                total === 100 ? "text-app-success" : "text-app-danger",
-              ].join(" ")}
-            >
-              {total.toFixed(2)}%
-            </p>
-          </div>
-          <AllocationDonut
-            segments={selectedAssets.map((row) => ({
-              label: row.asset.symbol || row.assetId,
-              percent: row.percent,
-            }))}
-            size={96}
-          />
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="rounded-[10px] border border-app-line px-2.5 py-1.5 text-[11px] font-bold text-app-ink"
-              onClick={() =>
-                onChangeAllocations(
-                  equalAllocate(draft.allocations.map((r) => r.assetId)),
-                )
-              }
-            >
-              Equal split
-            </button>
-            <button
-              type="button"
-              className="rounded-[10px] border border-app-line px-2.5 py-1.5 text-[11px] font-bold text-app-ink"
-              onClick={() =>
-                onChangeAllocations(normalizeAllocations(draft.allocations))
-              }
-            >
-              Normalize to 100%
-            </button>
-          </div>
-          {selectedAssets.length === 0 ? (
-            <p className="text-sm text-app-dim">Select assets to allocate.</p>
-          ) : (
-            <ul className="space-y-2">
-              {selectedAssets.map((row) => (
-                <li
-                  key={row.assetId}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  <span className="min-w-0 flex-1 truncate font-semibold text-app-ink">
-                    {row.asset.symbol?.toUpperCase() || row.assetId}
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.01}
-                    value={row.percent}
-                    onChange={(e) =>
-                      setPercent(row.assetId, Number(e.target.value) || 0)
-                    }
-                    className="h-8 w-20 rounded-lg border border-app-line bg-app-elevated px-2 text-right text-sm"
-                  />
-                  <span className="text-app-dim">%</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {total !== 100 ? (
-            <p className="text-xs text-app-danger">
+          {!exact ? (
+            <p className="text-xs font-semibold text-app-danger">
               Allocations must total exactly 100% to continue.
+              {total > 100
+                ? " Combined weights cannot exceed 100%."
+                : ` ${round2(100 - total)}% remaining.`}
             </p>
-          ) : null}
+          ) : (
+            <p className="text-xs font-semibold text-app-success">
+              Allocation is complete — ready to continue.
+            </p>
+          )}
         </aside>
       </div>
     </section>
-  );
-}
-
-function AssetAvatar({ asset }: { asset: MarketAsset }) {
-  if (asset.imageUrl) {
-    return (
-      <Image
-        src={asset.imageUrl}
-        alt=""
-        width={32}
-        height={32}
-        className="h-8 w-8 rounded-full bg-app-panel"
-        unoptimized
-      />
-    );
-  }
-  return (
-    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-app-soft text-[10px] font-bold uppercase text-app-brand">
-      {(asset.symbol || asset.name).slice(0, 3)}
-    </span>
   );
 }
 
@@ -411,7 +496,7 @@ function StatusChip({
   return (
     <span
       className={[
-        "rounded-full px-2 py-0.5 font-bold uppercase tracking-wide",
+        "rounded-full px-2.5 py-0.5 font-bold uppercase tracking-wide",
         tone === "ok"
           ? "bg-app-success/15 text-app-success"
           : tone === "warn"

@@ -2,6 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  createCardClass,
+  createSectionSubClass,
+  createSectionTitleClass,
+} from "@/components/create/createUi";
+import {
   INDEX_CATEGORIES,
   buildIndexOtherCategories,
   type CreateDraft,
@@ -34,7 +39,10 @@ export function StepIndexCategory({
         const json = await res.json();
         if (cancelled) return;
         if (json.availability === "rate-limited") setLoadState("rate-limited");
-        else if (json.availability === "error" || json.availability === "unconfigured")
+        else if (
+          json.availability === "error" ||
+          json.availability === "unconfigured"
+        )
           setLoadState("error");
         else setLoadState("ready");
         setOtherCats(json.categories ?? []);
@@ -59,39 +67,44 @@ export function StepIndexCategory({
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="app-display text-xl font-bold text-app-ink">
-          Index Category
-        </h2>
-        <p className="mt-1 text-sm text-app-muted">
+        <h2 className={createSectionTitleClass}>Index Category</h2>
+        <p className={createSectionSubClass}>
           Selecting a category loads related CoinGecko assets for that
           narrative. Portfolio builders skip this step.
         </p>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
         {INDEX_CATEGORIES.map((cat) => (
           <button
             key={cat.id}
             type="button"
             onClick={() => onSelect(cat.id)}
             className={[
-              "app-panel app-panel-hover p-4 text-left",
-              draft.categoryId === cat.id ? "ring-2 ring-app-brand" : "",
+              createCardClass,
+              "p-4 text-left transition",
+              draft.categoryId === cat.id
+                ? "ring-2 ring-app-brand/80"
+                : "hover:border-app-brand/35",
             ].join(" ")}
           >
-            <p className="font-bold text-app-ink">{cat.label}</p>
-            <p className="mt-1 text-xs text-app-muted">{cat.description}</p>
+            <p className="text-sm font-bold text-app-ink sm:text-[15px]">
+              {cat.label}
+            </p>
+            <p className="mt-1.5 text-xs leading-snug text-app-muted">
+              {cat.description}
+            </p>
           </button>
         ))}
       </div>
 
       {draft.categoryId === "other" ? (
-        <div className="app-panel p-4">
+        <div className={`${createCardClass} p-4 sm:p-5`}>
           <h3 className="text-sm font-bold text-app-ink">Others</h3>
           <p className="mt-1 text-xs text-app-muted">
             Liquid Staking, Restaking, Privacy, Interoperability, Modular
-            Blockchain, DEX, and NFT appear first. Memecoins stay in Degen
-            Club only.
+            Blockchain, DEX, and NFT appear first. Memecoins stay in Degen Club
+            only.
           </p>
           {loadState === "loading" ? (
             <p className="mt-2 text-sm text-app-dim">Loading categories…</p>
@@ -116,10 +129,10 @@ export function StepIndexCategory({
                 type="button"
                 onClick={() => onSelectOther(cat.category_id)}
                 className={[
-                  "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                  "rounded-full border px-2.5 py-1 text-[11px] font-semibold transition",
                   draft.otherCategoryId === cat.category_id
-                    ? "border-app-brand bg-app-soft text-app-brand"
-                    : "border-app-line text-app-muted hover:text-app-ink",
+                    ? "border-app-brand bg-app-brand/10 text-app-brand"
+                    : "border-app-line text-app-muted hover:border-app-brand/30 hover:text-app-ink",
                 ].join(" ")}
               >
                 {cat.name}

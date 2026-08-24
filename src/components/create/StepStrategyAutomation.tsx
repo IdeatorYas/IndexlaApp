@@ -1,5 +1,12 @@
 "use client";
 
+import {
+  createCardClass,
+  createInputClass,
+  createSectionSubClass,
+  createSectionTitleClass,
+  createSelectClass,
+} from "@/components/create/createUi";
 import type { CreateDraft, CreateStrategyId } from "@/lib/domain/create";
 import { getStrategies } from "@/lib/data";
 
@@ -34,16 +41,14 @@ export function StepStrategyAutomation({
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="app-display text-xl font-bold text-app-ink">
-          Strategy & Automation
-        </h2>
-        <p className="mt-1 text-sm text-app-muted">
+        <h2 className={createSectionTitleClass}>Strategy & Automation</h2>
+        <p className={createSectionSubClass}>
           Configure only the fields relevant to the selected strategy. Preview
           mode — no permissions are granted.
         </p>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
         {STRATEGIES.map((item) => (
           <button
             key={item.id}
@@ -59,21 +64,26 @@ export function StepStrategyAutomation({
               })
             }
             className={[
-              "app-panel app-panel-hover p-3 text-left",
-              id === item.id ? "ring-2 ring-app-brand" : "",
+              createCardClass,
+              "p-3.5 text-left transition",
+              id === item.id
+                ? "ring-2 ring-app-brand/80"
+                : "hover:border-app-brand/35",
             ].join(" ")}
           >
             <p className="text-sm font-bold text-app-ink">{item.label}</p>
-            <p className="mt-0.5 text-[11px] text-app-dim">{item.hint}</p>
+            <p className="mt-1 text-[11px] leading-snug text-app-dim">
+              {item.hint}
+            </p>
           </button>
         ))}
       </div>
 
       {id === "creator-strategy" ? (
-        <label className="block text-sm">
+        <label className={`${createCardClass} block p-4 text-sm`}>
           <span className="font-semibold text-app-ink">Creator strategy</span>
           <select
-            className="mt-1 h-10 w-full rounded-[10px] border border-app-line bg-app-elevated px-3"
+            className={`${createSelectClass} mt-2 w-full`}
             value={draft.strategy.creatorStrategyId ?? ""}
             onChange={(e) =>
               onChange({
@@ -93,7 +103,7 @@ export function StepStrategyAutomation({
       ) : null}
 
       {showFields ? (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className={`${createCardClass} grid gap-3 p-4 sm:grid-cols-2 sm:p-5`}>
           <Field
             label="Condition"
             value={draft.strategy.condition}
@@ -111,7 +121,7 @@ export function StepStrategyAutomation({
           <label className="text-sm">
             <span className="font-semibold text-app-ink">Frequency</span>
             <select
-              className="mt-1 h-10 w-full rounded-[10px] border border-app-line bg-app-elevated px-3"
+              className={`${createSelectClass} mt-1.5 w-full`}
               value={draft.strategy.frequency}
               onChange={(e) =>
                 onChange({ ...draft.strategy, frequency: e.target.value })
@@ -136,7 +146,7 @@ export function StepStrategyAutomation({
             <span className="font-semibold text-app-ink">Slippage (bps)</span>
             <input
               type="number"
-              className="mt-1 h-10 w-full rounded-[10px] border border-app-line bg-app-elevated px-3"
+              className={`${createInputClass} mt-1.5`}
               value={draft.strategy.slippageBps}
               onChange={(e) =>
                 onChange({
@@ -168,7 +178,7 @@ export function StepStrategyAutomation({
             onChange={(expiry) => onChange({ ...draft.strategy, expiry })}
             placeholder="YYYY-MM-DD or session"
           />
-          <label className="flex items-center gap-2 text-sm font-semibold text-app-ink">
+          <label className="flex items-center gap-2.5 text-sm font-semibold text-app-ink sm:col-span-2">
             <input
               type="checkbox"
               checked={draft.strategy.circuitBreaker}
@@ -178,6 +188,7 @@ export function StepStrategyAutomation({
                   circuitBreaker: e.target.checked,
                 })
               }
+              className="h-4 w-4 accent-[var(--color-brand)]"
             />
             Circuit breaker enabled
           </label>
@@ -205,7 +216,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="mt-1 h-10 w-full rounded-[10px] border border-app-line bg-app-elevated px-3"
+        className={`${createInputClass} mt-1.5`}
       />
     </label>
   );

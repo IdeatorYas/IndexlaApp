@@ -106,14 +106,20 @@ export function CreateWizard() {
   }
 
   return (
-    <div className="mx-auto space-y-5" style={{ maxWidth: "var(--content-max)" }}>
-      <header className="space-y-3">
+    <div
+      className="mx-auto space-y-4 pb-2 sm:space-y-5"
+      style={{ maxWidth: "var(--content-max)" }}
+    >
+      <header className="overflow-hidden rounded-[16px] border border-app-line/55 bg-gradient-to-br from-app-elevated via-app-elevated to-app-panel/90 p-4 shadow-[0_14px_36px_-28px_rgba(0,0,0,0.35)] sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="app-display text-2xl font-bold text-app-ink sm:text-[1.75rem]">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
+              Builder
+            </p>
+            <h1 className="app-display mt-1 text-2xl font-bold tracking-tight text-app-ink sm:text-[1.85rem]">
               Create Portfolio / Index
             </h1>
-            <p className="mt-1 text-sm text-app-muted">
+            <p className="mt-1.5 max-w-xl text-sm text-app-muted">
               Guided builder with autosaved drafts. Preview only — no wallet
               execution.
             </p>
@@ -124,84 +130,88 @@ export function CreateWizard() {
               templateApplied.current = false;
               reset();
             }}
-            className="h-9 rounded-[10px] border border-app-line px-3 text-[12px] font-bold text-app-muted hover:text-app-ink"
+            className="h-10 rounded-[12px] border border-app-line/80 bg-app-elevated px-3.5 text-[12px] font-bold text-app-muted transition hover:border-app-brand/35 hover:text-app-ink"
           >
             Reset draft
           </button>
         </div>
         {isDegenTemplate ? (
           <div
-            className="rounded-[10px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
+            className="mt-4 rounded-[12px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
             role="alert"
           >
             {DEGEN_RISK_WARNING}
           </div>
         ) : null}
-        <CreateStepRail productType={draft.productType} current={draft.step} />
-        <p className="text-[11px] text-app-dim">
-          Draft autosaved locally · step {Math.max(1, stepIndex + 1)} of{" "}
-          {steps.length}
-          {isDegenTemplate ? " · Degen Index template" : ""}
-        </p>
+        <div className="mt-4 space-y-2">
+          <CreateStepRail productType={draft.productType} current={draft.step} />
+          <p className="text-[11px] text-app-dim">
+            Draft autosaved locally · step {Math.max(1, stepIndex + 1)} of{" "}
+            {steps.length}
+            {isDegenTemplate ? " · Degen Index template" : ""}
+          </p>
+        </div>
       </header>
 
-      {draft.step === "product" ? (
-        <StepChooseProduct draft={draft} onSelect={selectProduct} />
-      ) : null}
+      <div className="min-h-[20rem]">
+        {draft.step === "product" ? (
+          <StepChooseProduct draft={draft} onSelect={selectProduct} />
+        ) : null}
 
-      {draft.step === "category" ? (
-        <StepIndexCategory
-          draft={draft}
-          onSelect={(categoryId) =>
-            update({
-              categoryId,
-              otherCategoryId:
-                categoryId === "other" ? draft.otherCategoryId : null,
-            })
-          }
-          onSelectOther={(otherCategoryId) =>
-            update({ categoryId: "other", otherCategoryId })
-          }
-        />
-      ) : null}
+        {draft.step === "category" ? (
+          <StepIndexCategory
+            draft={draft}
+            onSelect={(categoryId) =>
+              update({
+                categoryId,
+                otherCategoryId:
+                  categoryId === "other" ? draft.otherCategoryId : null,
+              })
+            }
+            onSelectOther={(otherCategoryId) =>
+              update({ categoryId: "other", otherCategoryId })
+            }
+          />
+        ) : null}
 
-      {draft.step === "assets" ? (
-        <StepAssetsAllocations
-          draft={draft}
-          onChangeAllocations={(allocations) => update({ allocations })}
-          onAssetsLoaded={setAssetCache}
-        />
-      ) : null}
+        {draft.step === "assets" ? (
+          <StepAssetsAllocations
+            draft={draft}
+            onChangeAllocations={(allocations) => update({ allocations })}
+            onAssetsLoaded={setAssetCache}
+          />
+        ) : null}
 
-      {draft.step === "strategy" ? (
-        <StepStrategyAutomation
-          draft={draft}
-          onChange={(strategy) => update({ strategy })}
-        />
-      ) : null}
+        {draft.step === "strategy" ? (
+          <StepStrategyAutomation
+            draft={draft}
+            onChange={(strategy) => update({ strategy })}
+          />
+        ) : null}
 
-      {draft.step === "details" ? (
-        <StepInvestmentDetails
-          draft={draft}
-          assets={assetCache}
-          onChange={update}
-        />
-      ) : null}
+        {draft.step === "details" ? (
+          <StepInvestmentDetails
+            draft={draft}
+            assets={assetCache}
+            onChange={update}
+          />
+        ) : null}
 
-      {draft.step === "review" ? (
-        <StepReviewConfirm
-          draft={draft}
-          assets={assetCache}
-          onChange={update}
-        />
-      ) : null}
+        {draft.step === "review" ? (
+          <StepReviewConfirm
+            draft={draft}
+            assets={assetCache}
+            onChange={update}
+          />
+        ) : null}
+      </div>
 
-      <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-2 rounded-[12px] border border-app-line bg-app-elevated/95 p-3 shadow-[var(--shadow-card)] backdrop-blur">
+      <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-app-line/70 bg-app-elevated/95 p-3 shadow-[0_12px_40px_-20px_rgba(0,0,0,0.45)] backdrop-blur-md">
         <button
           type="button"
           onClick={goBack}
           disabled={stepIndex <= 0}
-          className="h-10 rounded-[10px] border border-app-line px-4 text-sm font-bold text-app-ink disabled:opacity-40"
+          className="h-11 rounded-[12px] border border-app-line/80 px-4 text-sm font-bold text-app-ink transition hover:border-app-brand/35 disabled:opacity-40"
         >
           Back
         </button>
@@ -210,7 +220,7 @@ export function CreateWizard() {
             type="button"
             onClick={goNext}
             disabled={!canContinue}
-            className="app-gradient-btn h-10 rounded-[10px] px-5 text-sm font-bold disabled:opacity-40"
+            className="app-gradient-btn h-11 rounded-[12px] px-6 text-sm font-bold disabled:opacity-40"
           >
             Continue
           </button>

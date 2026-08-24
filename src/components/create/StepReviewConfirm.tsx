@@ -1,17 +1,27 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { CreateDraft, MarketAsset } from "@/lib/domain/create";
-import { INDEX_CATEGORIES } from "@/lib/domain/create";
-import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
+import Link from "next/link";
+import { CreateAllocationDonut } from "@/components/create/CreateAllocationDonut";
+import {
+  createCardClass,
+  createSectionSubClass,
+  createSectionTitleClass,
+} from "@/components/create/createUi";
+import { AssetIcon } from "@/components/ui/AssetIcons";
 import { RiskDisclosure } from "@/components/product/RiskDisclosure";
-import { AllocationDonut } from "@/components/ui/AllocationDonut";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
+import type { CreateDraft, MarketAsset } from "@/lib/domain/create";
+import { INDEX_CATEGORIES, allocationTotal } from "@/lib/domain/create";
+import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
 import { calculateFees } from "@/lib/fees/fee-calculator";
 import { getDexlaBalance } from "@/lib/data";
 import { formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
-import Link from "next/link";
+
+function logoKey(asset: MarketAsset | undefined, fallback: string) {
+  return (asset?.symbol || asset?.id || fallback).trim() || fallback;
+}
 
 export function StepReviewConfirm({
   draft,
@@ -40,6 +50,7 @@ export function StepReviewConfirm({
       ),
     ),
   ];
+  const total = allocationTotal(draft.allocations);
 
   const fees = useMemo(
     () =>
@@ -63,20 +74,27 @@ export function StepReviewConfirm({
     );
   }
 
+  const donutSegments = draft.allocations.map((row) => {
+    const asset = byId.get(row.assetId);
+    return {
+      assetKey: logoKey(asset, row.assetId),
+      label: asset?.symbol ?? row.assetId,
+      percent: row.percent,
+    };
+  });
+
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="app-display text-xl font-bold text-app-ink">
-          Review & Confirm
-        </h2>
-        <p className="mt-1 text-sm text-app-muted">
+        <h2 className={createSectionTitleClass}>Review & Confirm</h2>
+        <p className={createSectionSubClass}>
           Final preview before create. All actions remain non-executing.
         </p>
       </div>
 
       {isDegen ? (
         <div
-          className="rounded-[10px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
+          className="rounded-[12px] border border-app-danger/40 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-danger"
           role="alert"
         >
           {DEGEN_RISK_WARNING}
@@ -87,15 +105,15 @@ export function StepReviewConfirm({
               onChange={(e) =>
                 onChange({ degenAcknowledged: e.target.checked })
               }
-              className="mt-1"
+              className="mt-1 accent-[var(--color-brand)]"
             />
             I understand and acknowledge this extreme risk.
           </label>
         </div>
       ) : null}
 
-      <div className="grid gap-3 lg:grid-cols-2">
-        <div className="app-panel space-y-2 p-4 text-sm">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.95fr)]">
+        <div className={`${createCardClass} space-y-2.5 p-4 text-sm sm:p-5`}>
           <Row
             label="Product type"
             value={draft.productType === "index" ? "Index" : "Portfolio"}
@@ -115,34 +133,45 @@ export function StepReviewConfirm({
             }
           />
           <Row label="Networks" value={networks.join(", ") || "—"} />
-          <p className="pt-2 text-app-muted">{draft.thesis || "No thesis yet."}</p>
+          <p className="border-t border-app-line/50 pt-3 text-app-muted">
+            {draft.thesis || "No thesis yet."}
+          </p>
         </div>
 
-        <div className="app-panel space-y-3 p-4">
-          <AllocationDonut
-            segments={draft.allocations.map((row) => ({
-              label: byId.get(row.assetId)?.symbol ?? row.assetId,
-              percent: row.percent,
-            }))}
-            size={88}
+        <div className={`${createCardClass} space-y-3 p-4 sm:p-5`}>
+          <CreateAllocationDonut
+            segments={donutSegments}
+            size={260}
+            totalPercent={total}
+            compact
           />
           <ul className="space-y-1.5 text-sm">
-            {draft.allocations.map((row) => (
-              <li
-                key={row.assetId}
-                className="flex justify-between gap-2 text-app-ink"
-              >
-                <span className="font-semibold">
-                  {(byId.get(row.assetId)?.symbol || row.assetId).toUpperCase()}
-                </span>
-                <span>{row.percent}%</span>
-              </li>
-            ))}
+            {draft.allocations.map((row) => {
+              const asset = byId.get(row.assetId);
+              return (
+                <li
+                  key={row.assetId}
+                  className="flex items-center justify-between gap-2 rounded-[10px] border border-app-line/50 bg-app-elevated/70 px-2.5 py-1.5 text-app-ink"
+                >
+                  <span className="flex min-w-0 items-center gap-2 font-semibold">
+                    <AssetIcon
+                      assetId={logoKey(asset, row.assetId)}
+                      size={22}
+                      variant="donut"
+                    />
+                    <span className="truncate">
+                      {(asset?.symbol || row.assetId).toUpperCase()}
+                    </span>
+                  </span>
+                  <span className="tabular-nums">{row.percent}%</span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </div>
 
-      <div className="app-panel grid gap-3 p-4 text-sm sm:grid-cols-2">
+      <div className={`${createCardClass} grid gap-4 p-4 text-sm sm:grid-cols-2 sm:p-5`}>
         <div>
           <h3 className="font-bold text-app-ink">Execution routes (preview)</h3>
           <ul className="mt-2 space-y-1 text-app-muted">
@@ -164,9 +193,7 @@ export function StepReviewConfirm({
             </li>
             <li>Gas (user-paid): {formatUsd(fees.userPaidGasUsd)}</li>
             <li>Bridge / routing: {formatUsd(fees.userPaidBridgeUsd)}</li>
-            <li>
-              Expected slippage: {fees.expectedSlippageBps} bps
-            </li>
+            <li>Expected slippage: {fees.expectedSlippageBps} bps</li>
           </ul>
         </div>
         <div className="sm:col-span-2">
@@ -195,7 +222,7 @@ export function StepReviewConfirm({
         {wallet.state !== "connected" ? (
           <button
             type="button"
-            className="app-gradient-btn h-10 rounded-[10px] px-4 text-sm font-bold"
+            className="app-gradient-btn h-11 rounded-[12px] px-4 text-sm font-bold"
             onClick={() => {
               connectDemo();
               previewAction("Connect Wallet");
@@ -204,13 +231,13 @@ export function StepReviewConfirm({
             Connect Wallet
           </button>
         ) : (
-          <span className="inline-flex h-10 items-center rounded-[10px] border border-app-success/40 bg-app-success/10 px-3 text-sm font-bold text-app-success">
+          <span className="inline-flex h-11 items-center rounded-[12px] border border-app-success/40 bg-app-success/10 px-3 text-sm font-bold text-app-success">
             Wallet connected (demo)
           </span>
         )}
         <button
           type="button"
-          className="h-10 app-gradient-btn rounded-[10px] px-4 text-sm font-bold text-white disabled:opacity-40"
+          className="h-11 app-gradient-btn rounded-[12px] px-4 text-sm font-bold text-white disabled:opacity-40"
           disabled={
             !riskAcknowledged || (isDegen && !draft.degenAcknowledged)
           }
@@ -223,7 +250,7 @@ export function StepReviewConfirm({
         </button>
         <button
           type="button"
-          className="h-10 rounded-[10px] border border-app-line px-4 text-sm font-bold text-app-ink disabled:opacity-40"
+          className="h-11 rounded-[12px] border border-app-line px-4 text-sm font-bold text-app-ink disabled:opacity-40"
           disabled={draft.strategy.strategyId === "none"}
           onClick={() => {
             setAuthorizedAutomation(true);
@@ -234,7 +261,7 @@ export function StepReviewConfirm({
         </button>
         <Link
           href={APP_ROUTES.portfolio}
-          className="inline-flex h-10 items-center rounded-[10px] border border-app-line px-4 text-sm font-bold text-app-brand"
+          className="inline-flex h-11 items-center rounded-[12px] border border-app-line px-4 text-sm font-bold text-app-brand"
           onClick={() => onChange({ previewConfirmed: true })}
         >
           View Portfolio / Index
@@ -242,7 +269,7 @@ export function StepReviewConfirm({
       </div>
 
       {(message || purchaseConfirmed || authorizedAutomation) && (
-        <div className="rounded-[10px] border border-app-line bg-app-soft px-4 py-3 text-sm text-app-muted">
+        <div className="rounded-[12px] border border-app-line bg-app-soft px-4 py-3 text-sm text-app-muted">
           {message}
           {purchaseConfirmed ? (
             <p className="mt-1">Initial purchase marked confirmed in preview.</p>
