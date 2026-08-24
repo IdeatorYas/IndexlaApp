@@ -375,6 +375,59 @@ export const DEGEN_ASSETS: Record<string, DegenAssetDef> = {
   },
 };
 
+/** Dominant brand hues for Degen memecoin donut segments — not rainbow fallbacks. */
+export const DEGEN_ASSET_BRAND_COLORS: Record<string, string> = {
+  pengu: "#6EC1FF",
+  wif: "#E8B849",
+  bonk: "#F7931A",
+  fartcoin: "#84CC16",
+  popcat: "#F97316",
+  useless: "#94A3B8",
+  troll: "#A855F7",
+  pnut: "#D97706",
+  moodeng: "#EC4899",
+  giga: "#6366F1",
+  shib: "#FFA409",
+  pepe: "#3D9970",
+  spx: "#FF4D4D",
+  floki: "#FB923C",
+  mog: "#2563EB",
+  turbo: "#22C55E",
+  npc: "#8B5CF6",
+  neiro: "#EAB308",
+  meme: "#64748B",
+  wojak: "#78716C",
+  binancelife: "#F3BA2F",
+  bananas31: "#FACC15",
+  babydoge: "#F59E0B",
+  broccoli: "#16A34A",
+  tut: "#0EA5E9",
+  hajimi: "#F472B6",
+  cheems: "#D4A574",
+  memecore: "#7C3AED",
+  tst: "#06B6D4",
+  toshi: "#3B82F6",
+  brett: "#2563EB",
+  degen: "#A855F7",
+  drb: "#14B8A6",
+  bald: "#9CA3AF",
+  ponke: "#F97316",
+  keycat: "#FBBF24",
+  doginme: "#EF4444",
+  benji: "#10B981",
+  miggles: "#F59E0B",
+  bitty: "#818CF8",
+  kitty: "#FB7185",
+  fwog: "#4ADE80",
+  mask: "#C084FC",
+  cupsey: "#38BDF8",
+  purple: "#9333EA",
+};
+
+export function getDegenAssetBrandColor(key: string): string | undefined {
+  return DEGEN_ASSET_BRAND_COLORS[key.toLowerCase()];
+}
+
 export function degenAsset(key: string): DegenAssetDef {
   const asset = DEGEN_ASSETS[key];
   if (!asset) throw new Error(`Unknown degen asset: ${key}`);

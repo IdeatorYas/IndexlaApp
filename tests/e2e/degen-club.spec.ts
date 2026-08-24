@@ -83,4 +83,31 @@ test.describe("Degen Club", () => {
     await expect(page.getByText("Multi-Chain Memecoins")).toBeVisible();
     await expect(page.getByRole("link", { name: "View Details" })).toHaveCount(3);
   });
+
+  test("marketplace cards show compact donuts with CTAs visible", async ({
+    page,
+  }) => {
+    await page.goto(APP_ROUTES.degenClub);
+    await expect(
+      page.getByRole("heading", { name: "Marketplace" }),
+    ).toBeVisible({ timeout: 20_000 });
+    await page.locator("#degen-marketplace").scrollIntoViewIfNeeded();
+
+    const firstCard = page.locator(".degen-card").first();
+    await expect(firstCard.locator(".degen-card-donut")).toBeVisible();
+    await expect(firstCard.getByRole("button", { name: "Invest" })).toBeVisible();
+    await expect(
+      firstCard.getByRole("link", { name: "View Details" }),
+    ).toBeVisible();
+
+    const donutBox = await firstCard.locator(".degen-card-donut").boundingBox();
+    expect(donutBox?.width).toBeLessThanOrEqual(190);
+    expect(donutBox?.height).toBeLessThanOrEqual(190);
+
+    await page.getByRole("tab", { name: "Portfolios" }).click();
+    await expect(page.locator(".degen-card")).toHaveCount(3);
+    await expect(
+      page.locator(".degen-card").first().getByRole("button", { name: "Invest" }),
+    ).toBeVisible();
+  });
 });

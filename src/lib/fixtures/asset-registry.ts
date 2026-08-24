@@ -246,8 +246,14 @@ const FALLBACK_ASSET_COLORS = [
   "#00C805",
 ];
 
+import {
+  getDegenAssetBrandColor,
+} from "@/lib/fixtures/degen-asset-registry";
+
 export function getAssetBrandColor(assetId: string, fallbackIndex = 0): string {
   const id = assetId.toLowerCase();
+  const degen = getDegenAssetBrandColor(id);
+  if (degen) return degen;
   return (
     ASSET_COLORS[id] ??
     FALLBACK_ASSET_COLORS[fallbackIndex % FALLBACK_ASSET_COLORS.length]

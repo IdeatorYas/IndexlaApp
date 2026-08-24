@@ -9,7 +9,7 @@ import {
   type DegenMarketTab,
   type DegenProduct,
 } from "@/lib/domain/degen-club";
-import { CreateAllocationDonut } from "@/components/create/CreateAllocationDonut";
+import { DegenCardDonut } from "@/components/degen-club/DegenCardDonut";
 import {
   DegenChainCategories,
   DegenMultiChainBanner,
@@ -297,7 +297,6 @@ function ProductCard({
   onInvest: () => void;
 }) {
   const positive = product.performance30d >= 0;
-  const dense = product.allocations.length >= 8;
 
   return (
     <article className="degen-card">
@@ -307,49 +306,49 @@ function ProductCard({
         <span className="degen-illustrative-tag">Illustrative</span>
       </div>
 
-      <h3 className="degen-card-title mt-1">{product.name}</h3>
+      <h3 className="degen-card-title">{product.name}</h3>
       <ProductAttribution
         creatorName={product.creatorName}
         creatorHandle={product.creatorHandle}
         verified={product.verified}
-        className="mt-0.5 truncate text-[11px] font-semibold text-[var(--degen-muted)]"
+        className="truncate text-[11px] font-semibold text-[var(--degen-muted)]"
       />
 
-      <div className="flex justify-center py-1">
-        <CreateAllocationDonut
+      <div className="degen-card-donut-wrap">
+        <DegenCardDonut
           segments={product.allocations.map((a) => ({
             assetKey: a.assetId,
             label: a.label,
             percent: a.percent,
             imageUrl: a.imageUrl,
           }))}
-          size={dense ? 128 : 140}
-          totalPercent={100}
-          compact
+          size={180}
         />
       </div>
 
-      <p className="line-clamp-2 text-[11px] leading-relaxed text-[var(--degen-muted)]">
-        {product.thesis}
-      </p>
-
-      <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--degen-neon-orange)]">
+      <p className="degen-card-chain">
         {product.chainLabel} · Risk: Extreme
       </p>
 
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
+      <dl className="degen-card-metrics">
         <CardMetric
           label="30D · Illus."
           value={formatPercent(product.performance30d, true)}
           positive={positive}
         />
         <CardMetric label="AUM · Illus." value={formatUsd(product.aumUsd, true)} />
-        <CardMetric label="Investors · Illus." value={product.investors.toLocaleString()} />
-        <CardMetric label="Chain" value={product.chainLabel} />
+        <CardMetric
+          label="Investors · Illus."
+          value={product.investors.toLocaleString()}
+        />
       </dl>
 
-      <div className="mt-auto grid grid-cols-2 gap-2">
-        <button type="button" onClick={onInvest} className="degen-btn-primary h-9 text-[11px] uppercase tracking-wide">
+      <div className="degen-card-actions">
+        <button
+          type="button"
+          onClick={onInvest}
+          className="degen-btn-primary h-9 text-[11px] uppercase tracking-wide"
+        >
           Invest
         </button>
         <Link
