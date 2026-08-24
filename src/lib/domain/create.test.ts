@@ -2,27 +2,44 @@ import { describe, expect, it } from "vitest";
 import {
   CREATE_STRATEGY_OPTIONS,
   INDEX_CATEGORIES,
-  INDEX_OTHER_PINNED_CATEGORIES,
   allocationTotal,
-  buildIndexOtherCategories,
   createEmptyDraft,
   equalAllocate,
+  migrateWizardStep,
   normalizeAllocations,
   normalizeStrategyConfig,
+  strategyIsConfigured,
   wizardStepsFor,
 } from "@/lib/domain/create";
 
 describe("create builder helpers", () => {
-  it("builds empty draft at product step", () => {
+  it("builds empty draft at Name & Description step", () => {
     const draft = createEmptyDraft();
-    expect(draft.step).toBe("product");
+    expect(draft.step).toBe("basics");
     expect(draft.version).toBe(1);
     expect(draft.allocations).toEqual([]);
   });
 
-  it("includes category step only for indexes", () => {
-    expect(wizardStepsFor("index")).toContain("category");
-    expect(wizardStepsFor("portfolio")).not.toContain("category");
+  it("uses fixed four-step wizard for index and portfolio", () => {
+    expect(wizardStepsFor("index")).toEqual([
+      "basics",
+      "assets",
+      "strategy",
+      "review",
+    ]);
+    expect(wizardStepsFor("portfolio")).toEqual([
+      "basics",
+      "assets",
+      "strategy",
+      "review",
+    ]);
+  });
+
+  it("migrates legacy wizard steps", () => {
+    expect(migrateWizardStep("product")).toBe("basics");
+    expect(migrateWizardStep("category")).toBe("assets");
+    expect(migrateWizardStep("details")).toBe("review");
+    expect(migrateWizardStep("strategy")).toBe("strategy");
   });
 
   it("equal-allocates and normalizes to 100%", () => {
@@ -35,7 +52,7 @@ describe("create builder helpers", () => {
     expect(allocationTotal(normalized)).toBe(100);
   });
 
-  it("lists main Index Builder categories in the required order without memecoins", () => {
+  it("lists all Index narratives flat without Others or memecoins", () => {
     expect(INDEX_CATEGORIES.map((c) => c.label)).toEqual([
       "RWA",
       "DeFi",
@@ -46,28 +63,20 @@ describe("create builder helpers", () => {
       "Gaming",
       "Oracles",
       "AI Agents",
-      "Others",
+      "Liquid Staking",
+      "Restaking",
+      "Privacy",
+      "Interoperability",
+      "Modular Blockchain",
+      "DEX",
+      "NFT",
     ]);
+    expect(INDEX_CATEGORIES.some((c) => (c.id as string) === "other")).toBe(
+      false,
+    );
     expect(INDEX_CATEGORIES.some((c) => (c.id as string) === "memecoins")).toBe(
       false,
     );
-  });
-
-  it("pins Others narratives first and excludes memecoins", () => {
-    const built = buildIndexOtherCategories([
-      { category_id: "meme-token", name: "Meme" },
-      { category_id: "privacy", name: "Privacy" },
-      { category_id: "liquid-staking", name: "Liquid Staking" },
-      { category_id: "layer-1", name: "Layer 1 (L1)" },
-      { category_id: "solana-meme-coins", name: "Solana Meme" },
-      { category_id: "storage", name: "Storage" },
-    ]);
-    expect(built.slice(0, INDEX_OTHER_PINNED_CATEGORIES.length).map((c) => c.category_id)).toEqual(
-      INDEX_OTHER_PINNED_CATEGORIES.map((c) => c.category_id),
-    );
-    expect(built.some((c) => c.category_id.includes("meme"))).toBe(false);
-    expect(built.some((c) => c.category_id === "layer-1")).toBe(false);
-    expect(built.some((c) => c.category_id === "storage")).toBe(true);
   });
 
   it("exposes combined Create strategies without split fear/greed or TP/SL", () => {
@@ -89,5 +98,37 @@ describe("create builder helpers", () => {
     expect(
       normalizeStrategyConfig({ strategyId: "stop-loss" as never }).strategyId,
     ).toBe("take-profit-stop-loss");
+  });
+
+  it("validates strategy configuration for continue", () => {
+    expect(
+      strategyIsConfigured({
+        ...normalizeStrategyConfig({ strategyId: "none" }),
+      }),
+    ).toBe(true);
+    expect(
+      strategyIsConfigured({
+        ...normalizeStrategyConfig({ strategyId: "rsi", executionPercent: 10 }),
+        rsiTimeframe: "weekly",
+      }),
+    ).toBe(true);
+    expect(
+      strategyIsConfigured({
+        ...normalizeStrategyConfig({ strategyId: "dca", executionPercent: 5 }),
+        dcaMode: "calendar",
+        dcaDates: [],
+      }),
+    ).toBe(false);
+    expect(
+      strategyIsConfigured({
+        ...normalizeStrategyConfig({
+          strategyId: "take-profit-stop-loss",
+        }),
+        takeProfitTargetPercent: 20,
+        takeProfitSellPercent: 50,
+        stopLossTargetPercent: 10,
+        stopLossSellPercent: 100,
+      }),
+    ).toBe(true);
   });
 });

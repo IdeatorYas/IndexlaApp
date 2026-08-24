@@ -1,18 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { CreateAllocationDonut } from "@/components/create/CreateAllocationDonut";
 import {
   createCardClass,
+  createInputClass,
   createSectionSubClass,
   createSectionTitleClass,
 } from "@/components/create/createUi";
+import { TransactionConfirmModal } from "@/components/create/TransactionConfirmModal";
 import { AssetIcon } from "@/components/ui/AssetIcons";
 import { RiskDisclosure } from "@/components/product/RiskDisclosure";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import type { CreateDraft, MarketAsset } from "@/lib/domain/create";
-import { INDEX_CATEGORIES, allocationTotal } from "@/lib/domain/create";
+import {
+  CREATE_STRATEGY_OPTIONS,
+  INDEX_CATEGORIES,
+  allocationTotal,
+} from "@/lib/domain/create";
 import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
 import { calculateFees } from "@/lib/fees/fee-calculator";
 import { getDexlaBalance } from "@/lib/data";
@@ -23,20 +29,59 @@ function logoKey(asset: MarketAsset | undefined, fallback: string) {
   return (asset?.symbol || asset?.id || fallback).trim() || fallback;
 }
 
+function strategySummary(draft: CreateDraft): string[] {
+  const s = draft.strategy;
+  const opt = CREATE_STRATEGY_OPTIONS.find((o) => o.id === s.strategyId);
+  const lines: string[] = [opt?.label ?? s.strategyId];
+  if (s.strategyId === "none") return ["None — manual management"];
+  if (s.strategyId === "rsi") lines.push(`RSI timeframe: ${s.rsiTimeframe}`);
+  if (s.strategyId === "momentum") {
+    lines.push(`Trend timeframe: ${s.momentumTimeframe}`);
+  }
+  if (s.strategyId === "take-profit-stop-loss") {
+    lines.push(
+      `TP ${s.takeProfitTargetPercent}% → sell ${s.takeProfitSellPercent}%`,
+    );
+    lines.push(
+      `SL ${s.stopLossTargetPercent}% → sell ${s.stopLossSellPercent}%`,
+    );
+  }
+  if (s.strategyId === "dca") {
+    if (s.dcaMode === "calendar") {
+      lines.push(
+        `Calendar dates: ${s.dcaDates.length ? s.dcaDates.join(", ") : "—"}`,
+      );
+    } else {
+      lines.push(`Schedule: ${s.dcaSchedule}`);
+    }
+  }
+  if (s.strategyId !== "take-profit-stop-loss" && s.executionPercent > 0) {
+    lines.push(`Execution: ${s.executionPercent}% of deposited balance`);
+  }
+  if (s.strategyId === "fear-greed") {
+    lines.push("Fixed INDEXLA Fear & Greed thresholds");
+  }
+  return lines;
+}
+
 export function StepReviewConfirm({
   draft,
   assets,
   onChange,
+  feeModalOpen,
+  onFeeModalOpenChange,
+  onCanConfirmChange,
 }: {
   draft: CreateDraft;
   assets: MarketAsset[];
   onChange: (patch: Partial<CreateDraft>) => void;
+  feeModalOpen: boolean;
+  onFeeModalOpenChange: (open: boolean) => void;
+  onCanConfirmChange?: (can: boolean) => void;
 }) {
   const { wallet, connectDemo } = useDemoWallet();
   const dexla = getDexlaBalance().data;
   const [message, setMessage] = useState<string | null>(null);
-  const [authorizedAutomation, setAuthorizedAutomation] = useState(false);
-  const [purchaseConfirmed, setPurchaseConfirmed] = useState(false);
   const [riskAcknowledged, setRiskAcknowledged] = useState(false);
 
   const category = INDEX_CATEGORIES.find((c) => c.id === draft.categoryId);
@@ -68,27 +113,42 @@ export function StepReviewConfirm({
     [draft, dexla.balance, networks.length],
   );
 
-  function previewAction(label: string) {
-    setMessage(
-      `${label} — preview only. No real transaction, permission or execution was submitted.`,
-    );
-  }
-
   const donutSegments = draft.allocations.map((row) => {
     const asset = byId.get(row.assetId);
     return {
       assetKey: logoKey(asset, row.assetId),
       label: asset?.symbol ?? row.assetId,
       percent: row.percent,
+      imageUrl: asset?.imageUrl,
     };
   });
 
+  const canOpenModal =
+    riskAcknowledged &&
+    draft.investmentUsd > 0 &&
+    draft.name.trim().length > 0 &&
+    (!isDegen || draft.degenAcknowledged);
+
+  useEffect(() => {
+    onCanConfirmChange?.(canOpenModal);
+  }, [canOpenModal, onCanConfirmChange]);
+
+  function handleApprove() {
+    if (wallet.state !== "connected") connectDemo();
+    onFeeModalOpenChange(false);
+    onChange({ previewConfirmed: true });
+    setMessage(
+      "Wallet approval recorded in preview — investment and automation authorized. No real transaction was submitted.",
+    );
+  }
+
   return (
-    <section className="space-y-4">
+    <section className="space-y-5">
       <div>
         <h2 className={createSectionTitleClass}>Review & Confirm</h2>
         <p className={createSectionSubClass}>
-          Final preview before create. All actions remain non-executing.
+          Confirm name, allocations, automation, and investment amount. Fees
+          appear in the wallet confirmation modal after you continue.
         </p>
       </div>
 
@@ -112,70 +172,111 @@ export function StepReviewConfirm({
         </div>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.95fr)]">
-        <div className={`${createCardClass} space-y-2.5 p-4 text-sm sm:p-5`}>
-          <Row
-            label="Product type"
-            value={draft.productType === "index" ? "Index" : "Portfolio"}
-          />
-          {draft.productType === "index" ? (
-            <Row label="Category" value={category?.label ?? "—"} />
-          ) : null}
-          <Row label="Name" value={draft.name || "Untitled"} />
-          <Row label="Visibility" value={draft.visibility} />
-          <Row label="Investment" value={formatUsd(draft.investmentUsd)} />
-          <Row
-            label="Strategy"
-            value={
-              draft.strategy.strategyId === "none"
-                ? "None"
-                : draft.strategy.strategyId === "fear-greed"
-                  ? "Fear & Greed"
-                  : draft.strategy.strategyId === "take-profit-stop-loss"
-                    ? "Take Profit & Stop Loss"
-                    : draft.strategy.strategyId === "momentum"
-                      ? `Momentum (${draft.strategy.momentumTimeframe})`
-                      : draft.strategy.strategyId
-            }
-          />
-          {draft.strategy.strategyId !== "none" ? (
-            <Row
-              label="Execution %"
-              value={`${draft.strategy.executionPercent}% of deposited balance`}
-            />
-          ) : null}
-          <Row label="Networks" value={networks.join(", ") || "—"} />
-          <p className="border-t border-app-line/50 pt-3 text-app-muted">
-            {draft.thesis || "No thesis yet."}
-          </p>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(300px,0.95fr)]">
+        <div className="space-y-4">
+          <div className={`${createCardClass} space-y-3 p-4 sm:p-5`}>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
+              Product
+            </p>
+            <h3 className="app-display text-xl font-bold text-app-ink">
+              {draft.name || "Untitled"}
+            </h3>
+            <p className="text-sm leading-relaxed text-app-muted">
+              {draft.thesis || "No description yet."}
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1 text-[11px] font-bold uppercase tracking-wide">
+              <span className="rounded-full border border-app-line/70 bg-app-elevated px-2.5 py-1 text-app-ink">
+                {draft.productType === "index" ? "Index" : "Portfolio"}
+              </span>
+              <span className="rounded-full border border-app-line/70 bg-app-elevated px-2.5 py-1 text-app-ink">
+                {draft.visibility}
+              </span>
+              {category ? (
+                <span className="rounded-full border border-app-brand/30 bg-app-brand/10 px-2.5 py-1 text-app-brand">
+                  {category.label}
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className={`${createCardClass} space-y-3 p-4 sm:p-5`}>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
+              Automation strategy
+            </p>
+            <ul className="space-y-1.5 text-sm text-app-ink">
+              {strategySummary(draft).map((line) => (
+                <li key={line} className="font-semibold">
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className={`${createCardClass} space-y-2 p-4 sm:p-5`}>
+            <label className="block text-sm">
+              <span className="font-semibold text-app-ink">
+                Investment amount (USD)
+              </span>
+              <input
+                type="number"
+                min={0}
+                value={draft.investmentUsd}
+                onChange={(e) =>
+                  onChange({ investmentUsd: Number(e.target.value) || 0 })
+                }
+                className={`${createInputClass} mt-1.5`}
+              />
+            </label>
+            <p className="text-[11px] text-app-dim">
+              Set the amount to invest. Fee breakdown opens after you continue.
+            </p>
+          </div>
         </div>
 
         <div className={`${createCardClass} space-y-3 p-4 sm:p-5`}>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-dim">
+              Allocations
+            </p>
+            <p
+              className={[
+                "text-sm font-bold tabular-nums",
+                Math.abs(total - 100) < 0.005
+                  ? "text-app-success"
+                  : "text-app-danger",
+              ].join(" ")}
+            >
+              {total.toFixed(2)}%
+            </p>
+          </div>
           <CreateAllocationDonut
             segments={donutSegments}
-            size={260}
+            size={280}
             totalPercent={total}
             compact
           />
-          <ul className="space-y-1.5 text-sm">
+          <ul className="max-h-56 space-y-1.5 overflow-y-auto text-sm">
             {draft.allocations.map((row) => {
               const asset = byId.get(row.assetId);
               return (
                 <li
                   key={row.assetId}
-                  className="flex items-center justify-between gap-2 rounded-[10px] border border-app-line/50 bg-app-elevated/70 px-2.5 py-1.5 text-app-ink"
+                  className="flex items-center justify-between gap-2 rounded-[10px] border border-app-line/50 bg-app-elevated/70 px-2.5 py-1.5"
                 >
-                  <span className="flex min-w-0 items-center gap-2 font-semibold">
+                  <span className="flex min-w-0 items-center gap-2 font-semibold text-app-ink">
                     <AssetIcon
                       assetId={logoKey(asset, row.assetId)}
                       size={22}
                       variant="donut"
+                      imageUrl={asset?.imageUrl}
                     />
                     <span className="truncate">
                       {(asset?.symbol || row.assetId).toUpperCase()}
                     </span>
                   </span>
-                  <span className="tabular-nums">{row.percent}%</span>
+                  <span className="tabular-nums text-app-ink">
+                    {row.percent}%
+                  </span>
                 </li>
               );
             })}
@@ -183,45 +284,12 @@ export function StepReviewConfirm({
         </div>
       </div>
 
-      <div className={`${createCardClass} grid gap-4 p-4 text-sm sm:grid-cols-2 sm:p-5`}>
-        <div>
-          <h3 className="font-bold text-app-ink">Execution routes (preview)</h3>
-          <ul className="mt-2 space-y-1 text-app-muted">
-            <li>CoW Protocol — disabled · preview disclosure</li>
-            <li>LI.FI — disabled · preview disclosure</li>
-            <li>Across — disabled · preview disclosure</li>
-            <li>MEV-aware status — protected intent (illustrative)</li>
-          </ul>
-        </div>
-        <div>
-          <h3 className="font-bold text-app-ink">Fees & costs</h3>
-          <ul className="mt-2 space-y-1 text-app-muted">
-            <li>
-              Execution fee: {formatUsd(fees.baseExecutionFeeUsd)} →{" "}
-              {formatUsd(fees.finalIndexlaFeeUsd)} after Save
-            </li>
-            <li>
-              $DEXLA Save: {fees.saveDiscountPercent}% (tier {fees.saveTier})
-            </li>
-            <li>Gas (user-paid): {formatUsd(fees.userPaidGasUsd)}</li>
-            <li>Bridge / routing: {formatUsd(fees.userPaidBridgeUsd)}</li>
-            <li>Expected slippage: {fees.expectedSlippageBps} bps</li>
-          </ul>
-        </div>
-        <div className="sm:col-span-2">
-          <h3 className="font-bold text-app-ink">Permission scope</h3>
-          <p className="mt-1 text-app-muted">
-            Least-privilege session permissions for selected networks and rules
-            only. INDEXLA cannot withdraw funds or expand authority. Revocation
-            remains available — not granted in preview.
-          </p>
-          {draft.visibility === "public" ? (
-            <p className="mt-2 text-app-warning">
-              Publishing requirement: public products must be explicitly
-              published after creation.
-            </p>
-          ) : null}
-        </div>
+      <div className={`${createCardClass} p-4 sm:p-5`}>
+        <h3 className="font-bold text-app-ink">Permission scope</h3>
+        <p className="mt-1 text-sm text-app-muted">
+          Least-privilege session permissions for selected networks and rules
+          only. INDEXLA cannot withdraw funds or expand authority.
+        </p>
       </div>
 
       <RiskDisclosure
@@ -231,82 +299,35 @@ export function StepReviewConfirm({
       />
 
       <div className="flex flex-wrap gap-2">
-        {wallet.state !== "connected" ? (
-          <button
-            type="button"
-            className="app-gradient-btn h-11 rounded-[12px] px-4 text-sm font-bold"
-            onClick={() => {
-              connectDemo();
-              previewAction("Connect Wallet");
-            }}
-          >
-            Connect Wallet
-          </button>
-        ) : (
-          <span className="inline-flex h-11 items-center rounded-[12px] border border-app-success/40 bg-app-success/10 px-3 text-sm font-bold text-app-success">
-            Wallet connected (demo)
-          </span>
-        )}
         <button
           type="button"
-          className="h-11 app-gradient-btn rounded-[12px] px-4 text-sm font-bold text-white disabled:opacity-40"
-          disabled={
-            !riskAcknowledged || (isDegen && !draft.degenAcknowledged)
-          }
-          onClick={() => {
-            setPurchaseConfirmed(true);
-            previewAction("Confirm Initial Purchase");
-          }}
+          className="app-gradient-btn h-11 rounded-[12px] px-5 text-sm font-bold text-white disabled:opacity-40"
+          disabled={!canOpenModal}
+          onClick={() => onFeeModalOpenChange(true)}
         >
-          Confirm Initial Purchase
-        </button>
-        <button
-          type="button"
-          className="h-11 rounded-[12px] border border-app-line px-4 text-sm font-bold text-app-ink disabled:opacity-40"
-          disabled={draft.strategy.strategyId === "none"}
-          onClick={() => {
-            setAuthorizedAutomation(true);
-            previewAction("Authorize Automation");
-          }}
-        >
-          Authorize Automation
+          Continue to confirmation
         </button>
         <Link
           href={APP_ROUTES.portfolio}
           className="inline-flex h-11 items-center rounded-[12px] border border-app-line px-4 text-sm font-bold text-app-brand"
-          onClick={() => onChange({ previewConfirmed: true })}
         >
           View Portfolio / Index
         </Link>
       </div>
 
-      {(message || purchaseConfirmed || authorizedAutomation) && (
-        <div className="rounded-[12px] border border-app-line bg-app-soft px-4 py-3 text-sm text-app-muted">
+      {message ? (
+        <div className="rounded-[12px] border border-app-success/35 bg-app-success/10 px-4 py-3 text-sm text-app-ink">
           {message}
-          {purchaseConfirmed ? (
-            <p className="mt-1">Initial purchase marked confirmed in preview.</p>
-          ) : null}
-          {authorizedAutomation ? (
-            <p className="mt-1">
-              Automation authorization recorded in preview only.
-            </p>
-          ) : null}
-          <p className="mt-2 font-semibold text-app-ink">
-            No real transaction, permission or execution was submitted.
-          </p>
         </div>
-      )}
-    </section>
-  );
-}
+      ) : null}
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-start justify-between gap-3">
-      <span className="text-app-dim">{label}</span>
-      <span className="text-right font-semibold capitalize text-app-ink">
-        {value}
-      </span>
-    </div>
+      <TransactionConfirmModal
+        open={feeModalOpen}
+        fees={fees}
+        investmentUsd={draft.investmentUsd}
+        onClose={() => onFeeModalOpenChange(false)}
+        onApprove={handleApprove}
+      />
+    </section>
   );
 }

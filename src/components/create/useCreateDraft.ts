@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CREATE_DRAFT_STORAGE_KEY,
   createEmptyDraft,
+  migrateWizardStep,
   normalizeStrategyConfig,
   type CreateDraft,
   type CreateWizardStep,
@@ -20,25 +21,59 @@ const VALID_CATEGORIES = new Set<IndexNarrativeCategory>([
   "gaming",
   "oracles",
   "ai-agents",
-  "other",
+  "liquid-staking",
+  "restaking",
+  "privacy",
+  "interoperability",
+  "modular-blockchain",
+  "dex",
+  "nft",
 ]);
 
+const LEGACY_OTHER_TO_CATEGORY: Record<string, IndexNarrativeCategory> = {
+  "liquid-staking": "liquid-staking",
+  restaking: "restaking",
+  privacy: "privacy",
+  interoperability: "interoperability",
+  "modular-blockchain": "modular-blockchain",
+  "decentralized-exchange": "dex",
+  "non-fungible-tokens-nft": "nft",
+};
+
 function normalizeStoredDraft(parsed: CreateDraft): CreateDraft {
-  let next = { ...parsed, strategy: normalizeStrategyConfig(parsed.strategy ?? {}) };
-  // Legacy Index Builder memecoins → Degen Club-only meme narrative via Others id.
+  let next: CreateDraft = {
+    ...parsed,
+    step: migrateWizardStep(String(parsed.step)),
+    strategy: normalizeStrategyConfig(parsed.strategy ?? {}),
+  };
+
   if ((next.categoryId as string) === "memecoins") {
     next = {
       ...next,
-      categoryId: "other",
+      categoryId: null,
       otherCategoryId: next.otherCategoryId ?? "meme-token",
     };
   }
+
+  if ((next.categoryId as string) === "other") {
+    const mapped = next.otherCategoryId
+      ? LEGACY_OTHER_TO_CATEGORY[next.otherCategoryId]
+      : undefined;
+    next = {
+      ...next,
+      categoryId: mapped ?? null,
+      otherCategoryId:
+        next.otherCategoryId === "meme-token" ? "meme-token" : null,
+    };
+  }
+
   if (
     next.categoryId != null &&
     !VALID_CATEGORIES.has(next.categoryId)
   ) {
-    next = { ...next, categoryId: null, otherCategoryId: null };
+    next = { ...next, categoryId: null };
   }
+
   return next;
 }
 

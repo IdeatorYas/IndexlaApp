@@ -1,16 +1,10 @@
 "use client";
 
 import type { CreateWizardStep } from "@/lib/domain/create";
-import { stepLabel, wizardStepsFor, type CreateProductType } from "@/lib/domain/create";
+import { stepLabel, wizardStepsFor } from "@/lib/domain/create";
 
-export function CreateStepRail({
-  productType,
-  current,
-}: {
-  productType: CreateProductType | null;
-  current: CreateWizardStep;
-}) {
-  const steps = wizardStepsFor(productType);
+export function CreateStepRail({ current }: { current: CreateWizardStep }) {
+  const steps = wizardStepsFor();
   const currentIndex = steps.indexOf(current);
 
   return (

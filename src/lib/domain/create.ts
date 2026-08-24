@@ -23,14 +23,11 @@ export type CreateStrategyId =
   | "creator-strategy";
 
 export type MomentumTimeframe = "daily" | "weekly";
+export type RsiTimeframe = "daily" | "weekly";
+export type DcaMode = "calendar" | "schedule";
+export type DcaSchedule = "daily" | "weekly";
 
-export type CreateWizardStep =
-  | "product"
-  | "category"
-  | "assets"
-  | "strategy"
-  | "details"
-  | "review";
+export type CreateWizardStep = "basics" | "assets" | "strategy" | "review";
 
 export type IndexNarrativeCategory =
   | "rwa"
@@ -42,7 +39,13 @@ export type IndexNarrativeCategory =
   | "gaming"
   | "oracles"
   | "ai-agents"
-  | "other";
+  | "liquid-staking"
+  | "restaking"
+  | "privacy"
+  | "interoperability"
+  | "modular-blockchain"
+  | "dex"
+  | "nft";
 
 export interface CreateCategoryOption {
   id: IndexNarrativeCategory;
@@ -101,6 +104,16 @@ export interface CreateStrategyConfig {
   circuitBreaker: boolean;
   /** Momentum only: Daily or Weekly trend. */
   momentumTimeframe: MomentumTimeframe;
+  /** RSI only: Daily or Weekly RSI. */
+  rsiTimeframe: RsiTimeframe;
+  takeProfitTargetPercent: number;
+  takeProfitSellPercent: number;
+  stopLossTargetPercent: number;
+  stopLossSellPercent: number;
+  dcaMode: DcaMode;
+  /** ISO date strings (YYYY-MM-DD) when dcaMode is calendar. */
+  dcaDates: string[];
+  dcaSchedule: DcaSchedule;
 }
 
 export interface CreateDraft {
@@ -187,16 +200,57 @@ export const INDEX_CATEGORIES: CreateCategoryOption[] = [
     isDegen: false,
   },
   {
-    id: "other",
-    label: "Others",
-    description:
-      "Liquid Staking, Restaking, Privacy, Interoperability, Modular Blockchain, DEX, NFT, and more.",
-    coingeckoCategoryId: null,
+    id: "liquid-staking",
+    label: "Liquid Staking",
+    description: "Liquid staking tokens and protocols.",
+    coingeckoCategoryId: "liquid-staking",
+    isDegen: false,
+  },
+  {
+    id: "restaking",
+    label: "Restaking",
+    description: "Restaking protocols and related assets.",
+    coingeckoCategoryId: "restaking",
+    isDegen: false,
+  },
+  {
+    id: "privacy",
+    label: "Privacy",
+    description: "Privacy-focused networks and coins.",
+    coingeckoCategoryId: "privacy",
+    isDegen: false,
+  },
+  {
+    id: "interoperability",
+    label: "Interoperability",
+    description: "Cross-chain and interoperability protocols.",
+    coingeckoCategoryId: "interoperability",
+    isDegen: false,
+  },
+  {
+    id: "modular-blockchain",
+    label: "Modular Blockchain",
+    description: "Modular blockchain infrastructure.",
+    coingeckoCategoryId: "modular-blockchain",
+    isDegen: false,
+  },
+  {
+    id: "dex",
+    label: "DEX",
+    description: "Decentralized exchange protocols.",
+    coingeckoCategoryId: "decentralized-exchange",
+    isDegen: false,
+  },
+  {
+    id: "nft",
+    label: "NFT",
+    description: "NFT marketplaces and related tokens.",
+    coingeckoCategoryId: "non-fungible-tokens-nft",
     isDegen: false,
   },
 ];
 
-/** Shown first under Others in the Index Builder. */
+/** @deprecated Prefer INDEX_CATEGORIES — kept for legacy Other-list helpers. */
 export const INDEX_OTHER_PINNED_CATEGORIES: {
   category_id: string;
   name: string;
@@ -266,6 +320,14 @@ export function defaultStrategyConfig(): CreateStrategyConfig {
     expiry: "",
     circuitBreaker: true,
     momentumTimeframe: "daily",
+    rsiTimeframe: "daily",
+    takeProfitTargetPercent: 0,
+    takeProfitSellPercent: 0,
+    stopLossTargetPercent: 0,
+    stopLossSellPercent: 0,
+    dcaMode: "schedule",
+    dcaDates: [],
+    dcaSchedule: "weekly",
   };
 }
 
@@ -311,6 +373,14 @@ export function normalizeStrategyConfig(
     raw.momentumTimeframe === "weekly" || raw.frequency === "weekly"
       ? "weekly"
       : "daily";
+  const rsiTimeframe: RsiTimeframe =
+    raw.rsiTimeframe === "weekly" ? "weekly" : "daily";
+  const dcaMode: DcaMode = raw.dcaMode === "calendar" ? "calendar" : "schedule";
+  const dcaSchedule: DcaSchedule =
+    raw.dcaSchedule === "daily" ? "daily" : "weekly";
+  const dcaDates = Array.isArray(raw.dcaDates)
+    ? raw.dcaDates.filter((d) => typeof d === "string")
+    : [];
 
   return {
     ...base,
@@ -320,6 +390,14 @@ export function normalizeStrategyConfig(
     amountOrPercent:
       executionPercent > 0 ? String(executionPercent) : raw.amountOrPercent ?? "",
     momentumTimeframe,
+    rsiTimeframe,
+    takeProfitTargetPercent: Math.max(0, Number(raw.takeProfitTargetPercent) || 0),
+    takeProfitSellPercent: Math.max(0, Number(raw.takeProfitSellPercent) || 0),
+    stopLossTargetPercent: Math.max(0, Number(raw.stopLossTargetPercent) || 0),
+    stopLossSellPercent: Math.max(0, Number(raw.stopLossSellPercent) || 0),
+    dcaMode,
+    dcaDates,
+    dcaSchedule,
   };
 }
 
@@ -369,7 +447,7 @@ export function createEmptyDraft(): CreateDraft {
   return {
     version: 1,
     updatedAt: new Date().toISOString(),
-    step: "product",
+    step: "basics",
     productType: null,
     categoryId: null,
     otherCategoryId: null,
@@ -416,28 +494,63 @@ export function normalizeAllocations(
   return scaled;
 }
 
+/** Fixed 4-step Create flow for Portfolio and Index. */
 export function wizardStepsFor(
-  productType: CreateProductType | null,
+  _productType?: CreateProductType | null,
 ): CreateWizardStep[] {
-  if (productType === "index") {
-    return ["product", "category", "assets", "strategy", "details", "review"];
+  return ["basics", "assets", "strategy", "review"];
+}
+
+export function migrateWizardStep(step: string): CreateWizardStep {
+  if (step === "product" || step === "category" || step === "details") {
+    if (step === "details") return "review";
+    if (step === "category") return "assets";
+    return "basics";
   }
-  return ["product", "assets", "strategy", "details", "review"];
+  if (
+    step === "basics" ||
+    step === "assets" ||
+    step === "strategy" ||
+    step === "review"
+  ) {
+    return step;
+  }
+  return "basics";
 }
 
 export function stepLabel(step: CreateWizardStep): string {
   switch (step) {
-    case "product":
-      return "Choose Product";
-    case "category":
-      return "Index Category";
+    case "basics":
+      return "Name & Description";
     case "assets":
       return "Assets & Allocations";
     case "strategy":
-      return "Strategy & Automation";
-    case "details":
-      return "Investment & Details";
+      return "Automation Strategy";
     case "review":
       return "Review & Confirm";
   }
+}
+
+export function strategyIsConfigured(strategy: CreateStrategyConfig): boolean {
+  const { strategyId, executionPercent, creatorStrategyId } = strategy;
+  if (strategyId === "none") return true;
+  if (strategyId === "creator-strategy" && !creatorStrategyId) return false;
+  if (strategyId === "take-profit-stop-loss") {
+    return (
+      strategy.takeProfitTargetPercent > 0 &&
+      strategy.takeProfitSellPercent > 0 &&
+      strategy.stopLossTargetPercent > 0 &&
+      strategy.stopLossSellPercent > 0
+    );
+  }
+  if (strategyId === "dca") {
+    if (strategy.dcaMode === "calendar") {
+      return strategy.dcaDates.length > 0 && executionPercent > 0;
+    }
+    return executionPercent > 0;
+  }
+  if (strategyId === "rsi" || strategyId === "momentum") {
+    return executionPercent > 0;
+  }
+  return executionPercent > 0 && executionPercent <= 100;
 }

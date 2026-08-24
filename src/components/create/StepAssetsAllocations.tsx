@@ -12,7 +12,6 @@ import {
 import { AssetIcon } from "@/components/ui/AssetIcons";
 import {
   INDEX_CATEGORIES,
-  INDEX_OTHER_PINNED_CATEGORIES,
   allocationTotal,
   equalAllocate,
   normalizeAllocations,
@@ -32,8 +31,6 @@ const SUPPORT_LABEL: Record<MarketAsset["supportStatus"], string> = {
   "unsupported-network": "Unsupported Network",
 };
 
-const MAIN_NARRATIVES = INDEX_CATEGORIES.filter((c) => c.id !== "other");
-
 function logoKey(asset: Pick<MarketAsset, "id" | "symbol">) {
   return (asset.symbol || asset.id).trim() || asset.id;
 }
@@ -51,10 +48,12 @@ function isMemeAsset(asset: MarketAsset): boolean {
 export function StepAssetsAllocations({
   draft,
   onChangeAllocations,
+  onNarrativeChange,
   onAssetsLoaded,
 }: {
   draft: CreateDraft;
   onChangeAllocations: (rows: CreateAllocationRow[]) => void;
+  onNarrativeChange?: (id: IndexNarrativeCategory | null) => void;
   onAssetsLoaded?: (assets: MarketAsset[]) => void;
 }) {
   const [assets, setAssets] = useState<MarketAsset[]>([]);
@@ -62,9 +61,6 @@ export function StepAssetsAllocations({
   const [network, setNetwork] = useState("all");
   const [narrativeId, setNarrativeId] = useState<IndexNarrativeCategory | "">(
     draft.categoryId ?? "",
-  );
-  const [otherNarrativeId, setOtherNarrativeId] = useState(
-    draft.otherCategoryId ?? "",
   );
   const [availability, setAvailability] = useState("idle");
   const [stale, setStale] = useState(false);
@@ -74,17 +70,12 @@ export function StepAssetsAllocations({
   const isDegenCategory =
     Boolean(categoryMeta?.isDegen) || draft.otherCategoryId === "meme-token";
 
-  // Keep Index category step and Assets narrative filter aligned.
   useEffect(() => {
-    if (draft.productType !== "index") return;
-    setNarrativeId(draft.categoryId ?? "");
-    setOtherNarrativeId(draft.otherCategoryId ?? "");
-  }, [draft.productType, draft.categoryId, draft.otherCategoryId]);
+    if (draft.categoryId) setNarrativeId(draft.categoryId);
+  }, [draft.categoryId]);
 
   const activeNarrative: IndexNarrativeCategory | null =
     narrativeId === "" ? null : narrativeId;
-  const activeOtherId =
-    activeNarrative === "other" ? otherNarrativeId || null : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -97,21 +88,9 @@ export function StepAssetsAllocations({
       onAssetsLoaded?.([]);
       return;
     }
-    if (activeNarrative === "other" && !activeOtherId) {
-      setAssets([]);
-      setAvailability("idle");
-      setReason(null);
-      setStale(false);
-      onAssetsLoaded?.([]);
-      return;
-    }
 
     const params = new URLSearchParams();
-    if (activeNarrative !== "other") {
-      params.set("narrative", activeNarrative);
-    } else if (activeOtherId) {
-      params.set("category", activeOtherId);
-    }
+    params.set("narrative", activeNarrative);
     if (query.trim()) params.set("q", query.trim());
     if (network !== "all") params.set("network", network);
     if (draft.productType === "index") params.set("tokenized", "0");
@@ -145,14 +124,7 @@ export function StepAssetsAllocations({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [
-    activeNarrative,
-    activeOtherId,
-    query,
-    network,
-    draft.productType,
-    onAssetsLoaded,
-  ]);
+  }, [activeNarrative, query, network, draft.productType, onAssetsLoaded]);
 
   const filtered = assets;
 
@@ -207,6 +179,7 @@ export function StepAssetsAllocations({
     assetKey: logoKey(row.asset),
     label: row.asset.symbol || row.asset.name,
     percent: row.percent,
+    imageUrl: row.asset.imageUrl,
   }));
 
   return (
@@ -309,39 +282,22 @@ export function StepAssetsAllocations({
               onChange={(e) => {
                 const next = e.target.value as IndexNarrativeCategory | "";
                 setNarrativeId(next);
-                if (next !== "other") setOtherNarrativeId("");
+                onNarrativeChange?.(next === "" ? null : next);
               }}
               className={createSelectClass}
               aria-label="Narratives"
             >
               <option value="">Select narrative</option>
-              {MAIN_NARRATIVES.map((n) => (
+              {INDEX_CATEGORIES.map((n) => (
                 <option key={n.id} value={n.id}>
                   {n.label}
                 </option>
               ))}
-              <option value="other">Others</option>
             </select>
-            {narrativeId === "other" ? (
-              <select
-                value={otherNarrativeId}
-                onChange={(e) => setOtherNarrativeId(e.target.value)}
-                className={createSelectClass}
-                aria-label="Others narratives"
-              >
-                <option value="">Select from Others</option>
-                {INDEX_OTHER_PINNED_CATEGORIES.map((n) => (
-                  <option key={n.category_id} value={n.category_id}>
-                    {n.name}
-                  </option>
-                ))}
-              </select>
-            ) : null}
           </div>
 
           <div className="mt-3 min-h-0 flex-1">
-            {!activeNarrative ||
-            (activeNarrative === "other" && !activeOtherId) ? (
+            {!activeNarrative ? (
               <div className="rounded-[12px] border border-dashed border-app-line/70 bg-app-panel/40 p-8 text-sm text-app-muted">
                 Select a narrative to load its assets. Memecoins stay in Degen
                 Club only.
@@ -375,6 +331,7 @@ export function StepAssetsAllocations({
                           assetId={logoKey(asset)}
                           size={36}
                           variant="donut"
+                          imageUrl={asset.imageUrl}
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -492,6 +449,7 @@ export function StepAssetsAllocations({
                         assetId={logoKey(row.asset)}
                         size={32}
                         variant="donut"
+                        imageUrl={row.asset.imageUrl}
                       />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-bold text-app-ink">

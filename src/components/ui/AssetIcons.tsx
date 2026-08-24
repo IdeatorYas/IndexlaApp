@@ -31,6 +31,7 @@ export function AssetIcon({
   size = 28,
   framed = true,
   variant = "default",
+  imageUrl = null,
 }: {
   assetId: string;
   size?: number;
@@ -38,11 +39,16 @@ export function AssetIcon({
   framed?: boolean;
   /** Donut: crisp circular disc with contained HQ logo (no crop/stretch). */
   variant?: "default" | "donut";
+  /** Optional remote logo (e.g. CoinGecko) when registry has no match. */
+  imageUrl?: string | null;
 }) {
   const ticker = resolveAssetTicker(assetId);
-  const src = getAssetLogoUrl(assetId);
+  const registry = getAssetLogoUrl(assetId);
   const [broken, setBroken] = useState(false);
-  const resolved = !src || broken ? GENERIC_ASSET_LOGO : src;
+  const preferred =
+    registry ||
+    (imageUrl && imageUrl.trim() !== "" ? imageUrl.trim() : null);
+  const resolved = !preferred || broken ? GENERIC_ASSET_LOGO : preferred;
   const isRemote = resolved.startsWith("http");
   const renderPx = Math.max(Math.round(size * 2), 64);
 
@@ -120,7 +126,7 @@ export function AssetIcon({
     );
   }
 
-  if (!src || broken) {
+  if (!preferred || broken) {
     return <GenericAssetIcon size={size} title={ticker} />;
   }
 
@@ -133,7 +139,7 @@ export function AssetIcon({
       {isRemote ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={src}
+          src={resolved}
           alt={ticker}
           width={renderPx}
           height={renderPx}
@@ -144,7 +150,7 @@ export function AssetIcon({
         />
       ) : (
         <Image
-          src={src}
+          src={resolved}
           alt={ticker}
           width={renderPx}
           height={renderPx}

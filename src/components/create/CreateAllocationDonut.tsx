@@ -66,6 +66,7 @@ export type CreateDonutSegment = {
   assetKey: string;
   label: string;
   percent: number;
+  imageUrl?: string | null;
 };
 
 /**
@@ -240,6 +241,7 @@ export function CreateAllocationDonut({
                       assetId={segment.seg.assetKey}
                       size={icon}
                       variant="donut"
+                      imageUrl={segment.seg.imageUrl}
                     />
                     <span
                       className="font-bold tabular-nums leading-none"

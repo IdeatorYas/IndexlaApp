@@ -4,17 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CreateStepRail } from "@/components/create/CreateStepRail";
 import { StepAssetsAllocations } from "@/components/create/StepAssetsAllocations";
-import { StepChooseProduct } from "@/components/create/StepChooseProduct";
-import { StepIndexCategory } from "@/components/create/StepIndexCategory";
-import { StepInvestmentDetails } from "@/components/create/StepInvestmentDetails";
+import { StepNameDescription } from "@/components/create/StepNameDescription";
 import { StepReviewConfirm } from "@/components/create/StepReviewConfirm";
 import { StepStrategyAutomation } from "@/components/create/StepStrategyAutomation";
 import { useCreateDraft } from "@/components/create/useCreateDraft";
 import {
   allocationTotal,
   createEmptyDraft,
+  strategyIsConfigured,
   wizardStepsFor,
-  type CreateProductType,
   type MarketAsset,
 } from "@/lib/domain/create";
 import { DEGEN_RISK_WARNING } from "@/lib/domain/degen-club";
@@ -24,6 +22,8 @@ export function CreateWizard() {
   const searchParams = useSearchParams();
   const { draft, hydrated, update, setStep, reset, setDraft } = useCreateDraft();
   const [assetCache, setAssetCache] = useState<MarketAsset[]>([]);
+  const [feeModalOpen, setFeeModalOpen] = useState(false);
+  const [reviewCanConfirm, setReviewCanConfirm] = useState(false);
   const templateApplied = useRef(false);
 
   const steps = wizardStepsFor(draft.productType);
@@ -34,52 +34,41 @@ export function CreateWizard() {
     if (!hydrated || templateApplied.current) return;
     if (searchParams.get("template") !== "degen") return;
     templateApplied.current = true;
-    const next = {
+    setDraft({
       ...createEmptyDraft(),
-      productType: "index" as const,
-      categoryId: "other" as const,
+      productType: "index",
+      categoryId: null,
       otherCategoryId: "meme-token",
-      step: "assets" as const,
+      step: "assets",
       name: "My Degen Index",
       thesis:
         "Diversified memecoin index — extreme risk. Illustrative preview only.",
-      visibility: "public" as const,
+      visibility: "public",
       degenAcknowledged: false,
-    };
-    setDraft(next);
+    });
   }, [hydrated, searchParams, setDraft]);
 
   const canContinue = useMemo(() => {
     switch (draft.step) {
-      case "product":
-        return draft.productType != null;
-      case "category":
-        if (!draft.categoryId) return false;
-        if (draft.categoryId === "other") return Boolean(draft.otherCategoryId);
-        return true;
+      case "basics":
+        return (
+          draft.productType != null &&
+          draft.name.trim().length > 0 &&
+          draft.thesis.trim().length > 0
+        );
       case "assets":
         return (
           draft.allocations.length > 0 &&
           allocationTotal(draft.allocations) === 100
         );
-      case "strategy": {
-        const { strategyId, creatorStrategyId, executionPercent } =
-          draft.strategy;
-        if (strategyId === "none") return true;
-        if (strategyId === "creator-strategy" && !creatorStrategyId) {
-          return false;
-        }
-        return executionPercent > 0 && executionPercent <= 100;
-      }      case "details":
-        return (
-          draft.name.trim().length > 0 &&
-          draft.thesis.trim().length > 0 &&
-          draft.investmentUsd > 0
-        );
+      case "strategy":
+        return strategyIsConfigured(draft.strategy);
       case "review": {
         const degen =
           isDegenTemplate || draft.otherCategoryId === "meme-token";
-        return !degen || draft.degenAcknowledged;
+        return (
+          draft.investmentUsd > 0 && (!degen || draft.degenAcknowledged)
+        );
       }
       default:
         return false;
@@ -88,20 +77,18 @@ export function CreateWizard() {
 
   function goNext() {
     const idx = steps.indexOf(draft.step);
-    if (idx < steps.length - 1) setStep(steps[idx + 1]);
+    if (idx < steps.length - 1) {
+      setFeeModalOpen(false);
+      setStep(steps[idx + 1]);
+    }
   }
 
   function goBack() {
     const idx = steps.indexOf(draft.step);
-    if (idx > 0) setStep(steps[idx - 1]);
-  }
-
-  function selectProduct(type: CreateProductType) {
-    update({
-      productType: type,
-      categoryId: type === "portfolio" ? null : draft.categoryId,
-      otherCategoryId: type === "portfolio" ? null : draft.otherCategoryId,
-    });
+    if (idx > 0) {
+      setFeeModalOpen(false);
+      setStep(steps[idx - 1]);
+    }
   }
 
   if (!hydrated) {
@@ -123,8 +110,8 @@ export function CreateWizard() {
               Create Portfolio / Index
             </h1>
             <p className="mt-1.5 max-w-xl text-sm text-app-muted">
-              Guided builder with autosaved drafts. Preview only — no wallet
-              execution.
+              Four-step builder with autosaved drafts. Preview only — wallet
+              approval happens on final confirmation.
             </p>
           </div>
           <button
@@ -147,7 +134,7 @@ export function CreateWizard() {
           </div>
         ) : null}
         <div className="mt-4 space-y-2">
-          <CreateStepRail productType={draft.productType} current={draft.step} />
+          <CreateStepRail current={draft.step} />
           <p className="text-[11px] text-app-dim">
             Draft autosaved locally · step {Math.max(1, stepIndex + 1)} of{" "}
             {steps.length}
@@ -157,30 +144,17 @@ export function CreateWizard() {
       </header>
 
       <div className="min-h-[20rem]">
-        {draft.step === "product" ? (
-          <StepChooseProduct draft={draft} onSelect={selectProduct} />
-        ) : null}
-
-        {draft.step === "category" ? (
-          <StepIndexCategory
-            draft={draft}
-            onSelect={(categoryId) =>
-              update({
-                categoryId,
-                otherCategoryId:
-                  categoryId === "other" ? draft.otherCategoryId : null,
-              })
-            }
-            onSelectOther={(otherCategoryId) =>
-              update({ categoryId: "other", otherCategoryId })
-            }
-          />
+        {draft.step === "basics" ? (
+          <StepNameDescription draft={draft} onChange={update} />
         ) : null}
 
         {draft.step === "assets" ? (
           <StepAssetsAllocations
             draft={draft}
             onChangeAllocations={(allocations) => update({ allocations })}
+            onNarrativeChange={(categoryId) =>
+              update({ categoryId, otherCategoryId: null })
+            }
             onAssetsLoaded={setAssetCache}
           />
         ) : null}
@@ -192,19 +166,14 @@ export function CreateWizard() {
           />
         ) : null}
 
-        {draft.step === "details" ? (
-          <StepInvestmentDetails
-            draft={draft}
-            assets={assetCache}
-            onChange={update}
-          />
-        ) : null}
-
         {draft.step === "review" ? (
           <StepReviewConfirm
             draft={draft}
             assets={assetCache}
             onChange={update}
+            feeModalOpen={feeModalOpen}
+            onFeeModalOpenChange={setFeeModalOpen}
+            onCanConfirmChange={setReviewCanConfirm}
           />
         ) : null}
       </div>
@@ -228,9 +197,14 @@ export function CreateWizard() {
             Continue
           </button>
         ) : (
-          <p className="text-xs text-app-dim">
-            Use preview actions above to finish without real execution.
-          </p>
+          <button
+            type="button"
+            onClick={() => setFeeModalOpen(true)}
+            disabled={!reviewCanConfirm}
+            className="app-gradient-btn h-11 rounded-[12px] px-6 text-sm font-bold disabled:opacity-40"
+          >
+            Continue to confirmation
+          </button>
         )}
       </div>
     </div>
