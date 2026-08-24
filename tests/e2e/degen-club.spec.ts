@@ -12,9 +12,7 @@ test.describe("Degen Club", () => {
     await expect(
       page.getByRole("heading", { name: "The New Way To Play Memecoins." }),
     ).toBeVisible();
-    await expect(
-      page.getByText("EXTREME RISK WARNING").first(),
-    ).toBeVisible();
+    await expect(page.getByText("EXTREME RISK WARNING")).toHaveCount(1);
     await expect(
       page.getByText(/Memecoins are highly speculative and extremely volatile/),
     ).toBeVisible();

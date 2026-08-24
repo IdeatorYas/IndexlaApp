@@ -8,7 +8,6 @@ import { DegenAssetIcon } from "@/components/degen-club/DegenAssetIcon";
 import {
   DegenFullExitModal,
   DegenTradeModal,
-  DegenRiskBanner,
 } from "@/components/degen-club/DegenModals";
 import {
   enrichDegenProduct,
@@ -40,7 +39,10 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (searchParams.get("action") === "trade" || searchParams.get("action") === "invest") {
+    if (
+      searchParams.get("action") === "trade" ||
+      searchParams.get("action") === "invest"
+    ) {
       setTradeOpen(true);
     }
   }, [searchParams]);
@@ -51,6 +53,8 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
   }, []);
 
   const positive = enriched.performance30d >= 0;
+  const holdingCount = enriched.allocations.length;
+  const donutSize = holdingCount >= 10 ? 188 : holdingCount >= 8 ? 200 : 212;
 
   function preview(action: string) {
     setMessage(`${action} — preview only. No real execution was submitted.`);
@@ -74,8 +78,6 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
           <span className="degen-illustrative-tag">Illustrative</span>
         </div>
 
-        <DegenRiskBanner />
-
         {message ? <PreviewOnlyMessage>{message}</PreviewOnlyMessage> : null}
 
         <section className="degen-detail-hero">
@@ -88,7 +90,7 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
             creatorName={enriched.creatorName}
             creatorHandle={enriched.creatorHandle}
             verified={enriched.verified}
-            className="text-sm font-semibold text-[var(--degen-muted)]"
+            className="text-[12px] font-semibold text-[var(--degen-muted)]"
           />
           <p className="degen-detail-thesis">{enriched.thesis}</p>
           <p className="degen-detail-strategy-line">{enriched.strategy}</p>
@@ -99,7 +101,10 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
               value={formatPercent(enriched.performance30d, true)}
               positive={positive}
             />
-            <DetailMetric label="AUM · Illus." value={formatUsd(enriched.aumUsd, true)} />
+            <DetailMetric
+              label="AUM · Illus."
+              value={formatUsd(enriched.aumUsd, true)}
+            />
             <DetailMetric
               label="Investors · Illus."
               value={enriched.investors.toLocaleString()}
@@ -109,9 +114,9 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
         </section>
 
         <section className="degen-detail-allocation">
-          <div>
+          <div className="degen-detail-allocation-head">
             <p className="degen-metric-label">Composition</p>
-            <h2 className="degen-section-title mt-0.5 text-base">
+            <h2 className="degen-section-title mt-0 text-[0.95rem] leading-none">
               Portfolio Allocation
             </h2>
           </div>
@@ -124,29 +129,32 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
                   percent: a.percent,
                   imageUrl: a.imageUrl,
                 }))}
-                size={248}
+                size={donutSize}
               />
             </div>
-            <ul className="degen-detail-holdings">
+            <ul
+              className="degen-detail-holdings"
+              style={{ ["--degen-holding-count" as string]: String(holdingCount) }}
+            >
               {enriched.allocations.map((a) => (
                 <li key={a.assetId} className="degen-detail-holding-row">
-                  <span className="flex min-w-0 items-center gap-2">
+                  <span className="flex min-w-0 items-center gap-1.5">
                     <DegenAssetIcon
                       assetKey={a.assetId}
-                      size={24}
+                      size={20}
                       imageUrl={a.imageUrl}
                     />
                     <span className="min-w-0">
-                      <span className="block truncate text-[12px] font-bold text-[var(--degen-ink)]">
+                      <span className="block truncate text-[11px] font-bold leading-tight text-[var(--degen-ink)]">
                         {a.name ?? a.label}
                       </span>
-                      <span className="text-[10px] text-[var(--degen-muted)]">
+                      <span className="text-[9px] leading-tight text-[var(--degen-muted)]">
                         {a.networkLabel ?? enriched.chainLabel} ·{" "}
                         {formatDegenLivePrice(a.priceUsd)}
                       </span>
                     </span>
                   </span>
-                  <span className="shrink-0 text-[12px] font-black text-[var(--degen-neon-gold)]">
+                  <span className="shrink-0 text-[11px] font-black text-[var(--degen-neon-gold)]">
                     {a.percent}%
                   </span>
                 </li>
@@ -158,7 +166,7 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
         <div className="degen-detail-actions degen-detail-actions-inline">
           <button
             type="button"
-            className="degen-btn-primary h-11 flex-1 text-sm uppercase tracking-wide"
+            className="degen-btn-primary h-9 flex-1 text-[12px] uppercase tracking-wide"
             onClick={() => {
               if (wallet.state !== "connected") connectDemo();
               setTradeAck(false);
@@ -169,7 +177,7 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
           </button>
           <button
             type="button"
-            className="degen-btn-secondary h-11 flex-1 text-sm uppercase tracking-wide"
+            className="degen-btn-secondary h-9 flex-1 text-[12px] uppercase tracking-wide"
             onClick={() => setExitOpen(true)}
           >
             Full Exit
@@ -197,7 +205,9 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
           onCancel={() => {
             setTradeOpen(false);
             if (searchParams.get("action")) {
-              router.replace(APP_ROUTES.degenProduct(product.id), { scroll: false });
+              router.replace(APP_ROUTES.degenProduct(product.id), {
+                scroll: false,
+              });
             }
           }}
           onConnect={connectDemo}

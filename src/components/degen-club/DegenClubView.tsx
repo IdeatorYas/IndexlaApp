@@ -108,7 +108,6 @@ export function DegenClubView({
   if (viewState === "loading") {
     return (
       <div className="space-y-4">
-        <DegenRiskBanner />
         <LoadingSkeleton title="Loading Degen Club" lines={6} />
       </div>
     );
@@ -117,7 +116,6 @@ export function DegenClubView({
   if (viewState === "error") {
     return (
       <div className="space-y-4">
-        <DegenRiskBanner />
         <ErrorState
           title="Degen Club unavailable"
           description="Unable to load memecoin index discovery data."
@@ -135,6 +133,7 @@ export function DegenClubView({
             </button>
           }
         />
+        <DegenRiskBanner />
       </div>
     );
   }
@@ -142,19 +141,17 @@ export function DegenClubView({
   if (viewState === "empty") {
     return (
       <div className="space-y-4">
-        <DegenRiskBanner />
         <EmptyState
           title="No memecoin indexes yet"
           description="When illustrative Degen products publish, they will appear here."
         />
+        <DegenRiskBanner />
       </div>
     );
   }
 
   return (
     <div className="space-y-2">
-      <DegenRiskBanner />
-
       {message ? <PreviewOnlyMessage>{message}</PreviewOnlyMessage> : null}
 
       {/* Compact hero */}
@@ -249,6 +246,11 @@ export function DegenClubView({
           </div>
         )}
       </section>
+
+      {/* Single Extreme Risk Warning — bottom of hub only */}
+      <div className="pt-2">
+        <DegenRiskBanner />
+      </div>
 
       {buildOpen ? (
         <DegenBuildModal
