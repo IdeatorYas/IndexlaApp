@@ -183,7 +183,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
         </header>
         <PremiumAllocationVisual
           allocations={product.allocations}
-          size={dense ? 260 : 300}
+          size={dense ? 240 : 280}
           compact={dense}
         />
       </section>

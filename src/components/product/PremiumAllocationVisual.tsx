@@ -3,6 +3,31 @@
 import { useEffect, useMemo, useState } from "react";
 import { AssetIcon } from "@/components/ui/AssetIcons";
 import { formatPercent } from "@/lib/dashboard/data";
+
+function formatAssetPriceUsd(value: number | null | undefined): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  if (value >= 1000) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(value);
+  }
+  if (value >= 1) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6,
+  }).format(value);
+}
 import type { AllocationPreview } from "@/lib/domain/dashboard";
 import type {
   AssetPerformancePoint,
@@ -223,11 +248,13 @@ export function PremiumAllocationVisual({
   return (
     <div
       className={[
-        "grid gap-3 lg:items-stretch",
-        "lg:grid-cols-[minmax(220px,0.9fr)_minmax(0,1.25fr)]",
+        "grid grid-cols-1 gap-3",
+        "md:grid-cols-[minmax(200px,0.88fr)_minmax(0,1.35fr)] md:items-start",
+        "lg:items-stretch lg:gap-4",
       ].join(" ")}
     >
-      <div className="relative mx-auto flex w-full max-w-[min(100%,340px)] items-center justify-center lg:max-w-none">
+      {/* LEFT: allocation donut — sits beside holdings on md+ */}
+      <div className="relative mx-auto flex w-full max-w-[min(100%,300px)] shrink-0 items-center justify-center md:max-w-[280px] lg:max-w-[300px]">
         <div className="pointer-events-none absolute inset-[12%] rounded-full bg-[radial-gradient(circle_at_50%_45%,color-mix(in_srgb,var(--color-brand)_18%,transparent),transparent_68%)]" />
         <svg
           width="100%"
@@ -332,7 +359,8 @@ export function PremiumAllocationVisual({
         </svg>
       </div>
 
-      <div className="min-w-0">
+      {/* RIGHT: holdings list — same vertical band as donut */}
+      <div className="min-w-0 w-full">
         <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 px-0.5">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-app-dim">
             Holdings
@@ -365,12 +393,13 @@ export function PremiumAllocationVisual({
         <div className="overflow-hidden rounded-[14px] border border-app-line/50 bg-gradient-to-b from-app-elevated/95 to-app-panel/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
           <div
             className={[
-              "hidden grid-cols-[minmax(0,1.4fr)_3.25rem_3.4rem_3.4rem_3.4rem] gap-1 border-b border-app-line/40 text-[9px] font-bold uppercase tracking-wider text-app-dim sm:grid",
+              "hidden grid-cols-[minmax(0,1.15fr)_2.75rem_4.25rem_3.1rem_3.1rem_3.1rem] gap-1 border-b border-app-line/40 text-[9px] font-bold uppercase tracking-wider text-app-dim sm:grid",
               rowPad,
             ].join(" ")}
           >
-            <span>Asset</span>
+            <span className="text-center">Asset</span>
             <span className="text-right">Alloc</span>
+            <span className="text-right">Price</span>
             <span className="text-right">24H</span>
             <span className="text-right">7D</span>
             <span className="text-right">30D</span>
@@ -393,12 +422,12 @@ export function PremiumAllocationVisual({
                 <li
                   key={`${alloc.assetId}-${index}`}
                   className={[
-                    "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[minmax(0,1.4fr)_3.25rem_3.4rem_3.4rem_3.4rem] sm:gap-1",
+                    "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[minmax(0,1.15fr)_2.75rem_4.25rem_3.1rem_3.1rem_3.1rem] sm:gap-1",
                     rowPad,
                     "transition-colors hover:bg-app-soft/35",
                   ].join(" ")}
                 >
-                  <div className="flex min-w-0 items-center gap-2">
+                  <div className="mx-auto flex min-w-0 w-full max-w-[7.5rem] flex-col items-center justify-center gap-0.5">
                     <span
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full ring-1 ring-black/10 dark:ring-white/10"
                       style={{ backgroundColor: color }}
@@ -409,22 +438,29 @@ export function PremiumAllocationVisual({
                         framed={false}
                       />
                     </span>
-                    <div className="min-w-0 flex-1 text-center">
+                    <div className="min-w-0 text-center">
                       <p
                         className={[
                           "truncate font-bold text-app-ink",
                           nameSize,
                         ].join(" ")}
                       >
-                        {getAssetDisplayName(alloc.assetId)}
-                      </p>
-                      <p className="truncate text-[10px] font-semibold text-app-dim">
                         {ticker}
+                      </p>
+                      <p className="truncate text-[10px] font-semibold text-app-dim sm:hidden">
+                        {loading
+                          ? "…"
+                          : formatAssetPriceUsd(point?.priceUsd) ?? "—"}
                       </p>
                     </div>
                   </div>
                   <p className="text-right text-[12px] font-bold tabular-nums text-app-ink sm:text-[13px]">
                     {alloc.percent}%
+                  </p>
+                  <p className="hidden text-right text-[11px] font-semibold tabular-nums text-app-ink sm:block">
+                    {loading
+                      ? "…"
+                      : formatAssetPriceUsd(point?.priceUsd) ?? "—"}
                   </p>
                   <p className="hidden text-right text-[11px] sm:block">
                     <PerfCell
@@ -490,7 +526,7 @@ export function PremiumAllocationVisual({
             })}
             <li
               className={[
-                "flex items-center justify-between bg-app-soft/25 sm:grid sm:grid-cols-[minmax(0,1.4fr)_3.25rem_3.4rem_3.4rem_3.4rem] sm:gap-1",
+                "flex items-center justify-between bg-app-soft/25 sm:grid sm:grid-cols-[minmax(0,1.15fr)_2.75rem_4.25rem_3.1rem_3.1rem_3.1rem] sm:gap-1",
                 rowPad,
               ].join(" ")}
             >
