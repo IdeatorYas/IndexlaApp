@@ -586,8 +586,11 @@ export interface DegenCoinMarketPoint {
   symbol: string;
   name: string;
   priceUsd: number | null;
+  marketCapUsd: number | null;
   imageUrl: string | null;
   change24hPercent: number | null;
+  change7dPercent: number | null;
+  change30dPercent: number | null;
   status: "live" | "unavailable" | "error";
 }
 
@@ -599,7 +602,7 @@ export interface DegenClubPriceResult {
   reason?: string;
 }
 
-/** Batch CoinGecko market data for Degen Club assets (logos + live USD prices). */
+/** Batch CoinGecko market data for Degen Club (logos, mcap, 7D/30D). */
 export async function fetchDegenClubPrices(
   coingeckoIds: string[],
 ): Promise<DegenClubPriceResult> {
@@ -614,7 +617,7 @@ export async function fetchDegenClubPrices(
   }
 
   const idsKey = unique.sort().join(",");
-  const cacheKey = `degen-prices:${idsKey}`;
+  const cacheKey = `degen-markets-v2:${idsKey}`;
   const cached = getCached<Record<string, DegenCoinMarketPoint>>(cacheKey);
 
   if (cached && !cached.stale) {
@@ -632,14 +635,39 @@ export async function fetchDegenClubPrices(
     name: string;
     image?: string;
     current_price?: number | null;
+    market_cap?: number | null;
     price_change_percentage_24h?: number | null;
+    price_change_percentage_24h_in_currency?: number | null;
+    price_change_percentage_7d_in_currency?: number | null;
+    price_change_percentage_30d_in_currency?: number | null;
+    price_change_percentage_7d?: number | null;
+    price_change_percentage_30d?: number | null;
   };
 
   const path =
     `/coins/markets?vs_currency=usd&ids=${encodeURIComponent(idsKey)}` +
-    `&order=market_cap_desc&per_page=${Math.max(unique.length, 1)}&page=1&sparkline=false`;
+    `&order=market_cap_desc&per_page=${Math.max(unique.length, 1)}&page=1&sparkline=false` +
+    `&price_change_percentage=24h,7d,30d`;
 
   const result = await cgFetch<MarketsCoin[]>(path);
+
+  function emptyPoint(
+    id: string,
+    status: DegenCoinMarketPoint["status"],
+  ): DegenCoinMarketPoint {
+    return {
+      coingeckoId: id,
+      symbol: "",
+      name: id,
+      priceUsd: null,
+      marketCapUsd: null,
+      imageUrl: null,
+      change24hPercent: null,
+      change7dPercent: null,
+      change30dPercent: null,
+      status,
+    };
+  }
 
   if (result.ok && Array.isArray(result.data)) {
     const byId: Record<string, DegenCoinMarketPoint> = {};
@@ -648,15 +676,7 @@ export async function fetchDegenClubPrices(
     for (const id of unique) {
       const coin = returned.get(id);
       if (!coin) {
-        byId[id] = {
-          coingeckoId: id,
-          symbol: "",
-          name: id,
-          priceUsd: null,
-          imageUrl: null,
-          change24hPercent: null,
-          status: "unavailable",
-        };
+        byId[id] = emptyPoint(id, "unavailable");
         continue;
       }
       byId[id] = {
@@ -664,8 +684,17 @@ export async function fetchDegenClubPrices(
         symbol: coin.symbol,
         name: coin.name,
         priceUsd: asFiniteNumber(coin.current_price),
+        marketCapUsd: asFiniteNumber(coin.market_cap),
         imageUrl: coin.image ?? null,
-        change24hPercent: asFiniteNumber(coin.price_change_percentage_24h),
+        change24hPercent:
+          asFiniteNumber(coin.price_change_percentage_24h_in_currency) ??
+          asFiniteNumber(coin.price_change_percentage_24h),
+        change7dPercent:
+          asFiniteNumber(coin.price_change_percentage_7d_in_currency) ??
+          asFiniteNumber(coin.price_change_percentage_7d),
+        change30dPercent:
+          asFiniteNumber(coin.price_change_percentage_30d_in_currency) ??
+          asFiniteNumber(coin.price_change_percentage_30d),
         status: "live",
       };
     }
@@ -691,15 +720,7 @@ export async function fetchDegenClubPrices(
 
   const byId: Record<string, DegenCoinMarketPoint> = {};
   for (const id of unique) {
-    byId[id] = {
-      coingeckoId: id,
-      symbol: "",
-      name: id,
-      priceUsd: null,
-      imageUrl: null,
-      change24hPercent: null,
-      status: "error",
-    };
+    byId[id] = emptyPoint(id, "error");
   }
 
   return {

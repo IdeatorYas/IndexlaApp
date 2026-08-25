@@ -11,7 +11,8 @@ import {
 } from "@/components/degen-club/DegenModals";
 import {
   enrichDegenProduct,
-  formatDegenLivePrice,
+  formatDegenChange,
+  formatDegenMarketCap,
   useDegenPrices,
 } from "@/components/degen-club/useDegenPrices";
 import { ProductAttribution } from "@/components/product/ProductIdentity";
@@ -146,14 +147,42 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
                   />
                   <span className="degen-detail-holding-meta min-w-0">
                     <span className="degen-detail-holding-name">
-                      {a.name ?? a.label}
+                      <span className="truncate">{a.name ?? a.label}</span>
+                      {a.ticker ? (
+                        <span className="degen-detail-holding-ticker">
+                          {a.ticker}
+                        </span>
+                      ) : null}
                     </span>
-                    <span className="degen-detail-holding-sub">
-                      <span className="degen-detail-holding-chain">
-                        {a.networkLabel ?? enriched.chainLabel}
+                    <span className="degen-detail-holding-stats">
+                      <span className="degen-detail-holding-mcap">
+                        {formatDegenMarketCap(a.marketCapUsd)}
                       </span>
-                      <span className="degen-detail-holding-price">
-                        {formatDegenLivePrice(a.priceUsd)}
+                      <span
+                        className={[
+                          "degen-detail-holding-perf",
+                          a.change7dPercent != null && a.change7dPercent >= 0
+                            ? "is-up"
+                            : "",
+                          a.change7dPercent != null && a.change7dPercent < 0
+                            ? "is-down"
+                            : "",
+                        ].join(" ")}
+                      >
+                        7D {formatDegenChange(a.change7dPercent)}
+                      </span>
+                      <span
+                        className={[
+                          "degen-detail-holding-perf",
+                          a.change30dPercent != null && a.change30dPercent >= 0
+                            ? "is-up"
+                            : "",
+                          a.change30dPercent != null && a.change30dPercent < 0
+                            ? "is-down"
+                            : "",
+                        ].join(" ")}
+                      >
+                        30D {formatDegenChange(a.change30dPercent)}
                       </span>
                     </span>
                   </span>

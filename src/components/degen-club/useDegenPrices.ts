@@ -18,6 +18,11 @@ export function enrichDegenProduct(
         ...a,
         imageUrl: live?.imageUrl ?? a.imageUrl ?? null,
         priceUsd: live?.priceUsd ?? a.priceUsd ?? null,
+        marketCapUsd: live?.marketCapUsd ?? a.marketCapUsd ?? null,
+        change7dPercent: live?.change7dPercent ?? a.change7dPercent ?? null,
+        change30dPercent: live?.change30dPercent ?? a.change30dPercent ?? null,
+        ticker: a.ticker ?? (live?.symbol ? live.symbol.toUpperCase() : a.ticker),
+        name: a.name ?? live?.name ?? a.name,
       };
     }),
   };
@@ -63,4 +68,20 @@ export function formatDegenLivePrice(value: number | null | undefined): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 6,
   }).format(value);
+}
+
+export function formatDegenMarketCap(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000_000) return `$${(value / 1_000_000_000_000).toFixed(2)}T`;
+  if (abs >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
+  return `$${Math.round(value)}`;
+}
+
+export function formatDegenChange(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${value.toFixed(1)}%`;
 }

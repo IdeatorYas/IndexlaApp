@@ -47,6 +47,9 @@ export interface DegenAllocation {
   /** Populated at runtime from CoinGecko. */
   imageUrl?: string | null;
   priceUsd?: number | null;
+  marketCapUsd?: number | null;
+  change7dPercent?: number | null;
+  change30dPercent?: number | null;
 }
 
 export interface DegenActivityItem {
