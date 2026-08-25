@@ -1210,11 +1210,12 @@
   gap: 0.55rem;
   margin-top: 0.25rem;
   grid-template-columns: 1fr;
+  min-width: 0;
 }
 
 @media (min-width: 768px) {
   .degen-detail-allocation-grid {
-    grid-template-columns: minmax(280px, 0.92fr) minmax(0, 1.08fr);
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
     align-items: center;
     gap: 0.85rem;
   }
@@ -1234,91 +1235,152 @@
 .degen-detail-holdings {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.35rem 0.55rem;
+  gap: 0.35rem 0.5rem;
   overflow: visible;
   max-height: none;
-  padding-right: 0;
+  padding: 0;
   align-content: center;
+  min-width: 0;
+  width: 100%;
 }
 
+@media (max-width: 639px) {
+  .degen-detail-holdings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Fixed 6-column template — identical on every asset row */
 .degen-detail-holding-row {
   display: grid;
   grid-template-columns:
-    2.65rem
+    2.75rem
     1.75rem
-    minmax(0, 1.35fr)
-    4.35rem
-    3.55rem
-    3.55rem;
+    minmax(0, 1fr)
+    3.85rem
+    3.1rem
+    3.1rem;
   align-items: center;
-  column-gap: 0.4rem;
+  column-gap: 0.3rem;
   border-radius: 10px;
   border: 1px solid var(--degen-panel-border);
   background: var(--degen-bg-soft);
-  padding: 0.4rem 0.5rem;
-  min-height: 3rem;
+  padding: 0.4rem 0.45rem 0.4rem 0.5rem;
+  min-height: 2.85rem;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .degen-detail-holding-pct {
+  display: block;
+  min-width: 0;
+  padding-left: 0.05rem;
   font-size: 0.8125rem;
   font-weight: 900;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   color: var(--degen-neon-gold);
   text-align: left;
+  white-space: nowrap;
+  overflow: visible;
+  line-height: 1;
+}
+
+.degen-detail-holding-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  overflow: hidden;
+  border-radius: 999px;
+  justify-self: center;
+}
+
+.degen-detail-holding-logo > span {
+  /* Neutralize dark border bleed that reads as a "|" beside the name */
+  border-color: transparent !important;
+  box-shadow: none !important;
 }
 
 .degen-detail-holding-identity {
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
   gap: 0.05rem;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding-right: 0.15rem;
 }
 
 .degen-detail-holding-name {
   display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   line-height: 1.15;
   color: var(--degen-ink);
+  text-align: left;
 }
 
-.degen-detail-holding-ticker {
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--degen-muted);
+.degen-detail-holding-subname {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.5625rem;
+  font-weight: 600;
   line-height: 1.1;
+  color: var(--degen-muted);
+  text-align: left;
 }
 
 .degen-detail-holding-stat {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
-  gap: 0.05rem;
+  gap: 0.08rem;
   min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  text-align: center;
 }
 
 .degen-detail-holding-stat-label {
+  display: block;
+  width: 100%;
   font-size: 0.5rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--degen-muted);
   line-height: 1;
+  text-align: center;
 }
 
 .degen-detail-holding-stat-value {
+  display: block;
+  width: 100%;
   font-size: 0.6875rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
   color: var(--degen-ink);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .degen-detail-holding-stat-value.is-mcap {
@@ -1368,7 +1430,7 @@
 
   .degen-detail-allocation-grid {
     min-height: 0;
-    grid-template-columns: minmax(300px, 0.95fr) minmax(0, 1.05fr);
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
     align-items: center;
     gap: 1rem;
   }
@@ -1381,32 +1443,33 @@
   .degen-detail-holdings {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-content: center;
-    gap: 0.32rem 0.55rem;
+    gap: 0.32rem 0.5rem;
+    min-width: 0;
   }
 
   .degen-detail-holding-row {
     grid-template-columns:
       2.75rem
       1.75rem
-      minmax(0, 1.4fr)
-      4.5rem
-      3.65rem
-      3.65rem;
-    column-gap: 0.42rem;
-    padding: 0.38rem 0.5rem;
-    min-height: 3.05rem;
+      minmax(0, 1fr)
+      3.85rem
+      3.1rem
+      3.1rem;
+    column-gap: 0.3rem;
+    padding: 0.38rem 0.45rem 0.38rem 0.5rem;
+    min-height: 2.9rem;
   }
 
   .degen-detail-holding-pct {
-    font-size: 0.875rem;
-  }
-
-  .degen-detail-holding-name {
     font-size: 0.8125rem;
   }
 
-  .degen-detail-holding-ticker {
-    font-size: 0.625rem;
+  .degen-detail-holding-name {
+    font-size: 0.75rem;
+  }
+
+  .degen-detail-holding-subname {
+    font-size: 0.5625rem;
   }
 
   .degen-detail-holding-stat-label {

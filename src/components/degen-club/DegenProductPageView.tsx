@@ -150,18 +150,20 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
                 return (
                   <li key={a.assetId} className="degen-detail-holding-row">
                     <span className="degen-detail-holding-pct">{a.percent}%</span>
-                    <DegenAssetIcon
-                      assetKey={a.assetId}
-                      size={28}
-                      imageUrl={a.imageUrl}
-                    />
-                    <span className="degen-detail-holding-identity min-w-0">
-                      <span className="degen-detail-holding-name truncate">
-                        {a.name ?? a.label}
+                    <span className="degen-detail-holding-logo">
+                      <DegenAssetIcon
+                        assetKey={a.assetId}
+                        size={24}
+                        imageUrl={a.imageUrl}
+                      />
+                    </span>
+                    <span className="degen-detail-holding-identity">
+                      <span className="degen-detail-holding-name">
+                        {a.ticker ?? a.label}
                       </span>
-                      {a.ticker ? (
-                        <span className="degen-detail-holding-ticker">
-                          {a.ticker}
+                      {a.name && a.name.toUpperCase() !== (a.ticker ?? "").toUpperCase() ? (
+                        <span className="degen-detail-holding-subname">
+                          {a.name}
                         </span>
                       ) : null}
                     </span>
