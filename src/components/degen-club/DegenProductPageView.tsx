@@ -138,57 +138,66 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
               className="degen-detail-holdings"
               style={{ ["--degen-holding-count" as string]: String(holdingCount) }}
             >
-              {enriched.allocations.map((a) => (
-                <li key={a.assetId} className="degen-detail-holding-row">
-                  <DegenAssetIcon
-                    assetKey={a.assetId}
-                    size={22}
-                    imageUrl={a.imageUrl}
-                  />
-                  <span className="degen-detail-holding-meta min-w-0">
-                    <span className="degen-detail-holding-name">
-                      <span className="truncate">{a.name ?? a.label}</span>
+              {enriched.allocations.map((a) => {
+                const up7 =
+                  a.change7dPercent != null && a.change7dPercent >= 0;
+                const down7 =
+                  a.change7dPercent != null && a.change7dPercent < 0;
+                const up30 =
+                  a.change30dPercent != null && a.change30dPercent >= 0;
+                const down30 =
+                  a.change30dPercent != null && a.change30dPercent < 0;
+                return (
+                  <li key={a.assetId} className="degen-detail-holding-row">
+                    <span className="degen-detail-holding-pct">{a.percent}%</span>
+                    <DegenAssetIcon
+                      assetKey={a.assetId}
+                      size={28}
+                      imageUrl={a.imageUrl}
+                    />
+                    <span className="degen-detail-holding-identity min-w-0">
+                      <span className="degen-detail-holding-name truncate">
+                        {a.name ?? a.label}
+                      </span>
                       {a.ticker ? (
                         <span className="degen-detail-holding-ticker">
                           {a.ticker}
                         </span>
                       ) : null}
                     </span>
-                    <span className="degen-detail-holding-stats">
-                      <span className="degen-detail-holding-mcap">
+                    <span className="degen-detail-holding-stat">
+                      <span className="degen-detail-holding-stat-label">MCap</span>
+                      <span className="degen-detail-holding-stat-value is-mcap">
                         {formatDegenMarketCap(a.marketCapUsd)}
                       </span>
+                    </span>
+                    <span className="degen-detail-holding-stat">
+                      <span className="degen-detail-holding-stat-label">7D</span>
                       <span
                         className={[
-                          "degen-detail-holding-perf",
-                          a.change7dPercent != null && a.change7dPercent >= 0
-                            ? "is-up"
-                            : "",
-                          a.change7dPercent != null && a.change7dPercent < 0
-                            ? "is-down"
-                            : "",
+                          "degen-detail-holding-stat-value",
+                          up7 ? "is-up" : "",
+                          down7 ? "is-down" : "",
                         ].join(" ")}
                       >
-                        7D {formatDegenChange(a.change7dPercent)}
-                      </span>
-                      <span
-                        className={[
-                          "degen-detail-holding-perf",
-                          a.change30dPercent != null && a.change30dPercent >= 0
-                            ? "is-up"
-                            : "",
-                          a.change30dPercent != null && a.change30dPercent < 0
-                            ? "is-down"
-                            : "",
-                        ].join(" ")}
-                      >
-                        30D {formatDegenChange(a.change30dPercent)}
+                        {formatDegenChange(a.change7dPercent)}
                       </span>
                     </span>
-                  </span>
-                  <span className="degen-detail-holding-pct">{a.percent}%</span>
-                </li>
-              ))}
+                    <span className="degen-detail-holding-stat">
+                      <span className="degen-detail-holding-stat-label">30D</span>
+                      <span
+                        className={[
+                          "degen-detail-holding-stat-value",
+                          up30 ? "is-up" : "",
+                          down30 ? "is-down" : "",
+                        ].join(" ")}
+                      >
+                        {formatDegenChange(a.change30dPercent)}
+                      </span>
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </section>
@@ -276,7 +285,7 @@ function DetailMetric({
       <p className="degen-metric-label">{label}</p>
       <p
         className={[
-          "degen-metric-value mt-0.5",
+          "degen-metric-value",
           positive === true ? "degen-metric-value-positive" : "",
           positive === false ? "degen-metric-value-negative" : "",
         ].join(" ")}
