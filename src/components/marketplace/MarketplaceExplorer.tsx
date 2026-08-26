@@ -116,7 +116,7 @@ function ProductSection({
   compact?: boolean;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2.5 sm:space-y-3">
       <div className="flex items-center gap-2 px-0.5">
         <h3
           className={[
@@ -133,8 +133,8 @@ function ProductSection({
       </div>
       <div
         className={[
-          "grid gap-1",
-          compact ? "sm:grid-cols-2 xl:grid-cols-3" : "sm:grid-cols-2 xl:grid-cols-3 gap-2",
+          "grid sm:grid-cols-2 xl:grid-cols-3",
+          compact ? "gap-3 sm:gap-3.5" : "gap-3.5 sm:gap-4",
         ].join(" ")}
       >
         {products.map((product) => (

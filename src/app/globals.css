@@ -589,4 +589,102 @@
     );
     color: color-mix(in srgb, var(--pt-accent) 78%, #ffffff);
   }
+
+  /* ─── Marketplace product cards ─── */
+  .app-marketplace-card {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-panel-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    transition:
+      transform var(--transition-base),
+      box-shadow var(--transition-base),
+      border-color var(--transition-base);
+  }
+
+  .app-marketplace-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  [data-theme="dark"] .app-marketplace-card {
+    background: linear-gradient(180deg, #1c1c21 0%, #16161a 100%);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .app-marketplace-card-index {
+    border-left: 3px solid
+      color-mix(in srgb, var(--color-accent-blue) 55%, var(--color-panel-border));
+  }
+
+  .app-marketplace-card-portfolio {
+    border-left: 3px solid
+      color-mix(in srgb, var(--color-accent-indigo) 55%, var(--color-panel-border));
+  }
+
+  [data-theme="light"] .app-marketplace-card-index {
+    background: linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--color-accent-blue) 5%, var(--color-bg-elevated)) 0%,
+      var(--color-bg-elevated) 38%
+    );
+  }
+
+  [data-theme="light"] .app-marketplace-card-portfolio {
+    background: linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--color-accent-indigo) 5%, var(--color-bg-elevated)) 0%,
+      var(--color-bg-elevated) 38%
+    );
+  }
+
+  [data-theme="dark"] .app-marketplace-card-index {
+    background: linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--color-accent-blue) 10%, #1c1c21) 0%,
+      #16161a 42%
+    );
+  }
+
+  [data-theme="dark"] .app-marketplace-card-portfolio {
+    background: linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--color-accent-indigo) 10%, #1c1c21) 0%,
+      #16161a 42%
+    );
+  }
+
+  .app-product-kind-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 6px;
+    border-width: 1px;
+    border-style: solid;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .app-product-kind-badge-index {
+    border-color: color-mix(in srgb, var(--color-accent-blue) 40%, var(--color-panel-border));
+    background: color-mix(in srgb, var(--color-accent-blue) 14%, var(--color-bg-elevated));
+    color: var(--color-accent-blue);
+  }
+
+  .app-product-kind-badge-portfolio {
+    border-color: color-mix(in srgb, var(--color-accent-indigo) 40%, var(--color-panel-border));
+    background: color-mix(in srgb, var(--color-accent-indigo) 14%, var(--color-bg-elevated));
+    color: var(--color-accent-indigo);
+  }
+
+  .app-marketplace-metric {
+    border: 1px solid var(--color-panel-border);
+    background: color-mix(in srgb, var(--color-panel) 88%, var(--color-bg-elevated));
+    border-radius: calc(var(--radius-control) - 2px);
+  }
+
+  [data-theme="dark"] .app-marketplace-metric {
+    background: color-mix(in srgb, var(--color-panel) 70%, #16161a);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
 }
