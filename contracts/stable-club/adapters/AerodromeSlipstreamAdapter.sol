@@ -148,6 +148,10 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         return IERC721(npm).ownerOf(tokenId);
     }
 
+    function positionTokens(uint256 tokenId) external view returns (address token0, address token1) {
+        (, , token0, token1, , , , , , , , ) = IAerodromeSlipstreamNPM(npm).positions(tokenId);
+    }
+
     function mintPosition(
         address lpOwner,
         address tokenA,
@@ -183,6 +187,8 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
                 sqrtPriceX96: 0
             })
         );
+        _refundDust(token0, lpOwner);
+        _refundDust(token1, lpOwner);
     }
 
     function increaseLiquidity(
@@ -213,6 +219,8 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
                 deadline: block.timestamp
             })
         );
+        _refundDust(token0, lpOwner);
+        _refundDust(token1, lpOwner);
     }
 
     function decreaseLiquidity(
@@ -304,6 +312,11 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
                 amount1Max: type(uint128).max
             })
         );
+    }
+
+    function _refundDust(address token, address to) internal {
+        uint256 bal = IERC20(token).balanceOf(address(this));
+        if (bal > 0) IERC20(token).safeTransfer(to, bal);
     }
 
     function _sort(

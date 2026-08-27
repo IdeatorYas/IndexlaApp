@@ -21,6 +21,7 @@ async function deployStableClubStack() {
     await permissionRegistry.getAddress(),
     await feeRouter.getAddress(),
   ]);
+  await permissionRegistry.setOperator(await executor.getAddress(), true);
   await feeRouter.wireExecutor(await executor.getAddress());
 
   const testAdapter = await ethers.deployContract("TestPoolAdapter", [

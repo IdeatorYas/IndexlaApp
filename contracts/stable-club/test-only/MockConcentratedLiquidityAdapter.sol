@@ -44,6 +44,11 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
         return ERC721.ownerOf(tokenId);
     }
 
+    function positionTokens(uint256 tokenId) external view returns (address token0, address token1) {
+        token0 = token0Of[tokenId];
+        token1 = token1Of[tokenId];
+    }
+
     function mintPosition(
         address lpOwner,
         address tokenA,

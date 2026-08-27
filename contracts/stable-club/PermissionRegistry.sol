@@ -40,7 +40,10 @@ contract PermissionRegistry {
 
     event PermissionRevoked(bytes32 indexed permissionId, address indexed user);
     event PermissionPaused(bytes32 indexed permissionId, address indexed user);
+    event PermissionUnpaused(bytes32 indexed permissionId, address indexed user);
     event PermissionRegistered(bytes32 indexed permissionId, address indexed user, bytes32 poolId);
+    event OperatorSet(address indexed operator, bool allowed);
+    event OwnerTransferred(address indexed previous, address indexed next);
 
     mapping(bytes32 => Permission) public permissions;
     mapping(bytes32 => uint256) public dailySpent;
@@ -49,6 +52,9 @@ contract PermissionRegistry {
     mapping(bytes32 => uint256) public lastExecutionAt;
     mapping(bytes32 => mapping(uint256 => bool)) public executionNonceUsed;
 
+    address public owner;
+    mapping(address => bool) public isOperator;
+    /// @dev Legacy single-operator getter for ABI compatibility with Step 1 tooling.
     address public operator;
 
     error PermissionNotFound();
@@ -65,19 +71,49 @@ contract PermissionRegistry {
     error DailyExecutionLimitReached();
     error ExecutionNonceAlreadyUsed();
     error InvalidSlippage();
-    error OperatorAlreadyWired();
+    error Unauthorized();
+    error InvalidOperator();
 
-    event OperatorWired(address indexed operator);
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert Unauthorized();
+        _;
+    }
+
+    modifier onlyOperator() {
+        if (!isOperator[msg.sender]) revert UnauthorizedUser();
+        _;
+    }
 
     modifier onlyPermissionUser(bytes32 permissionId) {
         if (permissions[permissionId].user != msg.sender) revert UnauthorizedUser();
         _;
     }
 
-    function wireOperator(address operator_) external {
-        if (operator != address(0) || operator_ == address(0)) revert OperatorAlreadyWired();
-        operator = operator_;
-        emit OperatorWired(operator_);
+    constructor() {
+        owner = msg.sender;
+    }
+
+    function transferOwnership(address next) external onlyOwner {
+        if (next == address(0)) revert InvalidOperator();
+        emit OwnerTransferred(owner, next);
+        owner = next;
+    }
+
+    /// @notice Owner-controlled operator allowlist (Step 1 + Step 2 executors).
+    function setOperator(address operator_, bool allowed) public onlyOwner {
+        if (operator_ == address(0)) revert InvalidOperator();
+        isOperator[operator_] = allowed;
+        if (allowed) {
+            operator = operator_;
+        } else if (operator == operator_) {
+            operator = address(0);
+        }
+        emit OperatorSet(operator_, allowed);
+    }
+
+    /// @dev Compatibility shim: wires a single operator (owner only). Prefer setOperator.
+    function wireOperator(address operator_) external onlyOwner {
+        setOperator(operator_, true);
     }
 
     function permissionIdFor(
@@ -115,15 +151,18 @@ contract PermissionRegistry {
         emit PermissionPaused(permissionId, msg.sender);
     }
 
-    function pauseByOperator(bytes32 permissionId, address user) external {
-        if (msg.sender != operator) revert UnauthorizedUser();
+    function unpause(bytes32 permissionId) external onlyPermissionUser(permissionId) {
+        permissions[permissionId].paused = false;
+        emit PermissionUnpaused(permissionId, msg.sender);
+    }
+
+    function pauseByOperator(bytes32 permissionId, address user) external onlyOperator {
         if (permissions[permissionId].user != user) revert UnauthorizedUser();
         permissions[permissionId].paused = true;
         emit PermissionPaused(permissionId, user);
     }
 
-    function revokeByOperator(bytes32 permissionId, address user) external {
-        if (msg.sender != operator) revert UnauthorizedUser();
+    function revokeByOperator(bytes32 permissionId, address user) external onlyOperator {
         if (permissions[permissionId].user != user) revert UnauthorizedUser();
         permissions[permissionId].revoked = true;
         emit PermissionRevoked(permissionId, user);
@@ -146,7 +185,7 @@ contract PermissionRegistry {
         uint256 amount,
         uint256 slippageBps,
         uint256 executionNonce
-    ) external {
+    ) external onlyOperator {
         Permission storage perm = _activePermission(permissionId);
         if (!isActionAllowed(permissionId, action)) revert ActionNotAllowed();
         if (slippageBps > perm.maxSlippageBps) revert SlippageTooHigh();
@@ -173,7 +212,7 @@ contract PermissionRegistry {
         lastExecutionAt[permissionId] = block.timestamp;
     }
 
-    function validateEmergencyExecution(bytes32 permissionId, uint256 executionNonce) external {
+    function validateEmergencyExecution(bytes32 permissionId, uint256 executionNonce) external onlyOperator {
         Permission storage perm = permissions[permissionId];
         if (perm.user == address(0)) revert PermissionNotFound();
         if (perm.revoked) revert RevokedPermission();

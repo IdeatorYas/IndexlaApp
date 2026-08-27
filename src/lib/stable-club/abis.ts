@@ -91,6 +91,7 @@ export const stableClubExecutorAbi = [
       { name: "tokenB", type: "address" },
       { name: "depositAmount", type: "uint256" },
       { name: "swapAmount", type: "uint256" },
+      { name: "minAmountOut", type: "uint256" },
       { name: "minLpOut", type: "uint256" },
       { name: "slippageBps", type: "uint256" },
     ],

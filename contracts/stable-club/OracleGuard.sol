@@ -14,10 +14,13 @@ contract OracleGuard is IOracleGuard {
     }
 
     address public owner;
+    /// @notice Oracle-only deviation limit (not permission slippage) — M3.
     uint256 public defaultMaxDeviationBps = 200; // 2%
+    /// @notice When true, TWAP must be configured and fresh for every validated token.
+    bool public twapRequired;
 
     mapping(address => Feed) public feeds;
-    /// @dev Optional secondary TWAP price (1e8 scale) set by a trusted updater for tests / ops.
+    /// @dev Secondary TWAP price (1e8 scale) set by a trusted updater for tests / ops.
     mapping(address => uint256) public twapPriceE8;
     mapping(address => uint256) public twapUpdatedAt;
     uint256 public twapMaxAgeSec = 1 hours;
@@ -26,6 +29,7 @@ contract OracleGuard is IOracleGuard {
     event FeedConfigured(address indexed token, address aggregator, uint256 maxStalenessSec);
     event TwapUpdated(address indexed token, uint256 priceE8, uint256 updatedAt);
     event MaxDeviationUpdated(uint256 bps);
+    event TwapRequiredUpdated(bool required);
 
     error Unauthorized();
     error FeedDisabled();
@@ -34,6 +38,7 @@ contract OracleGuard is IOracleGuard {
     error InvalidRound();
     error DeviationTooHigh();
     error StaleTwap();
+    error TwapRequiredMissing();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -53,6 +58,11 @@ contract OracleGuard is IOracleGuard {
         require(bps <= 5_000, "bps");
         defaultMaxDeviationBps = bps;
         emit MaxDeviationUpdated(bps);
+    }
+
+    function setTwapRequired(bool required) external onlyOwner {
+        twapRequired = required;
+        emit TwapRequiredUpdated(required);
     }
 
     function configureFeed(
@@ -115,7 +125,10 @@ contract OracleGuard is IOracleGuard {
 
     function _requireTwapOrSkip(address token, uint256 maxDeviationBps) internal view {
         uint256 twap = twapPriceE8[token];
-        if (twap == 0) return; // TWAP optional until configured
+        if (twap == 0) {
+            if (twapRequired) revert TwapRequiredMissing();
+            return; // TWAP optional until owner enables twapRequired or configures prices
+        }
         if (block.timestamp > twapUpdatedAt[token] + twapMaxAgeSec) revert StaleTwap();
 
         Feed memory f = feeds[token];

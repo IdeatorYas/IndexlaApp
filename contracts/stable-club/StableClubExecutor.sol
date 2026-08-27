@@ -16,6 +16,7 @@ contract StableClubExecutor is ReentrancyGuard {
 
     PermissionRegistry public immutable permissionRegistry;
     FeeRouter public immutable feeRouter;
+    address public owner;
 
     mapping(address => bool) public approvedAdapters;
     mapping(bytes32 => address) public poolAdapters;
@@ -24,6 +25,7 @@ contract StableClubExecutor is ReentrancyGuard {
     event AdapterApproved(address indexed adapter, bool approved);
     event PoolRegistered(bytes32 indexed poolId, address indexed adapter, bool isTestPool);
     event TokenApproved(address indexed token, bool approved);
+    event OwnerTransferred(address indexed previous, address indexed next);
     event Executed(
         bytes32 indexed permissionId,
         PermissionRegistry.Action indexed action,
@@ -38,6 +40,14 @@ contract StableClubExecutor is ReentrancyGuard {
     error PoolMismatch();
     error InvalidAmount();
     error FundsRemaining();
+    error Unauthorized();
+    error TokenNotBound();
+    error MinOutRequired();
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert Unauthorized();
+        _;
+    }
 
     modifier onlyApprovedAdapter(address adapter) {
         if (!approvedAdapters[adapter]) revert AdapterNotApproved();
@@ -47,22 +57,28 @@ contract StableClubExecutor is ReentrancyGuard {
     constructor(address permissionRegistry_, address feeRouter_) {
         permissionRegistry = PermissionRegistry(permissionRegistry_);
         feeRouter = FeeRouter(feeRouter_);
-        PermissionRegistry(permissionRegistry_).wireOperator(address(this));
+        owner = msg.sender;
     }
 
-    function setAdapterApproval(address adapter, bool approved) external {
+    function transferOwnership(address next) external onlyOwner {
+        if (next == address(0)) revert Unauthorized();
+        emit OwnerTransferred(owner, next);
+        owner = next;
+    }
+
+    function setAdapterApproval(address adapter, bool approved) external onlyOwner {
         approvedAdapters[adapter] = approved;
         emit AdapterApproved(adapter, approved);
     }
 
-    function registerPool(bytes32 poolId, address adapter, bool isTestPool) external {
+    function registerPool(bytes32 poolId, address adapter, bool isTestPool) external onlyOwner {
         if (!approvedAdapters[adapter]) revert AdapterNotApproved();
         if (IStableClubAdapter(adapter).poolId() != poolId) revert PoolMismatch();
         poolAdapters[poolId] = adapter;
         emit PoolRegistered(poolId, adapter, isTestPool);
     }
 
-    function setTokenApproval(address token, bool approved) external {
+    function setTokenApproval(address token, bool approved) external onlyOwner {
         approvedTokens[token] = approved;
         emit TokenApproved(token, approved);
     }
@@ -76,16 +92,14 @@ contract StableClubExecutor is ReentrancyGuard {
         address tokenB,
         uint256 depositAmount,
         uint256 swapAmount,
+        uint256 minAmountOut,
         uint256 minLpOut,
         uint256 slippageBps
     ) external nonReentrant onlyApprovedAdapter(adapter) {
-        PermissionRegistry.Permission memory perm = _validate(
-            PermissionRegistry.Action.DepositAndAddLiquidity,
-            permissionId,
-            executionNonce,
-            depositAmount,
-            slippageBps
-        );
+        PermissionRegistry.Permission memory perm = permissionRegistry.getPermission(permissionId);
+        if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
+        _requireBoundPair(perm, tokenA, tokenB);
+        _requireBoundToken(perm, stablecoin);
 
         bytes32 poolId = IStableClubAdapter(adapter).poolId();
         if (poolAdapters[poolId] != adapter) revert PoolNotApproved();
@@ -95,6 +109,15 @@ contract StableClubExecutor is ReentrancyGuard {
         _requireApprovedToken(tokenB);
 
         if (swapAmount > depositAmount) revert InvalidAmount();
+        if (swapAmount > 0 && minAmountOut == 0) revert MinOutRequired();
+
+        permissionRegistry.validateExecution(
+            permissionId,
+            PermissionRegistry.Action.DepositAndAddLiquidity,
+            depositAmount,
+            slippageBps,
+            executionNonce
+        );
 
         address pairedToken = stablecoin == tokenA ? tokenB : tokenA;
         uint256 amountStable = depositAmount;
@@ -104,7 +127,7 @@ contract StableClubExecutor is ReentrancyGuard {
             amountStable = depositAmount - swapAmount;
             uint256 netSwap = feeRouter.applySwapFee(stablecoin, perm.user, swapAmount, permissionId);
             IERC20(stablecoin).forceApprove(adapter, netSwap);
-            IStableClubAdapter(adapter).swap(perm.user, stablecoin, pairedToken, netSwap, 0);
+            IStableClubAdapter(adapter).swap(perm.user, stablecoin, pairedToken, netSwap, minAmountOut);
             amountPaired = IERC20(pairedToken).balanceOf(address(this));
         }
 
@@ -143,13 +166,19 @@ contract StableClubExecutor is ReentrancyGuard {
         uint256 minAmountOut,
         uint256 slippageBps
     ) external nonReentrant onlyApprovedAdapter(adapter) {
-        PermissionRegistry.Permission memory perm =
-            _validate(PermissionRegistry.Action.Swap, permissionId, executionNonce, grossAmount, slippageBps);
+        PermissionRegistry.Permission memory perm = permissionRegistry.getPermission(permissionId);
+        if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
+        _requireBoundPair(perm, tokenIn, tokenOut);
 
         bytes32 poolId = IStableClubAdapter(adapter).poolId();
         if (poolAdapters[poolId] != adapter) revert PoolNotApproved();
         _requireApprovedToken(tokenIn);
         _requireApprovedToken(tokenOut);
+        if (minAmountOut == 0) revert MinOutRequired();
+
+        permissionRegistry.validateExecution(
+            permissionId, PermissionRegistry.Action.Swap, grossAmount, slippageBps, executionNonce
+        );
 
         uint256 netAmount = feeRouter.applySwapFee(tokenIn, perm.user, grossAmount, permissionId);
         IERC20(tokenIn).forceApprove(adapter, netAmount);
@@ -172,16 +201,17 @@ contract StableClubExecutor is ReentrancyGuard {
         uint256 minAmountB,
         uint256 slippageBps
     ) external nonReentrant onlyApprovedAdapter(adapter) {
-        PermissionRegistry.Permission memory perm = _validate(
-            PermissionRegistry.Action.RemoveLiquidity,
-            permissionId,
-            executionNonce,
-            lpAmount,
-            slippageBps
-        );
+        PermissionRegistry.Permission memory perm = permissionRegistry.getPermission(permissionId);
+        if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
+        _requireBoundPair(perm, tokenA, tokenB);
 
         bytes32 poolId = IStableClubAdapter(adapter).poolId();
         if (poolAdapters[poolId] != adapter) revert PoolNotApproved();
+        if (minAmountA == 0 || minAmountB == 0) revert MinOutRequired();
+
+        permissionRegistry.validateExecution(
+            permissionId, PermissionRegistry.Action.RemoveLiquidity, lpAmount, slippageBps, executionNonce
+        );
 
         _transferLpFromUser(perm.user, adapter, lpAmount);
         IStableClubAdapter(adapter).removeLiquidity(
@@ -211,16 +241,17 @@ contract StableClubExecutor is ReentrancyGuard {
         uint256 minAmountB,
         uint256 slippageBps
     ) external nonReentrant onlyApprovedAdapter(adapter) {
-        PermissionRegistry.Permission memory perm = _validate(
-            PermissionRegistry.Action.WithdrawAll,
-            permissionId,
-            executionNonce,
-            lpAmount,
-            slippageBps
-        );
+        PermissionRegistry.Permission memory perm = permissionRegistry.getPermission(permissionId);
+        if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
+        _requireBoundPair(perm, tokenA, tokenB);
 
         bytes32 poolId = IStableClubAdapter(adapter).poolId();
         if (poolAdapters[poolId] != adapter) revert PoolNotApproved();
+        if (minAmountA == 0 || minAmountB == 0) revert MinOutRequired();
+
+        permissionRegistry.validateExecution(
+            permissionId, PermissionRegistry.Action.WithdrawAll, lpAmount, slippageBps, executionNonce
+        );
 
         _transferLpFromUser(perm.user, adapter, lpAmount);
         IStableClubAdapter(adapter).removeLiquidity(
@@ -251,10 +282,12 @@ contract StableClubExecutor is ReentrancyGuard {
     ) external nonReentrant onlyApprovedAdapter(adapter) {
         PermissionRegistry.Permission memory perm = permissionRegistry.getPermission(permissionId);
         if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
-        permissionRegistry.validateEmergencyExecution(permissionId, executionNonce);
+        _requireBoundPair(perm, tokenA, tokenB);
 
         bytes32 poolId = IStableClubAdapter(adapter).poolId();
         if (poolAdapters[poolId] != adapter) revert PoolNotApproved();
+
+        permissionRegistry.validateEmergencyExecution(permissionId, executionNonce);
 
         _transferLpFromUser(perm.user, adapter, lpAmount);
         IStableClubAdapter(adapter).removeLiquidity(
@@ -301,16 +334,18 @@ contract StableClubExecutor is ReentrancyGuard {
         );
     }
 
-    function _validate(
-        PermissionRegistry.Action action,
-        bytes32 permissionId,
-        uint256 executionNonce,
-        uint256 amount,
-        uint256 slippageBps
-    ) internal returns (PermissionRegistry.Permission memory perm) {
-        perm = permissionRegistry.getPermission(permissionId);
-        if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
-        permissionRegistry.validateExecution(permissionId, action, amount, slippageBps, executionNonce);
+    function _requireBoundPair(
+        PermissionRegistry.Permission memory perm,
+        address tokenA,
+        address tokenB
+    ) internal pure {
+        bool matchExact = tokenA == perm.tokenA && tokenB == perm.tokenB;
+        bool matchSwap = tokenA == perm.tokenB && tokenB == perm.tokenA;
+        if (!(matchExact || matchSwap)) revert TokenNotBound();
+    }
+
+    function _requireBoundToken(PermissionRegistry.Permission memory perm, address token) internal pure {
+        if (token != perm.tokenA && token != perm.tokenB) revert TokenNotBound();
     }
 
     function _requireApprovedToken(address token) internal view {

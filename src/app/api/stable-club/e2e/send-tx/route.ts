@@ -24,6 +24,14 @@ function e2ePrivateKey(): Hex {
   return value as Hex;
 }
 
+/** M7: E2E signing only on local non-production hosts. */
+function e2eAllowed(request: Request): boolean {
+  if (process.env.STABLE_CLUB_E2E_SIGNING !== "true") return false;
+  if (process.env.NODE_ENV === "production") return false;
+  const host = (request.headers.get("host") ?? "").toLowerCase();
+  return host.startsWith("localhost") || host.startsWith("127.0.0.1");
+}
+
 type SendTxBody = {
   from?: Address;
   to?: Address;
@@ -33,35 +41,35 @@ type SendTxBody = {
 };
 
 export async function POST(request: Request) {
-  if (process.env.STABLE_CLUB_E2E_SIGNING !== "true") {
+  if (!e2eAllowed(request)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {
     const tx = (await request.json()) as SendTxBody;
     const account = privateKeyToAccount(e2ePrivateKey());
-  const transport = http(STABLE_CLUB_LOCAL_RPC_URL);
-  const walletClient = createWalletClient({
-    account,
-    chain: STABLE_CLUB_LOCAL_CHAIN,
-    transport,
-  });
-  const publicClient = createPublicClient({
-    chain: STABLE_CLUB_LOCAL_CHAIN,
-    transport,
-  });
+    const transport = http(STABLE_CLUB_LOCAL_RPC_URL);
+    const walletClient = createWalletClient({
+      account,
+      chain: STABLE_CLUB_LOCAL_CHAIN,
+      transport,
+    });
+    const publicClient = createPublicClient({
+      chain: STABLE_CLUB_LOCAL_CHAIN,
+      transport,
+    });
 
-  const hash = await walletClient.sendTransaction({
-    account,
-    chain: STABLE_CLUB_LOCAL_CHAIN,
-    to: tx.to,
-    data: tx.data,
-    value: tx.value ? BigInt(tx.value) : undefined,
-    gas: tx.gas ? BigInt(tx.gas) : undefined,
-  });
+    const hash = await walletClient.sendTransaction({
+      account,
+      chain: STABLE_CLUB_LOCAL_CHAIN,
+      to: tx.to,
+      data: tx.data,
+      value: tx.value ? BigInt(tx.value) : undefined,
+      gas: tx.gas ? BigInt(tx.gas) : undefined,
+    });
 
-  await publicClient.waitForTransactionReceipt({ hash });
-  return NextResponse.json({ hash });
+    await publicClient.waitForTransactionReceipt({ hash });
+    return NextResponse.json({ hash });
   } catch (error) {
     const message = error instanceof Error ? error.message : "send-tx failed";
     return NextResponse.json({ error: message }, { status: 500 });

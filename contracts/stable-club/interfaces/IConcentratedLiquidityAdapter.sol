@@ -60,4 +60,7 @@ interface IConcentratedLiquidityAdapter {
     ) external returns (uint256 amountOut);
 
     function ownerOf(uint256 tokenId) external view returns (address);
+
+    /// @notice Underlying pool tokens for an existing position NFT (order: token0, token1).
+    function positionTokens(uint256 tokenId) external view returns (address token0, address token1);
 }

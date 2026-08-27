@@ -288,6 +288,8 @@ export function useStableClubExecution() {
             d.weth,
             depositAmount,
             swapAmount,
+            // After 1% fee, TestPoolAdapter swaps 1:1 — enforce non-zero minOut when swapping (H5).
+            swapAmount > BigInt(0) ? (swapAmount * BigInt(99)) / BigInt(100) : BigInt(0),
             BigInt(1),
             BigInt(500),
           ],

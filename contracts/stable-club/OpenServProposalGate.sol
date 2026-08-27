@@ -138,6 +138,7 @@ contract OpenServProposalGate {
         if (p.user == address(0)) revert UnknownProposal();
         if (p.consumed || p.rejected) revert AlreadyHandled();
         p.consumed = true;
+        _decrementPositionCount(p);
         failedExecutionStreak = 0;
         emit ProposalConsumed(proposalId);
     }
@@ -147,12 +148,21 @@ contract OpenServProposalGate {
         if (p.user == address(0)) revert UnknownProposal();
         if (p.consumed || p.rejected) revert AlreadyHandled();
         p.rejected = true;
+        _decrementPositionCount(p);
         failedExecutionStreak += 1;
         if (failedExecutionStreak >= autoBreakAfterFailures) {
             circuitBroken = true;
             emit CircuitBroken(true);
         }
         emit ProposalRejected(proposalId, reason);
+    }
+
+    function _decrementPositionCount(Proposal storage p) internal {
+        bytes32 posKey = keccak256(abi.encode(p.user, p.poolId, p.positionTokenId));
+        uint256 count = positionProposalCount[posKey];
+        if (count > 0) {
+            positionProposalCount[posKey] = count - 1;
+        }
     }
 
     function getProposal(bytes32 proposalId) external view returns (Proposal memory) {

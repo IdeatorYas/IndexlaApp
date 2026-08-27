@@ -15,6 +15,16 @@ const ALL_ACTIONS =
   (1n << 6n) |
   (1n << 7n);
 
+
+async function asOperator(ctx) {
+  const reg = ctx.permissionRegistryContract;
+  const [deployer] = await ethers.getSigners();
+  if (!(await reg.isOperator(deployer.address))) {
+    await reg.setOperator(deployer.address, true);
+  }
+  return reg.connect(deployer);
+}
+
 async function registerPermission(ctx) {
   const perm = {
     user: ctx.testUser.address,
@@ -58,14 +68,12 @@ describe("PermissionRegistry", function () {
     const permissionId = await registerPermission(ctx);
 
     await expect(
-      ctx.permissionRegistryContract
-        .connect(ctx.testUser)
-        .validateExecution(permissionId, 0, ethers.parseUnits("6000", 6), 0, 1n),
+      (await asOperator(ctx)).validateExecution(permissionId, 0, ethers.parseUnits("6000", 6), 0, 1n),
     ).to.be.revertedWithCustomError(ctx.permissionRegistryContract, "AmountExceedsTxLimit");
 
     await ctx.permissionRegistryContract.connect(ctx.testUser).revoke(permissionId);
     await expect(
-      ctx.permissionRegistryContract.validateExecution(permissionId, 0, 1n, 0, 2n),
+      (await asOperator(ctx)).validateExecution(permissionId, 0, 1n, 0, 2n),
     ).to.be.revertedWithCustomError(ctx.permissionRegistryContract, "RevokedPermission");
   });
 
@@ -82,12 +90,10 @@ describe("PermissionRegistry", function () {
     const ctx = await deployStableClubStack();
     const permissionId = await registerPermission(ctx);
 
-    await ctx.permissionRegistryContract
-      .connect(ctx.testUser)
-      .validateExecution(permissionId, 0, 1n, 0, 42n);
+    await (await asOperator(ctx)).validateExecution(permissionId, 0, 1n, 0, 42n);
 
     await expect(
-      ctx.permissionRegistryContract.validateExecution(permissionId, 0, 1n, 0, 42n),
+      (await asOperator(ctx)).validateExecution(permissionId, 0, 1n, 0, 42n),
     ).to.be.revertedWithCustomError(ctx.permissionRegistryContract, "ExecutionNonceAlreadyUsed");
   });
 
@@ -95,12 +101,8 @@ describe("PermissionRegistry", function () {
     const ctx = await deployStableClubStack();
     const permissionId = await registerPermission(ctx);
 
-    await ctx.permissionRegistryContract
-      .connect(ctx.testUser)
-      .validateExecution(permissionId, 0, 1n, 0, 1n);
-    await ctx.permissionRegistryContract
-      .connect(ctx.testUser)
-      .validateExecution(permissionId, 0, 1n, 0, 2n);
+    await (await asOperator(ctx)).validateExecution(permissionId, 0, 1n, 0, 1n);
+    await (await asOperator(ctx)).validateExecution(permissionId, 0, 1n, 0, 2n);
   });
 
   it("rejects expired permissions", async function () {
@@ -133,7 +135,7 @@ describe("PermissionRegistry", function () {
 
     await time.increase(121);
     await expect(
-      ctx.permissionRegistryContract.validateExecution(permissionId, 0, 1n, 0, 1n),
+      (await asOperator(ctx)).validateExecution(permissionId, 0, 1n, 0, 1n),
     ).to.be.revertedWithCustomError(ctx.permissionRegistryContract, "PermissionExpired");
   });
 });
@@ -187,6 +189,7 @@ describe("StableClubExecutor — test pool flow", function () {
       ctx.weth,
       deposit,
       swapPart,
+      (swapPart * 99n) / 100n,
       1n,
       100n,
     );
@@ -214,6 +217,7 @@ describe("StableClubExecutor — test pool flow", function () {
       ctx.weth,
       deposit,
       0n,
+      0n,
       1n,
       50n,
     );
@@ -228,6 +232,7 @@ describe("StableClubExecutor — test pool flow", function () {
       ctx.usdc,
       ctx.weth,
       deposit,
+      0n,
       0n,
       1n,
       50n,
@@ -251,6 +256,7 @@ describe("StableClubExecutor — test pool flow", function () {
       ctx.weth,
       deposit,
       0n,
+      0n,
       1n,
       50n,
     );
@@ -272,6 +278,7 @@ describe("StableClubExecutor — test pool flow", function () {
       ctx.weth,
       deposit,
       0n,
+      0n,
       1n,
       50n,
     );
@@ -286,8 +293,8 @@ describe("StableClubExecutor — test pool flow", function () {
       ctx.usdc,
       ctx.weth,
       lp / 2n,
-      0n,
-      0n,
+      1n,
+      1n,
       50n,
     );
 
@@ -300,8 +307,8 @@ describe("StableClubExecutor — test pool flow", function () {
       ctx.usdc,
       ctx.weth,
       remaining,
-      0n,
-      0n,
+      1n,
+      1n,
       50n,
     );
 
@@ -324,6 +331,7 @@ describe("StableClubExecutor — test pool flow", function () {
       ctx.usdc,
       ctx.weth,
       deposit,
+      0n,
       0n,
       1n,
       50n,
@@ -364,6 +372,7 @@ describe("StableClubExecutor — test pool flow", function () {
         0n,
         0n,
         0n,
+        0n,
       ),
     ).to.be.revertedWithCustomError(ctx.executorContract, "AdapterNotApproved");
 
@@ -379,8 +388,9 @@ describe("StableClubExecutor — test pool flow", function () {
         0n,
         0n,
         0n,
+        0n,
       ),
-    ).to.be.revertedWithCustomError(ctx.executorContract, "TokenNotApproved");
+    ).to.be.revertedWithCustomError(ctx.executorContract, "TokenNotBound");
   });
 
   it("rejects replayed execution nonce on deposit", async function () {
@@ -398,6 +408,7 @@ describe("StableClubExecutor — test pool flow", function () {
       ctx.weth,
       deposit,
       0n,
+      0n,
       1n,
       50n,
     );
@@ -411,6 +422,7 @@ describe("StableClubExecutor — test pool flow", function () {
         ctx.usdc,
         ctx.weth,
         deposit,
+        0n,
         0n,
         1n,
         50n,
@@ -449,6 +461,7 @@ describe("Stable Club — Base mainnet fork", function () {
       ctx.usdc,
       ctx.weth,
       deposit,
+      0n,
       0n,
       1n,
       50n,

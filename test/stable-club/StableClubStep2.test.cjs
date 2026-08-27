@@ -28,6 +28,7 @@ async function deployStep2Stack() {
     await safetyController.getAddress(),
     await mevGuard.getAddress(),
   ]);
+  await permissionRegistry.setOperator(await automation.getAddress(), true);
   await feeRouter.wireExecutor(await automation.getAddress());
   await safetyController.wireExecutor(await automation.getAddress());
 
@@ -47,6 +48,7 @@ async function deployStep2Stack() {
 
   await automation.setAdapterApproval(await clAdapter.getAddress(), true);
   await automation.registerPool(POOL_ID, await clAdapter.getAddress(), true);
+  await automation.setOfficialPoolCatalogue(POOL_ID, true);
   await automation.activateOfficialPool(POOL_ID);
   await automation.setTokenApproval(await usdc.getAddress(), true);
   await automation.setTokenApproval(await cbbtc.getAddress(), true);
@@ -142,8 +144,13 @@ describe("Stable Club Step 2 — Oracle / Safety / OpenServ", function () {
     ).to.be.revertedWithCustomError(ctx.mevGuard, "MinOutTooLow");
 
     await expect(
-      ctx.mevGuard.assertSwapProtections(1000, 900, 950, now - 1),
+      ctx.mevGuard.assertSwapProtections(1000, 985, 1000, now - 1),
     ).to.be.revertedWithCustomError(ctx.mevGuard, "DeadlineExpired");
+
+    // minOut=1 with inflated quote must not bypass impact floor (H2)
+    await expect(
+      ctx.mevGuard.assertSwapProtections(1000, 1, 1000, now + 60),
+    ).to.be.revertedWithCustomError(ctx.mevGuard, "PriceImpactTooHigh");
   });
 
   it("OpenServ proposal gate rejects duplicates and can trip circuit", async function () {
@@ -238,7 +245,7 @@ describe("Stable Club Step 2 — automation harvest", function () {
     ]);
     await ctx.automation.setAdapterApproval(await otherAdapter.getAddress(), true);
     await ctx.automation.registerPool(otherPool, await otherAdapter.getAddress(), true);
-    // deliberately not activated
+    // deliberately not catalogued / activated
 
     const perm = {
       user: ctx.user.address,
