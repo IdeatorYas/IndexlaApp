@@ -7,7 +7,10 @@ export type StableClubPermissionAction =
   | "withdraw-all"
   | "pause-automation"
   | "revoke-permission"
-  | "emergency-exit";
+  | "emergency-exit"
+  | "harvest"
+  | "compound"
+  | "rebalance";
 
 export type StableClubPermissionScope = {
   user: `0x${string}`;
@@ -36,6 +39,9 @@ export const STABLE_CLUB_PERMISSION_ACTION_BITS: Record<
   "pause-automation": 1 << 5,
   "revoke-permission": 1 << 6,
   "emergency-exit": 1 << 7,
+  harvest: 1 << 8,
+  compound: 1 << 9,
+  rebalance: 1 << 10,
 };
 
 export function encodeAllowedActions(
@@ -54,6 +60,13 @@ export const STABLE_CLUB_STEP1_DEFAULT_ACTIONS: StableClubPermissionAction[] = [
   "pause-automation",
   "revoke-permission",
   "emergency-exit",
+];
+
+export const STABLE_CLUB_STEP2_AUTOMATION_ACTIONS: StableClubPermissionAction[] = [
+  ...STABLE_CLUB_STEP1_DEFAULT_ACTIONS,
+  "harvest",
+  "compound",
+  "rebalance",
 ];
 
 export function buildDefaultPermissionScope(input: {

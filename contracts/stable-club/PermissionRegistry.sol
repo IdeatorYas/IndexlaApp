@@ -14,7 +14,11 @@ contract PermissionRegistry {
         WithdrawAll,
         PauseAutomation,
         RevokePermission,
-        EmergencyExit
+        EmergencyExit,
+        // Step 2 automation actions (bits 8+)
+        Harvest,
+        Compound,
+        Rebalance
     }
 
     struct Permission {

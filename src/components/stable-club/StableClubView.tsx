@@ -1,7 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import { StableClubExecutionPanel } from "@/components/stable-club/StableClubExecutionPanel";
+import {
+  StableClubPoolCatalogue,
+  StableClubPositionDashboard,
+} from "@/components/stable-club/StableClubStep2Panels";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
 import {
   STABLE_CLUB_CHAIN,
@@ -9,7 +14,11 @@ import {
   STABLE_CLUB_EXECUTION_FEE_BPS,
   STABLE_CLUB_LOCAL_RPC_URL,
 } from "@/lib/stable-club/constants";
+import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
+import { OpenServMonitor, buildHarvestProposal } from "@/lib/stable-club/openserv";
+import { buildIllustrativePositions } from "@/lib/stable-club/positions";
 import { STABLE_CLUB_INTERNAL_TEST_POOL } from "@/lib/stable-club/test-pool";
+import { keccak256, stringToHex } from "viem";
 
 export function StableClubView({
   feeRecipientConfigured,
@@ -25,18 +34,55 @@ export function StableClubView({
     wallet.chainId ===
     (preferLocalHardhat ? STABLE_CLUB_CHAIN_ID : STABLE_CLUB_CHAIN_ID);
 
+  /** Step 1 test-pool validation gate for official activation. */
+  const [testPoolValidated, setTestPoolValidated] = useState(false);
+  const [activatedPoolIds, setActivatedPoolIds] = useState<string[]>([]);
+  const monitor = useMemo(() => new OpenServMonitor(60, 10), []);
+  const [proposalCount, setProposalCount] = useState(0);
+  const [circuitBroken, setCircuitBroken] = useState(false);
+
+  const positions = useMemo(() => {
+    if (!wallet.address) return [];
+    return buildIllustrativePositions(wallet.address);
+  }, [wallet.address]);
+
+  function activateReadyPools() {
+    if (!testPoolValidated) return;
+    setActivatedPoolIds(OFFICIAL_STABLE_CLUB_BASE_POOLS.map((p) => p.id));
+  }
+
+  function simulateOpenServHarvest() {
+    if (!wallet.address) return;
+    const proposal = buildHarvestProposal({
+      user: wallet.address,
+      permissionId: keccak256(stringToHex("demo-permission")),
+      poolId: OFFICIAL_STABLE_CLUB_BASE_POOLS[0].poolIdHash,
+      positionTokenId: "1001",
+      feesUsd: 25,
+      gasUsd: 4,
+      idempotencyKey: keccak256(stringToHex(`harvest-${Date.now()}`)),
+    });
+    if (!proposal) return;
+    const result = monitor.submit(proposal);
+    if (result.ok) {
+      setProposalCount(monitor.listProposals().length);
+      setCircuitBroken(monitor.circuitBroken);
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4">
       <header className="app-panel-soft rounded-[14px] border border-app-line p-4 sm:p-5">
         <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-app-brand">
-          Stable Club · Step 1
+          Stable Club · Step 2
         </p>
         <h1 className="app-display mt-1 text-2xl font-bold text-app-ink sm:text-3xl">
-          Base Foundation + Core Execution
+          Base Pools + Dashboard + Automation
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-app-muted">
-          Non-custodial liquidity automation shell. Users own LP tokens/NFTs.
-          INDEXLA contracts do not retain funds after execution.
+          Uniswap V3 + Aerodrome Slipstream adapters, official Base catalogue, position
+          dashboard, OpenServ proposals, and auto harvest / compound / rebalance with
+          circuit breakers. Non-custodial — users own LP NFTs.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-300">
@@ -49,7 +95,7 @@ export function StableClubView({
       </header>
 
       <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
-        <h2 className="text-sm font-bold text-app-ink">Wallet · Base (local Hardhat for Step 1)</h2>
+        <h2 className="text-sm font-bold text-app-ink">Wallet · Base (local Hardhat for dev)</h2>
         <p className="mt-1 text-xs text-app-muted">
           Connect an EVM wallet. For local execution use RPC {STABLE_CLUB_LOCAL_RPC_URL}.
         </p>
@@ -109,21 +155,64 @@ export function StableClubView({
         </p>
       </section>
 
+      <StableClubPoolCatalogue
+        activatedPoolIds={activatedPoolIds}
+        testPoolValidated={testPoolValidated}
+      />
+
+      <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
+        <h2 className="text-sm font-bold text-app-ink">Activation gate</h2>
+        <p className="mt-1 text-xs text-app-muted">
+          Official pools unlock only after the private internal test pool has been validated.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setTestPoolValidated(true)}
+            className="app-btn-secondary h-9 px-3 text-xs font-bold"
+          >
+            Mark test-pool validated
+          </button>
+          <button
+            type="button"
+            disabled={!testPoolValidated}
+            onClick={activateReadyPools}
+            className="app-btn-primary h-9 px-3 text-xs font-bold disabled:opacity-50"
+          >
+            Activate five official Base pools
+          </button>
+          <button
+            type="button"
+            disabled={!wallet.address || !testPoolValidated}
+            onClick={simulateOpenServHarvest}
+            className="app-btn-secondary h-9 px-3 text-xs font-bold disabled:opacity-50"
+          >
+            Simulate OpenServ harvest proposal
+          </button>
+        </div>
+      </section>
+
+      <StableClubPositionDashboard
+        positions={positions}
+        pendingProposals={proposalCount}
+        circuitBroken={circuitBroken}
+      />
+
       <StableClubExecutionPanel />
 
       <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
-        <h2 className="text-sm font-bold text-app-ink">Step 1 architecture</h2>
+        <h2 className="text-sm font-bold text-app-ink">Step 2 architecture</h2>
         <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-app-muted">
-          <li>Stateless Executor with allowlisted pools, tokens and adapters only</li>
+          <li>Uniswap V3 + Aerodrome Slipstream concentrated-liquidity adapters</li>
+          <li>Oracle Guard + MevGuard + SafetyController circuit breakers</li>
+          <li>OpenServ typed proposals only — no keys, no arbitrary calldata</li>
           <li>
-            Permission Registry — reusable strategy permissions; unique execution nonce
-            per action
+            Auto-harvest / compound / rebalance via Automation Executor (1% fee on swaps only)
           </li>
           <li>
             Fee Router — {STABLE_CLUB_EXECUTION_FEE_BPS / 100}% charged on swaps only
           </li>
-          <li>No vault, wrapper token, or internal user balance ledger</li>
-          <li>Emergency exit, pause and immediate revocation supported on-chain</li>
+          <li>Step 1 core executor and test-pool shell preserved</li>
         </ul>
         <p className="mt-3 text-[11px] text-app-dim">
           Fee recipient configured: {feeRecipientConfigured ? "yes" : "pending"}
@@ -148,12 +237,12 @@ export function StableClubView({
           </div>
         </dl>
         <p className="mt-3 text-[11px] text-app-dim">
-          Official Base catalogue pools ({5}) are not enabled in Step 1.
+          Not one of the {OFFICIAL_STABLE_CLUB_BASE_POOLS.length} official Base catalogue pools.
         </p>
       </section>
 
       <p className="text-center text-[11px] text-app-dim">
-        OpenServ, auto-harvest/compound/rebalance and official pool integrations begin in Step 2.
+        Step 3 covers audit, multisig/timelock and capped mainnet launch.
         {" "}
         <Link href="/app" className="text-app-brand underline-offset-2 hover:underline">
           Back to dashboard
