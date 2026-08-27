@@ -170,12 +170,13 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
     }
 
     function positionAmounts(uint256 tokenId) external view returns (uint256 amount0, uint256 amount1) {
+        _requirePoolIdentity(tokenId);
         (
             ,
             ,
             address token0,
             address token1,
-            int24 positionTickSpacing,
+            ,
             int24 tickLower,
             int24 tickUpper,
             uint128 liquidity,
@@ -184,9 +185,6 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
             uint128 tokensOwed0,
             uint128 tokensOwed1
         ) = IAerodromeSlipstreamNPM(npm).positions(tokenId);
-        ClNpmPositionValue.requireAeroPoolIdentity(
-            factory, pool, token0, token1, tickSpacing, positionTickSpacing
-        );
         return ClNpmPositionValue.amountsFromLiquidity(
             pool, token0, token1, tickLower, tickUpper, liquidity, tokensOwed0, tokensOwed1
         );
@@ -243,6 +241,7 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         uint256 amountAMin,
         uint256 amountBMin
     ) external onlyExecutor returns (uint128 liquidity) {
+        _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
         (, , address token0, address token1, , , , , , , , ) = IAerodromeSlipstreamNPM(npm).positions(tokenId);
         (uint256 amount0, uint256 amount1, uint256 amount0Min, uint256 amount1Min) =
@@ -278,6 +277,7 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         uint256 amountAMin,
         uint256 amountBMin
     ) external onlyExecutor returns (uint256 amountA, uint256 amountB) {
+        _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
         (, , address token0, address token1, , , , , , , , ) = IAerodromeSlipstreamNPM(npm).positions(tokenId);
         (, , uint256 amount0Min, uint256 amount1Min) =
@@ -301,11 +301,13 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         onlyExecutor
         returns (uint256 amountA, uint256 amountB)
     {
+        _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
         (amountA, amountB) = _collectTo(lpOwner, tokenId);
     }
 
     function collectRewards(address lpOwner, uint256 tokenId) external onlyExecutor returns (uint256 amount) {
+        _requirePoolIdentity(tokenId);
         if (ownerOf(tokenId) != lpOwner) revert NotOwner();
         if (gauge == address(0)) return 0;
         // Gauge claim is protocol-specific; Step 2 wires the address and requires allowlisted calls only.
@@ -321,6 +323,7 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         uint256 amountAMin,
         uint256 amountBMin
     ) external onlyExecutor returns (uint256 amountA, uint256 amountB) {
+        _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
         (, , address token0, address token1, , , , uint128 liquidity, , , , ) =
             IAerodromeSlipstreamNPM(npm).positions(tokenId);
@@ -365,6 +368,15 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
             })
         );
         _clearApproval(tokenIn, swapRouter);
+    }
+
+    /// @dev Shared fail-closed gate: NFT tickSpacing + factory pool must match this adapter before any mutation.
+    function _requirePoolIdentity(uint256 tokenId) internal view {
+        (, , address token0, address token1, int24 positionTickSpacing, , , , , , , ) =
+            IAerodromeSlipstreamNPM(npm).positions(tokenId);
+        ClNpmPositionValue.requireAeroPoolIdentity(
+            factory, pool, token0, token1, tickSpacing, positionTickSpacing
+        );
     }
 
     function _requireNpmApproval(uint256 tokenId, address lpOwner) internal view {

@@ -3,6 +3,7 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import {
   isValidLocalDeployments,
+  toPublicDeploymentsPayload,
   type StableClubLocalDeployments,
 } from "@/lib/stable-club/deployments";
 import { getStableClubServerConfig } from "@/lib/stable-club/config";
@@ -42,20 +43,6 @@ export async function GET() {
 
   return NextResponse.json({
     configured: true,
-    deployments: {
-      chainId: deployments.chainId,
-      network: deployments.network,
-      isTestOnly: deployments.isTestOnly,
-      label: deployments.label,
-      deployedAt: deployments.deployedAt,
-      permissionRegistry: deployments.permissionRegistry,
-      feeRouter: deployments.feeRouter,
-      executor: deployments.executor,
-      testAdapter: deployments.testAdapter,
-      usdc: deployments.usdc,
-      weth: deployments.weth,
-      poolId: deployments.poolId,
-      rpcUrl: deployments.rpcUrl,
-    },
+    deployments: toPublicDeploymentsPayload(deployments),
   });
 }

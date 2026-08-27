@@ -165,12 +165,13 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
     }
 
     function positionAmounts(uint256 tokenId) external view returns (uint256 amount0, uint256 amount1) {
+        _requirePoolIdentity(tokenId);
         (
             ,
             ,
             address token0,
             address token1,
-            uint24 positionFee,
+            ,
             int24 tickLower,
             int24 tickUpper,
             uint128 liquidity,
@@ -179,7 +180,6 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
             uint128 tokensOwed0,
             uint128 tokensOwed1
         ) = IUniswapV3NPM(npm).positions(tokenId);
-        ClNpmPositionValue.requireUniPoolIdentity(factory, pool, token0, token1, fee, positionFee);
         return ClNpmPositionValue.amountsFromLiquidity(
             pool, token0, token1, tickLower, tickUpper, liquidity, tokensOwed0, tokensOwed1
         );
@@ -235,6 +235,7 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         uint256 amountAMin,
         uint256 amountBMin
     ) external onlyExecutor returns (uint128 liquidity) {
+        _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
         (, , address token0, address token1, , , , , , , , ) = IUniswapV3NPM(npm).positions(tokenId);
         (uint256 amount0, uint256 amount1, uint256 amount0Min, uint256 amount1Min) =
@@ -270,6 +271,7 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         uint256 amountAMin,
         uint256 amountBMin
     ) external onlyExecutor returns (uint256 amountA, uint256 amountB) {
+        _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
         (, , address token0, address token1, , , , , , , , ) = IUniswapV3NPM(npm).positions(tokenId);
         (, , uint256 amount0Min, uint256 amount1Min) =
@@ -293,6 +295,7 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         onlyExecutor
         returns (uint256 amountA, uint256 amountB)
     {
+        _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
         (amountA, amountB) = _collectTo(lpOwner, tokenId);
     }
@@ -309,6 +312,7 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         uint256 amountAMin,
         uint256 amountBMin
     ) external onlyExecutor returns (uint256 amountA, uint256 amountB) {
+        _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
         (, , address token0, address token1, , , , uint128 liquidity, , , , ) =
             IUniswapV3NPM(npm).positions(tokenId);
@@ -352,6 +356,13 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
             })
         );
         _clearApproval(tokenIn, swapRouter);
+    }
+
+    /// @dev Shared fail-closed gate: NFT fee + factory pool must match this adapter before any mutation.
+    function _requirePoolIdentity(uint256 tokenId) internal view {
+        (, , address token0, address token1, uint24 positionFee, , , , , , , ) =
+            IUniswapV3NPM(npm).positions(tokenId);
+        ClNpmPositionValue.requireUniPoolIdentity(factory, pool, token0, token1, fee, positionFee);
     }
 
     function _requireNpmApproval(uint256 tokenId, address lpOwner) internal view {

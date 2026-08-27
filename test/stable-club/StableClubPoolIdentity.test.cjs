@@ -73,6 +73,43 @@ describe("Pool identity — Uni V3 / Aerodrome valuation", function () {
     return { deployer, user, lo, hi, pool, factory, npm, adapter, tickSpacing };
   }
 
+  async function seedUniMismatch(ctx, wrongFee) {
+    await ctx.npm.setPosition(
+      1,
+      ctx.user.address,
+      await ctx.lo.getAddress(),
+      await ctx.hi.getAddress(),
+      wrongFee,
+      -100,
+      100,
+      1_000_000n,
+      0,
+      0,
+    );
+  }
+
+  async function seedAeroMismatch(ctx, wrongTickSpacing) {
+    await ctx.npm.setPosition(
+      1,
+      ctx.user.address,
+      await ctx.lo.getAddress(),
+      await ctx.hi.getAddress(),
+      wrongTickSpacing,
+      -200,
+      200,
+      2_000_000n,
+      0,
+      0,
+    );
+  }
+
+  function expectIdentityRevert(txPromise) {
+    return expect(txPromise).to.be.revertedWithCustomError(
+      { interface: IDENTITY_IFACE },
+      "PoolIdentityMismatch",
+    );
+  }
+
   it("Uni V3: live amounts succeed when fee + factory pool match", async function () {
     const ctx = await deployUniFixture();
     await ctx.npm.setPosition(
@@ -93,22 +130,8 @@ describe("Pool identity — Uni V3 / Aerodrome valuation", function () {
 
   it("Uni V3: fails closed on fee mismatch", async function () {
     const ctx = await deployUniFixture({ fee: 500 });
-    await ctx.npm.setPosition(
-      1,
-      ctx.user.address,
-      await ctx.lo.getAddress(),
-      await ctx.hi.getAddress(),
-      3000,
-      -100,
-      100,
-      1_000_000n,
-      0,
-      0,
-    );
-    await expect(ctx.adapter.positionAmounts(1n)).to.be.revertedWithCustomError(
-      { interface: IDENTITY_IFACE },
-      "PoolIdentityMismatch",
-    );
+    await seedUniMismatch(ctx, 3000);
+    await expectIdentityRevert(ctx.adapter.positionAmounts(1n));
   });
 
   it("Uni V3: fails closed when factory returns a different pool", async function () {
@@ -136,9 +159,24 @@ describe("Pool identity — Uni V3 / Aerodrome valuation", function () {
       0,
       0,
     );
-    await expect(ctx.adapter.positionAmounts(1n)).to.be.revertedWithCustomError(
-      { interface: IDENTITY_IFACE },
-      "PoolIdentityMismatch",
+    await expectIdentityRevert(ctx.adapter.positionAmounts(1n));
+  });
+
+  it("Uni V3: same-pair different-fee fails closed on every mutation path", async function () {
+    const ctx = await deployUniFixture({ fee: 500 });
+    await seedUniMismatch(ctx, 3000);
+    const tokenA = await ctx.lo.getAddress();
+    const tokenB = await ctx.hi.getAddress();
+
+    await expectIdentityRevert(ctx.adapter.collectFees(ctx.user.address, 1n));
+    await expectIdentityRevert(
+      ctx.adapter.increaseLiquidity(ctx.user.address, 1n, tokenA, tokenB, 1n, 1n, 0n, 0n),
+    );
+    await expectIdentityRevert(
+      ctx.adapter.decreaseLiquidity(ctx.user.address, 1n, tokenA, tokenB, 1n, 0n, 0n),
+    );
+    await expectIdentityRevert(
+      ctx.adapter.closePosition(ctx.user.address, 1n, tokenA, tokenB, 0n, 0n),
     );
   });
 
@@ -162,21 +200,26 @@ describe("Pool identity — Uni V3 / Aerodrome valuation", function () {
 
   it("Aerodrome: fails closed on tickSpacing mismatch", async function () {
     const ctx = await deployAeroFixture({ tickSpacing: 100 });
-    await ctx.npm.setPosition(
-      1,
-      ctx.user.address,
-      await ctx.lo.getAddress(),
-      await ctx.hi.getAddress(),
-      10,
-      -200,
-      200,
-      2_000_000n,
-      0,
-      0,
+    await seedAeroMismatch(ctx, 10);
+    await expectIdentityRevert(ctx.adapter.positionAmounts(1n));
+  });
+
+  it("Aerodrome: same-pair different-tickSpacing fails closed on every mutation path", async function () {
+    const ctx = await deployAeroFixture({ tickSpacing: 100 });
+    await seedAeroMismatch(ctx, 10);
+    const tokenA = await ctx.lo.getAddress();
+    const tokenB = await ctx.hi.getAddress();
+
+    await expectIdentityRevert(ctx.adapter.collectFees(ctx.user.address, 1n));
+    await expectIdentityRevert(ctx.adapter.collectRewards(ctx.user.address, 1n));
+    await expectIdentityRevert(
+      ctx.adapter.increaseLiquidity(ctx.user.address, 1n, tokenA, tokenB, 1n, 1n, 0n, 0n),
     );
-    await expect(ctx.adapter.positionAmounts(1n)).to.be.revertedWithCustomError(
-      { interface: IDENTITY_IFACE },
-      "PoolIdentityMismatch",
+    await expectIdentityRevert(
+      ctx.adapter.decreaseLiquidity(ctx.user.address, 1n, tokenA, tokenB, 1n, 0n, 0n),
+    );
+    await expectIdentityRevert(
+      ctx.adapter.closePosition(ctx.user.address, 1n, tokenA, tokenB, 0n, 0n),
     );
   });
 });
