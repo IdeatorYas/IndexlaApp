@@ -301,8 +301,8 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         safetyController.assertTokenNotDepegged(tokenB);
         if (!oracleGuard.validatePrices(tokenA, tokenB, 0)) revert OracleRejected();
 
-        // Finding 5: caps apply to oracle-normalized full position value from live NPM amounts.
-        uint256 positionValue = _livePositionValue(adapter, positionTokenId, tokenA, tokenB);
+        // Caps always denominated in permission.tokenA units (not caller-swapped order).
+        uint256 positionValue = _livePositionValue(adapter, positionTokenId, perm.tokenA, perm.tokenB);
         permissionRegistry.validateExecution(
             permissionId, PermissionRegistry.Action.Rebalance, positionValue, slippageBps, executionNonce
         );
@@ -410,33 +410,34 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         }
     }
 
+    /// @notice Oracle-normalized position value in `permTokenA` units (never caller-swapped order).
     function _livePositionValue(
         address adapter,
         uint256 tokenId,
-        address tokenA,
-        address tokenB
+        address permTokenA,
+        address permTokenB
     ) internal view returns (uint256) {
         (address t0, address t1) = IConcentratedLiquidityAdapter(adapter).positionTokens(tokenId);
         (uint256 a0, uint256 a1) = IConcentratedLiquidityAdapter(adapter).positionAmounts(tokenId);
-        uint256 amountA;
-        uint256 amountB;
-        if (tokenA == t0 && tokenB == t1) {
-            amountA = a0;
-            amountB = a1;
-        } else if (tokenA == t1 && tokenB == t0) {
-            amountA = a1;
-            amountB = a0;
+        uint256 amountPermA;
+        uint256 amountPermB;
+        if (permTokenA == t0 && permTokenB == t1) {
+            amountPermA = a0;
+            amountPermB = a1;
+        } else if (permTokenA == t1 && permTokenB == t0) {
+            amountPermA = a1;
+            amountPermB = a0;
         } else {
             revert TokenNotBound();
         }
         // Fail closed: cannot rebalance a position whose live value cannot be determined.
-        if (amountA == 0 && amountB == 0) revert PositionValueUnavailable();
+        if (amountPermA == 0 && amountPermB == 0) revert PositionValueUnavailable();
 
-        uint256 value = amountA;
-        if (amountB > 0) {
-            uint8 dA = IERC20Metadata(tokenA).decimals();
-            uint8 dB = IERC20Metadata(tokenB).decimals();
-            value += oracleGuard.expectedAmountOut(tokenB, tokenA, amountB, dB, dA);
+        uint256 value = amountPermA;
+        if (amountPermB > 0) {
+            uint8 dA = IERC20Metadata(permTokenA).decimals();
+            uint8 dB = IERC20Metadata(permTokenB).decimals();
+            value += oracleGuard.expectedAmountOut(permTokenB, permTokenA, amountPermB, dB, dA);
         }
         if (value == 0) revert PositionValueUnavailable();
         return value;

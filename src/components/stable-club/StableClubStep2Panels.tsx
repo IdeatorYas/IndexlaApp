@@ -128,6 +128,8 @@ export function StableClubPositionDashboard({
               Boolean(onApprovePosition) &&
               Boolean(pos.npmAddress) &&
               Boolean(pos.adapterAddress) &&
+              Boolean(pos.positionTokenId) &&
+              /^\d+$/.test(pos.positionTokenId) &&
               needsApproval;
             return (
               <li

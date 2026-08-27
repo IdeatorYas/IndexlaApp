@@ -114,6 +114,7 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
     address public immutable npm;
     address public immutable swapRouter;
     address public immutable pool;
+    address public immutable factory;
     uint24 public immutable fee;
 
     error OnlyExecutor();
@@ -134,14 +135,16 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         address npm_,
         address swapRouter_,
         address pool_,
+        address factory_,
         uint24 fee_
     ) {
-        if (pool_ == address(0)) revert InvalidPool();
+        if (pool_ == address(0) || factory_ == address(0)) revert InvalidPool();
         executor = executor_;
         poolId = poolId_;
         npm = npm_;
         swapRouter = swapRouter_;
         pool = pool_;
+        factory = factory_;
         fee = fee_;
     }
 
@@ -167,7 +170,7 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
             ,
             address token0,
             address token1,
-            ,
+            uint24 positionFee,
             int24 tickLower,
             int24 tickUpper,
             uint128 liquidity,
@@ -176,6 +179,7 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
             uint128 tokensOwed0,
             uint128 tokensOwed1
         ) = IUniswapV3NPM(npm).positions(tokenId);
+        ClNpmPositionValue.requireUniPoolIdentity(factory, pool, token0, token1, fee, positionFee);
         return ClNpmPositionValue.amountsFromLiquidity(
             pool, token0, token1, tickLower, tickUpper, liquidity, tokensOwed0, tokensOwed1
         );

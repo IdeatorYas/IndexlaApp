@@ -116,6 +116,7 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
     address public immutable npm;
     address public immutable swapRouter;
     address public immutable pool;
+    address public immutable factory;
     int24 public immutable tickSpacing;
     address public gauge; // optional AERO reward gauge; may be address(0)
 
@@ -137,15 +138,17 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         address npm_,
         address swapRouter_,
         address pool_,
+        address factory_,
         int24 tickSpacing_,
         address gauge_
     ) {
-        if (pool_ == address(0)) revert InvalidPool();
+        if (pool_ == address(0) || factory_ == address(0)) revert InvalidPool();
         executor = executor_;
         poolId = poolId_;
         npm = npm_;
         swapRouter = swapRouter_;
         pool = pool_;
+        factory = factory_;
         tickSpacing = tickSpacing_;
         gauge = gauge_;
     }
@@ -172,7 +175,7 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
             ,
             address token0,
             address token1,
-            ,
+            int24 positionTickSpacing,
             int24 tickLower,
             int24 tickUpper,
             uint128 liquidity,
@@ -181,6 +184,9 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
             uint128 tokensOwed0,
             uint128 tokensOwed1
         ) = IAerodromeSlipstreamNPM(npm).positions(tokenId);
+        ClNpmPositionValue.requireAeroPoolIdentity(
+            factory, pool, token0, token1, tickSpacing, positionTickSpacing
+        );
         return ClNpmPositionValue.amountsFromLiquidity(
             pool, token0, token1, tickLower, tickUpper, liquidity, tokensOwed0, tokensOwed1
         );

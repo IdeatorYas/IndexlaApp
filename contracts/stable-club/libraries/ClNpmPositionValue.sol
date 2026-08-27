@@ -10,12 +10,21 @@ interface IClPoolTokens {
     function token1() external view returns (address);
 }
 
+interface IUniswapV3FactoryLike {
+    function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool);
+}
+
+interface IAerodromeClFactoryLike {
+    function getPool(address tokenA, address tokenB, int24 tickSpacing) external view returns (address pool);
+}
+
 /// @title ClNpmPositionValue — live NPM liquidity → token amounts via pool.slot0.
 /// @dev Reads only the first word of `slot0()` so Uniswap (7 fields) and Aerodrome Slipstream
-///      (6 fields) both work without ABI mismatch.
+///      (6 fields) both work without ABI mismatch. Callers must fail closed on pool identity.
 library ClNpmPositionValue {
     error PositionValueUnavailable();
     error PoolTokenMismatch();
+    error PoolIdentityMismatch();
 
     function amountsFromLiquidity(
         address pool,
@@ -47,6 +56,38 @@ library ClNpmPositionValue {
         }
         amount0 += tokensOwed0;
         amount1 += tokensOwed1;
+    }
+
+    /// @notice Uni V3: NFT fee + factory.getPool must match the adapter's exact pool.
+    function requireUniPoolIdentity(
+        address factory,
+        address expectedPool,
+        address token0,
+        address token1,
+        uint24 expectedFee,
+        uint24 positionFee
+    ) internal view {
+        if (factory == address(0) || expectedPool == address(0)) revert PositionValueUnavailable();
+        if (positionFee != expectedFee) revert PoolIdentityMismatch();
+        if (IUniswapV3FactoryLike(factory).getPool(token0, token1, expectedFee) != expectedPool) {
+            revert PoolIdentityMismatch();
+        }
+    }
+
+    /// @notice Aerodrome: NFT tickSpacing + factory.getPool must match the adapter's exact pool.
+    function requireAeroPoolIdentity(
+        address factory,
+        address expectedPool,
+        address token0,
+        address token1,
+        int24 expectedTickSpacing,
+        int24 positionTickSpacing
+    ) internal view {
+        if (factory == address(0) || expectedPool == address(0)) revert PositionValueUnavailable();
+        if (positionTickSpacing != expectedTickSpacing) revert PoolIdentityMismatch();
+        if (IAerodromeClFactoryLike(factory).getPool(token0, token1, expectedTickSpacing) != expectedPool) {
+            revert PoolIdentityMismatch();
+        }
     }
 
     function _sqrtPriceX96(address pool) private view returns (uint160 sqrtPriceX96) {

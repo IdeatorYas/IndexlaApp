@@ -60,7 +60,10 @@ export function emptyDashboardSnapshot(
   };
 }
 
-/** Demo / local fixture positions for Step 2 UI when no indexer is connected. */
+/** Demo / local fixture positions for Step 2 UI when no indexer is connected.
+ *  Adapter/NPM are null until verified deployments + on-chain ownership are present.
+ *  Never embeds live mainnet approve targets or dummy spenders.
+ */
 export function buildIllustrativePositions(owner: `0x${string}`): StableClubPosition[] {
   return [
     {
@@ -70,16 +73,16 @@ export function buildIllustrativePositions(owner: `0x${string}`): StableClubPosi
       protocol: "aerodrome-slipstream",
       chainId: 8453,
       owner,
-      positionTokenId: "1001",
-      npmAddress: "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53",
+      positionTokenId: "",
+      npmAddress: null,
       adapterAddress: null,
-      npmApprovalStatus: "required",
+      npmApprovalStatus: "unavailable",
       tokenASymbol: "USDC",
       tokenBSymbol: "cbBTC",
       liquidity: "1250000000",
       feesEarnedUsd: "12.40",
       rewardsEarnedUsd: "3.10",
-      rangeStatus: "in-range",
+      rangeStatus: "pending-verification",
       tickLower: -200000,
       tickUpper: -180000,
       lastUpdated: Math.floor(Date.now() / 1000),

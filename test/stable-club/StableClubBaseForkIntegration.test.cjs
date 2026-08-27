@@ -94,6 +94,7 @@ describe("Stable Club — Base fork integration (Uni / Aerodrome)", function () 
       UNI_NPM,
       UNI_ROUTER,
       uniPoolAddr,
+      UNI_FACTORY,
       500,
     ]);
 
@@ -191,6 +192,7 @@ describe("Stable Club — Base fork integration (Uni / Aerodrome)", function () 
         AERO_NPM,
         AERO_ROUTER,
         aeroPoolAddr,
+        AERO_FACTORY,
         100,
         ethers.ZeroAddress,
       ]);

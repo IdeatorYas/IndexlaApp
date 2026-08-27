@@ -522,6 +522,77 @@ describe("Bugbot remediation — finding 5 rebalance caps on full position value
       ),
     ).to.be.revertedWithCustomError(ctx.oracleGuard, "StaleFeed");
   });
+
+  it("live positionAmounts drive caps — empty amounts fail closed (no tracked-amount bypass)", async function () {
+    const ctx = await deployStep2Stack();
+    const { permissionId } = await registerAutomationPerm(ctx, {
+      maxAmountPerTx: ethers.parseUnits("50000", 6),
+    });
+    const tokenId = await mintAndApprovePosition(
+      ctx,
+      ethers.parseUnits("100", 6),
+      ethers.parseUnits("0.01", 8),
+    );
+    // Simulate missing live valuation (would have been empty _tracked on external NFT).
+    await ctx.clAdapter.setAmountsForTest(tokenId, 0n, 0n);
+    await expect(
+      ctx.automation.connect(ctx.user).rebalance(
+        permissionId,
+        1n,
+        await ctx.clAdapter.getAddress(),
+        tokenId,
+        await ctx.usdc.getAddress(),
+        await ctx.cbbtc.getAddress(),
+        -90000,
+        -80000,
+        1n, // tiny swap cannot bypass empty live value
+        1n,
+        1n,
+        1n,
+        1n,
+        1n,
+        100n,
+        BigInt((await time.latest()) + 600),
+        1n,
+      ),
+    ).to.be.revertedWithCustomError(ctx.automation, "PositionValueUnavailable");
+  });
+
+  it("caller-swapped tokenA/tokenB cannot bypass USDC-denominated caps", async function () {
+    const ctx = await deployStep2Stack();
+    // Permission tokenA = USDC. Cap far below live position value in USDC terms.
+    const { permissionId } = await registerAutomationPerm(ctx, {
+      maxAmountPerTx: ethers.parseUnits("500", 6),
+      maxAmountPerDay: ethers.parseUnits("500", 6),
+    });
+    const tokenId = await mintAndApprovePosition(
+      ctx,
+      ethers.parseUnits("2000", 6),
+      ethers.parseUnits("0.02", 8),
+    );
+    // Call with reversed order — old bug recast value into cbBTC units under the USDC cap.
+    await expect(
+      ctx.automation.connect(ctx.user).rebalance(
+        permissionId,
+        1n,
+        await ctx.clAdapter.getAddress(),
+        tokenId,
+        await ctx.cbbtc.getAddress(),
+        await ctx.usdc.getAddress(),
+        -90000,
+        -80000,
+        0n,
+        0n,
+        1n,
+        1n,
+        1n,
+        1n,
+        100n,
+        BigInt((await time.latest()) + 600),
+        0n,
+      ),
+    ).to.be.revertedWithCustomError(ctx.permissionRegistry, "AmountExceedsTxLimit");
+  });
 });
 
 describe("Bugbot remediation — finding 6 rebalance token allowlist", function () {
