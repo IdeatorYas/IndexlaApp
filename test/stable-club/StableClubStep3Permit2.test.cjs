@@ -91,6 +91,219 @@ describe("Step 3 — Permit2 FeeRouter migration (adversarial)", function () {
   });
 });
 
+describe("Step 3 — dual-spender Permit2 deposit (FeeRouter + Executor)", function () {
+  async function dualFixture() {
+    const {
+      deployStableClubStack,
+      POOL_ID,
+    } = require("../../scripts/stable-club/deploy-local.cjs");
+    const stack = await deployStableClubStack();
+    const user = stack.testUser;
+    const permit2 = await ethers.deployContract("MockPermit2");
+    const p2 = await permit2.getAddress();
+
+    await stack.feeRouterContract.setPermit2(p2);
+    await stack.executorContract.setPermit2(p2);
+
+    const deposit = ethers.parseUnits("1000", 6);
+    const swap = ethers.parseUnits("400", 6);
+    const remaining = deposit - swap;
+    await stack.usdcContract.mint(user.address, deposit * 2n);
+    await stack.wethContract.mint(stack.testAdapter, ethers.parseEther("100"));
+
+    const ALL =
+      (1n << 0n) |
+      (1n << 1n) |
+      (1n << 2n) |
+      (1n << 3n) |
+      (1n << 4n) |
+      (1n << 6n) |
+      (1n << 7n);
+    const chainId = (await ethers.provider.getNetwork()).chainId;
+    const perm = {
+      user: user.address,
+      chainId,
+      poolId: POOL_ID,
+      tokenA: stack.usdc,
+      tokenB: stack.weth,
+      allowedActions: ALL,
+      maxAmountPerTx: ethers.parseUnits("50000", 6),
+      maxAmountPerDay: ethers.parseUnits("200000", 6),
+      maxSlippageBps: 500n,
+      minTimeBetweenExecutions: 0n,
+      maxExecutionsPerDay: 50n,
+      expiresAt: BigInt((await time.latest()) + 86400 * 7),
+      revoked: false,
+      paused: false,
+    };
+    await stack.permissionRegistryContract.connect(user).registerPermission(perm);
+    const permissionId = await stack.permissionRegistryContract.permissionIdFor(
+      perm.user,
+      perm.chainId,
+      perm.poolId,
+      perm.tokenA,
+      perm.tokenB,
+    );
+
+    return {
+      user,
+      stack,
+      permit2,
+      deposit,
+      swap,
+      remaining,
+      permissionId,
+    };
+  }
+
+  async function approveSplit(ctx, opts = {}) {
+    const { user, stack, permit2, deposit, swap, remaining } = ctx;
+    const expiration = opts.expiration ?? (await time.latest()) + 3600;
+    const feeAmt = opts.feeAmt ?? swap;
+    const execAmt = opts.execAmt ?? remaining;
+    const execSpender = opts.execSpender ?? stack.executor;
+    await stack.usdcContract.connect(user).approve(await permit2.getAddress(), deposit);
+    if (feeAmt > 0n) {
+      await permit2.connect(user).approve(stack.usdc, stack.feeRouter, feeAmt, expiration);
+    }
+    if (execAmt > 0n || opts.forceExecApprove) {
+      await permit2.connect(user).approve(stack.usdc, execSpender, execAmt, expiration);
+    }
+    return expiration;
+  }
+
+  it("succeeds when FeeRouter and Executor have split bounded allowances", async function () {
+    const ctx = await dualFixture();
+    const { user, stack, deposit, swap, permissionId } = ctx;
+    await approveSplit(ctx);
+
+    await stack.executorContract.connect(user).depositAndAddLiquidity(
+      permissionId,
+      1n,
+      stack.testAdapter,
+      stack.usdc,
+      stack.usdc,
+      stack.weth,
+      deposit,
+      swap,
+      (swap * 99n) / 100n,
+      1n,
+      500n,
+    );
+    expect(await stack.testAdapterContract.balanceOf(user.address)).to.be.gt(0n);
+  });
+
+  it("reverts when only FeeRouter is approved (missing executor allowance)", async function () {
+    const ctx = await dualFixture();
+    const { user, stack, permit2, deposit, swap, permissionId } = ctx;
+    const expiration = (await time.latest()) + 3600;
+    await stack.usdcContract.connect(user).approve(await permit2.getAddress(), deposit);
+    await permit2.connect(user).approve(stack.usdc, stack.feeRouter, swap, expiration);
+    await expect(
+      stack.executorContract.connect(user).depositAndAddLiquidity(
+        permissionId,
+        1n,
+        stack.testAdapter,
+        stack.usdc,
+        stack.usdc,
+        stack.weth,
+        deposit,
+        swap,
+        (swap * 99n) / 100n,
+        1n,
+        500n,
+      ),
+    ).to.be.reverted;
+  });
+
+  it("reverts on expired executor allowance", async function () {
+    const ctx = await dualFixture();
+    const { user, stack, deposit, swap, permissionId } = ctx;
+    await approveSplit(ctx, { expiration: (await time.latest()) + 10 });
+    await time.increase(20);
+    await expect(
+      stack.executorContract.connect(user).depositAndAddLiquidity(
+        permissionId,
+        1n,
+        stack.testAdapter,
+        stack.usdc,
+        stack.usdc,
+        stack.weth,
+        deposit,
+        swap,
+        (swap * 99n) / 100n,
+        1n,
+        500n,
+      ),
+    ).to.be.reverted;
+  });
+
+  it("reverts on insufficient executor allowance", async function () {
+    const ctx = await dualFixture();
+    const { user, stack, permit2, deposit, swap, remaining, permissionId } = ctx;
+    await approveSplit(ctx, { execAmt: remaining - 1n });
+    await expect(
+      stack.executorContract.connect(user).depositAndAddLiquidity(
+        permissionId,
+        1n,
+        stack.testAdapter,
+        stack.usdc,
+        stack.usdc,
+        stack.weth,
+        deposit,
+        swap,
+        (swap * 99n) / 100n,
+        1n,
+        500n,
+      ),
+    ).to.be.revertedWithCustomError(permit2, "InsufficientAllowance");
+  });
+
+  it("reverts when Permit2 allowance is for wrong executor", async function () {
+    const ctx = await dualFixture();
+    const { user, stack, deposit, swap, remaining, permissionId } = ctx;
+    const stranger = (await ethers.getSigners())[5];
+    await approveSplit(ctx, { execSpender: stranger.address, execAmt: remaining });
+    await expect(
+      stack.executorContract.connect(user).depositAndAddLiquidity(
+        permissionId,
+        1n,
+        stack.testAdapter,
+        stack.usdc,
+        stack.usdc,
+        stack.weth,
+        deposit,
+        swap,
+        (swap * 99n) / 100n,
+        1n,
+        500n,
+      ),
+    ).to.be.reverted;
+  });
+
+  it("reverts after revoke (zero) executor allowance", async function () {
+    const ctx = await dualFixture();
+    const { user, stack, permit2, deposit, swap, permissionId } = ctx;
+    const expiration = await approveSplit(ctx);
+    await permit2.connect(user).approve(stack.usdc, stack.executor, 0, expiration);
+    await expect(
+      stack.executorContract.connect(user).depositAndAddLiquidity(
+        permissionId,
+        1n,
+        stack.testAdapter,
+        stack.usdc,
+        stack.usdc,
+        stack.weth,
+        deposit,
+        swap,
+        (swap * 99n) / 100n,
+        1n,
+        500n,
+      ),
+    ).to.be.reverted;
+  });
+});
+
 describe("Step 3 — Base fork address verification (Permit2 / Safe / oracles)", function () {
   this.timeout(180_000);
 

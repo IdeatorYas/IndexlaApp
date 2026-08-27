@@ -2,16 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
-import {
-  BASE_PERMIT2,
-} from "@/lib/stable-club/verified-base-addresses";
+import { BASE_CHAIN_ID, BASE_PERMIT2 } from "@/lib/stable-club/verified-base-addresses";
 import {
   PERMIT2_UNLIMITED_AMOUNT,
-  buildBoundedErc20ApproveToPermit2,
-  buildBoundedPermit2ApproveTx,
+  assertDualSpenderAllowancesReady,
+  buildDualSpenderDepositApprovalPlan,
   buildPermit2ZeroAllowanceRevokeTx,
   describePermit2Allowance,
   isForbiddenUnlimitedApproval,
+  splitDepositSpenderAllowances,
 } from "@/lib/stable-club/permit2";
 import {
   formatPermissionUserLabel,
@@ -25,26 +24,35 @@ import type { Address } from "viem";
 const DEFAULT_EXPIRY_HOURS = 24;
 
 /**
- * Safe + Permit2 approvals UX (local/dev surface).
+ * Safe + Permit2 approvals UX — dual bounded spenders (FeeRouter + Executor).
  * Blocks unlimited approvals; keeps NFT per-token path separate.
  */
 export function StableClubApprovalsPanel({
   environment = "local",
   feeRouterAddress,
+  executorAddress,
   preferSafe = true,
   connectedIsContract = false,
+  chainId = environment === "mainnet" ? BASE_CHAIN_ID : 8453,
 }: {
   environment?: DeploymentEnvironment;
   feeRouterAddress?: Address | null;
+  executorAddress?: Address | null;
   preferSafe?: boolean;
   connectedIsContract?: boolean;
+  chainId?: number;
 }) {
   const wallet = useStableClubWallet();
-  const [amount, setAmount] = useState("1000000");
+  const [depositAmount, setDepositAmount] = useState("1000000");
+  const [swapAmount, setSwapAmount] = useState("0");
   const [expiryHours, setExpiryHours] = useState(String(DEFAULT_EXPIRY_HOURS));
   const [token, setToken] = useState<Address>("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
   const [preview, setPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Simulated live allowances for readiness gate (dev preview). */
+  const [feeRouterLiveAmt, setFeeRouterLiveAmt] = useState("");
+  const [executorLiveAmt, setExecutorLiveAmt] = useState("");
+  const [liveExpiry, setLiveExpiry] = useState("");
 
   const mode: StableClubAccountMode = useMemo(
     () =>
@@ -56,7 +64,8 @@ export function StableClubApprovalsPanel({
     [environment, preferSafe, connectedIsContract],
   );
 
-  const spender = feeRouterAddress ?? null;
+  const feeRouter = feeRouterAddress ?? null;
+  const executor = executorAddress ?? null;
   const nowSec = Math.floor(Date.now() / 1000);
 
   function buildFlow() {
@@ -67,9 +76,11 @@ export function StableClubApprovalsPanel({
       if (environment === "mainnet" && mode !== "safe") {
         throw new Error("Mainnet requires Safe as perm.user");
       }
-      if (!spender) throw new Error("FeeRouter / spender not configured");
-      const amt = BigInt(amount);
-      if (isForbiddenUnlimitedApproval(amt) || amt >= PERMIT2_UNLIMITED_AMOUNT) {
+      if (!feeRouter) throw new Error("FeeRouter address not configured");
+      if (!executor) throw new Error("Executor address not configured");
+      const deposit = BigInt(depositAmount);
+      const swap = BigInt(swapAmount);
+      if (isForbiddenUnlimitedApproval(deposit) || deposit >= PERMIT2_UNLIMITED_AMOUNT) {
         throw new Error("Unlimited approvals are blocked");
       }
       if (isForbiddenApprovalMethod("setApprovalForAll")) {
@@ -80,27 +91,44 @@ export function StableClubApprovalsPanel({
         throw new Error("Expiry must be between 1 hour and 30 days");
       }
       const expiration = nowSec + Math.floor(hours * 3600);
-      const erc20Tx = buildBoundedErc20ApproveToPermit2({ token, amount: amt });
-      const permit2Tx = buildBoundedPermit2ApproveTx({
+      const plan = buildDualSpenderDepositApprovalPlan({
+        chainId,
         token,
-        spender,
-        amount: amt,
+        feeRouter,
+        executor,
+        depositAmount: deposit,
+        swapAmount: swap,
         expiration,
         nowSec,
       });
-      const status = describePermit2Allowance({ amount: amt, expiration, nowSec });
+      const feeStatus = describePermit2Allowance({
+        amount: plan.split.feeRouterAmount,
+        expiration,
+        nowSec,
+      });
+      const execStatus = describePermit2Allowance({
+        amount: plan.split.executorAmount,
+        expiration,
+        nowSec,
+      });
       setPreview(
         [
           `Account mode: ${formatPermissionUserLabel(mode, wallet.address as Address)}`,
           `perm.user: ${wallet.address}`,
-          `1) ERC20.approve(Permit2=${BASE_PERMIT2.address}, ${amt})`,
-          `2) Permit2.approve(token, spender=${spender}, ${amt}, exp=${expiration})`,
-          `Status preview: ${status.label}`,
+          `Canonical Permit2: ${BASE_PERMIT2.address}`,
+          `--- Dual spenders (amounts not duplicated) ---`,
+          `1) ERC20.approve(Permit2, ${plan.split.erc20ToPermit2Amount})`,
+          plan.feeRouterPermit2Tx
+            ? `2a) Permit2.approve → FeeRouter ${feeRouter} amount=${plan.split.feeRouterAmount} exp=${expiration} [${feeStatus.label}]`
+            : `2a) FeeRouter Permit2: skipped (swapAmount=0)`,
+          plan.executorPermit2Tx
+            ? `2b) Permit2.approve → Executor ${executor} amount=${plan.split.executorAmount} exp=${expiration} [${execStatus.label}]`
+            : `2b) Executor Permit2: skipped (no remaining deposit)`,
+          `Gate: both spenders required when their required amount > 0 before swap/deposit`,
           `NFT: use per-token approve(adapter, tokenId) only — never setApprovalForAll`,
+          ...plan.labels,
         ].join("\n"),
       );
-      void erc20Tx;
-      void permit2Tx;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -110,11 +138,65 @@ export function StableClubApprovalsPanel({
     setError(null);
     setPreview(null);
     try {
-      if (!spender) throw new Error("Spender required to revoke");
-      const tx = buildPermit2ZeroAllowanceRevokeTx({ token, spender, nowSec });
+      if (!feeRouter || !executor) throw new Error("FeeRouter and executor required to revoke");
+      const feeTx = buildPermit2ZeroAllowanceRevokeTx({
+        chainId,
+        token,
+        spender: feeRouter,
+        nowSec,
+      });
+      const execTx = buildPermit2ZeroAllowanceRevokeTx({
+        chainId,
+        token,
+        spender: executor,
+        nowSec,
+      });
       setPreview(
-        `Revoke Permit2 allowance\nPermit2.approve(${token}, ${spender}, 0, ${tx.args[3]})\n${describePermit2Allowance({ amount: BigInt(0), expiration: Number(tx.args[3]), nowSec }).label}`,
+        [
+          `Revoke FeeRouter Permit2: approve(${token}, ${feeRouter}, 0, ${feeTx.args[3]})`,
+          `Revoke Executor Permit2: approve(${token}, ${executor}, 0, ${execTx.args[3]})`,
+          describePermit2Allowance({
+            amount: BigInt(0),
+            expiration: Number(feeTx.args[3]),
+            nowSec,
+          }).label,
+        ].join("\n"),
       );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function checkReadiness() {
+    setError(null);
+    setPreview(null);
+    try {
+      if (!feeRouter || !executor) throw new Error("Both spenders required");
+      const deposit = BigInt(depositAmount);
+      const swap = BigInt(swapAmount);
+      const split = splitDepositSpenderAllowances({ depositAmount: deposit, swapAmount: swap });
+      const exp = Number(liveExpiry || String(nowSec + 3600));
+      assertDualSpenderAllowancesReady({
+        nowSec,
+        expectedExecutor: executor,
+        allowances: [
+          {
+            role: "feeRouter",
+            spender: feeRouter,
+            required: split.feeRouterAmount,
+            amount: BigInt(feeRouterLiveAmt || "0"),
+            expiration: exp,
+          },
+          {
+            role: "executor",
+            spender: executor,
+            required: split.executorAmount,
+            amount: BigInt(executorLiveAmt || "0"),
+            expiration: exp,
+          },
+        ],
+      });
+      setPreview("Dual-spender Permit2 readiness: PASS — both required allowances present and unexpired");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -124,7 +206,7 @@ export function StableClubApprovalsPanel({
     <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
       <h2 className="text-sm font-bold text-app-ink">Safe + Permit2 approvals</h2>
       <p className="mt-1 text-xs text-app-muted">
-        Bounded, expiring ERC20 via Permit2 · per-token NFT approve elsewhere · unlimited blocked ·
+        Dual bounded spenders: FeeRouter (swap gross) + Executor (deposit − swap). Unlimited blocked.
         EOA legacy only on local/testnet.
       </p>
 
@@ -141,15 +223,32 @@ export function StableClubApprovalsPanel({
           <dt className="font-semibold text-app-dim">Canonical Permit2</dt>
           <dd className="mt-0.5 font-mono break-all text-app-ink">{BASE_PERMIT2.address}</dd>
         </div>
+        <div>
+          <dt className="font-semibold text-app-dim">FeeRouter spender</dt>
+          <dd className="mt-0.5 font-mono break-all text-app-ink">{feeRouter ?? "—"}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-app-dim">Executor spender</dt>
+          <dd className="mt-0.5 font-mono break-all text-app-ink">{executor ?? "—"}</dd>
+        </div>
       </dl>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="block text-xs" htmlFor="sc-permit2-amount">
-          <span className="font-semibold text-app-dim">Bounded amount (raw)</span>
+        <label className="block text-xs" htmlFor="sc-permit2-deposit">
+          <span className="font-semibold text-app-dim">Deposit amount (raw)</span>
           <input
-            id="sc-permit2-amount"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            id="sc-permit2-deposit"
+            value={depositAmount}
+            onChange={(e) => setDepositAmount(e.target.value)}
+            className="mt-1 w-full rounded-md border border-app-line bg-app-panel px-2 py-1.5 font-mono text-xs"
+          />
+        </label>
+        <label className="block text-xs" htmlFor="sc-permit2-swap">
+          <span className="font-semibold text-app-dim">Swap amount (raw, FeeRouter only)</span>
+          <input
+            id="sc-permit2-swap"
+            value={swapAmount}
+            onChange={(e) => setSwapAmount(e.target.value)}
             className="mt-1 w-full rounded-md border border-app-line bg-app-panel px-2 py-1.5 font-mono text-xs"
           />
         </label>
@@ -162,12 +261,45 @@ export function StableClubApprovalsPanel({
             className="mt-1 w-full rounded-md border border-app-line bg-app-panel px-2 py-1.5 font-mono text-xs"
           />
         </label>
-        <label className="block text-xs sm:col-span-2" htmlFor="sc-permit2-token">
+        <label className="block text-xs" htmlFor="sc-permit2-token">
           <span className="font-semibold text-app-dim">ERC20 token</span>
           <input
             id="sc-permit2-token"
             value={token}
             onChange={(e) => setToken(e.target.value as Address)}
+            className="mt-1 w-full rounded-md border border-app-line bg-app-panel px-2 py-1.5 font-mono text-xs"
+          />
+        </label>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <label className="block text-xs" htmlFor="sc-live-fee">
+          <span className="font-semibold text-app-dim">Live FeeRouter allowance</span>
+          <input
+            id="sc-live-fee"
+            value={feeRouterLiveAmt}
+            onChange={(e) => setFeeRouterLiveAmt(e.target.value)}
+            placeholder="required for gate"
+            className="mt-1 w-full rounded-md border border-app-line bg-app-panel px-2 py-1.5 font-mono text-xs"
+          />
+        </label>
+        <label className="block text-xs" htmlFor="sc-live-exec">
+          <span className="font-semibold text-app-dim">Live Executor allowance</span>
+          <input
+            id="sc-live-exec"
+            value={executorLiveAmt}
+            onChange={(e) => setExecutorLiveAmt(e.target.value)}
+            placeholder="required for gate"
+            className="mt-1 w-full rounded-md border border-app-line bg-app-panel px-2 py-1.5 font-mono text-xs"
+          />
+        </label>
+        <label className="block text-xs" htmlFor="sc-live-exp">
+          <span className="font-semibold text-app-dim">Live expiration (unix)</span>
+          <input
+            id="sc-live-exp"
+            value={liveExpiry}
+            onChange={(e) => setLiveExpiry(e.target.value)}
+            placeholder={String(nowSec + 3600)}
             className="mt-1 w-full rounded-md border border-app-line bg-app-panel px-2 py-1.5 font-mono text-xs"
           />
         </label>
@@ -179,14 +311,21 @@ export function StableClubApprovalsPanel({
           onClick={buildFlow}
           className="app-btn-primary h-9 px-3 text-xs font-bold"
         >
-          Preview bounded Permit2 flow
+          Preview dual-spender Permit2 flow
+        </button>
+        <button
+          type="button"
+          onClick={checkReadiness}
+          className="app-btn-secondary h-9 px-3 text-xs font-bold"
+        >
+          Check both spenders ready
         </button>
         <button
           type="button"
           onClick={buildRevoke}
           className="app-btn-secondary h-9 px-3 text-xs font-bold"
         >
-          Preview revoke / zero allowance
+          Preview revoke both spenders
         </button>
       </div>
 

@@ -25,13 +25,36 @@ const WETH = "0x4200000000000000000000000000000000000006";
 const UNI_FACTORY = "0x33128a8fC17869897dcE68Ed026d694621f6FDfD";
 const AERO_FACTORY = "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef";
 
-// Common Chainlink feeds on Base (public addresses; verify live).
-const FEEDS = {
-  USDC_USD: "0x7e860098F58bBFC8648a4311b374B1D669Be50fE",
-  ETH_USD: "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70",
-  // cbBTC often proxied via BTC/USD on Base
-  BTC_USD: "0x64c911996D3c6aC71f9bDa319F22aD0632Dd249B",
+/**
+ * Verified Stage 1 feeds only (see src/lib/stable-club/verified-base-addresses.ts).
+ * Rejected empty-bytecode candidates are never probed.
+ */
+const VERIFIED_FEEDS = {
+  USDC_USD: {
+    address: "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B",
+    expectedDescription: "USDC / USD",
+    expectedDecimals: 8,
+  },
+  CBBTC_USD: {
+    address: "0x07DA0E54543a844a80ABE69c8A12F22B3aA59f9D",
+    expectedDescription: "cbBTC / USD",
+    expectedDecimals: 8,
+  },
+  BTC_USD: {
+    address: "0x3A932b286715abc4A86a4ACAF68A6cdD89E0d446",
+    expectedDescription: "BTC / USD",
+    expectedDecimals: 8,
+  },
 };
+
+/** Explicitly rejected — do not query (empty / wrong proxies). */
+const REJECTED_FEED_ADDRESSES = new Set(
+  [
+    "0x7e860098f58bbfC8648a4311B374b1D669Be50Fe",
+    "0x64C911996D3c6AC71F9Bda319F22AD0632DD249B",
+    "0x07DA0e77e10873DEfA36220b89218952090bD270",
+  ].map((a) => a.toLowerCase()),
+);
 
 const POOLS = [
   {
@@ -81,7 +104,15 @@ const POOLS = [
   },
 ];
 
-async function readFeed(feedAddr) {
+async function readVerifiedFeed(spec) {
+  const feedAddr = spec.address;
+  if (REJECTED_FEED_ADDRESSES.has(feedAddr.toLowerCase())) {
+    throw new Error(`Rejected oracle candidate probed: ${feedAddr}`);
+  }
+  const code = await ethers.provider.getCode(feedAddr);
+  if (!code || code === "0x") {
+    throw new Error(`Oracle feed has empty bytecode (fail closed): ${feedAddr}`);
+  }
   const feed = await ethers.getContractAt(
     [
       "function latestRoundData() view returns (uint80,int256,uint256,uint256,uint80)",
@@ -90,23 +121,36 @@ async function readFeed(feedAddr) {
     ],
     feedAddr,
   );
-  try {
-    const [, answer, , updatedAt] = await feed.latestRoundData();
-    const decimals = await feed.decimals();
-    const description = await feed.description();
-    const ageSec = Math.max(0, Math.floor(Date.now() / 1000) - Number(updatedAt));
-    return {
-      address: feedAddr,
-      description,
-      decimals: Number(decimals),
-      answer: answer.toString(),
-      updatedAt: Number(updatedAt),
-      ageSec,
-      ok: answer > 0n && ageSec < 86_400,
-    };
-  } catch (e) {
-    return { address: feedAddr, ok: false, error: String(e.message || e) };
+  const description = await feed.description();
+  const decimals = Number(await feed.decimals());
+  const [roundId, answer, , updatedAt, answeredInRound] = await feed.latestRoundData();
+  const ageSec = Math.max(0, Math.floor(Date.now() / 1000) - Number(updatedAt));
+  const mismatches = [];
+  if (description !== spec.expectedDescription) {
+    mismatches.push(`description got "${description}" expected "${spec.expectedDescription}"`);
   }
+  if (decimals !== spec.expectedDecimals) {
+    mismatches.push(`decimals got ${decimals} expected ${spec.expectedDecimals}`);
+  }
+  if (answer <= 0n) mismatches.push("non-positive answer");
+  if (updatedAt === 0n || Number(updatedAt) === 0) mismatches.push("missing updatedAt");
+  if (answeredInRound < roundId) mismatches.push("answeredInRound < roundId");
+  if (ageSec >= 86_400) mismatches.push(`stale ageSec=${ageSec}`);
+  if (mismatches.length > 0) {
+    throw new Error(`Oracle feed validation failed for ${feedAddr}: ${mismatches.join("; ")}`);
+  }
+  return {
+    address: feedAddr,
+    description,
+    decimals,
+    answer: answer.toString(),
+    updatedAt: Number(updatedAt),
+    ageSec,
+    roundId: roundId.toString(),
+    answeredInRound: answeredInRound.toString(),
+    bytecodeBytes: (code.length - 2) / 2,
+    ok: true,
+  };
 }
 
 async function inspectPool(entry) {
@@ -217,9 +261,9 @@ async function main() {
   const gasPrice = await ethers.provider.getFeeData();
 
   const oracles = {
-    USDC_USD: await readFeed(FEEDS.USDC_USD),
-    ETH_USD: await readFeed(FEEDS.ETH_USD),
-    BTC_USD: await readFeed(FEEDS.BTC_USD),
+    USDC_USD: await readVerifiedFeed(VERIFIED_FEEDS.USDC_USD),
+    CBBTC_USD: await readVerifiedFeed(VERIFIED_FEEDS.CBBTC_USD),
+    BTC_USD: await readVerifiedFeed(VERIFIED_FEEDS.BTC_USD),
   };
 
   const pools = [];
@@ -245,6 +289,7 @@ async function main() {
     pools,
     notes: [
       "RLUSD/USDC and PYUSD/USDC are NOT in the official five-pool catalogue.",
+      "Oracles: verified USDC/USD, cbBTC/USD, BTC/USD only — rejected candidates never probed; fail closed on mismatch.",
       "poolAddress values are factory-derived on Base mainnet fork.",
       "No transactions were sent.",
     ],

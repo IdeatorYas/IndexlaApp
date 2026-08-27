@@ -418,7 +418,11 @@ export function StableClubView({
         <p className="font-mono text-[10px] text-app-dim">NFT approve tx: {lastApprovalTx}</p>
       ) : null}
 
-      <StableClubApprovalsPanel environment="local" feeRouterAddress={deployments?.feeRouter as Address | undefined} />
+      <StableClubApprovalsPanel
+        environment="local"
+        feeRouterAddress={deployments?.feeRouter as Address | undefined}
+        executorAddress={deployments?.executor as Address | undefined}
+      />
       <StableClubExecutionPanel />
 
       <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
