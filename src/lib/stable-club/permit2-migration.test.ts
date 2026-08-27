@@ -1,0 +1,128 @@
+import { describe, expect, it } from "vitest";
+import {
+  ERC20_UNLIMITED_APPROVAL,
+  PERMIT2_UNLIMITED_AMOUNT,
+  assertBoundedErc20ApproveAmount,
+  assertBoundedPermit2Amount,
+  buildBoundedErc20ApproveToPermit2,
+  buildBoundedPermit2ApproveTx,
+  isForbiddenUnlimitedApproval,
+} from "@/lib/stable-club/permit2";
+import {
+  assertGasCeilingNotHardcoded,
+  assertProductionGovernanceReady,
+  assertProductionOracleDocsConfirmed,
+  assertProductionPermit2Ready,
+  evaluateMainnetReadiness,
+  isStage0EoaEnvironment,
+} from "@/lib/stable-club/production-guards";
+import {
+  BASE_ORACLE_FEEDS,
+  BASE_PERMIT2,
+  BASE_SAFE_STACK,
+  REJECTED_ORACLE_CANDIDATES,
+  isCanonicalBasePermit2,
+  oraclesPendingOfficialDocsConfirmation,
+} from "@/lib/stable-club/verified-base-addresses";
+import { isForbiddenApprovalMethod } from "@/lib/stable-club/nft-approval";
+
+describe("Permit2 bounded approvals", () => {
+  it("rejects unlimited Permit2 and ERC20 amounts", () => {
+    expect(() => assertBoundedPermit2Amount(PERMIT2_UNLIMITED_AMOUNT)).toThrow(/Unlimited/);
+    expect(() => assertBoundedErc20ApproveAmount(ERC20_UNLIMITED_APPROVAL)).toThrow(/Unlimited/);
+    expect(isForbiddenUnlimitedApproval(PERMIT2_UNLIMITED_AMOUNT)).toBe(true);
+  });
+
+  it("builds bounded Permit2 + ERC20 approve txs", () => {
+    const now = 1_700_000_000;
+    const p2 = buildBoundedPermit2ApproveTx({
+      token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      spender: "0x1111111111111111111111111111111111111111",
+      amount: BigInt(1_000_000),
+      expiration: now + 3600,
+      nowSec: now,
+    });
+    expect(p2.address).toBe(BASE_PERMIT2.address);
+    expect(p2.args[2]).toBe(BigInt(1_000_000));
+
+    const erc20 = buildBoundedErc20ApproveToPermit2({
+      token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      amount: BigInt(5_000_000),
+    });
+    expect(erc20.args[0]).toBe(BASE_PERMIT2.address);
+  });
+
+  it("keeps NFT setApprovalForAll forbidden", () => {
+    expect(isForbiddenApprovalMethod("setApprovalForAll")).toBe(true);
+  });
+});
+
+describe("production governance guards", () => {
+  it("allows Stage 0 EOAs only on local/testnet", () => {
+    expect(isStage0EoaEnvironment("local")).toBe(true);
+    expect(isStage0EoaEnvironment("testnet")).toBe(true);
+    expect(isStage0EoaEnvironment("mainnet")).toBe(false);
+  });
+
+  it("blocks mainnet while signers TBD", () => {
+    expect(() =>
+      assertProductionGovernanceReady({
+        environment: "mainnet",
+        governanceSafeAddress: "0x1111111111111111111111111111111111111111",
+        timelockAddress: "0x2222222222222222222222222222222222222222",
+        ownerAddress: "0x2222222222222222222222222222222222222222",
+      }),
+    ).toThrow(/signers remain TBD/);
+  });
+
+  it("blocks mainnet without canonical Permit2", () => {
+    expect(() =>
+      assertProductionPermit2Ready({
+        environment: "mainnet",
+        permit2Address: "0x1111111111111111111111111111111111111111",
+        chainId: 8453,
+      }),
+    ).toThrow(/canonical/);
+    expect(() =>
+      assertProductionPermit2Ready({
+        environment: "mainnet",
+        permit2Address: BASE_PERMIT2.address,
+        chainId: 8453,
+      }),
+    ).not.toThrow();
+  });
+
+  it("blocks mainnet while oracle docs confirmation pending", () => {
+    expect(oraclesPendingOfficialDocsConfirmation().length).toBeGreaterThan(0);
+    expect(() => assertProductionOracleDocsConfirmed("mainnet")).toThrow(/docs confirmation pending/);
+    expect(() => assertProductionOracleDocsConfirmed("local")).not.toThrow();
+  });
+
+  it("keeps gas ceiling unhardcoded", () => {
+    expect(() => assertGasCeilingNotHardcoded()).not.toThrow();
+  });
+
+  it("reports mainnet readiness blockers", () => {
+    const r = evaluateMainnetReadiness({
+      environment: "mainnet",
+      ownerIsTimelock: false,
+      timelockDelaySeconds: 48 * 3600,
+      governanceSafeAddress: null,
+      multisigSignersConfigured: false,
+      permit2Address: null,
+    });
+    expect(r.ready).toBe(false);
+    expect(r.blockers).toContain("multisig signers TBD");
+    expect(r.blockers).toContain("Permit2 not canonical");
+  });
+});
+
+describe("verified Base addresses registry", () => {
+  it("pins canonical Permit2 and Safe preinstalls", () => {
+    expect(isCanonicalBasePermit2(BASE_PERMIT2.address)).toBe(true);
+    expect(BASE_SAFE_STACK.safeL2Singleton.verifiedOnFork).toBe(true);
+    expect(BASE_ORACLE_FEEDS.usdcUsd.descriptionOnChain).toBe("USDC / USD");
+    expect(BASE_ORACLE_FEEDS.btcUsd.descriptionOnChain).toBe("BTC / USD");
+    expect(REJECTED_ORACLE_CANDIDATES.length).toBeGreaterThan(0);
+  });
+});

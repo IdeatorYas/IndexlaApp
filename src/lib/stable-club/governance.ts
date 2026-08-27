@@ -25,6 +25,9 @@ export type GovernanceScaffoldingConfig = {
     configChangesRequireTimelock: true;
     coreContractsImmutable: true;
     adaptersReplaceableOnlyViaGovernedRegistry: true;
+    /** Mainnet: owner/admin = Timelock; Timelock proposers/executors = 3-of-5 Safe. No production admin EOA. */
+    mainnetOwnerMustBeTimelock: true;
+    stage0EoaOnlyLocalOrTestnet: true;
   };
 };
 
@@ -42,6 +45,8 @@ export const GOVERNANCE_SCAFFOLDING: GovernanceScaffoldingConfig = {
     configChangesRequireTimelock: true,
     coreContractsImmutable: true,
     adaptersReplaceableOnlyViaGovernedRegistry: true,
+    mainnetOwnerMustBeTimelock: true,
+    stage0EoaOnlyLocalOrTestnet: true,
   },
 };
 

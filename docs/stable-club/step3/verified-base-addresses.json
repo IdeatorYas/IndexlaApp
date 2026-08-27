@@ -1,0 +1,53 @@
+{
+  "chainId": 8453,
+  "verifiedAt": "2026-08-27",
+  "permit2": {
+    "address": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "verifiedOnFork": true,
+    "sources": [
+      "https://developers.uniswap.org/docs/protocols/v4/deployments",
+      "https://docs.base.org/base-chain/specs/protocol/execution/evm/preinstalls"
+    ]
+  },
+  "safeStack": {
+    "safeL2": "0xfb1bffC9d739B8D520DaF37dF666da4C687191EA",
+    "safe": "0x69f4D1788e39c87893C980c06EdF4b7f686e2938",
+    "multiSend": "0x998739BFdAAdde7C933B942a68053933098f9EDa",
+    "multiSendCallOnly": "0xA1dabEF33b3B82c7814B6D82A79e50F4AC44102B",
+    "singletonFactory": "0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7",
+    "proxyFactoryV130": "0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2",
+    "governanceSafeInstance": null
+  },
+  "oracles": {
+    "ethUsd": {
+      "address": "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70",
+      "decimals": 8,
+      "descriptionOnChain": "ETH / USD",
+      "officialDocsConfirmed": true
+    },
+    "usdcUsd": {
+      "address": "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B",
+      "decimals": 8,
+      "descriptionOnChain": "USDC / USD",
+      "officialDocsConfirmed": false,
+      "note": "Confirm on https://data.chain.link/feeds/base/base/usdc-usd before mainnet"
+    },
+    "btcUsd": {
+      "address": "0x3A932b286715abc4A86a4ACAF68A6cdD89E0d446",
+      "decimals": 8,
+      "descriptionOnChain": "BTC / USD",
+      "indexesToken": "cbBTC",
+      "officialDocsConfirmed": false,
+      "note": "Confirm on https://data.chain.link/feeds/base/base/btc-usd before mainnet"
+    }
+  },
+  "rejectedEmptyBytecode": [
+    "0x7e860098f58bbfC8648a4311B374b1D669Be50Fe",
+    "0x64C911996D3c6AC71F9Bda319F22AD0632DD249B",
+    "0x07DA0e77e10873DEfA36220b89218952090bD270"
+  ],
+  "gasSample": {
+    "baseFeePerGasWei": "5000000",
+    "gasCeilingWeiInLaunchParams": null
+  }
+}
