@@ -16,7 +16,8 @@ export type FeatureFlagKey =
   | "NETWORK_BNB_ENABLED"
   | "NETWORK_SOLANA_ENABLED"
   | "NETWORK_SUI_ENABLED"
-  | "NETWORK_ROBINHOOD_ENABLED";
+  | "NETWORK_ROBINHOOD_ENABLED"
+  | "STABLE_CLUB_DEV_ENABLED";
 
 export type FeatureFlags = Record<FeatureFlagKey, boolean> & {
   /** True when utility UI is shown in dev/staging with non-production labeling */
@@ -108,7 +109,16 @@ export function getFeatureFlags(): FeatureFlags {
     NETWORK_SOLANA_ENABLED: readBool("NETWORK_SOLANA_ENABLED", false),
     NETWORK_SUI_ENABLED: readBool("NETWORK_SUI_ENABLED", false),
     NETWORK_ROBINHOOD_ENABLED: false,
+    STABLE_CLUB_DEV_ENABLED: readBool("STABLE_CLUB_DEV_ENABLED", false),
   };
+}
+
+export function isStableClubDevEnabled(): boolean {
+  const server =
+    readEnv("STABLE_CLUB_DEV_ENABLED") ??
+    readEnv("NEXT_PUBLIC_STABLE_CLUB_DEV_ENABLED");
+  if (server === undefined) return false;
+  return server === "1" || server.toLowerCase() === "true";
 }
 
 /** Client-safe flags for UI badges and preview banner */

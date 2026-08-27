@@ -10,7 +10,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "compile:contracts": "hardhat compile",
+    "test:contracts": "hardhat test",
+    "node:local": "hardhat node --port 8545",
+    "deploy:stable-club:local": "hardhat run scripts/stable-club/deploy-local.cjs --network localhost",
+    "test:e2e:stable-club": "playwright test --config playwright.stable-club.config.ts"
   },
   "dependencies": {
     "next": "15.5.22",
@@ -19,6 +24,8 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "^5.4.0",
     "@playwright/test": "^1.55.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.8.0",
@@ -27,11 +34,14 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^5.0.2",
+    "dotenv": "^16.6.1",
     "eslint": "^9",
     "eslint-config-next": "15.5.22",
+    "hardhat": "^2.26.3",
     "jsdom": "^26.1.0",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "viem": "^2.36.0",
     "vitest": "^3.2.4"
   }
 }

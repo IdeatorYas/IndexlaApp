@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { APP_ROUTES, APP_SCREENS, NAV_ITEMS } from "@/lib/routes";
 
 describe("routes", () => {
-  it("defines 8 primary navigation destinations", () => {
-    expect(NAV_ITEMS).toHaveLength(8);
+  it("defines 9 primary navigation destinations including Stable Club (dev-gated)", () => {
+    expect(NAV_ITEMS).toHaveLength(9);
+    expect(NAV_ITEMS.some((item) => item.href === APP_ROUTES.stableClub)).toBe(true);
   });
 
   it("defines 12 application screens", () => {

@@ -54,3 +54,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# hardhat / contracts
+/cache/
+/artifacts/
+/typechain-types/
+/src/lib/stable-club/generated/local-deployments.json

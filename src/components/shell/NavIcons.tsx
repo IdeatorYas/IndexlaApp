@@ -2,6 +2,7 @@ export type NavIconName =
   | "Dashboard"
   | "Discover"
   | "Degen Club"
+  | "Stable Club"
   | "Create Portfolio / Index"
   | "My Portfolio"
   | "Strategies"
@@ -47,6 +48,13 @@ export function NavIcon({
       return (
         <svg {...common}>
           <path d="M12 3l2.2 5.4L20 9l-4 3.4L17.5 18 12 14.8 6.5 18 8 12.4 4 9l5.8-.6L12 3z" />
+        </svg>
+      );
+    case "Stable Club":
+      return (
+        <svg {...common}>
+          <path d="M12 3c4.5 0 8 3 8 7s-3.5 7-8 7-8-3-8-7 3.5-7 8-7z" />
+          <path d="M8 14h8M12 10v8" />
         </svg>
       );
     case "Create Portfolio / Index":
