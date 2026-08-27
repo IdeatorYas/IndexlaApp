@@ -61,6 +61,7 @@ contract SafetyController is ISafetyController {
     }
 
     function transferOwnership(address next) external onlyOwner {
+        if (next == address(0)) revert Unauthorized();
         emit OwnerTransferred(owner, next);
         owner = next;
     }

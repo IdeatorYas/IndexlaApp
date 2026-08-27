@@ -3,10 +3,14 @@ pragma solidity ^0.8.24;
 
 /// @notice Step 2 concentrated-liquidity adapter surface (Uniswap V3 / Aerodrome Slipstream).
 /// @dev LP position NFT must be owned by `lpOwner` after mint / remain owned by user after ops.
+/// @dev amountA/amountB are always in caller tokenA/tokenB order (not raw token0/token1).
 interface IConcentratedLiquidityAdapter {
     function poolId() external view returns (bytes32);
 
     function protocol() external view returns (string memory);
+
+    /// @notice NFT manager that must receive per-token approval before harvest/compound/rebalance.
+    function positionManager() external view returns (address);
 
     function mintPosition(
         address lpOwner,
@@ -23,6 +27,8 @@ interface IConcentratedLiquidityAdapter {
     function increaseLiquidity(
         address lpOwner,
         uint256 tokenId,
+        address tokenA,
+        address tokenB,
         uint256 amountA,
         uint256 amountB,
         uint256 amountAMin,
@@ -32,6 +38,8 @@ interface IConcentratedLiquidityAdapter {
     function decreaseLiquidity(
         address lpOwner,
         uint256 tokenId,
+        address tokenA,
+        address tokenB,
         uint128 liquidity,
         uint256 amountAMin,
         uint256 amountBMin
@@ -47,6 +55,8 @@ interface IConcentratedLiquidityAdapter {
     function closePosition(
         address lpOwner,
         uint256 tokenId,
+        address tokenA,
+        address tokenB,
         uint256 amountAMin,
         uint256 amountBMin
     ) external returns (uint256 amountA, uint256 amountB);
@@ -63,4 +73,7 @@ interface IConcentratedLiquidityAdapter {
 
     /// @notice Underlying pool tokens for an existing position NFT (order: token0, token1).
     function positionTokens(uint256 tokenId) external view returns (address token0, address token1);
+
+    /// @notice Provisional token amounts in token0/token1 order (for cap accounting).
+    function positionAmounts(uint256 tokenId) external view returns (uint256 amount0, uint256 amount1);
 }

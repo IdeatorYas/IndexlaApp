@@ -114,7 +114,10 @@ async function mintPosition(ctx, amountA, amountB) {
     1,
     1,
   );
-  return 1n;
+  const tokenId = 1n;
+  // Least-privilege per-token ERC721 approve (adapter is also the mock NPM).
+  await ctx.clAdapter.connect(ctx.user).approve(await ctx.clAdapter.getAddress(), tokenId);
+  return tokenId;
 }
 
 describe("PR1 security remediation — adversarial regressions", function () {

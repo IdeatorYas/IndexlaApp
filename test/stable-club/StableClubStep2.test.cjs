@@ -231,6 +231,7 @@ describe("Stable Club Step 2 — automation harvest", function () {
     // tokenId is 1 for first mint
     const tokenId = 1n;
     expect(await ctx.clAdapter.ownerOf(tokenId)).to.equal(ctx.user.address);
+    await ctx.clAdapter.connect(ctx.user).approve(await ctx.clAdapter.getAddress(), tokenId);
 
     await ctx.automation.connect(ctx.user).harvest(
       permissionId,

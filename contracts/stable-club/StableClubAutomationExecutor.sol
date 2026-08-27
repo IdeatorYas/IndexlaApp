@@ -2,7 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {PermissionRegistry} from "./PermissionRegistry.sol";
@@ -59,6 +61,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     error TokenNotBound();
     error SlippageMinRequired();
     error InvalidSwapAmount();
+    error PositionApprovalRequired();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -125,9 +128,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
 
         bytes32 poolId = _requirePoolAdapter(adapter, perm.poolId);
-        if (IConcentratedLiquidityAdapter(adapter).ownerOf(positionTokenId) != perm.user) {
-            revert NotPositionOwner();
-        }
+        _requirePositionApproval(adapter, positionTokenId, perm.user);
         _requirePositionBound(adapter, positionTokenId, perm);
 
         safetyController.assertAutomationAllowed(poolId);
@@ -176,9 +177,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
 
         bytes32 poolId = _requirePoolAdapter(adapter, perm.poolId);
-        if (IConcentratedLiquidityAdapter(adapter).ownerOf(positionTokenId) != perm.user) {
-            revert NotPositionOwner();
-        }
+        _requirePositionApproval(adapter, positionTokenId, perm.user);
         _requireBoundTokens(perm, tokenA, tokenB);
         _requirePositionBound(adapter, positionTokenId, perm);
 
@@ -240,7 +239,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
                 IERC20(tokenB).forceApprove(adapter, totalB);
             }
             IConcentratedLiquidityAdapter(adapter).increaseLiquidity(
-                perm.user, positionTokenId, amountA, totalB, amountAMin, totalBMin
+                perm.user, positionTokenId, tokenA, tokenB, amountA, totalB, amountAMin, totalBMin
             );
             _assertZeroBalance(tokenA);
             _assertZeroBalance(tokenB);
@@ -282,11 +281,12 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
 
         bytes32 poolId = _requirePoolAdapter(adapter, perm.poolId);
-        if (IConcentratedLiquidityAdapter(adapter).ownerOf(positionTokenId) != perm.user) {
-            revert NotPositionOwner();
-        }
+        _requirePositionApproval(adapter, positionTokenId, perm.user);
         _requireBoundTokens(perm, tokenA, tokenB);
         _requirePositionBound(adapter, positionTokenId, perm);
+        // Finding 6: both position / swap legs must be on the token allowlist.
+        _requireApprovedToken(tokenA);
+        _requireApprovedToken(tokenB);
 
         if (
             closeAmountAMin == 0 || closeAmountBMin == 0 || mintAmountAMin == 0 || mintAmountBMin == 0
@@ -300,14 +300,16 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         safetyController.assertTokenNotDepegged(tokenB);
         if (!oracleGuard.validatePrices(tokenA, tokenB, 0)) revert OracleRejected();
 
+        // Finding 5: caps apply to oracle-normalized full position value, not only swapAmount.
+        uint256 positionValue = _provisionalPositionValue(adapter, positionTokenId, tokenA, tokenB);
         permissionRegistry.validateExecution(
-            permissionId, PermissionRegistry.Action.Rebalance, swapAmount, slippageBps, executionNonce
+            permissionId, PermissionRegistry.Action.Rebalance, positionValue, slippageBps, executionNonce
         );
         safetyController.consumeAutomationSlot();
 
         IConcentratedLiquidityAdapter(adapter).collectFees(perm.user, positionTokenId);
         (uint256 closedA, uint256 closedB) = IConcentratedLiquidityAdapter(adapter).closePosition(
-            perm.user, positionTokenId, closeAmountAMin, closeAmountBMin
+            perm.user, positionTokenId, tokenA, tokenB, closeAmountAMin, closeAmountBMin
         );
 
         uint256 swapOutOnExecutor;
@@ -391,6 +393,48 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     ) internal view {
         (address t0, address t1) = IConcentratedLiquidityAdapter(adapter).positionTokens(positionTokenId);
         _requireBoundTokens(perm, t0, t1);
+    }
+
+    /// @notice Least-privilege ERC721 gate: per-token approve preferred; setApprovalForAll accepted if already set by user.
+    function _requirePositionApproval(address adapter, uint256 tokenId, address lpOwner) internal view {
+        if (IConcentratedLiquidityAdapter(adapter).ownerOf(tokenId) != lpOwner) {
+            revert NotPositionOwner();
+        }
+        address npm = IConcentratedLiquidityAdapter(adapter).positionManager();
+        if (
+            IERC721(npm).getApproved(tokenId) != adapter
+                && !IERC721(npm).isApprovedForAll(lpOwner, adapter)
+        ) {
+            revert PositionApprovalRequired();
+        }
+    }
+
+    function _provisionalPositionValue(
+        address adapter,
+        uint256 tokenId,
+        address tokenA,
+        address tokenB
+    ) internal view returns (uint256) {
+        (address t0, address t1) = IConcentratedLiquidityAdapter(adapter).positionTokens(tokenId);
+        (uint256 a0, uint256 a1) = IConcentratedLiquidityAdapter(adapter).positionAmounts(tokenId);
+        uint256 amountA;
+        uint256 amountB;
+        if (tokenA == t0 && tokenB == t1) {
+            amountA = a0;
+            amountB = a1;
+        } else if (tokenA == t1 && tokenB == t0) {
+            amountA = a1;
+            amountB = a0;
+        } else {
+            revert TokenNotBound();
+        }
+        uint256 value = amountA;
+        if (amountB > 0) {
+            uint8 dA = IERC20Metadata(tokenA).decimals();
+            uint8 dB = IERC20Metadata(tokenB).decimals();
+            value += oracleGuard.expectedAmountOut(tokenB, tokenA, amountB, dB, dA);
+        }
+        return value;
     }
 
     function _requireApprovedToken(address token) internal view {

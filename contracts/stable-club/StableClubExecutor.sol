@@ -172,6 +172,7 @@ contract StableClubExecutor is ReentrancyGuard {
 
         bytes32 poolId = IStableClubAdapter(adapter).poolId();
         if (poolAdapters[poolId] != adapter) revert PoolNotApproved();
+        if (perm.poolId != poolId) revert PoolMismatch();
         _requireApprovedToken(tokenIn);
         _requireApprovedToken(tokenOut);
         if (minAmountOut == 0) revert MinOutRequired();
@@ -207,6 +208,7 @@ contract StableClubExecutor is ReentrancyGuard {
 
         bytes32 poolId = IStableClubAdapter(adapter).poolId();
         if (poolAdapters[poolId] != adapter) revert PoolNotApproved();
+        if (perm.poolId != poolId) revert PoolMismatch();
         if (minAmountA == 0 || minAmountB == 0) revert MinOutRequired();
 
         permissionRegistry.validateExecution(
@@ -247,6 +249,7 @@ contract StableClubExecutor is ReentrancyGuard {
 
         bytes32 poolId = IStableClubAdapter(adapter).poolId();
         if (poolAdapters[poolId] != adapter) revert PoolNotApproved();
+        if (perm.poolId != poolId) revert PoolMismatch();
         if (minAmountA == 0 || minAmountB == 0) revert MinOutRequired();
 
         permissionRegistry.validateExecution(
@@ -286,6 +289,7 @@ contract StableClubExecutor is ReentrancyGuard {
 
         bytes32 poolId = IStableClubAdapter(adapter).poolId();
         if (poolAdapters[poolId] != adapter) revert PoolNotApproved();
+        if (perm.poolId != poolId) revert PoolMismatch();
 
         permissionRegistry.validateEmergencyExecution(permissionId, executionNonce);
 

@@ -11,9 +11,11 @@ contract FeeRouter {
     uint256 public constant FEE_BPS = 100; // 1%
     uint256 public constant BPS_DENOMINATOR = 10_000;
 
+    address public owner;
     address public immutable feeRecipient;
     address public executor;
 
+    event OwnerTransferred(address indexed previous, address indexed next);
     event ExecutorWired(address indexed executor);
     event SwapFeeCharged(
         address indexed user,
@@ -25,9 +27,16 @@ contract FeeRouter {
     );
 
     error OnlyExecutor();
+    error Unauthorized();
     error ZeroAmount();
     error InvalidRecipient();
+    error InvalidExecutor();
     error ExecutorAlreadyWired();
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert Unauthorized();
+        _;
+    }
 
     modifier onlyExecutor() {
         if (msg.sender != executor) revert OnlyExecutor();
@@ -37,10 +46,19 @@ contract FeeRouter {
     constructor(address feeRecipient_) {
         if (feeRecipient_ == address(0)) revert InvalidRecipient();
         feeRecipient = feeRecipient_;
+        owner = msg.sender;
     }
 
-    function wireExecutor(address executor_) external {
-        if (executor != address(0) || executor_ == address(0)) revert ExecutorAlreadyWired();
+    function transferOwnership(address next) external onlyOwner {
+        if (next == address(0)) revert Unauthorized();
+        emit OwnerTransferred(owner, next);
+        owner = next;
+    }
+
+    /// @notice One-shot executor wiring — owner/governance only.
+    function wireExecutor(address executor_) external onlyOwner {
+        if (executor_ == address(0)) revert InvalidExecutor();
+        if (executor != address(0)) revert ExecutorAlreadyWired();
         executor = executor_;
         emit ExecutorWired(executor_);
     }
