@@ -7,9 +7,10 @@
 
 | Field | Value |
 |---|---|
-| **Candidate freeze SHA** | `0b805a8924dcd2bfbb94cebdfd3205416855d0ca` |
+| **Candidate freeze SHA** | `0b805a8924dcd2bfbb94cebdfd3205416855d0ca` (Safe/Permit2 integration merge) |
+| **Docs tip** | `feature/stable-club-step3` @ `cae10e3` (freeze-metadata only; no contract delta vs merge) |
 | **Branch** | `feature/stable-club-step3` |
-| **Checkpoint** | `checkpoint/2026-08-27-stable-club-step3-pre-audit-freeze` @ `0b805a8` |
+| **Checkpoint** | `checkpoint/2026-08-27-stable-club-step3-pre-audit-freeze` |
 | **Freeze policy** | Founder tags `audit-freeze/stable-club-step3-0b805a8` only after explicit ack; do not start paid audit until authorized |
 | **Status** | **CANDIDATE** — not yet founder-tagged freeze |
 
