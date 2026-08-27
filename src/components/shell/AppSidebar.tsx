@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NavIcon } from "@/components/shell/NavIcons";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
-import { getClientFeatureFlags } from "@/lib/feature-flags";
+import { getClientFeatureFlags, isStableClubDevEnabled } from "@/lib/feature-flags";
 import { APP_ROUTES, NAV_ITEMS } from "@/lib/routes";
 import { formatUsd } from "@/lib/dashboard/data";
 import { getDexlaBalance } from "@/lib/data";
@@ -19,6 +19,10 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { wallet } = useDemoWallet();
   const flags = getClientFeatureFlags();
+  const stableClubDev = isStableClubDevEnabled();
+  const navItems = NAV_ITEMS.filter(
+    (item) => !("devOnly" in item && item.devOnly) || stableClubDev,
+  );
   const dexla = getDexlaBalance().data;
   const initials =
     wallet.state === "connected"
@@ -58,7 +62,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-2.5 py-3" aria-label="Primary">
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const active = isActive(pathname, item.href);
           return (
             <Link
@@ -89,6 +93,14 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
                   className="ml-auto rounded-full bg-app-brand/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-app-brand"
                 >
                   New
+                </span>
+              ) : null}
+              {item.label === "Stable Club" ? (
+                <span
+                  aria-hidden
+                  className="ml-auto rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-300"
+                >
+                  Dev
                 </span>
               ) : null}
             </Link>
