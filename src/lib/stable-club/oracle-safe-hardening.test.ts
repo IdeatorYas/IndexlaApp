@@ -81,7 +81,7 @@ describe("Permit2 revoke + expiry labels", () => {
 });
 
 describe("code-freeze readiness", () => {
-  it("reports mainnet blockers while signers TBD", () => {
+  it("reports mainnet blockers when Timelock/Permit2 not wired", () => {
     const r = evaluateMainnetReadiness({
       environment: "mainnet",
       ownerIsTimelock: false,
