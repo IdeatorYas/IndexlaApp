@@ -11,11 +11,14 @@ import {PermissionRegistry} from "./PermissionRegistry.sol";
 import {FeeRouter} from "./FeeRouter.sol";
 import {IConcentratedLiquidityAdapter} from "./interfaces/IConcentratedLiquidityAdapter.sol";
 import {IOracleGuard} from "./interfaces/IOracleGuard.sol";
+import {IAllowanceTransfer} from "./interfaces/IAllowanceTransfer.sol";
+import {UserTokenPull} from "./libraries/UserTokenPull.sol";
 import {MevGuard} from "./MevGuard.sol";
 import {SafetyController} from "./SafetyController.sol";
 
 /// @title StableClubAutomationExecutor — Step 2 CL harvest / compound / rebalance operator.
 /// @notice Stateless; never retains user funds or position NFTs after execution.
+/// @dev Production ERC20 pulls use Permit2; address(0) is local/test legacy path only. NFT remains per-token approve.
 contract StableClubAutomationExecutor is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -25,6 +28,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     SafetyController public immutable safetyController;
     MevGuard public immutable mevGuard;
     address public owner;
+    IAllowanceTransfer public permit2;
 
     mapping(address => bool) public approvedAdapters;
     mapping(bytes32 => address) public poolAdapters;
@@ -38,6 +42,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     event OfficialPoolCatalogueUpdated(bytes32 indexed poolId, bool approved);
     event OfficialPoolActivated(bytes32 indexed poolId);
     event TokenApproved(address indexed token, bool approved);
+    event Permit2Updated(address indexed permit2);
     event OwnerTransferred(address indexed previous, address indexed next);
     event AutomationExecuted(
         bytes32 indexed permissionId,
@@ -117,6 +122,12 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     function setTokenApproval(address token, bool approved) external onlyOwner {
         approvedTokens[token] = approved;
         emit TokenApproved(token, approved);
+    }
+
+    /// @notice Wire Permit2 for user ERC20 pulls. Production must use verified Base Permit2.
+    function setPermit2(address permit2_) external onlyOwner {
+        permit2 = IAllowanceTransfer(permit2_);
+        emit Permit2Updated(permit2_);
     }
 
     function harvest(
@@ -229,11 +240,11 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
             _requireApprovedToken(tokenA);
             _requireApprovedToken(tokenB);
             if (amountA > 0) {
-                IERC20(tokenA).safeTransferFrom(perm.user, address(this), amountA);
+                UserTokenPull.pull(permit2, tokenA, perm.user, address(this), amountA);
                 IERC20(tokenA).forceApprove(adapter, amountA);
             }
             if (amountB > 0) {
-                IERC20(tokenB).safeTransferFrom(perm.user, address(this), amountB);
+                UserTokenPull.pull(permit2, tokenB, perm.user, address(this), amountB);
             }
             // swapOutOnExecutor already on this contract
             if (totalB > 0) {
@@ -330,11 +341,11 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         uint256 amountB = closedB + swapOutOnExecutor;
 
         if (amountA > 0) {
-            IERC20(tokenA).safeTransferFrom(perm.user, address(this), amountA);
+            UserTokenPull.pull(permit2, tokenA, perm.user, address(this), amountA);
             IERC20(tokenA).forceApprove(adapter, amountA);
         }
         if (closedB > 0) {
-            IERC20(tokenB).safeTransferFrom(perm.user, address(this), closedB);
+            UserTokenPull.pull(permit2, tokenB, perm.user, address(this), closedB);
         }
         if (amountB > 0) {
             IERC20(tokenB).forceApprove(adapter, amountB);

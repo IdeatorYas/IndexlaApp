@@ -5,26 +5,28 @@ import {
   buildTimelockRoleArrays,
   STABLE_CLUB_TIMELOCK_SECONDS,
 } from "@/lib/stable-club/governance";
+import { MVP_GOVERNANCE_SAFE, MVP_SIGNERS } from "@/lib/stable-club/mvp-governance";
 import { buildStage1LaunchConfiguration, isStage1AllowedPoolId } from "@/lib/stable-club/stage1-launch";
 
 describe("governance scaffolding", () => {
-  it("encodes 3-of-5 and 48h timelock without signer addresses", () => {
-    expect(GOVERNANCE_SCAFFOLDING.multisig.threshold).toBe(3);
-    expect(GOVERNANCE_SCAFFOLDING.multisig.size).toBe(5);
+  it("encodes 2-of-3 MVP Safe signers and 48h timelock", () => {
+    expect(GOVERNANCE_SCAFFOLDING.multisig.threshold).toBe(2);
+    expect(GOVERNANCE_SCAFFOLDING.multisig.size).toBe(3);
     expect(GOVERNANCE_SCAFFOLDING.timelockMinDelaySeconds).toBe(STABLE_CLUB_TIMELOCK_SECONDS);
-    expect(GOVERNANCE_SCAFFOLDING.multisig.signerAddresses).toEqual([]);
+    expect(GOVERNANCE_SCAFFOLDING.multisig.signerAddresses).toEqual([...MVP_SIGNERS]);
+    expect(GOVERNANCE_SCAFFOLDING.multisig.safeAddress).toBe(MVP_GOVERNANCE_SAFE);
     expect(() => assertGovernanceSignersTbd()).not.toThrow();
   });
 
   it("requires explicit role addresses for timelock wiring helpers", () => {
     expect(() => buildTimelockRoleArrays({})).toThrow(/supplied explicitly/);
     const roles = buildTimelockRoleArrays({
-      proposer: "0x1111111111111111111111111111111111111111",
-      executor: "0x2222222222222222222222222222222222222222",
-      admin: "0x3333333333333333333333333333333333333333",
+      proposer: MVP_GOVERNANCE_SAFE,
+      executor: MVP_GOVERNANCE_SAFE,
+      admin: MVP_GOVERNANCE_SAFE,
     });
     expect(roles.minDelay).toBe(48 * 3600);
-    expect(roles.proposers).toHaveLength(1);
+    expect(roles.proposers).toEqual([MVP_GOVERNANCE_SAFE]);
   });
 });
 

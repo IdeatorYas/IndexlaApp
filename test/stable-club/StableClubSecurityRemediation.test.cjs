@@ -647,7 +647,7 @@ describe("PR1 security remediation — adversarial regressions", function () {
   describe("M3 — oracle deviation separate from permission slippage", function () {
     it("uses oracle default deviation when maxDeviationBps is 0", async function () {
       const ctx = await deployStep2Stack();
-      expect(await ctx.oracleGuard.defaultMaxDeviationBps()).to.equal(200n);
+      expect(await ctx.oracleGuard.defaultMaxDeviationBps()).to.equal(100n);
       expect(
         await ctx.oracleGuard.validatePrices(
           await ctx.usdc.getAddress(),

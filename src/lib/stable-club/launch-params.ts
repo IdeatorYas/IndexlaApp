@@ -39,13 +39,13 @@ export type StableClubLaunchParams = {
     rebalanceEnabled: boolean;
   };
   governance: {
-    multisigThreshold: 3;
-    multisigSize: 5;
+    multisigThreshold: 2;
+    multisigSize: 3;
     timelockSeconds: number;
     emergencyPauseImmediate: true;
     unpauseRequiresTimelock: true;
-    /** Intentionally empty — never commit production signer addresses. */
-    multisigSignersTbd: true;
+    /** MVP signers live in mvp-governance.ts (public addresses only). */
+    multisigSignersTbd: false;
   };
   fee: {
     feeBps: 100;
@@ -82,12 +82,12 @@ export const PRIVATE_BETA_LAUNCH_PARAMS: StableClubLaunchParams = {
     rebalanceEnabled: false,
   },
   governance: {
-    multisigThreshold: 3,
-    multisigSize: 5,
+    multisigThreshold: 2,
+    multisigSize: 3,
     timelockSeconds: 48 * 60 * 60,
     emergencyPauseImmediate: true,
     unpauseRequiresTimelock: true,
-    multisigSignersTbd: true,
+    multisigSignersTbd: false,
   },
   fee: {
     feeBps: 100,
@@ -116,8 +116,19 @@ export function floorSwapFeeAmount(
   return (grossAmount * feeBps) / denominator;
 }
 
-export function assertNoSignerAddresses(params: StableClubLaunchParams): void {
-  if (!params.governance.multisigSignersTbd) {
-    throw new Error("Production signer addresses must stay TBD in source");
+/** Launch params no longer keep signers TBD — MVP addresses live in mvp-governance.ts. */
+export function assertLaunchGovernanceIsMvp(
+  params: StableClubLaunchParams = PRIVATE_BETA_LAUNCH_PARAMS,
+): void {
+  if (params.governance.multisigSignersTbd) {
+    throw new Error("Launch params must reference configured MVP signers");
   }
+  if (params.governance.multisigThreshold !== 2 || params.governance.multisigSize !== 3) {
+    throw new Error("Launch governance must be 2-of-3");
+  }
+}
+
+/** @deprecated Use assertLaunchGovernanceIsMvp */
+export function assertNoSignerAddresses(params: StableClubLaunchParams): void {
+  assertLaunchGovernanceIsMvp(params);
 }

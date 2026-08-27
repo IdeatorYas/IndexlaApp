@@ -9,7 +9,9 @@
 
 - Merge commit: `6654dfa`  
 - Feature branch for Step 3 prep: `feature/stable-club-step3`  
-- Pre-checkpoint: `checkpoint/2026-08-27-stable-club-step3-pre` @ `c837146`
+- Safe/Permit2 + pre-deploy prep: `feature/stable-club-step3-safe-permit2`  
+- Pre-checkpoint: `checkpoint/2026-08-27-stable-club-step3-pre-safe-permit2` @ `abafe49`  
+- Candidate freeze: see `11-professional-audit-package.md` (tag after integration merge)
 
 ## In-scope contracts (audit)
 
@@ -24,7 +26,8 @@
 9. `UniswapV3Adapter`  
 10. `AerodromeSlipstreamAdapter`  
 11. Libraries: `ClNpmPositionValue`, `LiquidityAmounts`, `TickMath`, `FullMath`  
-12. Future (when implemented): Timelock, Permit2 integration surface, launch cap controllers  
+12. `StableClubTimelock` + Permit2 / `UserTokenPull` integration surface  
+13. Launch-cap / gas-ceiling Timelock setters (when encoded)  
 
 Exclude test-only mocks from audit opinion except as harness context.
 

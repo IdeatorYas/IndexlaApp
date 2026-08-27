@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StableClubExecutionPanel } from "@/components/stable-club/StableClubExecutionPanel";
+import { StableClubApprovalsPanel } from "@/components/stable-club/StableClubApprovalsPanel";
 import {
   StableClubPoolCatalogue,
   StableClubPositionDashboard,
@@ -417,6 +418,7 @@ export function StableClubView({
         <p className="font-mono text-[10px] text-app-dim">NFT approve tx: {lastApprovalTx}</p>
       ) : null}
 
+      <StableClubApprovalsPanel environment="local" feeRouterAddress={deployments?.feeRouter as Address | undefined} />
       <StableClubExecutionPanel />
 
       <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">

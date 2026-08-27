@@ -36,10 +36,10 @@ describe("private-beta launch params", () => {
     expect(buildStage1LaunchConfiguration().poolIds).toEqual(["USDC-cbBTC-UNI-005"]);
   });
 
-  it("encodes 48h timelock and 3-of-5 without signer addresses", () => {
+  it("encodes 48h timelock and 2-of-3 MVP governance", () => {
     expect(PRIVATE_BETA_LAUNCH_PARAMS.governance.timelockSeconds).toBe(48 * 3600);
-    expect(PRIVATE_BETA_LAUNCH_PARAMS.governance.multisigThreshold).toBe(3);
-    expect(PRIVATE_BETA_LAUNCH_PARAMS.governance.multisigSize).toBe(5);
+    expect(PRIVATE_BETA_LAUNCH_PARAMS.governance.multisigThreshold).toBe(2);
+    expect(PRIVATE_BETA_LAUNCH_PARAMS.governance.multisigSize).toBe(3);
     expect(() => assertNoSignerAddresses(PRIVATE_BETA_LAUNCH_PARAMS)).not.toThrow();
   });
 
