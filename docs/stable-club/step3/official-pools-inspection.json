@@ -1,0 +1,127 @@
+{
+  "inspectedAt": "2026-08-27T18:41:58.384Z",
+  "chainId": 8453,
+  "forkBlock": 50533250,
+  "gas": {
+    "gasPriceWei": "1003906422",
+    "maxFeePerGasWei": "1008928964",
+    "maxPriorityFeePerGasWei": "1000000000",
+    "recommendedCeilingWei": "5044644820",
+    "note": "Recommended ceiling = 5x observed maxFeePerGas at inspection time; keep configurable."
+  },
+  "oracles": {
+    "USDC_USD": {
+      "address": "0x7e860098F58bBFC8648a4311b374B1D669Be50fE",
+      "ok": false,
+      "error": "bad address checksum (argument=\"address\", value=\"0x7e860098F58bBFC8648a4311b374B1D669Be50fE\", code=INVALID_ARGUMENT, version=6.17.0)"
+    },
+    "ETH_USD": {
+      "address": "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70",
+      "description": "ETH / USD",
+      "decimals": 8,
+      "answer": "249495862782",
+      "updatedAt": 1787854971,
+      "ageSec": 1138,
+      "ok": true
+    },
+    "BTC_USD": {
+      "address": "0x64c911996D3c6aC71f9bDa319F22aD0632Dd249B",
+      "ok": false,
+      "error": "bad address checksum (argument=\"address\", value=\"0x64c911996D3c6aC71f9bDa319F22aD0632Dd249B\", code=INVALID_ARGUMENT, version=6.17.0)"
+    }
+  },
+  "pools": [
+    {
+      "id": "USDC-cbBTC-AERO-CL100",
+      "protocol": "aerodrome-slipstream",
+      "tokenA": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "tokenB": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      "tickSpacing": 100,
+      "riskLevel": "medium",
+      "pair": "USDC/cbBTC",
+      "poolAddress": null,
+      "exists": false
+    },
+    {
+      "id": "USDC-cbBTC-UNI-005",
+      "protocol": "uniswap-v3",
+      "pair": "USDC/cbBTC",
+      "riskLevel": "medium",
+      "exists": true,
+      "poolAddress": "0xfBB6Eed8e7aa03B138556eeDaF5D271A5E1e43ef",
+      "token0": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "token1": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      "symbols": "USDC/cbBTC",
+      "fee": 500,
+      "tickSpacing": 10,
+      "liquidity": "1890854686243",
+      "sqrtPriceX96": "2802040773022133549249399721",
+      "tick": -66844,
+      "tokenBalances": {
+        "USDC": "5694181.061562",
+        "cbBTC": "29.13170155"
+      },
+      "factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD"
+    },
+    {
+      "id": "cbBTC-WETH-AERO-CL10",
+      "protocol": "aerodrome-slipstream",
+      "pair": "cbBTC/WETH",
+      "riskLevel": "high",
+      "exists": true,
+      "poolAddress": "0x42d4a22CaD0F5a49681a5715cE994Af73A43B76b",
+      "token0": "0x4200000000000000000000000000000000000006",
+      "token1": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      "symbols": "WETH/cbBTC",
+      "fee": 250,
+      "tickSpacing": 10,
+      "liquidity": "943761438373100175",
+      "sqrtPriceX96": "139978368529357605530574",
+      "tick": -264941,
+      "tokenBalances": {
+        "WETH": "2358.333041117169354639",
+        "cbBTC": "60.66891529"
+      },
+      "factory": "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef"
+    },
+    {
+      "id": "cbBTC-WETH-AERO-CL100",
+      "protocol": "aerodrome-slipstream",
+      "tokenA": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      "tokenB": "0x4200000000000000000000000000000000000006",
+      "tickSpacing": 100,
+      "riskLevel": "high",
+      "pair": "cbBTC/WETH",
+      "poolAddress": null,
+      "exists": false
+    },
+    {
+      "id": "cbBTC-WETH-UNI-005",
+      "protocol": "uniswap-v3",
+      "pair": "cbBTC/WETH",
+      "riskLevel": "high",
+      "exists": true,
+      "poolAddress": "0x7AeA2E8A3843516afa07293a10Ac8E49906dabD1",
+      "token0": "0x4200000000000000000000000000000000000006",
+      "token1": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      "symbols": "WETH/cbBTC",
+      "fee": 500,
+      "tickSpacing": 10,
+      "liquidity": "87143224591425716",
+      "sqrtPriceX96": "139973755346275485899021",
+      "tick": -264941,
+      "tokenBalances": {
+        "WETH": "2180.782718383579420436",
+        "cbBTC": "33.20548506"
+      },
+      "factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD"
+    }
+  ],
+  "notes": [
+    "RLUSD/USDC and PYUSD/USDC are NOT in the official five-pool catalogue.",
+    "poolAddress values are factory-derived on Base mainnet fork.",
+    "No transactions were sent.",
+    "CRITICAL: USDC-cbBTC-AERO-CL100 and cbBTC-WETH-AERO-CL100 resolve to address(0) at tickSpacing 100. Aero USDC/cbBTC exists at tickSpacing 1/10/50; Aero cbBTC/WETH exists at 1/10/50. Catalogue must be corrected via onboarding before activation.",
+    "ETH/USD Chainlink feed verified live; USDC/USD and BTC/USD candidate addresses need re-verification against current Chainlink Base documentation before launch."
+  ]
+}
