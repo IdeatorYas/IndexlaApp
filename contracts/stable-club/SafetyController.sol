@@ -48,11 +48,6 @@ contract SafetyController is ISafetyController {
         _;
     }
 
-    modifier onlyGuardianOrOwner() {
-        if (msg.sender != owner && msg.sender != guardian) revert Unauthorized();
-        _;
-    }
-
     constructor() {
         owner = msg.sender;
         guardian = msg.sender;
@@ -71,39 +66,49 @@ contract SafetyController is ISafetyController {
         emit GuardianSet(guardian_);
     }
 
-    function setGlobalPause(bool paused) external onlyGuardianOrOwner {
+    /// @dev Emergency pause may be immediate (guardian or owner). Unpause requires owner (timelock).
+    function setGlobalPause(bool paused) external {
+        _requirePauseAuth(paused);
         globalPause = paused;
         emit GlobalPause(paused);
     }
 
-    function setNewDepositPause(bool paused) external onlyGuardianOrOwner {
+    function setNewDepositPause(bool paused) external {
+        _requirePauseAuth(paused);
         newDepositPause = paused;
     }
 
-    function setAutomationGlobalPause(bool paused) external onlyGuardianOrOwner {
+    function setAutomationGlobalPause(bool paused) external {
+        _requirePauseAuth(paused);
         automationGlobalPause = paused;
     }
 
-    function setSwapGlobalPause(bool paused) external onlyGuardianOrOwner {
+    function setSwapGlobalPause(bool paused) external {
+        _requirePauseAuth(paused);
         swapGlobalPause = paused;
     }
 
-    function setPoolPaused(bytes32 poolId, bool paused) external onlyGuardianOrOwner {
+    function setPoolPaused(bytes32 poolId, bool paused) external {
+        _requirePauseAuth(paused);
         poolPaused[poolId] = paused;
         emit PoolPause(poolId, paused);
     }
 
-    function setPoolAutomationPaused(bytes32 poolId, bool paused) external onlyGuardianOrOwner {
+    function setPoolAutomationPaused(bytes32 poolId, bool paused) external {
+        _requirePauseAuth(paused);
         poolAutomationPaused[poolId] = paused;
         emit AutomationPause(poolId, paused);
     }
 
-    function setPoolDepositPaused(bytes32 poolId, bool paused) external onlyGuardianOrOwner {
+    function setPoolDepositPaused(bytes32 poolId, bool paused) external {
+        _requirePauseAuth(paused);
         poolDepositPaused[poolId] = paused;
         emit DepositPause(poolId, paused);
     }
 
-    function setStablecoinDepegged(address token, bool depegged) external onlyGuardianOrOwner {
+    /// @dev Flagging a depeg is emergency; clearing it is a configuration unpause (owner/timelock).
+    function setStablecoinDepegged(address token, bool depegged) external {
+        _requirePauseAuth(depegged);
         stablecoinDepegged[token] = depegged;
         emit DepegFlag(token, depegged);
     }
@@ -116,6 +121,14 @@ contract SafetyController is ISafetyController {
     function setGlobalAutomationRateLimitPerMinute(uint256 limit) external onlyOwner {
         globalAutomationRateLimitPerMinute = limit;
         emit RateLimitSet(limit);
+    }
+
+    function _requirePauseAuth(bool pausing) internal view {
+        if (pausing) {
+            if (msg.sender != owner && msg.sender != guardian) revert Unauthorized();
+        } else if (msg.sender != owner) {
+            revert Unauthorized();
+        }
     }
 
     function isPausedGlobally() external view returns (bool) {

@@ -5,6 +5,10 @@ import {
   floorSwapFeeAmount,
   isLaunchAutomationDisabled,
 } from "@/lib/stable-club/launch-params";
+import {
+  STAGE1_PRIVATE_BETA_POOL_ID,
+  buildStage1LaunchConfiguration,
+} from "@/lib/stable-club/stage1-launch";
 
 describe("private-beta launch params", () => {
   it("keeps Stage 1 automation fully disabled", () => {
@@ -27,6 +31,11 @@ describe("private-beta launch params", () => {
     });
   });
 
+  it("Stage 1 pool id is UNI-005 only", () => {
+    expect(STAGE1_PRIVATE_BETA_POOL_ID).toBe("USDC-cbBTC-UNI-005");
+    expect(buildStage1LaunchConfiguration().poolIds).toEqual(["USDC-cbBTC-UNI-005"]);
+  });
+
   it("encodes 48h timelock and 3-of-5 without signer addresses", () => {
     expect(PRIVATE_BETA_LAUNCH_PARAMS.governance.timelockSeconds).toBe(48 * 3600);
     expect(PRIVATE_BETA_LAUNCH_PARAMS.governance.multisigThreshold).toBe(3);
@@ -36,7 +45,7 @@ describe("private-beta launch params", () => {
 
   it("uses floor fee rounding and charges zero when floor is zero", () => {
     expect(floorSwapFeeAmount(BigInt(0))).toBe(BigInt(0));
-    expect(floorSwapFeeAmount(BigInt(99))).toBe(BigInt(0)); // 99 * 100 / 10000 = 0
+    expect(floorSwapFeeAmount(BigInt(99))).toBe(BigInt(0));
     expect(floorSwapFeeAmount(BigInt(100))).toBe(BigInt(1));
     expect(floorSwapFeeAmount(BigInt(10_000))).toBe(BigInt(100));
   });

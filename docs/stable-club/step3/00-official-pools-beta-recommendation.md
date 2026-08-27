@@ -40,26 +40,14 @@ Gas at inspection: ~1.0 gwei base fee band; recommended configurable ceiling ≈
 
 ## Safest two for private beta (recommendation)
 
-### 1. Primary — `USDC-cbBTC-UNI-005` (Uniswap V3 0.05%)
+### Confirmed Stage 1 (founder) — single pool only
 
-- Only **medium**-risk official ID that **exists**
-- Deep USDC inventory relative to the set
-- Factory-verified address
-- Matches Bible preference for stable→BTC before BTC→ETH
+**`USDC-cbBTC-UNI-005` only.**
 
-### 2. Secondary — hold until governance chooses one of:
+- `cbBTC-WETH-AERO-CL10` deferred to Stage 2 after onboarding, tighter caps, and successful UNI beta monitoring.
+- Unavailable Aero CL100 IDs must never activate or silently remap.
 
-**Option A (preferred for risk):** Do **not** enable a second pool in Stage 1. Run single-pool private beta on `USDC-cbBTC-UNI-005` under the approved caps, then onboard a second USDC/cbBTC venue (e.g. Aero at a **verified** tickSpacing) through the catalogue process.
+### Historical recommendation notes
 
-**Option B (if two pools are mandatory from the current five):** `cbBTC-WETH-AERO-CL10` — exists and has deeper inventory than `cbBTC-WETH-UNI-005`, but is **high** risk (volatile/volatile). Use **tighter** per-pool/user caps than the USDC/cbBTC pool and keep automation off.
-
-**Do not recommend:** non-existent `*-AERO-CL100` IDs; RLUSD/USDC; PYUSD/USDC.
-
-## Decision required from founder
-
-Confirm private-beta set as either:
-
-1. **Single pool:** `USDC-cbBTC-UNI-005` only, or  
-2. **Two pools:** `USDC-cbBTC-UNI-005` + `cbBTC-WETH-AERO-CL10` (with tighter BTC/ETH caps)
-
-No pools are activated by this report.
+1. Primary — `USDC-cbBTC-UNI-005` (Uniswap V3 0.05%) — **selected**
+2. Secondary options were rejected for Stage 1; Stage 2 may reconsider Aero CL10 under governance.

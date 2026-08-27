@@ -24,8 +24,9 @@ export function StableClubPoolCatalogue({
       </p>
       <ul className="mt-3 space-y-2">
         {OFFICIAL_STABLE_CLUB_BASE_POOLS.map((pool) => {
+          const unavailable = pool.availability !== "available";
           const active = activatedPoolIds.includes(pool.id);
-          const canActivate = testPoolValidated;
+          const canActivate = testPoolValidated && !unavailable;
           return (
             <li
               key={pool.id}
@@ -38,17 +39,30 @@ export function StableClubPoolCatalogue({
                     {pool.protocol} · {pool.tokenA.symbol}/{pool.tokenB.symbol} · risk{" "}
                     {pool.riskLevel}
                   </p>
+                  {unavailable ? (
+                    <p className="mt-1 text-[10px] text-app-danger">
+                      Unavailable — factory missing. Not launch-ready. No silent remap.
+                    </p>
+                  ) : null}
                 </div>
                 <span
                   className={
-                    active
-                      ? "rounded border border-app-success/30 bg-app-success/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-success"
-                      : canActivate
-                        ? "rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600"
-                        : "rounded border border-app-line px-2 py-0.5 text-[10px] font-bold uppercase text-app-dim"
+                    unavailable
+                      ? "rounded border border-app-danger/30 bg-app-danger/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-danger"
+                      : active
+                        ? "rounded border border-app-success/30 bg-app-success/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-success"
+                        : canActivate
+                          ? "rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600"
+                          : "rounded border border-app-line px-2 py-0.5 text-[10px] font-bold uppercase text-app-dim"
                   }
                 >
-                  {active ? "Activated" : canActivate ? "Ready" : "Locked"}
+                  {unavailable
+                    ? "Unavailable"
+                    : active
+                      ? "Activated"
+                      : canActivate
+                        ? "Ready"
+                        : "Locked"}
                 </span>
               </div>
             </li>

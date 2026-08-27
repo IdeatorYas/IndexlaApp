@@ -9,7 +9,7 @@ Baseline: `6654dfa` · Branch: `feature/stable-club-step3` · Pre-checkpoint: `c
 | [01-safe-permit2-impact-report.md](./01-safe-permit2-impact-report.md) | Migration impact **before** architecture changes |
 | [02-governance-multisig-timelock.md](./02-governance-multisig-timelock.md) | 3-of-5, guardian, 48h timelock design |
 | [03-security-suite-and-audit-rfq.md](./03-security-suite-and-audit-rfq.md) | Security suite + auditor RFQ (≠ professional audit) |
-| [04-internal-review-checklist.md](./04-internal-review-checklist.md) | Internal review checklist (≠ professional audit) |
+| [05-safe-permit2-recommendation-summary.md](./05-safe-permit2-recommendation-summary.md) | Pre-migration Safe/Permit2 recommendation |
 
 ## Explicit non-actions in this prep
 

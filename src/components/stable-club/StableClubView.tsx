@@ -14,7 +14,11 @@ import {
   STABLE_CLUB_LOCAL_CHAIN,
   STABLE_CLUB_LOCAL_RPC_URL,
 } from "@/lib/stable-club/constants";
-import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
+import {
+  OFFICIAL_STABLE_CLUB_BASE_POOLS,
+  isPoolLaunchReady,
+} from "@/lib/stable-club/official-pools";
+import { STAGE1_PRIVATE_BETA_POOL_ID } from "@/lib/stable-club/stage1-launch";
 import { OpenServMonitor, buildHarvestProposal } from "@/lib/stable-club/openserv";
 import {
   buildPerTokenApproveTx,
@@ -245,7 +249,13 @@ export function StableClubView({
 
   function activateReadyPools() {
     if (!testPoolValidated) return;
-    setActivatedPoolIds(OFFICIAL_STABLE_CLUB_BASE_POOLS.map((p) => p.id));
+    // Dev UI only: Stage 1 allows UNI-005 when launch-ready. Never activate unavailable CL100 IDs.
+    // This does not deploy or enable mainnet pools.
+    setActivatedPoolIds(
+      OFFICIAL_STABLE_CLUB_BASE_POOLS.filter(
+        (p) => p.id === STAGE1_PRIVATE_BETA_POOL_ID && isPoolLaunchReady(p),
+      ).map((p) => p.id),
+    );
   }
 
   function simulateOpenServHarvest() {
@@ -253,7 +263,9 @@ export function StableClubView({
     const proposal = buildHarvestProposal({
       user: wallet.address,
       permissionId: keccak256(stringToHex("demo-permission")),
-      poolId: OFFICIAL_STABLE_CLUB_BASE_POOLS[0].poolIdHash,
+      poolId:
+        OFFICIAL_STABLE_CLUB_BASE_POOLS.find((p) => p.id === STAGE1_PRIVATE_BETA_POOL_ID)
+          ?.poolIdHash ?? OFFICIAL_STABLE_CLUB_BASE_POOLS[1].poolIdHash,
       positionTokenId: "0",
       feesUsd: 25,
       gasUsd: 4,
