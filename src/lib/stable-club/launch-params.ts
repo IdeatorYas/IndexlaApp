@@ -30,8 +30,11 @@ export type StableClubLaunchParams = {
     preferProtocolTwap: true;
     failClosedOnStaleOracle: true;
     userPaysGas: true;
-    /** Wei; null until measured for the launch window. */
-    gasCeilingWei: string | null;
+    /**
+     * Wei. Founder-approved for capped MVP.
+     * On-chain: SafetyController.maxGasPriceWei — adjustable only via 48h Timelock.
+     */
+    gasCeilingWei: string;
   };
   automation: {
     harvestEnabled: boolean;
@@ -74,7 +77,7 @@ export const PRIVATE_BETA_LAUNCH_PARAMS: StableClubLaunchParams = {
     preferProtocolTwap: true,
     failClosedOnStaleOracle: true,
     userPaysGas: true,
-    gasCeilingWei: null,
+    gasCeilingWei: "1000000000",
   },
   automation: {
     harvestEnabled: false,

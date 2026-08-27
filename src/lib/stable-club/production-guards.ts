@@ -20,6 +20,10 @@ import {
   stage1OracleFeedsConfigured,
 } from "@/lib/stable-club/verified-base-addresses";
 import { PRIVATE_BETA_LAUNCH_PARAMS, type StableClubLaunchParams } from "@/lib/stable-club/launch-params";
+import {
+  APPROVED_GAS_CEILING_WEI,
+  assertGasCeilingMatchesApproval,
+} from "@/lib/stable-club/gas-ceiling-recommendation";
 
 export type DeploymentEnvironment = "local" | "testnet" | "mainnet";
 
@@ -112,12 +116,26 @@ export function assertProductionOracleDocsConfirmed(environment: DeploymentEnvir
   assertProductionOracleFeedsReady(environment);
 }
 
+/**
+ * Founder-approved gas ceiling must be encoded and only adjustable via 48h Timelock on-chain.
+ */
+export function assertGasCeilingFounderApproved(
+  params: StableClubLaunchParams = PRIVATE_BETA_LAUNCH_PARAMS,
+): void {
+  assertGasCeilingMatchesApproval(params.safety.gasCeilingWei);
+  if (params.governance.timelockSeconds !== STABLE_CLUB_TIMELOCK_SECONDS) {
+    throw new Error("gasCeilingWei adjustments require 48h Timelock governance");
+  }
+  if (!params.governance.unpauseRequiresTimelock) {
+    throw new Error("Timelock-gated config (including gas ceiling) required");
+  }
+}
+
+/** @deprecated Use assertGasCeilingFounderApproved — ceiling is now founder-encoded. */
 export function assertGasCeilingNotHardcoded(
   params: StableClubLaunchParams = PRIVATE_BETA_LAUNCH_PARAMS,
 ): void {
-  if (params.safety.gasCeilingWei != null) {
-    throw new Error("gasCeilingWei must remain null until founder approves evidence-based value");
-  }
+  assertGasCeilingFounderApproved(params);
 }
 
 export function assertMainnetHardeningComplete(params: {
@@ -131,7 +149,7 @@ export function assertMainnetHardeningComplete(params: {
   assertProductionGovernanceReady(params);
   assertProductionPermit2Ready(params);
   assertProductionOracleFeedsReady(params.environment);
-  assertGasCeilingNotHardcoded();
+  assertGasCeilingFounderApproved();
 }
 
 export function evaluateMainnetReadiness(check: ProductionOwnershipCheck): {
@@ -159,8 +177,10 @@ export function evaluateMainnetReadiness(check: ProductionOwnershipCheck): {
       ? stage1OracleFeedsConfigured()
       : check.oracleFeedsConfigured;
   if (!oraclesOk) blockers.push("oracle feeds missing/unverified");
-  if (PRIVATE_BETA_LAUNCH_PARAMS.safety.gasCeilingWei != null) {
-    blockers.push("gas ceiling unexpectedly hardcoded");
+  try {
+    assertGasCeilingFounderApproved();
+  } catch {
+    blockers.push(`gasCeilingWei must be founder-approved ${APPROVED_GAS_CEILING_WEI}`);
   }
   return { ready: blockers.length === 0, blockers };
 }
@@ -176,10 +196,9 @@ export function codeFreezeBlockers(): string[] {
   });
   const blockers = [...readiness.blockers];
   blockers.push("timelock not deployed / owners not wired yet");
-  blockers.push(
-    "gasCeilingWei TBD (recommended 1 gwei from Base evidence; Timelock-configurable; founder approval required)",
-  );
   blockers.push("no mainnet deploy authorized yet");
+  blockers.push("Bugbot review not clean yet");
   blockers.push("professional audit not started");
+  blockers.push("audit-freeze tag deferred until Bugbot clean");
   return [...new Set(blockers)];
 }

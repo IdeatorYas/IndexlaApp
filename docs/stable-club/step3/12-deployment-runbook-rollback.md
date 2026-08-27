@@ -5,7 +5,7 @@
 ## Preconditions (all required)
 
 - [ ] Audit freeze SHA tagged and auditor engagement authorized (or explicit founder waiver)  
-- [ ] Founder-approved `gasCeilingWei` encoded or Timelock-set at deploy  
+- [x] Founder-approved `gasCeilingWei` encoded (`1000000000`) — on-chain set via Timelock owner after deploy  
 - [ ] MVP Safe 2-of-3 verified on Base  
 - [ ] Fee recipient verified  
 - [ ] Fork rehearsal green (`StableClubStep3ForkRehearsal`)  

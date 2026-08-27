@@ -9,7 +9,7 @@ import {
   isForbiddenUnlimitedApproval,
 } from "@/lib/stable-club/permit2";
 import {
-  assertGasCeilingNotHardcoded,
+  assertGasCeilingFounderApproved,
   assertProductionGovernanceReady,
   assertProductionOracleDocsConfirmed,
   assertProductionPermit2Ready,
@@ -98,8 +98,8 @@ describe("production governance guards", () => {
     expect(() => assertProductionOracleDocsConfirmed("mainnet")).not.toThrow();
   });
 
-  it("keeps gas ceiling unhardcoded", () => {
-    expect(() => assertGasCeilingNotHardcoded()).not.toThrow();
+  it("encodes founder-approved gas ceiling (Timelock-adjustable only)", () => {
+    expect(() => assertGasCeilingFounderApproved()).not.toThrow();
   });
 
   it("reports mainnet readiness blockers", () => {

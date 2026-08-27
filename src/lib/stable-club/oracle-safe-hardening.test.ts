@@ -92,6 +92,7 @@ describe("code-freeze readiness", () => {
     });
     expect(r.ready).toBe(false);
     expect(r.blockers.length).toBeGreaterThan(0);
-    expect(codeFreezeBlockers().some((b) => /gasCeilingWei TBD/.test(b))).toBe(true);
+    expect(codeFreezeBlockers().some((b) => /Bugbot review not clean/.test(b))).toBe(true);
+    expect(codeFreezeBlockers().some((b) => /audit-freeze tag deferred/.test(b))).toBe(true);
   });
 });

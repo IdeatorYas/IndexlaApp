@@ -46,7 +46,7 @@ Model: **Safe → 48h Timelock → all protocol owners**. Fee wallet is receive-
 - Pool: **USDC-cbBTC-UNI-005 only**  
 - Automation: **off** at launch  
 - Aero CL100: unavailable (no silent remap)  
-- `gasCeilingWei`: recommended **1 gwei**; **not** encoded in launch params until founder approval  
+- `gasCeilingWei`: founder-approved **`1000000000` (1 gwei)** encoded; Timelock-adjustable only  
 
 ## Deliverables expected from auditor
 

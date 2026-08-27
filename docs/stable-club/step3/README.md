@@ -25,6 +25,7 @@ Baseline: `6654dfa` · Governance scaffolding: `feature/stable-club-step3` @ `ab
 
 ## Explicit non-actions
 
-- No deploy, no real funds, no signer hardcoding, no pool activation, no paid Bugbot, no audit kickoff
+- Gas ceiling founder-approved and encoded (`1000000000`); Timelock-adjustable only
+- No deploy, no real funds, no signer hardcoding, no pool activation, no professional audit kickoff
+- No audit-freeze tag until Bugbot is clean
 - No Ethereum / cross-chain implementation
-- Gas ceiling remains unset in launch params until founder approval of measured value (recommendation: 1 gwei)

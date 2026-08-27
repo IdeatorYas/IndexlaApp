@@ -22,9 +22,9 @@
 
 ## Production / freeze gates
 
-Mainnet blocked until: 3-of-5 signers + governance Safe + Timelock ownership + canonical Permit2 + verified Stage 1 feeds.  
-`gasCeilingWei` remains null (TBD).
+Mainnet blocked until: MVP 2-of-3 Safe + Timelock ownership + canonical Permit2 + verified Stage 1 feeds + clean Bugbot.  
+`gasCeilingWei` founder-approved and encoded: **`1000000000`** (adjustable only via 48h Timelock).
 
 ## Non-actions
 
-No deploy · no pool activation · no real funds · no Bugbot · no audit kickoff.
+No deploy · no pool activation · no real funds · no professional audit kickoff · no audit-freeze tag until Bugbot clean.
