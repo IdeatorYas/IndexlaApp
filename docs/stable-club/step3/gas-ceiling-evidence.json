@@ -1,0 +1,25 @@
+{
+  "measuredAt": "2026-08-27T22:09:22.143Z",
+  "chainId": 8453,
+  "tipBlock": 50539603,
+  "baseFeeWei": {
+    "samples": 12,
+    "min": "5000000",
+    "max": "5000000",
+    "p50": "5000000",
+    "p95": "5000000"
+  },
+  "l1BaseFeeWei": "71334913",
+  "l1DataFeeWeiByCalldata": {
+    "100b": "703386724",
+    "500b": "703386724",
+    "1200b": "703386724"
+  },
+  "recommendation": {
+    "gasCeilingWei": "1000000000",
+    "gasCeilingGwei": "1",
+    "rationale": "L2 baseFee observed ~5e6 wei; 1 gwei (~200×) ceiling for SafetyController.maxGasPriceWei with Timelock configurability. L1 data fee monitored separately (not enforced by maxGasPriceWei).",
+    "encodeInLaunchParams": false,
+    "mapsTo": "SafetyController.setMaxGasPriceWei (Timelock-owned)"
+  }
+}

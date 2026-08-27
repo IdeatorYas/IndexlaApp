@@ -176,7 +176,9 @@ export function codeFreezeBlockers(): string[] {
   });
   const blockers = [...readiness.blockers];
   blockers.push("timelock not deployed / owners not wired yet");
-  blockers.push("gasCeilingWei TBD (measure on fork; Timelock-configurable)");
+  blockers.push(
+    "gasCeilingWei TBD (recommended 1 gwei from Base evidence; Timelock-configurable; founder approval required)",
+  );
   blockers.push("no mainnet deploy authorized yet");
   blockers.push("professional audit not started");
   return [...new Set(blockers)];

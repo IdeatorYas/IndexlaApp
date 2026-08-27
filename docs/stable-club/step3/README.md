@@ -16,10 +16,15 @@ Baseline: `6654dfa` · Governance scaffolding: `feature/stable-club-step3` @ `ab
 | [07-verified-base-addresses.md](./07-verified-base-addresses.md) | Permit2 / Safe / oracle verification |
 | [verified-base-addresses.json](./verified-base-addresses.json) | Machine-readable verification artifact |
 | [08-gas-ceiling-recommendation.md](./08-gas-ceiling-recommendation.md) | Evidence-based gas ceiling (not hardcoded) |
+| [gas-ceiling-evidence.json](./gas-ceiling-evidence.json) | Base fee + L1 data fee measurement artifact |
 | [09-pre-audit-hardening.md](./09-pre-audit-hardening.md) | Oracle peg + Safe/Permit2 UX + freeze gates |
+| [10-fork-deployment-rehearsal.md](./10-fork-deployment-rehearsal.md) | Base-fork Timelock/Safe ownership rehearsal |
+| [11-professional-audit-package.md](./11-professional-audit-package.md) | Audit package + candidate freeze SHA policy |
+| [12-deployment-runbook-rollback.md](./12-deployment-runbook-rollback.md) | Deploy runbook + rollback (not for execution yet) |
+| [13-post-mvp-disaster-recovery.md](./13-post-mvp-disaster-recovery.md) | Post-MVP DR checklist |
 
 ## Explicit non-actions
 
 - No deploy, no real funds, no signer hardcoding, no pool activation, no paid Bugbot, no audit kickoff
 - No Ethereum / cross-chain implementation
-- Gas ceiling remains unset until founder approval of measured value
+- Gas ceiling remains unset in launch params until founder approval of measured value (recommendation: 1 gwei)
