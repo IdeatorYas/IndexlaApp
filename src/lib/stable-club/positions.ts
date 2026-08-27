@@ -1,6 +1,8 @@
 /**
  * Stable Club position dashboard model — on-chain ownership is authoritative.
  */
+import type { NpmApprovalStatus } from "@/lib/stable-club/nft-approval";
+
 export type StableClubPositionStatus =
   | "in-range"
   | "out-of-range"
@@ -15,6 +17,11 @@ export type StableClubPosition = {
   chainId: number;
   owner: `0x${string}`;
   positionTokenId: string;
+  /** NPM (position manager) that must receive per-token approve(adapter, tokenId). */
+  npmAddress: `0x${string}` | null;
+  /** Adapter that must be the approved spender for harvest/compound/rebalance. */
+  adapterAddress: `0x${string}` | null;
+  npmApprovalStatus: NpmApprovalStatus;
   tokenASymbol: string;
   tokenBSymbol: string;
   liquidity: string;
@@ -64,6 +71,9 @@ export function buildIllustrativePositions(owner: `0x${string}`): StableClubPosi
       chainId: 8453,
       owner,
       positionTokenId: "1001",
+      npmAddress: "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53",
+      adapterAddress: null,
+      npmApprovalStatus: "required",
       tokenASymbol: "USDC",
       tokenBSymbol: "cbBTC",
       liquidity: "1250000000",

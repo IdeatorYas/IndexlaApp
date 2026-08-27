@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { StableClubExecutionPanel } from "@/components/stable-club/StableClubExecutionPanel";
 import {
   StableClubPoolCatalogue,
@@ -14,11 +14,24 @@ import {
   STABLE_CLUB_EXECUTION_FEE_BPS,
   STABLE_CLUB_LOCAL_RPC_URL,
 } from "@/lib/stable-club/constants";
-import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
+import { BASE_DEX, OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
 import { OpenServMonitor, buildHarvestProposal } from "@/lib/stable-club/openserv";
-import { buildIllustrativePositions } from "@/lib/stable-club/positions";
+import {
+  buildPerTokenApproveTx,
+  resolvePerTokenApprovalStatus,
+} from "@/lib/stable-club/nft-approval";
+import {
+  buildIllustrativePositions,
+  type StableClubPosition,
+} from "@/lib/stable-club/positions";
 import { STABLE_CLUB_INTERNAL_TEST_POOL } from "@/lib/stable-club/test-pool";
-import { keccak256, stringToHex } from "viem";
+import {
+  createWalletClient,
+  custom,
+  keccak256,
+  stringToHex,
+  type Hex,
+} from "viem";
 
 export function StableClubView({
   feeRecipientConfigured,
@@ -34,17 +47,74 @@ export function StableClubView({
     wallet.chainId ===
     (preferLocalHardhat ? STABLE_CLUB_CHAIN_ID : STABLE_CLUB_CHAIN_ID);
 
-  /** Step 1 test-pool validation gate for official activation. */
   const [testPoolValidated, setTestPoolValidated] = useState(false);
   const [activatedPoolIds, setActivatedPoolIds] = useState<string[]>([]);
   const monitor = useMemo(() => new OpenServMonitor(60, 10), []);
   const [proposalCount, setProposalCount] = useState(0);
   const [circuitBroken, setCircuitBroken] = useState(false);
+  /** Demo adapter placeholder so Approve NFT UI can show the per-token flow locally. */
+  const demoAdapter = "0xA11CE00000000000000000000000000000000001" as const;
+  const [approvalByPositionId, setApprovalByPositionId] = useState<
+    Record<string, "required" | "approved">
+  >({});
+  const [approvingPositionId, setApprovingPositionId] = useState<string | null>(null);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [lastApprovalTx, setLastApprovalTx] = useState<Hex | null>(null);
 
-  const positions = useMemo(() => {
+  const positions = useMemo((): StableClubPosition[] => {
     if (!wallet.address) return [];
-    return buildIllustrativePositions(wallet.address);
-  }, [wallet.address]);
+    return buildIllustrativePositions(wallet.address).map((pos) => {
+      const adapterAddress = demoAdapter;
+      const status =
+        approvalByPositionId[pos.id] ??
+        resolvePerTokenApprovalStatus({
+          adapter: adapterAddress,
+          approvedSpender: null,
+        });
+      return {
+        ...pos,
+        npmAddress: BASE_DEX.aerodromeSlipstream.npm,
+        adapterAddress,
+        npmApprovalStatus: status,
+      };
+    });
+  }, [wallet.address, approvalByPositionId, demoAdapter]);
+
+  const approvePositionNft = useCallback(
+    async (position: StableClubPosition) => {
+      setApprovalError(null);
+      if (!position.npmAddress || !position.adapterAddress) {
+        setApprovalError("Missing NPM or adapter address for per-token approve.");
+        return;
+      }
+      if (!wallet.provider || !wallet.address) {
+        // Local / demo path: record intent without wallet when provider missing.
+        setApprovalByPositionId((prev) => ({ ...prev, [position.id]: "approved" }));
+        return;
+      }
+      setApprovingPositionId(position.id);
+      try {
+        const client = createWalletClient({
+          account: wallet.address,
+          chain: STABLE_CLUB_CHAIN,
+          transport: custom(wallet.provider),
+        });
+        const tx = buildPerTokenApproveTx({
+          npm: position.npmAddress,
+          adapter: position.adapterAddress,
+          tokenId: BigInt(position.positionTokenId),
+        });
+        const hash = await client.writeContract(tx);
+        setLastApprovalTx(hash);
+        setApprovalByPositionId((prev) => ({ ...prev, [position.id]: "approved" }));
+      } catch (err) {
+        setApprovalError(err instanceof Error ? err.message : "NFT approve failed");
+      } finally {
+        setApprovingPositionId(null);
+      }
+    },
+    [wallet.address, wallet.provider],
+  );
 
   function activateReadyPools() {
     if (!testPoolValidated) return;
@@ -196,7 +266,15 @@ export function StableClubView({
         positions={positions}
         pendingProposals={proposalCount}
         circuitBroken={circuitBroken}
+        onApprovePosition={(pos) => void approvePositionNft(pos)}
+        approvingPositionId={approvingPositionId}
       />
+      {approvalError ? (
+        <p className="text-[11px] text-app-danger">{approvalError}</p>
+      ) : null}
+      {lastApprovalTx ? (
+        <p className="font-mono text-[10px] text-app-dim">NFT approve tx: {lastApprovalTx}</p>
+      ) : null}
 
       <StableClubExecutionPanel />
 

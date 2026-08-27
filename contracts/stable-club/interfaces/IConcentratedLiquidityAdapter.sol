@@ -74,6 +74,7 @@ interface IConcentratedLiquidityAdapter {
     /// @notice Underlying pool tokens for an existing position NFT (order: token0, token1).
     function positionTokens(uint256 tokenId) external view returns (address token0, address token1);
 
-    /// @notice Provisional token amounts in token0/token1 order (for cap accounting).
+    /// @notice Live token amounts in token0/token1 order from NPM liquidity + pool.slot0 (+ tokensOwed).
+    /// @dev Must not use caller-supplied or stale locally tracked amounts. Reverts if value cannot be determined.
     function positionAmounts(uint256 tokenId) external view returns (uint256 amount0, uint256 amount1);
 }

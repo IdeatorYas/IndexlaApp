@@ -1,6 +1,10 @@
 "use client";
 
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
+import {
+  automationRequiresNftApproval,
+  type NpmApprovalStatus,
+} from "@/lib/stable-club/nft-approval";
 import type { StableClubPosition } from "@/lib/stable-club/positions";
 
 export function StableClubPoolCatalogue({
@@ -55,14 +59,40 @@ export function StableClubPoolCatalogue({
   );
 }
 
+function approvalBadge(status: NpmApprovalStatus) {
+  if (status === "approved") {
+    return (
+      <span className="rounded border border-app-success/30 bg-app-success/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-success">
+        NFT approved
+      </span>
+    );
+  }
+  if (status === "unavailable") {
+    return (
+      <span className="rounded border border-app-line px-2 py-0.5 text-[10px] font-bold uppercase text-app-dim">
+        Approval N/A
+      </span>
+    );
+  }
+  return (
+    <span className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600">
+      Approval required
+    </span>
+  );
+}
+
 export function StableClubPositionDashboard({
   positions,
   pendingProposals,
   circuitBroken,
+  onApprovePosition,
+  approvingPositionId,
 }: {
   positions: StableClubPosition[];
   pendingProposals: number;
   circuitBroken: boolean;
+  onApprovePosition?: (position: StableClubPosition) => void;
+  approvingPositionId?: string | null;
 }) {
   return (
     <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
@@ -84,62 +114,92 @@ export function StableClubPositionDashboard({
         </div>
       </div>
       <p className="mt-1 text-xs text-app-muted">
-        On-chain ownership is authoritative. Unverified indexer rows show Data Pending Verification.
+        On-chain ownership is authoritative. Harvest / compound / rebalance require a
+        per-position ERC721 approve(adapter, tokenId) — never setApprovalForAll.
       </p>
 
       {positions.length === 0 ? (
         <p className="mt-4 text-xs text-app-dim">No positions yet.</p>
       ) : (
         <ul className="mt-3 space-y-2">
-          {positions.map((pos) => (
-            <li
-              key={pos.id}
-              className="rounded-md border border-app-line bg-app-panel-soft px-3 py-2"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-bold text-app-ink">{pos.poolLabel}</p>
-                  <p className="mt-0.5 font-mono text-[10px] text-app-dim">
-                    NFT #{pos.positionTokenId} · {pos.tokenASymbol}/{pos.tokenBSymbol}
-                  </p>
+          {positions.map((pos) => {
+            const needsApproval = automationRequiresNftApproval(pos.npmApprovalStatus);
+            const canApprove =
+              Boolean(onApprovePosition) &&
+              Boolean(pos.npmAddress) &&
+              Boolean(pos.adapterAddress) &&
+              needsApproval;
+            return (
+              <li
+                key={pos.id}
+                className="rounded-md border border-app-line bg-app-panel-soft px-3 py-2"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-app-ink">{pos.poolLabel}</p>
+                    <p className="mt-0.5 font-mono text-[10px] text-app-dim">
+                      NFT #{pos.positionTokenId} · {pos.tokenASymbol}/{pos.tokenBSymbol}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {approvalBadge(pos.npmApprovalStatus)}
+                    <span className="rounded border border-app-line px-2 py-0.5 text-[10px] font-semibold uppercase text-app-dim">
+                      {pos.rangeStatus}
+                    </span>
+                  </div>
                 </div>
-                <span className="rounded border border-app-line px-2 py-0.5 text-[10px] font-semibold uppercase text-app-dim">
-                  {pos.rangeStatus}
-                </span>
-              </div>
-              <dl className="mt-2 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
-                <div>
-                  <dt className="text-app-dim">Fees</dt>
-                  <dd className="font-semibold text-app-ink">${pos.feesEarnedUsd}</dd>
-                </div>
-                <div>
-                  <dt className="text-app-dim">Rewards</dt>
-                  <dd className="font-semibold text-app-ink">${pos.rewardsEarnedUsd}</dd>
-                </div>
-                <div>
-                  <dt className="text-app-dim">Automation</dt>
-                  <dd className="font-semibold text-app-ink">
-                    {[
-                      pos.automation.harvest ? "H" : null,
-                      pos.automation.compound ? "C" : null,
-                      pos.automation.rebalance ? "R" : null,
-                    ]
-                      .filter(Boolean)
-                      .join("") || "—"}
-                    {pos.automation.paused ? " · paused" : ""}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-app-dim">Data</dt>
-                  <dd className="font-semibold text-app-ink">
-                    {pos.dataVerifiedOnChain
-                      ? "On-chain verified"
-                      : "Data Pending Verification"}
-                  </dd>
-                </div>
-              </dl>
-            </li>
-          ))}
+                <dl className="mt-2 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
+                  <div>
+                    <dt className="text-app-dim">Fees</dt>
+                    <dd className="font-semibold text-app-ink">${pos.feesEarnedUsd}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-app-dim">Rewards</dt>
+                    <dd className="font-semibold text-app-ink">${pos.rewardsEarnedUsd}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-app-dim">Automation</dt>
+                    <dd className="font-semibold text-app-ink">
+                      {[
+                        pos.automation.harvest ? "H" : null,
+                        pos.automation.compound ? "C" : null,
+                        pos.automation.rebalance ? "R" : null,
+                      ]
+                        .filter(Boolean)
+                        .join("") || "—"}
+                      {pos.automation.paused ? " · paused" : ""}
+                      {needsApproval ? " · blocked" : ""}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-app-dim">Data</dt>
+                    <dd className="font-semibold text-app-ink">
+                      {pos.dataVerifiedOnChain
+                        ? "On-chain verified"
+                        : "Data Pending Verification"}
+                    </dd>
+                  </div>
+                </dl>
+                {needsApproval ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={!canApprove || approvingPositionId === pos.id}
+                      onClick={() => onApprovePosition?.(pos)}
+                      className="app-btn-primary h-8 px-3 text-[11px] font-bold disabled:opacity-50"
+                    >
+                      {approvingPositionId === pos.id
+                        ? "Confirming approve…"
+                        : "Approve NFT for adapter"}
+                    </button>
+                    <p className="text-[10px] text-app-dim">
+                      Per-token only · spender = adapter · tokenId #{pos.positionTokenId}
+                    </p>
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

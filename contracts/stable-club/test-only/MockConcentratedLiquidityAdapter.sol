@@ -71,6 +71,12 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
         return (amount0Of[tokenId], amount1Of[tokenId]);
     }
 
+    /// @dev Test-only: force amounts for fail-closed valuation regressions.
+    function setAmountsForTest(uint256 tokenId, uint256 amount0, uint256 amount1) external {
+        amount0Of[tokenId] = amount0;
+        amount1Of[tokenId] = amount1;
+    }
+
     function mintPosition(
         address lpOwner,
         address tokenA,

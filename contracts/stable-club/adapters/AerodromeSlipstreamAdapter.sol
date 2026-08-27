@@ -6,6 +6,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 import {IConcentratedLiquidityAdapter} from "../interfaces/IConcentratedLiquidityAdapter.sol";
+import {ClNpmPositionValue} from "../libraries/ClNpmPositionValue.sol";
 
 /// @dev Aerodrome Slipstream NPM is Uniswap-V3-like with tickSpacing instead of fee in mint.
 interface IAerodromeSlipstreamNPM {
@@ -114,17 +115,16 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
     address public immutable executor;
     address public immutable npm;
     address public immutable swapRouter;
+    address public immutable pool;
     int24 public immutable tickSpacing;
     address public gauge; // optional AERO reward gauge; may be address(0)
-
-    mapping(uint256 => uint256) private _tracked0;
-    mapping(uint256 => uint256) private _tracked1;
 
     error OnlyExecutor();
     error NotOwner();
     error TokenOrder();
     error TokenMismatch();
     error AdapterNotApprovedForPosition();
+    error InvalidPool();
 
     modifier onlyExecutor() {
         if (msg.sender != executor) revert OnlyExecutor();
@@ -136,13 +136,16 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         bytes32 poolId_,
         address npm_,
         address swapRouter_,
+        address pool_,
         int24 tickSpacing_,
         address gauge_
     ) {
+        if (pool_ == address(0)) revert InvalidPool();
         executor = executor_;
         poolId = poolId_;
         npm = npm_;
         swapRouter = swapRouter_;
+        pool = pool_;
         tickSpacing = tickSpacing_;
         gauge = gauge_;
     }
@@ -164,7 +167,23 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
     }
 
     function positionAmounts(uint256 tokenId) external view returns (uint256 amount0, uint256 amount1) {
-        return (_tracked0[tokenId], _tracked1[tokenId]);
+        (
+            ,
+            ,
+            address token0,
+            address token1,
+            ,
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 liquidity,
+            ,
+            ,
+            uint128 tokensOwed0,
+            uint128 tokensOwed1
+        ) = IAerodromeSlipstreamNPM(npm).positions(tokenId);
+        return ClNpmPositionValue.amountsFromLiquidity(
+            pool, token0, token1, tickLower, tickUpper, liquidity, tokensOwed0, tokensOwed1
+        );
     }
 
     function mintPosition(
@@ -186,9 +205,7 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         if (amount0 > 0) IERC20(token0).forceApprove(npm, amount0);
         if (amount1 > 0) IERC20(token1).forceApprove(npm, amount1);
 
-        uint256 used0;
-        uint256 used1;
-        (tokenId, liquidity, used0, used1) = IAerodromeSlipstreamNPM(npm).mint(
+        (tokenId, liquidity, , ) = IAerodromeSlipstreamNPM(npm).mint(
             IAerodromeSlipstreamNPM.MintParams({
                 token0: token0,
                 token1: token1,
@@ -204,8 +221,6 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
                 sqrtPriceX96: 0
             })
         );
-        _tracked0[tokenId] = used0;
-        _tracked1[tokenId] = used1;
         _refundDust(token0, lpOwner);
         _refundDust(token1, lpOwner);
         _clearApproval(token0, npm);
@@ -232,9 +247,7 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         if (amount0 > 0) IERC20(token0).forceApprove(npm, amount0);
         if (amount1 > 0) IERC20(token1).forceApprove(npm, amount1);
 
-        uint256 used0;
-        uint256 used1;
-        (liquidity, used0, used1) = IAerodromeSlipstreamNPM(npm).increaseLiquidity(
+        (liquidity, , ) = IAerodromeSlipstreamNPM(npm).increaseLiquidity(
             IAerodromeSlipstreamNPM.IncreaseLiquidityParams({
                 tokenId: tokenId,
                 amount0Desired: amount0,
@@ -244,8 +257,6 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
                 deadline: block.timestamp
             })
         );
-        _tracked0[tokenId] += used0;
-        _tracked1[tokenId] += used1;
         _refundDust(token0, lpOwner);
         _refundDust(token1, lpOwner);
         _clearApproval(token0, npm);
@@ -276,7 +287,6 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
             })
         );
         _collectTo(lpOwner, tokenId);
-        _reduceTracked(tokenId, amount0, amount1);
         (amountA, amountB) = _mapFrom01(tokenA, tokenB, token0, token1, amount0, amount1);
     }
 
@@ -326,8 +336,6 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         }
         _collectTo(lpOwner, tokenId);
         IAerodromeSlipstreamNPM(npm).burn(tokenId);
-        delete _tracked0[tokenId];
-        delete _tracked1[tokenId];
         (amountA, amountB) = _mapFrom01(tokenA, tokenB, token0, token1, amount0, amount1);
     }
 
@@ -373,13 +381,6 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
                 amount1Max: type(uint128).max
             })
         );
-    }
-
-    function _reduceTracked(uint256 tokenId, uint256 amount0, uint256 amount1) internal {
-        if (_tracked0[tokenId] >= amount0) _tracked0[tokenId] -= amount0;
-        else _tracked0[tokenId] = 0;
-        if (_tracked1[tokenId] >= amount1) _tracked1[tokenId] -= amount1;
-        else _tracked1[tokenId] = 0;
     }
 
     function _refundDust(address token, address to) internal {

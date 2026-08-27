@@ -21,6 +21,7 @@ module.exports = {
   networks: {
     hardhat: {
       chainId: 8453,
+      hardfork: "cancun",
     },
     localhost: {
       url: "http://127.0.0.1:8545",

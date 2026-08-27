@@ -62,6 +62,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     error SlippageMinRequired();
     error InvalidSwapAmount();
     error PositionApprovalRequired();
+    error PositionValueUnavailable();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -300,8 +301,8 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         safetyController.assertTokenNotDepegged(tokenB);
         if (!oracleGuard.validatePrices(tokenA, tokenB, 0)) revert OracleRejected();
 
-        // Finding 5: caps apply to oracle-normalized full position value, not only swapAmount.
-        uint256 positionValue = _provisionalPositionValue(adapter, positionTokenId, tokenA, tokenB);
+        // Finding 5: caps apply to oracle-normalized full position value from live NPM amounts.
+        uint256 positionValue = _livePositionValue(adapter, positionTokenId, tokenA, tokenB);
         permissionRegistry.validateExecution(
             permissionId, PermissionRegistry.Action.Rebalance, positionValue, slippageBps, executionNonce
         );
@@ -409,7 +410,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         }
     }
 
-    function _provisionalPositionValue(
+    function _livePositionValue(
         address adapter,
         uint256 tokenId,
         address tokenA,
@@ -428,12 +429,16 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         } else {
             revert TokenNotBound();
         }
+        // Fail closed: cannot rebalance a position whose live value cannot be determined.
+        if (amountA == 0 && amountB == 0) revert PositionValueUnavailable();
+
         uint256 value = amountA;
         if (amountB > 0) {
             uint8 dA = IERC20Metadata(tokenA).decimals();
             uint8 dB = IERC20Metadata(tokenB).decimals();
             value += oracleGuard.expectedAmountOut(tokenB, tokenA, amountB, dB, dA);
         }
+        if (value == 0) revert PositionValueUnavailable();
         return value;
     }
 

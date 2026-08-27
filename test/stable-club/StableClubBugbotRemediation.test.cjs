@@ -457,6 +457,71 @@ describe("Bugbot remediation — finding 5 rebalance caps on full position value
       ),
     ).to.be.revertedWithCustomError(ctx.permissionRegistry, "AmountExceedsTxLimit");
   });
+
+  it("fails closed when live position amounts are undetermined (zero)", async function () {
+    const ctx = await deployStep2Stack();
+    const { permissionId } = await registerAutomationPerm(ctx);
+    const tokenId = await mintAndApprovePosition(
+      ctx,
+      ethers.parseUnits("100", 6),
+      ethers.parseUnits("0.01", 8),
+    );
+    await ctx.clAdapter.setAmountsForTest(tokenId, 0n, 0n);
+    await expect(
+      ctx.automation.connect(ctx.user).rebalance(
+        permissionId,
+        1n,
+        await ctx.clAdapter.getAddress(),
+        tokenId,
+        await ctx.usdc.getAddress(),
+        await ctx.cbbtc.getAddress(),
+        -90000,
+        -80000,
+        0n,
+        0n,
+        1n,
+        1n,
+        1n,
+        1n,
+        100n,
+        BigInt((await time.latest()) + 600),
+        0n,
+      ),
+    ).to.be.revertedWithCustomError(ctx.automation, "PositionValueUnavailable");
+  });
+
+  it("fails closed on stale oracle prices during rebalance valuation", async function () {
+    const ctx = await deployStep2Stack();
+    const { permissionId } = await registerAutomationPerm(ctx);
+    const tokenId = await mintAndApprovePosition(
+      ctx,
+      ethers.parseUnits("100", 6),
+      ethers.parseUnits("0.01", 8),
+    );
+    const now = await time.latest();
+    await ctx.btcFeed.setUpdatedAt(now - 10_000);
+    await expect(
+      ctx.automation.connect(ctx.user).rebalance(
+        permissionId,
+        1n,
+        await ctx.clAdapter.getAddress(),
+        tokenId,
+        await ctx.usdc.getAddress(),
+        await ctx.cbbtc.getAddress(),
+        -90000,
+        -80000,
+        0n,
+        0n,
+        1n,
+        1n,
+        1n,
+        1n,
+        100n,
+        BigInt((await time.latest()) + 600),
+        0n,
+      ),
+    ).to.be.revertedWithCustomError(ctx.oracleGuard, "StaleFeed");
+  });
 });
 
 describe("Bugbot remediation — finding 6 rebalance token allowlist", function () {
