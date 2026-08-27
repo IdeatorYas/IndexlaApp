@@ -7,11 +7,11 @@
 
 | Field | Value |
 |---|---|
-| **Candidate freeze branch** | `feature/stable-club-step3` (after Safe/Permit2 integration merge) |
-| **Freeze policy** | Tag `audit-freeze/stable-club-step3-<shortsha>` only after PR merge + green tests + founder ack |
-| **Status** | **PENDING MERGE** — freeze SHA = merge commit of Safe/Permit2 → `feature/stable-club-step3` |
-
-Until merge lands, use tip of `feature/stable-club-step3-safe-permit2` as the working candidate and re-tag after merge.
+| **Candidate freeze SHA** | `0b805a8924dcd2bfbb94cebdfd3205416855d0ca` |
+| **Branch** | `feature/stable-club-step3` |
+| **Checkpoint** | `checkpoint/2026-08-27-stable-club-step3-pre-audit-freeze` @ `0b805a8` |
+| **Freeze policy** | Founder tags `audit-freeze/stable-club-step3-0b805a8` only after explicit ack; do not start paid audit until authorized |
+| **Status** | **CANDIDATE** — not yet founder-tagged freeze |
 
 ## Scope (contracts)
 
