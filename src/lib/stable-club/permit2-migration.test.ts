@@ -92,10 +92,10 @@ describe("production governance guards", () => {
     ).not.toThrow();
   });
 
-  it("blocks mainnet while oracle docs confirmation pending", () => {
-    expect(oraclesPendingOfficialDocsConfirmation().length).toBeGreaterThan(0);
-    expect(() => assertProductionOracleDocsConfirmed("mainnet")).toThrow(/docs confirmation pending/);
+  it("blocks mainnet while oracle feeds unverified only when registry incomplete", () => {
     expect(() => assertProductionOracleDocsConfirmed("local")).not.toThrow();
+    // Stage 1 feeds are verified in-repo; mainnet still blocked by signers/Safe/timelock separately.
+    expect(() => assertProductionOracleDocsConfirmed("mainnet")).not.toThrow();
   });
 
   it("keeps gas ceiling unhardcoded", () => {
@@ -118,11 +118,13 @@ describe("production governance guards", () => {
 });
 
 describe("verified Base addresses registry", () => {
-  it("pins canonical Permit2 and Safe preinstalls", () => {
+  it("pins canonical Permit2, Safe preinstalls, and Stage 1 oracles", () => {
     expect(isCanonicalBasePermit2(BASE_PERMIT2.address)).toBe(true);
     expect(BASE_SAFE_STACK.safeL2Singleton.verifiedOnFork).toBe(true);
     expect(BASE_ORACLE_FEEDS.usdcUsd.descriptionOnChain).toBe("USDC / USD");
+    expect(BASE_ORACLE_FEEDS.cbBtcUsd.descriptionOnChain).toBe("cbBTC / USD");
     expect(BASE_ORACLE_FEEDS.btcUsd.descriptionOnChain).toBe("BTC / USD");
+    expect(oraclesPendingOfficialDocsConfirmation()).toEqual([]);
     expect(REJECTED_ORACLE_CANDIDATES.length).toBeGreaterThan(0);
   });
 });

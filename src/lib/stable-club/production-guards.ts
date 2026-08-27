@@ -1,6 +1,6 @@
 /**
- * Production configuration gates for Stable Club governance + Permit2 cutover.
- * Blocks mainnet launch config while multisig signers remain TBD or admin is an EOA.
+ * Production configuration gates for Stable Club governance + Permit2 + oracle cutover.
+ * Mainnet requires 3-of-5 Safe → 48h Timelock ownership; blocks missing feeds/Permit2/signers.
  */
 import {
   GOVERNANCE_SCAFFOLDING,
@@ -13,7 +13,7 @@ import {
   BASE_CHAIN_ID,
   BASE_PERMIT2,
   isCanonicalBasePermit2,
-  oraclesPendingOfficialDocsConfirmation,
+  stage1OracleFeedsConfigured,
 } from "@/lib/stable-club/verified-base-addresses";
 import { PRIVATE_BETA_LAUNCH_PARAMS, type StableClubLaunchParams } from "@/lib/stable-club/launch-params";
 
@@ -26,6 +26,7 @@ export type ProductionOwnershipCheck = {
   governanceSafeAddress: `0x${string}` | null;
   multisigSignersConfigured: boolean;
   permit2Address: `0x${string}` | null;
+  oracleFeedsConfigured?: boolean;
 };
 
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -34,9 +35,6 @@ export function isStage0EoaEnvironment(env: DeploymentEnvironment): boolean {
   return env === "local" || env === "testnet";
 }
 
-/**
- * Mainnet must not proceed while signers are TBD in source or governance Safe is unset.
- */
 export function assertProductionGovernanceReady(params: {
   environment: DeploymentEnvironment;
   governance?: GovernanceScaffoldingConfig;
@@ -71,7 +69,9 @@ export function assertProductionGovernanceReady(params: {
     !params.ownerAddress ||
     params.ownerAddress.toLowerCase() !== params.timelockAddress.toLowerCase()
   ) {
-    throw new Error("Production blocked: contract owner/admin must be the 48h Timelock (no production admin EOA)");
+    throw new Error(
+      "Production blocked: contract owner/admin must be the 48h Timelock (no production admin EOA)",
+    );
   }
 }
 
@@ -91,23 +91,40 @@ export function assertProductionPermit2Ready(params: {
   }
 }
 
-export function assertProductionOracleDocsConfirmed(environment: DeploymentEnvironment): void {
+export function assertProductionOracleFeedsReady(environment: DeploymentEnvironment): void {
   if (environment !== "mainnet") return;
-  const pending = oraclesPendingOfficialDocsConfirmation();
-  if (pending.length > 0) {
+  if (!stage1OracleFeedsConfigured()) {
     throw new Error(
-      `Production blocked: Chainlink official docs confirmation pending for: ${pending.join(", ")}`,
+      "Production blocked: Stage 1 oracle feeds (USDC/USD, cbBTC/USD, BTC/USD peg) not verified",
     );
   }
 }
 
-/** Launch params still keep gasCeilingWei null until evidence-based value is approved. */
+/** @deprecated Use assertProductionOracleFeedsReady */
+export function assertProductionOracleDocsConfirmed(environment: DeploymentEnvironment): void {
+  assertProductionOracleFeedsReady(environment);
+}
+
 export function assertGasCeilingNotHardcoded(
   params: StableClubLaunchParams = PRIVATE_BETA_LAUNCH_PARAMS,
 ): void {
   if (params.safety.gasCeilingWei != null) {
     throw new Error("gasCeilingWei must remain null until founder approves evidence-based value");
   }
+}
+
+export function assertMainnetHardeningComplete(params: {
+  environment: DeploymentEnvironment;
+  governanceSafeAddress: `0x${string}` | null;
+  timelockAddress: `0x${string}` | null;
+  ownerAddress: `0x${string}` | null;
+  permit2Address: `0x${string}` | null;
+  chainId: number;
+}): void {
+  assertProductionGovernanceReady(params);
+  assertProductionPermit2Ready(params);
+  assertProductionOracleFeedsReady(params.environment);
+  assertGasCeilingNotHardcoded();
 }
 
 export function evaluateMainnetReadiness(check: ProductionOwnershipCheck): {
@@ -127,9 +144,31 @@ export function evaluateMainnetReadiness(check: ProductionOwnershipCheck): {
   if (!check.permit2Address || !isCanonicalBasePermit2(check.permit2Address)) {
     blockers.push("Permit2 not canonical");
   }
-  const pendingOracles = oraclesPendingOfficialDocsConfirmation();
-  if (pendingOracles.length) {
-    blockers.push(`oracle docs pending: ${pendingOracles.join(", ")}`);
+  const oraclesOk =
+    check.oracleFeedsConfigured === undefined
+      ? stage1OracleFeedsConfigured()
+      : check.oracleFeedsConfigured;
+  if (!oraclesOk) blockers.push("oracle feeds missing/unverified");
+  if (PRIVATE_BETA_LAUNCH_PARAMS.safety.gasCeilingWei != null) {
+    blockers.push("gas ceiling unexpectedly hardcoded");
+  } else {
+    // gas ceiling TBD is expected — not a blocker, but freeze note
   }
   return { ready: blockers.length === 0, blockers };
+}
+
+export function codeFreezeBlockers(): string[] {
+  const readiness = evaluateMainnetReadiness({
+    environment: "mainnet",
+    ownerIsTimelock: false,
+    timelockDelaySeconds: STABLE_CLUB_TIMELOCK_SECONDS,
+    governanceSafeAddress: null,
+    multisigSignersConfigured: false,
+    permit2Address: null,
+  });
+  const blockers = [...readiness.blockers];
+  blockers.push("gasCeilingWei TBD (measure on fork; Timelock-configurable)");
+  blockers.push("governance Safe instance address TBD (never invent)");
+  blockers.push("professional audit not started");
+  return blockers;
 }

@@ -16,6 +16,7 @@ Baseline: `6654dfa` · Governance scaffolding: `feature/stable-club-step3` @ `ab
 | [07-verified-base-addresses.md](./07-verified-base-addresses.md) | Permit2 / Safe / oracle verification |
 | [verified-base-addresses.json](./verified-base-addresses.json) | Machine-readable verification artifact |
 | [08-gas-ceiling-recommendation.md](./08-gas-ceiling-recommendation.md) | Evidence-based gas ceiling (not hardcoded) |
+| [09-pre-audit-hardening.md](./09-pre-audit-hardening.md) | Oracle peg + Safe/Permit2 UX + freeze gates |
 
 ## Explicit non-actions
 

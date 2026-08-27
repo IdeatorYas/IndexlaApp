@@ -135,3 +135,35 @@ export function isExpiredPermit2Allowance(params: {
 export function isForbiddenUnlimitedApproval(amount: bigint): boolean {
   return amount >= PERMIT2_UNLIMITED_AMOUNT || amount >= ERC20_UNLIMITED_APPROVAL;
 }
+
+/**
+ * Explicit revoke: amount 0 is allowed only for revocation (not a spend allowance).
+ */
+export function buildPermit2ZeroAllowanceRevokeTx(params: {
+  permit2?: Address;
+  token: Address;
+  spender: Address;
+  nowSec?: number;
+}) {
+  const permit2 = params.permit2 ?? BASE_PERMIT2.address;
+  const now = params.nowSec ?? Math.floor(Date.now() / 1000);
+  const expiration = now + 1;
+  return {
+    address: permit2,
+    abi: permit2AllowanceAbi,
+    functionName: "approve" as const,
+    args: [params.token, params.spender, BigInt(0), expiration] as const,
+  };
+}
+
+export function describePermit2Allowance(params: {
+  amount: bigint;
+  expiration: number;
+  nowSec?: number;
+}): { status: "active" | "expired" | "revoked"; label: string } {
+  const now = params.nowSec ?? Math.floor(Date.now() / 1000);
+  if (params.amount === BigInt(0)) return { status: "revoked", label: "Revoked (zero allowance)" };
+  if (params.expiration <= now) return { status: "expired", label: "Expired" };
+  const mins = Math.max(1, Math.floor((params.expiration - now) / 60));
+  return { status: "active", label: `Active · ${params.amount.toString()} · ~${mins}m left` };
+}
