@@ -9,7 +9,7 @@ Baseline: `6654dfa` · Governance scaffolding: `feature/stable-club-step3` @ `ab
 | [00-official-pools-beta-recommendation.md](./00-official-pools-beta-recommendation.md) | Factory inspection + safest beta pools |
 | [official-pools-inspection.json](./official-pools-inspection.json) | Raw fork inspection artifact |
 | [01-safe-permit2-impact-report.md](./01-safe-permit2-impact-report.md) | Pre-implementation migration impact |
-| [02-governance-multisig-timelock.md](./02-governance-multisig-timelock.md) | 3-of-5, guardian, 48h timelock design |
+| [02-governance-multisig-timelock.md](./02-governance-multisig-timelock.md) | MVP 2-of-3 Safe, guardian, 48h timelock |
 | [03-security-suite-and-audit-rfq.md](./03-security-suite-and-audit-rfq.md) | Security suite + auditor RFQ (≠ professional audit) |
 | [05-safe-permit2-recommendation-summary.md](./05-safe-permit2-recommendation-summary.md) | Pre-migration recommendation |
 | [06-safe-permit2-migration-impact.md](./06-safe-permit2-migration-impact.md) | **Post-implementation** compatibility/security impact |

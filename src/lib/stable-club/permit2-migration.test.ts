@@ -64,7 +64,7 @@ describe("production governance guards", () => {
     expect(isStage0EoaEnvironment("mainnet")).toBe(false);
   });
 
-  it("blocks mainnet while signers TBD", () => {
+  it("blocks mainnet when governance Safe mismatches MVP", () => {
     expect(() =>
       assertProductionGovernanceReady({
         environment: "mainnet",
@@ -72,7 +72,7 @@ describe("production governance guards", () => {
         timelockAddress: "0x2222222222222222222222222222222222222222",
         ownerAddress: "0x2222222222222222222222222222222222222222",
       }),
-    ).toThrow(/signers remain TBD/);
+    ).toThrow(/must match MVP/);
   });
 
   it("blocks mainnet without canonical Permit2", () => {
@@ -112,7 +112,7 @@ describe("production governance guards", () => {
       permit2Address: null,
     });
     expect(r.ready).toBe(false);
-    expect(r.blockers).toContain("multisig signers TBD");
+    expect(r.blockers).toContain("multisig signers not configured");
     expect(r.blockers).toContain("Permit2 not canonical");
   });
 });
