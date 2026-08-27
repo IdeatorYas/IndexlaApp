@@ -207,9 +207,11 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         uint256 swapOutOnExecutor;
         if (swapAmount > 0) {
             safetyController.assertSwapAllowed(poolId);
-            mevGuard.assertSwapProtections(swapAmount, minAmountOut, quotedAmountOut, deadline);
             _requireApprovedToken(rewardToken);
             uint256 net = feeRouter.applySwapFee(rewardToken, perm.user, swapAmount, permissionId);
+            mevGuard.assertSwapProtections(
+                rewardToken, tokenB, net, minAmountOut, quotedAmountOut, slippageBps, deadline
+            );
             IERC20(rewardToken).forceApprove(adapter, net);
             swapOutOnExecutor =
                 IConcentratedLiquidityAdapter(adapter).swap(perm.user, rewardToken, tokenB, net, minAmountOut);
@@ -312,8 +314,10 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         if (swapAmount > 0) {
             if (swapAmount > closedA) revert InvalidSwapAmount();
             safetyController.assertSwapAllowed(poolId);
-            mevGuard.assertSwapProtections(swapAmount, minAmountOut, quotedAmountOut, deadline);
             uint256 net = feeRouter.applySwapFee(tokenA, perm.user, swapAmount, permissionId);
+            mevGuard.assertSwapProtections(
+                tokenA, tokenB, net, minAmountOut, quotedAmountOut, slippageBps, deadline
+            );
             IERC20(tokenA).forceApprove(adapter, net);
             swapOutOnExecutor =
                 IConcentratedLiquidityAdapter(adapter).swap(perm.user, tokenA, tokenB, net, minAmountOut);

@@ -184,6 +184,8 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         );
         _refundDust(token0, lpOwner);
         _refundDust(token1, lpOwner);
+        _clearApproval(token0, npm);
+        _clearApproval(token1, npm);
     }
 
     function increaseLiquidity(
@@ -216,6 +218,8 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         );
         _refundDust(token0, lpOwner);
         _refundDust(token1, lpOwner);
+        _clearApproval(token0, npm);
+        _clearApproval(token1, npm);
     }
 
     function decreaseLiquidity(
@@ -291,6 +295,7 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
                 sqrtPriceLimitX96: 0
             })
         );
+        _clearApproval(tokenIn, swapRouter);
     }
 
     function _collectTo(address recipient, uint256 tokenId) internal returns (uint256 amount0, uint256 amount1) {
@@ -307,6 +312,12 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
     function _refundDust(address token, address to) internal {
         uint256 bal = IERC20(token).balanceOf(address(this));
         if (bal > 0) IERC20(token).safeTransfer(to, bal);
+    }
+
+    function _clearApproval(address token, address spender) internal {
+        if (IERC20(token).allowance(address(this), spender) != 0) {
+            IERC20(token).forceApprove(spender, 0);
+        }
     }
 
     function _sort(

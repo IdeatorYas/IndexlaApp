@@ -11,10 +11,15 @@ import {IConcentratedLiquidityAdapter} from "../interfaces/IConcentratedLiquidit
 contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC721 {
     using SafeERC20 for IERC20;
 
+    /// @dev Simulated NPM/spender used to prove approvals are cleared after mint/increase (H4).
+    address public constant SIMULATED_NPM = address(0xBEeF);
+
     bytes32 public immutable override poolId;
     string private _protocol;
     address public immutable executor;
     uint256 private _nextId = 1;
+    /// @notice Fraction of pulled tokens left as residual then refunded to LP owner (bps).
+    uint256 public dustLeaveBps;
 
     mapping(uint256 => uint128) public liquidityOf;
     mapping(uint256 => address) public token0Of;
@@ -34,6 +39,11 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
         executor = executor_;
         poolId = poolId_;
         _protocol = protocol_;
+    }
+
+    function setDustLeaveBps(uint256 bps) external {
+        require(bps <= 5_000, "dust");
+        dustLeaveBps = bps;
     }
 
     function protocol() external view returns (string memory) {
@@ -62,12 +72,25 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
     ) external onlyExecutor returns (uint256 tokenId, uint128 liquidity) {
         if (amountA > 0) IERC20(tokenA).safeTransferFrom(msg.sender, address(this), amountA);
         if (amountB > 0) IERC20(tokenB).safeTransferFrom(msg.sender, address(this), amountB);
+        if (amountA > 0) IERC20(tokenA).forceApprove(SIMULATED_NPM, amountA);
+        if (amountB > 0) IERC20(tokenB).forceApprove(SIMULATED_NPM, amountB);
+
+        uint256 dustA = (amountA * dustLeaveBps) / 10_000;
+        uint256 dustB = (amountB * dustLeaveBps) / 10_000;
+        uint256 usedA = amountA - dustA;
+        uint256 usedB = amountB - dustB;
+
         tokenId = _nextId++;
-        liquidity = uint128(amountA + amountB);
+        liquidity = uint128(usedA + usedB);
         liquidityOf[tokenId] = liquidity;
         token0Of[tokenId] = tokenA;
         token1Of[tokenId] = tokenB;
         _mint(lpOwner, tokenId);
+
+        if (dustA > 0) IERC20(tokenA).safeTransfer(lpOwner, dustA);
+        if (dustB > 0) IERC20(tokenB).safeTransfer(lpOwner, dustB);
+        _clearApproval(tokenA, SIMULATED_NPM);
+        _clearApproval(tokenB, SIMULATED_NPM);
     }
 
     function increaseLiquidity(
@@ -79,12 +102,24 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
         uint256
     ) external onlyExecutor returns (uint128 liquidity) {
         if (ownerOf(tokenId) != lpOwner) revert NotOwner();
-        address tokenA = token0Of[tokenId];
-        address tokenB = token1Of[tokenId];
-        if (amountA > 0) IERC20(tokenA).safeTransferFrom(msg.sender, address(this), amountA);
-        if (amountB > 0) IERC20(tokenB).safeTransferFrom(msg.sender, address(this), amountB);
-        liquidity = uint128(amountA + amountB);
+        address tokenA_ = token0Of[tokenId];
+        address tokenB_ = token1Of[tokenId];
+        if (amountA > 0) IERC20(tokenA_).safeTransferFrom(msg.sender, address(this), amountA);
+        if (amountB > 0) IERC20(tokenB_).safeTransferFrom(msg.sender, address(this), amountB);
+        if (amountA > 0) IERC20(tokenA_).forceApprove(SIMULATED_NPM, amountA);
+        if (amountB > 0) IERC20(tokenB_).forceApprove(SIMULATED_NPM, amountB);
+
+        uint256 dustA = (amountA * dustLeaveBps) / 10_000;
+        uint256 dustB = (amountB * dustLeaveBps) / 10_000;
+        uint256 usedA = amountA - dustA;
+        uint256 usedB = amountB - dustB;
+        liquidity = uint128(usedA + usedB);
         liquidityOf[tokenId] += liquidity;
+
+        if (dustA > 0) IERC20(tokenA_).safeTransfer(lpOwner, dustA);
+        if (dustB > 0) IERC20(tokenB_).safeTransfer(lpOwner, dustB);
+        _clearApproval(tokenA_, SIMULATED_NPM);
+        _clearApproval(tokenB_, SIMULATED_NPM);
     }
 
     function decreaseLiquidity(
@@ -111,7 +146,6 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
         if (ownerOf(tokenId) != lpOwner) revert NotOwner();
         amountA = 1e6;
         amountB = 1e6;
-        // Minted fees are simulated via pre-seeded balances when tests fund this adapter.
         if (IERC20(token0Of[tokenId]).balanceOf(address(this)) >= amountA) {
             IERC20(token0Of[tokenId]).safeTransfer(lpOwner, amountA);
         } else {
@@ -151,6 +185,14 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
         amountOut = amountIn;
         require(amountOut >= minAmountOut, "slip");
         IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
+        IERC20(tokenIn).forceApprove(SIMULATED_NPM, amountIn);
         IERC20(tokenOut).safeTransfer(msg.sender, amountOut);
+        _clearApproval(tokenIn, SIMULATED_NPM);
+    }
+
+    function _clearApproval(address token, address spender) internal {
+        if (IERC20(token).allowance(address(this), spender) != 0) {
+            IERC20(token).forceApprove(spender, 0);
+        }
     }
 }

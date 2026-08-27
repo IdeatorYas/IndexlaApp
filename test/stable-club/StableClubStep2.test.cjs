@@ -31,6 +31,7 @@ async function deployStep2Stack() {
   await permissionRegistry.setOperator(await automation.getAddress(), true);
   await feeRouter.wireExecutor(await automation.getAddress());
   await safetyController.wireExecutor(await automation.getAddress());
+  await mevGuard.setOracle(await oracleGuard.getAddress());
 
   const usdcFeed = await ethers.deployContract("MockAggregatorV3", [1_00000000n]);
   const btcFeed = await ethers.deployContract("MockAggregatorV3", [100_00000000n]);
@@ -136,21 +137,29 @@ describe("Stable Club Step 2 — Oracle / Safety / OpenServ", function () {
     ).to.be.revertedWithCustomError(ctx.safetyController, "DepegActive");
   });
 
-  it("mev guard enforces deadline and min-out", async function () {
+  it("mev guard enforces deadline, min-out and oracle bands", async function () {
     const ctx = await deployStep2Stack();
     const now = await time.latest();
+    const usdc = await ctx.usdc.getAddress();
+    const cbbtc = await ctx.cbbtc.getAddress();
+    // Equalize value units so 1:1 mock amounts align with oracle expectedOut (6→8 decimals).
+    await ctx.btcFeed.setAnswer(100_00000000n); // $100 → expectedOut == amountIn for 6↔8 at $1 USDC
+
     await expect(
-      ctx.mevGuard.assertSwapProtections(1000, 0, 1000, now + 60),
+      ctx.mevGuard.assertSwapProtections(usdc, cbbtc, 1000, 0, 1000, 100, now + 60),
     ).to.be.revertedWithCustomError(ctx.mevGuard, "MinOutTooLow");
 
+    const amountIn = ethers.parseUnits("1000", 6);
+    const expected = await ctx.oracleGuard.expectedAmountOut(usdc, cbbtc, amountIn, 6, 8);
+    const okMin = (expected * 9850n) / 10000n;
+
     await expect(
-      ctx.mevGuard.assertSwapProtections(1000, 985, 1000, now - 1),
+      ctx.mevGuard.assertSwapProtections(usdc, cbbtc, amountIn, okMin, expected, 100, now - 1),
     ).to.be.revertedWithCustomError(ctx.mevGuard, "DeadlineExpired");
 
-    // minOut=1 with inflated quote must not bypass impact floor (H2)
     await expect(
-      ctx.mevGuard.assertSwapProtections(1000, 1, 1000, now + 60),
-    ).to.be.revertedWithCustomError(ctx.mevGuard, "PriceImpactTooHigh");
+      ctx.mevGuard.assertSwapProtections(usdc, cbbtc, amountIn, 1n, expected, 100, now + 60),
+    ).to.be.revertedWithCustomError(ctx.mevGuard, "ExcessiveSlippage");
   });
 
   it("OpenServ proposal gate rejects duplicates and can trip circuit", async function () {

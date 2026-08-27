@@ -10,4 +10,16 @@ interface IOracleGuard {
     ) external view returns (bool ok);
 
     function isFeedFresh(address token) external view returns (bool);
+
+    /// @notice Fresh Chainlink reference price normalized to 1e8 USD scale.
+    function getPriceE8(address token) external view returns (uint256 priceE8);
+
+    /// @notice Value-normalized expected swap output using oracle prices and token decimals.
+    function expectedAmountOut(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint8 decimalsIn,
+        uint8 decimalsOut
+    ) external view returns (uint256 amountOut);
 }

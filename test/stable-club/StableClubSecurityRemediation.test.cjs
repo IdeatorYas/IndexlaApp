@@ -44,6 +44,7 @@ async function deployStep2Stack() {
   await permissionRegistry.setOperator(await automation.getAddress(), true);
   await feeRouter.wireExecutor(await automation.getAddress());
   await safetyController.wireExecutor(await automation.getAddress());
+  await mevGuard.setOracle(await oracleGuard.getAddress());
 
   const usdcFeed = await ethers.deployContract("MockAggregatorV3", [1_00000000n]);
   const btcFeed = await ethers.deployContract("MockAggregatorV3", [100_00000000n]);
@@ -86,6 +87,8 @@ async function deployStep2Stack() {
     clAdapter,
     usdc,
     cbbtc,
+    usdcFeed,
+    btcFeed,
   };
 }
 
@@ -185,15 +188,24 @@ describe("PR1 security remediation — adversarial regressions", function () {
   });
 
   describe("H2 — MevGuard minOut bypass", function () {
-    it("rejects minOut far below quote / amountIn impact floor", async function () {
+    it("rejects minOut far below oracle expectedOut / quote band", async function () {
       const ctx = await deployStep2Stack();
       const now = await time.latest();
-      await expect(
-        ctx.mevGuard.assertSwapProtections(1_000_000n, 1n, 1_000_000n, now + 60),
-      ).to.be.revertedWithCustomError(ctx.mevGuard, "PriceImpactTooHigh");
+      // Align 6↔8 decimals so expectedOut == amountIn at $1 USDC / $100 synthetic.
+      await ctx.btcFeed.setAnswer(100_00000000n);
+      const usdc = await ctx.usdc.getAddress();
+      const cbbtc = await ctx.cbbtc.getAddress();
+      const amountIn = 1_000_000n;
+      const expected = await ctx.oracleGuard.expectedAmountOut(usdc, cbbtc, amountIn, 6, 8);
 
-      // Valid: within 1.5% band
-      await ctx.mevGuard.assertSwapProtections(1_000_000n, 985_000n, 1_000_000n, now + 60);
+      await expect(
+        ctx.mevGuard.assertSwapProtections(usdc, cbbtc, amountIn, 1n, expected, 100, now + 60),
+      ).to.be.revertedWithCustomError(ctx.mevGuard, "ExcessiveSlippage");
+
+      const okMin = (expected * 9850n) / 10000n;
+      await ctx.mevGuard.assertSwapProtections(
+        usdc, cbbtc, amountIn, okMin, expected, 150, now + 60,
+      );
     });
   });
 
@@ -383,10 +395,18 @@ describe("PR1 security remediation — adversarial regressions", function () {
       );
 
       const swapAmount = ethers.parseUnits("100", 6);
-      // Mock is 1:1 — MevGuard floor requires minOut >= 98.5% of amountIn
-      const minOut = (swapAmount * 9850n) / 10000n;
+      // Align oracle so expectedOut matches 1:1 mock (USDC 6 → cbBTC 8).
+      await ctx.btcFeed.setAnswer(100_00000000n);
+      const net = (swapAmount * 99n) / 100n;
+      const expected = await ctx.oracleGuard.expectedAmountOut(
+        await ctx.usdc.getAddress(),
+        await ctx.cbbtc.getAddress(),
+        net,
+        6,
+        8,
+      );
+      const minOut = (expected * 9850n) / 10000n;
       await ctx.usdc.connect(ctx.user).approve(await ctx.feeRouter.getAddress(), swapAmount);
-      await ctx.usdc.connect(ctx.user).approve(await ctx.automation.getAddress(), 0n);
 
       await ctx.automation.connect(ctx.user).compound(
         permissionId,
@@ -401,16 +421,11 @@ describe("PR1 security remediation — adversarial regressions", function () {
         0n,
         0n,
         0n,
-        minOut, // amountBMin covers swap out
-        100n,
+        minOut,
+        150n,
         BigInt((await time.latest()) + 600),
-        swapAmount, // quoted 1:1 before fee — wait, fee takes 1%, net = 99%
+        expected,
       );
-
-      // Actually fee applies first so amountIn to MevGuard is swapAmount (gross) but adapter gets net.
-      // MevGuard uses swapAmount as amountIn — minOut floor vs gross. Mock out = net < floor if minOut based on gross.
-      // Re-check: applySwapFee pulls gross, returns net = 99%. Swap sends net out. MevGuard checked minOut vs gross amountIn.
-      // So minOut must be <= net for swap to succeed, but >= floor(gross). floor(100e6)=98.5e6, net=99e6 → OK with minOut=98.5e6
 
       expect(await ctx.usdc.balanceOf(await ctx.automation.getAddress())).to.equal(0n);
       expect(await ctx.cbbtc.balanceOf(await ctx.automation.getAddress())).to.equal(0n);

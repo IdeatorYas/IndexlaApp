@@ -39,6 +39,8 @@ contract OracleGuard is IOracleGuard {
     error DeviationTooHigh();
     error StaleTwap();
     error TwapRequiredMissing();
+    error InvalidAmount();
+    error ZeroPrice();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -95,6 +97,50 @@ contract OracleGuard is IOracleGuard {
         return true;
     }
 
+    function getPriceE8(address token) public view returns (uint256 priceE8) {
+        Feed memory f = feeds[token];
+        if (!f.enabled) revert MissingFeed();
+        (
+            uint80 roundId,
+            int256 answer,
+            ,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        ) = AggregatorV3Interface(f.aggregator).latestRoundData();
+        if (answer <= 0) revert InvalidRound();
+        if (answeredInRound < roundId) revert InvalidRound();
+        if (block.timestamp > updatedAt + f.maxStalenessSec) revert StaleFeed();
+
+        uint256 raw = uint256(answer);
+        if (f.decimals > 8) {
+            priceE8 = raw / (10 ** (f.decimals - 8));
+        } else if (f.decimals < 8) {
+            priceE8 = raw * (10 ** (8 - f.decimals));
+        } else {
+            priceE8 = raw;
+        }
+        if (priceE8 == 0) revert ZeroPrice();
+    }
+
+    function expectedAmountOut(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint8 decimalsIn,
+        uint8 decimalsOut
+    ) external view returns (uint256 amountOut) {
+        if (amountIn == 0) revert InvalidAmount();
+        uint256 priceInE8 = getPriceE8(tokenIn);
+        uint256 priceOutE8 = getPriceE8(tokenOut);
+
+        // USD value at 1e8 scale: amountIn * priceIn / 10^decimalsIn
+        // amountOut = usd * 10^decimalsOut / priceOut
+        // Combined: amountIn * priceIn * 10^decimalsOut / (priceOut * 10^decimalsIn)
+        amountOut = (amountIn * priceInE8 * (10 ** uint256(decimalsOut)))
+            / (priceOutE8 * (10 ** uint256(decimalsIn)));
+        if (amountOut == 0) revert InvalidAmount();
+    }
+
     function validatePrices(
         address tokenA,
         address tokenB,
@@ -109,18 +155,8 @@ contract OracleGuard is IOracleGuard {
     }
 
     function _requireFreshReference(address token) internal view {
-        Feed memory f = feeds[token];
-        if (!f.enabled) revert MissingFeed();
-        (
-            uint80 roundId,
-            int256 answer,
-            ,
-            uint256 updatedAt,
-            uint80 answeredInRound
-        ) = AggregatorV3Interface(f.aggregator).latestRoundData();
-        if (answer <= 0) revert InvalidRound();
-        if (answeredInRound < roundId) revert InvalidRound();
-        if (block.timestamp > updatedAt + f.maxStalenessSec) revert StaleFeed();
+        // Reuse getPriceE8 freshness checks.
+        getPriceE8(token);
     }
 
     function _requireTwapOrSkip(address token, uint256 maxDeviationBps) internal view {
@@ -131,15 +167,7 @@ contract OracleGuard is IOracleGuard {
         }
         if (block.timestamp > twapUpdatedAt[token] + twapMaxAgeSec) revert StaleTwap();
 
-        Feed memory f = feeds[token];
-        (, int256 answer, , , ) = AggregatorV3Interface(f.aggregator).latestRoundData();
-        uint256 ref = uint256(answer);
-        // Normalize Chainlink decimals to 1e8 for comparison when possible.
-        if (f.decimals > 8) {
-            ref = ref / (10 ** (f.decimals - 8));
-        } else if (f.decimals < 8) {
-            ref = ref * (10 ** (8 - f.decimals));
-        }
+        uint256 ref = getPriceE8(token);
         uint256 diff = ref > twap ? ref - twap : twap - ref;
         if (diff * 10_000 > ref * maxDeviationBps) revert DeviationTooHigh();
     }
