@@ -18,10 +18,12 @@ contract FeeRouter {
     address public owner;
     address public immutable feeRecipient;
     address public executor;
+    mapping(address => bool) public approvedExecutors;
     IAllowanceTransfer public permit2;
 
     event OwnerTransferred(address indexed previous, address indexed next);
     event ExecutorWired(address indexed executor);
+    event ExecutorApprovalUpdated(address indexed executor, bool approved);
     event Permit2Updated(address indexed permit2);
     event SwapFeeCharged(
         address indexed user,
@@ -44,8 +46,8 @@ contract FeeRouter {
         _;
     }
 
-    modifier onlyExecutor() {
-        if (msg.sender != executor) revert OnlyExecutor();
+    modifier onlyApprovedExecutor() {
+        if (!approvedExecutors[msg.sender]) revert OnlyExecutor();
         _;
     }
 
@@ -61,16 +63,28 @@ contract FeeRouter {
         owner = next;
     }
 
-    /// @notice One-shot executor wiring — owner/governance only.
+    /// @notice One-shot primary executor wiring — owner/governance only (Step 1 compatibility).
     function wireExecutor(address executor_) external onlyOwner {
         if (executor_ == address(0)) revert InvalidExecutor();
         if (executor != address(0)) revert ExecutorAlreadyWired();
         executor = executor_;
+        approvedExecutors[executor_] = true;
         emit ExecutorWired(executor_);
+        emit ExecutorApprovalUpdated(executor_, true);
+    }
+
+    /// @notice Explicit approved-executor allowlist for multi-executor Phase 2+.
+    function setExecutorApproved(address executor_, bool approved) external onlyOwner {
+        if (executor_ == address(0)) revert InvalidExecutor();
+        approvedExecutors[executor_] = approved;
+        if (approved && executor == address(0)) {
+            executor = executor_;
+            emit ExecutorWired(executor_);
+        }
+        emit ExecutorApprovalUpdated(executor_, approved);
     }
 
     /// @notice Wire Permit2 for ERC20 pulls. Production must set the verified Base Permit2.
-    /// @dev Setting address(0) re-enables legacy IERC20.transferFrom (local/test only).
     function setPermit2(address permit2_) external onlyOwner {
         permit2 = IAllowanceTransfer(permit2_);
         emit Permit2Updated(permit2_);
@@ -80,13 +94,17 @@ contract FeeRouter {
         return FEE_BPS;
     }
 
-    /// @dev Deduct INDEXLA fee from `grossAmount`, transfer fee to recipient, return net for swap.
+    function isApprovedExecutor(address executor_) external view returns (bool) {
+        return approvedExecutors[executor_];
+    }
+
+    /// @dev Deduct INDEXLA fee from `grossAmount`, transfer fee to recipient, return net to caller.
     function applySwapFee(
         address token,
         address user,
         uint256 grossAmount,
         bytes32 permissionId
-    ) external onlyExecutor returns (uint256 netAmount) {
+    ) external onlyApprovedExecutor returns (uint256 netAmount) {
         if (grossAmount == 0) revert ZeroAmount();
 
         uint256 feeAmount = (grossAmount * FEE_BPS) / BPS_DENOMINATOR;
@@ -96,7 +114,27 @@ contract FeeRouter {
         if (feeAmount > 0) {
             IERC20(token).safeTransfer(feeRecipient, feeAmount);
         }
-        IERC20(token).safeTransfer(executor, netAmount);
+        IERC20(token).safeTransfer(msg.sender, netAmount);
+
+        emit SwapFeeCharged(user, token, grossAmount, feeAmount, netAmount, permissionId);
+    }
+
+    /// @dev Charge fee on tokens already held by the approved executor (Phase 2a single USDC pull).
+    /// @notice Net amount remains on `msg.sender` (executor). Does not pull from user.
+    function applySwapFeeOnHeld(
+        address token,
+        address user,
+        uint256 grossAmount,
+        bytes32 permissionId
+    ) external onlyApprovedExecutor returns (uint256 netAmount) {
+        if (grossAmount == 0) revert ZeroAmount();
+
+        uint256 feeAmount = (grossAmount * FEE_BPS) / BPS_DENOMINATOR;
+        netAmount = grossAmount - feeAmount;
+
+        if (feeAmount > 0) {
+            IERC20(token).safeTransferFrom(msg.sender, feeRecipient, feeAmount);
+        }
 
         emit SwapFeeCharged(user, token, grossAmount, feeAmount, netAmount, permissionId);
     }

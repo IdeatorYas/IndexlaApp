@@ -26,6 +26,7 @@ const eslintConfig = [
       "scripts/stable-club/**",
       "tests/e2e/stable-club-global-setup.cjs",
       "tests/e2e/stable-club-global-teardown.cjs",
+      "tmp/**",
     ],
   },
 ];

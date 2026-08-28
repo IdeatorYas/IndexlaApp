@@ -35,15 +35,12 @@ describe("official Base pool catalogue", () => {
     expect(protocols.has("aerodrome-slipstream")).toBe(true);
   });
 
-  it("marks both Aero CL100 pools unavailable and never launch-ready", () => {
+  it("marks all five official pools launch-ready", () => {
     const unavailable = listUnavailableOfficialPools();
-    expect(unavailable.map((p) => p.id).sort()).toEqual([
-      "USDC-cbBTC-AERO-CL100",
-      "cbBTC-WETH-AERO-CL100",
-    ]);
-    for (const pool of unavailable) {
-      expect(pool.poolAddress).toBeNull();
-      expect(isPoolLaunchReady(pool)).toBe(false);
+    expect(unavailable).toHaveLength(0);
+    for (const pool of OFFICIAL_STABLE_CLUB_BASE_POOLS) {
+      expect(isPoolLaunchReady(pool)).toBe(true);
+      expect(pool.poolAddress).toMatch(/^0x[a-fA-F0-9]{40}$/);
     }
   });
 

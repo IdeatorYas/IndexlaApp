@@ -23,7 +23,16 @@ const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const CBBTC = "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf";
 const WETH = "0x4200000000000000000000000000000000000006";
 const UNI_FACTORY = "0x33128a8fC17869897dcE68Ed026d694621f6FDfD";
-const AERO_FACTORY = "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef";
+const AERO_FACTORY_CURRENT = "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef";
+const AERO_FACTORY_LEGACY = "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A";
+
+const VERIFIED_POOL_ADDRESSES = {
+  "USDC-cbBTC-AERO-CL100": "0x4e962bb3889bf030368f56810a9c96b83cb3e778",
+  "USDC-cbBTC-UNI-005": "0xfBB6Eed8e7aa03B138556eeDaF5D271A5E1e43ef",
+  "cbBTC-WETH-AERO-CL10": "0x42d4a22CaD0F5a49681a5715cE994Af73A43B76b",
+  "cbBTC-WETH-AERO-CL100": "0x70acdf2ad0bf2402c957154f944c19ef4e1cbae1",
+  "cbBTC-WETH-UNI-005": "0x7AeA2E8A3843516afa07293a10Ac8E49906dabD1",
+};
 
 /**
  * Verified Stage 1 feeds only (see src/lib/stable-club/verified-base-addresses.ts).
@@ -65,6 +74,8 @@ const POOLS = [
     tickSpacing: 100,
     riskLevel: "medium",
     pair: "USDC/cbBTC",
+    infrastructure: "aerodrome-legacy",
+    verifiedAddress: VERIFIED_POOL_ADDRESSES["USDC-cbBTC-AERO-CL100"],
   },
   {
     id: "USDC-cbBTC-UNI-005",
@@ -74,6 +85,8 @@ const POOLS = [
     fee: 500,
     riskLevel: "medium",
     pair: "USDC/cbBTC",
+    infrastructure: "uniswap-v3",
+    verifiedAddress: VERIFIED_POOL_ADDRESSES["USDC-cbBTC-UNI-005"],
   },
   {
     id: "cbBTC-WETH-AERO-CL10",
@@ -83,6 +96,8 @@ const POOLS = [
     tickSpacing: 10,
     riskLevel: "high",
     pair: "cbBTC/WETH",
+    infrastructure: "aerodrome-current",
+    verifiedAddress: VERIFIED_POOL_ADDRESSES["cbBTC-WETH-AERO-CL10"],
   },
   {
     id: "cbBTC-WETH-AERO-CL100",
@@ -92,6 +107,8 @@ const POOLS = [
     tickSpacing: 100,
     riskLevel: "high",
     pair: "cbBTC/WETH",
+    infrastructure: "aerodrome-legacy",
+    verifiedAddress: VERIFIED_POOL_ADDRESSES["cbBTC-WETH-AERO-CL100"],
   },
   {
     id: "cbBTC-WETH-UNI-005",
@@ -101,6 +118,8 @@ const POOLS = [
     fee: 500,
     riskLevel: "high",
     pair: "cbBTC/WETH",
+    infrastructure: "uniswap-v3",
+    verifiedAddress: VERIFIED_POOL_ADDRESSES["cbBTC-WETH-UNI-005"],
   },
 ];
 
@@ -154,23 +173,30 @@ async function readVerifiedFeed(spec) {
 }
 
 async function inspectPool(entry) {
-  let poolAddr = ethers.ZeroAddress;
+  let poolAddrCurrent = ethers.ZeroAddress;
+  let poolAddrLegacy = ethers.ZeroAddress;
   if (entry.protocol === "uniswap-v3") {
     const factory = await ethers.getContractAt(
       ["function getPool(address,address,uint24) view returns (address)"],
       UNI_FACTORY,
     );
-    poolAddr = await factory.getPool(entry.tokenA, entry.tokenB, entry.fee);
+    poolAddrCurrent = await factory.getPool(entry.tokenA, entry.tokenB, entry.fee);
   } else {
-    const factory = await ethers.getContractAt(
+    const currentFactory = await ethers.getContractAt(
       ["function getPool(address,address,int24) view returns (address)"],
-      AERO_FACTORY,
+      AERO_FACTORY_CURRENT,
     );
-    poolAddr = await factory.getPool(entry.tokenA, entry.tokenB, entry.tickSpacing);
+    const legacyFactory = await ethers.getContractAt(
+      ["function getPool(address,address,int24) view returns (address)"],
+      AERO_FACTORY_LEGACY,
+    );
+    poolAddrCurrent = await currentFactory.getPool(entry.tokenA, entry.tokenB, entry.tickSpacing);
+    poolAddrLegacy = await legacyFactory.getPool(entry.tokenA, entry.tokenB, entry.tickSpacing);
   }
 
+  const poolAddr = entry.verifiedAddress ?? poolAddrCurrent ?? poolAddrLegacy;
   if (poolAddr === ethers.ZeroAddress) {
-    return { ...entry, poolAddress: null, exists: false };
+    return { ...entry, poolAddress: null, exists: false, factoryLookupCurrent: poolAddrCurrent, factoryLookupLegacy: poolAddrLegacy };
   }
 
   const pool = await ethers.getContractAt(
@@ -241,7 +267,18 @@ async function inspectPool(entry) {
       [sym1]: ethers.formatUnits(bal1, dec1),
     },
     factory:
-      entry.protocol === "uniswap-v3" ? UNI_FACTORY : AERO_FACTORY,
+      entry.protocol === "uniswap-v3"
+        ? UNI_FACTORY
+        : entry.infrastructure === "aerodrome-legacy"
+          ? AERO_FACTORY_LEGACY
+          : AERO_FACTORY_CURRENT,
+    factoryLookupCurrent: poolAddrCurrent,
+    factoryLookupLegacy: poolAddrLegacy,
+    infrastructure: entry.infrastructure ?? null,
+    verifiedAddressMatch:
+      entry.verifiedAddress != null
+        ? entry.verifiedAddress.toLowerCase() === poolAddr.toLowerCase()
+        : null,
   };
 }
 

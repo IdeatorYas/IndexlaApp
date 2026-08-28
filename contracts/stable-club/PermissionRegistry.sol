@@ -43,6 +43,7 @@ contract PermissionRegistry {
     event PermissionUnpaused(bytes32 indexed permissionId, address indexed user);
     event PermissionRegistered(bytes32 indexed permissionId, address indexed user, bytes32 poolId);
     event OperatorSet(address indexed operator, bool allowed);
+    event StrategyRegistrarSet(address indexed registrar, bool allowed);
     event OwnerTransferred(address indexed previous, address indexed next);
 
     mapping(bytes32 => Permission) public permissions;
@@ -54,6 +55,7 @@ contract PermissionRegistry {
 
     address public owner;
     mapping(address => bool) public isOperator;
+    mapping(address => bool) public isStrategyRegistrar;
     /// @dev Legacy single-operator getter for ABI compatibility with Step 1 tooling.
     address public operator;
 
@@ -114,6 +116,31 @@ contract PermissionRegistry {
     /// @dev Compatibility shim: wires a single operator (owner only). Prefer setOperator.
     function wireOperator(address operator_) external onlyOwner {
         setOperator(operator_, true);
+    }
+
+    /// @notice Allow StrategyPermissionRegistry to register leg permissions for users.
+    function setStrategyRegistrar(address registrar, bool allowed) external onlyOwner {
+        if (registrar == address(0)) revert InvalidOperator();
+        isStrategyRegistrar[registrar] = allowed;
+        emit StrategyRegistrarSet(registrar, allowed);
+    }
+
+    /// @dev Called by StrategyPermissionRegistry; `perm.user` is the wallet owner, not msg.sender.
+    function registerPermissionForStrategyRegistrar(Permission calldata perm)
+        external
+        returns (bytes32 permissionId)
+    {
+        if (!isStrategyRegistrar[msg.sender]) revert Unauthorized();
+        if (perm.maxSlippageBps > MAX_SLIPPAGE_BPS) revert InvalidSlippage();
+        if (perm.expiresAt <= block.timestamp) revert PermissionExpired();
+
+        permissionId = permissionIdFor(perm.user, perm.chainId, perm.poolId, perm.tokenA, perm.tokenB);
+
+        Permission storage existing = permissions[permissionId];
+        if (existing.user != address(0) && !existing.revoked) revert PermissionAlreadyExists();
+
+        permissions[permissionId] = perm;
+        emit PermissionRegistered(permissionId, perm.user, perm.poolId);
     }
 
     function permissionIdFor(

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { STABLE_CLUB_LOCAL_RPC_URL } from "@/lib/stable-club/constants";
 
-/** M7: E2E RPC proxy only when explicitly enabled on localhost (Playwright uses `next start`). */
+/** E2E RPC proxy only when explicitly enabled on strict localhost. */
 function e2eAllowed(request: Request): boolean {
   if (process.env.STABLE_CLUB_E2E_SIGNING !== "true") return false;
   const host = (request.headers.get("host") ?? "").toLowerCase();
-  return host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  return host === "localhost" || host.startsWith("localhost:") || host === "127.0.0.1" || host.startsWith("127.0.0.1:");
 }
 
 export async function POST(request: Request) {

@@ -1,5 +1,5 @@
 /**
- * Official Stable Club Base pool catalogue — Step 2/3.
+ * Official Stable Club Base pool catalogue — Step 2/3 / Phase 2a.
  * Internal test pool must NEVER appear here.
  * Unavailable catalogue entries must never silently remap to a different fee/tickSpacing.
  */
@@ -8,32 +8,37 @@ import { STABLE_CLUB_TEST_POOL_ID } from "@/lib/stable-club/constants";
 
 export type StableClubProtocol = "uniswap-v3" | "aerodrome-slipstream";
 
+export type InfrastructureGeneration =
+  | "uniswap-v3"
+  | "aerodrome-current"
+  | "aerodrome-legacy";
+
 /**
- * - available: factory-verified pool may be considered for launch after governance
+ * - available: factory-verified on the pool's infrastructure generation
  * - unavailable-factory-missing: catalogue ID retained but must never resolve/activate
- * Replacement of unavailable IDs requires formal onboarding + governance — never silent remap.
  */
-export type OfficialPoolAvailability =
-  | "available"
-  | "unavailable-factory-missing";
+export type OfficialPoolAvailability = "available" | "unavailable-factory-missing";
+
+export type DexInfrastructureBinding = {
+  generation: InfrastructureGeneration;
+  factory: Address;
+  npm: Address;
+  swapRouter: Address;
+};
 
 export type OfficialStableClubPool = {
   id: string;
   poolIdHash: Hex;
   label: string;
   protocol: StableClubProtocol;
+  infrastructure: DexInfrastructureBinding;
   chain: "base";
   chainId: 8453;
   tokenA: { symbol: string; address: Address; decimals: number };
   tokenB: { symbol: string; address: Address; decimals: number };
   feeOrTick: { kind: "fee"; feeBps: number } | { kind: "tickSpacing"; tickSpacing: number };
-  /**
-   * Factory-derived Base address when verified; null when missing or not yet bound.
-   * Unavailable pools MUST keep null and never invent a substitute pool.
-   */
   poolAddress: Address | null;
   availability: OfficialPoolAvailability;
-  /** Human-readable reason when unavailable. */
   unavailableReason?: string;
   isOfficialCatalogue: true;
   isTestOnly: false;
@@ -60,44 +65,70 @@ export const BASE_TOKENS = {
   },
 } as const;
 
+/** Uniswap V3 Base (Gauges V3 era — current Uni deployment). */
+export const BASE_DEX_UNISWAP_V3: DexInfrastructureBinding = {
+  generation: "uniswap-v3",
+  factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+  npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+  swapRouter: "0x2626664c2603336E57B271c5C0b26F421741e481",
+};
+
+/** Aerodrome Slipstream — Gauges V3 deployment (current). Source: aerodrome-finance/slipstream README. */
+export const BASE_DEX_AERODROME_CURRENT: DexInfrastructureBinding = {
+  generation: "aerodrome-current",
+  factory: "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef",
+  npm: "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53",
+  swapRouter: "0x698Cb2b6dd822994581fEa6eA4Fc755d1363A92F",
+};
+
+/** Aerodrome Slipstream — initial deployment (legacy CL100 pools). Source: aerodrome-finance/slipstream README. */
+export const BASE_DEX_AERODROME_LEGACY: DexInfrastructureBinding = {
+  generation: "aerodrome-legacy",
+  factory: "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A",
+  npm: "0x827922686190790b37229fd06084350e74485b72",
+  swapRouter: "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5",
+};
+
+/** @deprecated Use BASE_DEX_UNISWAP_V3 / BASE_DEX_AERODROME_CURRENT explicitly. */
 export const BASE_DEX = {
-  uniswapV3: {
-    factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD" as Address,
-    npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as Address,
-    swapRouter: "0x2626664c2603336E57B271c5C0b26F421741e481" as Address,
-  },
-  aerodromeSlipstream: {
-    factory: "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef" as Address,
-    npm: "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53" as Address,
-    swapRouter: "0x698Cb2b6dd822994581fEa6eA4Fc755d1363A92F" as Address,
-  },
+  uniswapV3: BASE_DEX_UNISWAP_V3,
+  aerodromeSlipstream: BASE_DEX_AERODROME_CURRENT,
+  aerodromeSlipstreamLegacy: BASE_DEX_AERODROME_LEGACY,
 } as const;
 
-/** Factory-verified Uniswap V3 USDC/cbBTC 0.05% on Base (Step 3 inspection). */
 export const USDC_CBBTC_UNI_005_POOL =
   "0xfBB6Eed8e7aa03B138556eeDaF5D271A5E1e43ef" as Address;
+
+export const USDC_CBBTC_AERO_CL100_POOL =
+  "0x4e962bb3889bf030368f56810a9c96b83cb3e778" as Address;
+
+export const CBBTC_WETH_AERO_CL10_POOL =
+  "0x42d4a22CaD0F5a49681a5715cE994Af73A43B76b" as Address;
+
+export const CBBTC_WETH_AERO_CL100_POOL =
+  "0x70acdf2ad0bf2402c957154f944c19ef4e1cbae1" as Address;
+
+export const CBBTC_WETH_UNI_005_POOL =
+  "0x7AeA2E8A3843516afa07293a10Ac8E49906dabD1" as Address;
 
 function poolKey(label: string): Hex {
   return keccak256(stringToHex(label));
 }
 
-const AERO_CL100_UNAVAILABLE_REASON =
-  "Factory getPool(..., tickSpacing=100) returns address(0) on Base. Do not remap to CL10. Formal onboarding required.";
-
 export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] = [
   {
     id: "USDC-cbBTC-AERO-CL100",
     poolIdHash: poolKey("INDEXLA_STABLE_CLUB_BASE_USDC_cbBTC_AERO_CL100"),
-    label: "USDC/cbBTC CL100 — Aerodrome Slipstream",
+    label: "USDC/cbBTC CL100 — Aerodrome Slipstream (legacy)",
     protocol: "aerodrome-slipstream",
+    infrastructure: BASE_DEX_AERODROME_LEGACY,
     chain: "base",
     chainId: 8453,
     tokenA: BASE_TOKENS.USDC,
     tokenB: BASE_TOKENS.cbBTC,
     feeOrTick: { kind: "tickSpacing", tickSpacing: 100 },
-    poolAddress: null,
-    availability: "unavailable-factory-missing",
-    unavailableReason: AERO_CL100_UNAVAILABLE_REASON,
+    poolAddress: USDC_CBBTC_AERO_CL100_POOL,
+    availability: "available",
     isOfficialCatalogue: true,
     isTestOnly: false,
     activationRequiresTestPoolValidation: true,
@@ -108,6 +139,7 @@ export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] 
     poolIdHash: poolKey("INDEXLA_STABLE_CLUB_BASE_USDC_cbBTC_UNI_005"),
     label: "USDC/cbBTC 0.05% — Uniswap V3",
     protocol: "uniswap-v3",
+    infrastructure: BASE_DEX_UNISWAP_V3,
     chain: "base",
     chainId: 8453,
     tokenA: BASE_TOKENS.USDC,
@@ -125,12 +157,13 @@ export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] 
     poolIdHash: poolKey("INDEXLA_STABLE_CLUB_BASE_cbBTC_WETH_AERO_CL10"),
     label: "cbBTC/WETH CL10 — Aerodrome Slipstream",
     protocol: "aerodrome-slipstream",
+    infrastructure: BASE_DEX_AERODROME_CURRENT,
     chain: "base",
     chainId: 8453,
     tokenA: BASE_TOKENS.cbBTC,
     tokenB: BASE_TOKENS.WETH,
     feeOrTick: { kind: "tickSpacing", tickSpacing: 10 },
-    poolAddress: "0x42d4a22CaD0F5a49681a5715cE994Af73A43B76b" as Address,
+    poolAddress: CBBTC_WETH_AERO_CL10_POOL,
     availability: "available",
     isOfficialCatalogue: true,
     isTestOnly: false,
@@ -140,16 +173,16 @@ export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] 
   {
     id: "cbBTC-WETH-AERO-CL100",
     poolIdHash: poolKey("INDEXLA_STABLE_CLUB_BASE_cbBTC_WETH_AERO_CL100"),
-    label: "cbBTC/WETH CL100 — Aerodrome Slipstream",
+    label: "cbBTC/WETH CL100 — Aerodrome Slipstream (legacy)",
     protocol: "aerodrome-slipstream",
+    infrastructure: BASE_DEX_AERODROME_LEGACY,
     chain: "base",
     chainId: 8453,
     tokenA: BASE_TOKENS.cbBTC,
     tokenB: BASE_TOKENS.WETH,
     feeOrTick: { kind: "tickSpacing", tickSpacing: 100 },
-    poolAddress: null,
-    availability: "unavailable-factory-missing",
-    unavailableReason: AERO_CL100_UNAVAILABLE_REASON,
+    poolAddress: CBBTC_WETH_AERO_CL100_POOL,
+    availability: "available",
     isOfficialCatalogue: true,
     isTestOnly: false,
     activationRequiresTestPoolValidation: true,
@@ -160,12 +193,13 @@ export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] 
     poolIdHash: poolKey("INDEXLA_STABLE_CLUB_BASE_cbBTC_WETH_UNI_005"),
     label: "cbBTC/WETH 0.05% — Uniswap V3",
     protocol: "uniswap-v3",
+    infrastructure: BASE_DEX_UNISWAP_V3,
     chain: "base",
     chainId: 8453,
     tokenA: BASE_TOKENS.cbBTC,
     tokenB: BASE_TOKENS.WETH,
     feeOrTick: { kind: "fee", feeBps: 5 },
-    poolAddress: "0x7AeA2E8A3843516afa07293a10Ac8E49906dabD1" as Address,
+    poolAddress: CBBTC_WETH_UNI_005_POOL,
     availability: "available",
     isOfficialCatalogue: true,
     isTestOnly: false,
@@ -188,12 +222,10 @@ export function getOfficialPoolById(id: string): OfficialStableClubPool | undefi
   return OFFICIAL_STABLE_CLUB_BASE_POOLS.find((p) => p.id === id);
 }
 
-/** True only when catalogue says available AND a factory address is bound. */
 export function isPoolResolvable(pool: OfficialStableClubPool): boolean {
   return pool.availability === "available" && pool.poolAddress != null;
 }
 
-/** Never launch-ready if unavailable or missing address. */
 export function isPoolLaunchReady(pool: OfficialStableClubPool): boolean {
   return isPoolResolvable(pool);
 }
@@ -204,9 +236,6 @@ export function listUnavailableOfficialPools(): OfficialStableClubPool[] {
   );
 }
 
-/**
- * Refuse silent remaps: CL100 IDs must not resolve to a different tickSpacing pool.
- */
 export function assertNoSilentCl100Remap(poolId: string, resolvedTickSpacing: number): void {
   const pool = getOfficialPoolById(poolId);
   if (!pool) throw new Error(`Unknown catalogue pool: ${poolId}`);
@@ -219,4 +248,8 @@ export function assertNoSilentCl100Remap(poolId: string, resolvedTickSpacing: nu
       `Refusing silent remap of ${poolId}: catalogue tickSpacing 100 cannot resolve as ${resolvedTickSpacing}`,
     );
   }
+}
+
+export function resolvePoolInfrastructure(pool: OfficialStableClubPool): DexInfrastructureBinding {
+  return pool.infrastructure;
 }
