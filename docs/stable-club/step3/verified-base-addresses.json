@@ -1,0 +1,33 @@
+{
+  "chainId": 8453,
+  "verifiedAt": "2026-08-27",
+  "permit2": {
+    "address": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "verifiedOnFork": true
+  },
+  "oracles": {
+    "usdcUsd": {
+      "role": "primary_for_USDC",
+      "address": "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B",
+      "descriptionOnChain": "USDC / USD",
+      "decimals": 8,
+      "productPage": "https://data.chain.link/feeds/base/base/usdc-usd"
+    },
+    "cbBtcUsd": {
+      "role": "primary_valuation_for_cbBTC",
+      "address": "0x07DA0E54543a844a80ABE69c8A12F22B3aA59f9D",
+      "descriptionOnChain": "cbBTC / USD",
+      "decimals": 8,
+      "productPage": "https://data.chain.link/feeds/base/base/cbbtc-usd"
+    },
+    "btcUsd": {
+      "role": "secondary_peg_reference_for_cbBTC",
+      "address": "0x3A932b286715abc4A86a4ACAF68A6cdD89E0d446",
+      "descriptionOnChain": "BTC / USD",
+      "decimals": 8,
+      "productPage": "https://data.chain.link/feeds/base/base/btc-usd",
+      "pegMaxDeviationBps": 100
+    }
+  },
+  "note": "data.chain.link HTML address scrape was Cloudflare-blocked; addresses accepted only after on-chain description match + live bytecode/rounds."
+}

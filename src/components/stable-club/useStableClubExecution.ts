@@ -255,6 +255,12 @@ export function useStableClubExecution() {
       const swapAmount = parseUnits(swapUsdc || "0", STABLE_CLUB_USDC_DECIMALS);
       const nonce = executionNonce;
 
+      // Legacy local path (permit2 unset): approve only what each spender pulls.
+      // FeeRouter pulls swapAmount; executor pulls depositAmount - swapAmount.
+      if (swapAmount > depositAmount) {
+        throw new Error("swapAmount cannot exceed depositAmount");
+      }
+      const executorPull = depositAmount - swapAmount;
       if (swapAmount > BigInt(0)) {
         await client.writeContract({
           address: d.usdc,
@@ -265,14 +271,16 @@ export function useStableClubExecution() {
           account,
         });
       }
-      await client.writeContract({
-        address: d.usdc,
-        abi: erc20Abi,
-        functionName: "approve",
-        args: [d.executor, depositAmount],
-        chain,
-        account,
-      });
+      if (executorPull > BigInt(0)) {
+        await client.writeContract({
+          address: d.usdc,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [d.executor, executorPull],
+          chain,
+          account,
+        });
+      }
 
       await runTx("Deposit & add liquidity", () =>
         client.writeContract({

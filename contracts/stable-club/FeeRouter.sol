@@ -4,7 +4,11 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import {IAllowanceTransfer} from "./interfaces/IAllowanceTransfer.sol";
+import {UserTokenPull} from "./libraries/UserTokenPull.sol";
+
 /// @title FeeRouter — charges 1% INDEXLA fee only on swap amounts.
+/// @dev Production must wire Permit2; address(0) Permit2 is local/test legacy ERC20 path only.
 contract FeeRouter {
     using SafeERC20 for IERC20;
 
@@ -14,9 +18,11 @@ contract FeeRouter {
     address public owner;
     address public immutable feeRecipient;
     address public executor;
+    IAllowanceTransfer public permit2;
 
     event OwnerTransferred(address indexed previous, address indexed next);
     event ExecutorWired(address indexed executor);
+    event Permit2Updated(address indexed permit2);
     event SwapFeeCharged(
         address indexed user,
         address indexed token,
@@ -63,6 +69,13 @@ contract FeeRouter {
         emit ExecutorWired(executor_);
     }
 
+    /// @notice Wire Permit2 for ERC20 pulls. Production must set the verified Base Permit2.
+    /// @dev Setting address(0) re-enables legacy IERC20.transferFrom (local/test only).
+    function setPermit2(address permit2_) external onlyOwner {
+        permit2 = IAllowanceTransfer(permit2_);
+        emit Permit2Updated(permit2_);
+    }
+
     function feeBps() external pure returns (uint256) {
         return FEE_BPS;
     }
@@ -79,7 +92,7 @@ contract FeeRouter {
         uint256 feeAmount = (grossAmount * FEE_BPS) / BPS_DENOMINATOR;
         netAmount = grossAmount - feeAmount;
 
-        IERC20(token).safeTransferFrom(user, address(this), grossAmount);
+        UserTokenPull.pull(permit2, token, user, address(this), grossAmount);
         if (feeAmount > 0) {
             IERC20(token).safeTransfer(feeRecipient, feeAmount);
         }

@@ -1,11 +1,21 @@
 /**
- * Official Stable Club Base pool catalogue — Step 2.
+ * Official Stable Club Base pool catalogue — Step 2/3.
  * Internal test pool must NEVER appear here.
+ * Unavailable catalogue entries must never silently remap to a different fee/tickSpacing.
  */
 import { keccak256, stringToHex, type Address, type Hex } from "viem";
 import { STABLE_CLUB_TEST_POOL_ID } from "@/lib/stable-club/constants";
 
 export type StableClubProtocol = "uniswap-v3" | "aerodrome-slipstream";
+
+/**
+ * - available: factory-verified pool may be considered for launch after governance
+ * - unavailable-factory-missing: catalogue ID retained but must never resolve/activate
+ * Replacement of unavailable IDs requires formal onboarding + governance — never silent remap.
+ */
+export type OfficialPoolAvailability =
+  | "available"
+  | "unavailable-factory-missing";
 
 export type OfficialStableClubPool = {
   id: string;
@@ -17,8 +27,14 @@ export type OfficialStableClubPool = {
   tokenA: { symbol: string; address: Address; decimals: number };
   tokenB: { symbol: string; address: Address; decimals: number };
   feeOrTick: { kind: "fee"; feeBps: number } | { kind: "tickSpacing"; tickSpacing: number };
-  /** Verified on Base; may be resolved via factory if zero during local bootstrap. */
+  /**
+   * Factory-derived Base address when verified; null when missing or not yet bound.
+   * Unavailable pools MUST keep null and never invent a substitute pool.
+   */
   poolAddress: Address | null;
+  availability: OfficialPoolAvailability;
+  /** Human-readable reason when unavailable. */
+  unavailableReason?: string;
   isOfficialCatalogue: true;
   isTestOnly: false;
   activationRequiresTestPoolValidation: true;
@@ -57,9 +73,16 @@ export const BASE_DEX = {
   },
 } as const;
 
+/** Factory-verified Uniswap V3 USDC/cbBTC 0.05% on Base (Step 3 inspection). */
+export const USDC_CBBTC_UNI_005_POOL =
+  "0xfBB6Eed8e7aa03B138556eeDaF5D271A5E1e43ef" as Address;
+
 function poolKey(label: string): Hex {
   return keccak256(stringToHex(label));
 }
+
+const AERO_CL100_UNAVAILABLE_REASON =
+  "Factory getPool(..., tickSpacing=100) returns address(0) on Base. Do not remap to CL10. Formal onboarding required.";
 
 export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] = [
   {
@@ -73,6 +96,8 @@ export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] 
     tokenB: BASE_TOKENS.cbBTC,
     feeOrTick: { kind: "tickSpacing", tickSpacing: 100 },
     poolAddress: null,
+    availability: "unavailable-factory-missing",
+    unavailableReason: AERO_CL100_UNAVAILABLE_REASON,
     isOfficialCatalogue: true,
     isTestOnly: false,
     activationRequiresTestPoolValidation: true,
@@ -88,7 +113,8 @@ export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] 
     tokenA: BASE_TOKENS.USDC,
     tokenB: BASE_TOKENS.cbBTC,
     feeOrTick: { kind: "fee", feeBps: 5 },
-    poolAddress: null,
+    poolAddress: USDC_CBBTC_UNI_005_POOL,
+    availability: "available",
     isOfficialCatalogue: true,
     isTestOnly: false,
     activationRequiresTestPoolValidation: true,
@@ -104,7 +130,8 @@ export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] 
     tokenA: BASE_TOKENS.cbBTC,
     tokenB: BASE_TOKENS.WETH,
     feeOrTick: { kind: "tickSpacing", tickSpacing: 10 },
-    poolAddress: null,
+    poolAddress: "0x42d4a22CaD0F5a49681a5715cE994Af73A43B76b" as Address,
+    availability: "available",
     isOfficialCatalogue: true,
     isTestOnly: false,
     activationRequiresTestPoolValidation: true,
@@ -121,6 +148,8 @@ export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] 
     tokenB: BASE_TOKENS.WETH,
     feeOrTick: { kind: "tickSpacing", tickSpacing: 100 },
     poolAddress: null,
+    availability: "unavailable-factory-missing",
+    unavailableReason: AERO_CL100_UNAVAILABLE_REASON,
     isOfficialCatalogue: true,
     isTestOnly: false,
     activationRequiresTestPoolValidation: true,
@@ -136,7 +165,8 @@ export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] 
     tokenA: BASE_TOKENS.cbBTC,
     tokenB: BASE_TOKENS.WETH,
     feeOrTick: { kind: "fee", feeBps: 5 },
-    poolAddress: null,
+    poolAddress: "0x7AeA2E8A3843516afa07293a10Ac8E49906dabD1" as Address,
+    availability: "available",
     isOfficialCatalogue: true,
     isTestOnly: false,
     activationRequiresTestPoolValidation: true,
@@ -152,4 +182,41 @@ export function assertTestPoolNotInOfficialCatalogue(): boolean {
   return !OFFICIAL_STABLE_CLUB_BASE_POOLS.some(
     (p) => p.id === STABLE_CLUB_TEST_POOL_ID || p.label.includes("TEST"),
   );
+}
+
+export function getOfficialPoolById(id: string): OfficialStableClubPool | undefined {
+  return OFFICIAL_STABLE_CLUB_BASE_POOLS.find((p) => p.id === id);
+}
+
+/** True only when catalogue says available AND a factory address is bound. */
+export function isPoolResolvable(pool: OfficialStableClubPool): boolean {
+  return pool.availability === "available" && pool.poolAddress != null;
+}
+
+/** Never launch-ready if unavailable or missing address. */
+export function isPoolLaunchReady(pool: OfficialStableClubPool): boolean {
+  return isPoolResolvable(pool);
+}
+
+export function listUnavailableOfficialPools(): OfficialStableClubPool[] {
+  return OFFICIAL_STABLE_CLUB_BASE_POOLS.filter(
+    (p) => p.availability === "unavailable-factory-missing",
+  );
+}
+
+/**
+ * Refuse silent remaps: CL100 IDs must not resolve to a different tickSpacing pool.
+ */
+export function assertNoSilentCl100Remap(poolId: string, resolvedTickSpacing: number): void {
+  const pool = getOfficialPoolById(poolId);
+  if (!pool) throw new Error(`Unknown catalogue pool: ${poolId}`);
+  if (
+    pool.feeOrTick.kind === "tickSpacing" &&
+    pool.feeOrTick.tickSpacing === 100 &&
+    resolvedTickSpacing !== 100
+  ) {
+    throw new Error(
+      `Refusing silent remap of ${poolId}: catalogue tickSpacing 100 cannot resolve as ${resolvedTickSpacing}`,
+    );
+  }
 }

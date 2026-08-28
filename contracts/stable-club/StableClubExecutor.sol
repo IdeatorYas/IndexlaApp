@@ -8,15 +8,19 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {PermissionRegistry} from "./PermissionRegistry.sol";
 import {FeeRouter} from "./FeeRouter.sol";
 import {IStableClubAdapter} from "./interfaces/IStableClubAdapter.sol";
+import {IAllowanceTransfer} from "./interfaces/IAllowanceTransfer.sol";
+import {UserTokenPull} from "./libraries/UserTokenPull.sol";
 
 /// @title StableClubExecutor — stateless operator; never retains user funds after execution.
 /// @notice Step 1: approved pools, tokens, adapters and functions only.
+/// @dev Production ERC20 pulls use Permit2; address(0) Permit2 is local/test legacy path only.
 contract StableClubExecutor is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     PermissionRegistry public immutable permissionRegistry;
     FeeRouter public immutable feeRouter;
     address public owner;
+    IAllowanceTransfer public permit2;
 
     mapping(address => bool) public approvedAdapters;
     mapping(bytes32 => address) public poolAdapters;
@@ -25,6 +29,7 @@ contract StableClubExecutor is ReentrancyGuard {
     event AdapterApproved(address indexed adapter, bool approved);
     event PoolRegistered(bytes32 indexed poolId, address indexed adapter, bool isTestPool);
     event TokenApproved(address indexed token, bool approved);
+    event Permit2Updated(address indexed permit2);
     event OwnerTransferred(address indexed previous, address indexed next);
     event Executed(
         bytes32 indexed permissionId,
@@ -83,6 +88,12 @@ contract StableClubExecutor is ReentrancyGuard {
         emit TokenApproved(token, approved);
     }
 
+    /// @notice Wire Permit2 for user ERC20 pulls. Production must use verified Base Permit2.
+    function setPermit2(address permit2_) external onlyOwner {
+        permit2 = IAllowanceTransfer(permit2_);
+        emit Permit2Updated(permit2_);
+    }
+
     function depositAndAddLiquidity(
         bytes32 permissionId,
         uint256 executionNonce,
@@ -132,7 +143,7 @@ contract StableClubExecutor is ReentrancyGuard {
         }
 
         if (amountStable > 0) {
-            IERC20(stablecoin).safeTransferFrom(perm.user, address(this), amountStable);
+            UserTokenPull.pull(permit2, stablecoin, perm.user, address(this), amountStable);
         }
 
         uint256 amountA = stablecoin == tokenA ? amountStable : amountPaired;
