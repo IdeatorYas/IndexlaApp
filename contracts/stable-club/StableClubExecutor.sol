@@ -301,6 +301,7 @@ contract StableClubExecutor is ReentrancyGuard {
         bytes32 poolId = IStableClubAdapter(adapter).poolId();
         if (poolAdapters[poolId] != adapter) revert PoolNotApproved();
         if (perm.poolId != poolId) revert PoolMismatch();
+        if (minAmountA == 0 || minAmountB == 0) revert MinOutRequired();
 
         permissionRegistry.validateEmergencyExecution(permissionId, executionNonce);
 

@@ -347,8 +347,8 @@ describe("StableClubExecutor — test pool flow", function () {
       ctx.usdc,
       ctx.weth,
       lp,
-      0n,
-      0n,
+      1n,
+      1n,
     );
 
     expect(await ctx.testAdapterContract.balanceOf(ctx.testUser.address)).to.equal(0n);

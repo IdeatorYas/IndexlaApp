@@ -30,6 +30,20 @@ import {
   STABLE_CLUB_USDC_DECIMALS,
 } from "@/lib/stable-club/constants";
 
+/** Defensive minOut for TestPoolAdapter 50/50 exit (1% slack below expected split). */
+function testPoolExitMins(lpAmount: bigint): { minA: bigint; minB: bigint } {
+  const two = BigInt(2);
+  const zero = BigInt(0);
+  const one = BigInt(1);
+  const pctNum = BigInt(99);
+  const pctDen = BigInt(100);
+  const half = lpAmount / two;
+  const rest = lpAmount - half;
+  const minA = half > zero ? (half * pctNum) / pctDen || one : one;
+  const minB = rest > zero ? (rest * pctNum) / pctDen || one : one;
+  return { minA, minB };
+}
+
 type DeploymentsResponse =
   | { configured: false; message: string }
   | { configured: true; deployments: StableClubLocalDeployments };
@@ -324,8 +338,9 @@ export function useStableClubExecution() {
         account,
       });
 
-      await runTx("Remove liquidity", () =>
-        client.writeContract({
+      await runTx("Remove liquidity", () => {
+        const { minA, minB } = testPoolExitMins(lpAmount);
+        return client.writeContract({
           address: d.executor,
           abi: stableClubExecutorAbi,
           functionName: "removeLiquidity",
@@ -336,14 +351,14 @@ export function useStableClubExecution() {
             d.usdc,
             d.weth,
             lpAmount,
-            BigInt(0),
-            BigInt(0),
+            minA,
+            minB,
             BigInt(500),
           ],
           chain,
           account,
-        }),
-      );
+        });
+      });
     },
     [chain, ensureReady, executionNonce, permissionId, runTx],
   );
@@ -363,8 +378,9 @@ export function useStableClubExecution() {
       account,
     });
 
-    await runTx("Withdraw all", () =>
-      client.writeContract({
+    await runTx("Withdraw all", () => {
+      const { minA, minB } = testPoolExitMins(lpBalance);
+      return client.writeContract({
         address: d.executor,
         abi: stableClubExecutorAbi,
         functionName: "withdrawAll",
@@ -375,14 +391,14 @@ export function useStableClubExecution() {
           d.usdc,
           d.weth,
           lpBalance,
-          BigInt(0),
-          BigInt(0),
+          minA,
+          minB,
           BigInt(500),
         ],
         chain,
         account,
-      }),
-    );
+      });
+    });
   }, [chain, ensureReady, executionNonce, lpBalance, permissionId, runTx]);
 
   const pauseAutomation = useCallback(async () => {
@@ -433,8 +449,9 @@ export function useStableClubExecution() {
       account,
     });
 
-    await runTx("Emergency exit", () =>
-      client.writeContract({
+    await runTx("Emergency exit", () => {
+      const { minA, minB } = testPoolExitMins(lpBalance);
+      return client.writeContract({
         address: d.executor,
         abi: stableClubExecutorAbi,
         functionName: "emergencyExit",
@@ -445,13 +462,13 @@ export function useStableClubExecution() {
           d.usdc,
           d.weth,
           lpBalance,
-          BigInt(0),
-          BigInt(0),
+          minA,
+          minB,
         ],
         chain,
         account,
-      }),
-    );
+      });
+    });
   }, [chain, ensureReady, executionNonce, lpBalance, permissionId, runTx]);
 
   return {

@@ -212,13 +212,13 @@ contract PermissionRegistry {
         lastExecutionAt[permissionId] = block.timestamp;
     }
 
+    /// @notice Emergency-exit nonce gate for the permission owner only (caller must be an operator executor).
+    /// @dev Intentionally ignores revoked, paused, and expiry so users can always recover LP via the executor.
+    ///      Normal automation/deposit paths remain blocked via validateExecution / _activePermission.
     function validateEmergencyExecution(bytes32 permissionId, uint256 executionNonce) external onlyOperator {
         Permission storage perm = permissions[permissionId];
         if (perm.user == address(0)) revert PermissionNotFound();
-        if (perm.revoked) revert RevokedPermission();
-        if (block.timestamp >= perm.expiresAt) revert PermissionExpired();
         if (perm.chainId != block.chainid) revert UnauthorizedUser();
-        if (!isActionAllowed(permissionId, Action.EmergencyExit)) revert ActionNotAllowed();
 
         _consumeExecutionNonce(permissionId, executionNonce);
     }

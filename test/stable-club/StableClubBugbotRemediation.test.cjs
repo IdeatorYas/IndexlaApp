@@ -411,8 +411,8 @@ describe("Bugbot remediation — finding 4 Step1 pool binding", function () {
         ctx.usdc,
         ctx.weth,
         1n,
-        0n,
-        0n,
+        1n,
+        1n,
       ),
     ).to.be.revertedWithCustomError(ctx.executorContract, "PoolMismatch");
   });

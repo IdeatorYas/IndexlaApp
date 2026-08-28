@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { STABLE_CLUB_LOCAL_RPC_URL } from "@/lib/stable-club/constants";
 
-/** M7: E2E RPC proxy only on local non-production hosts. */
+/** M7: E2E RPC proxy only when explicitly enabled on localhost (Playwright uses `next start`). */
 function e2eAllowed(request: Request): boolean {
   if (process.env.STABLE_CLUB_E2E_SIGNING !== "true") return false;
-  if (process.env.NODE_ENV === "production") return false;
   const host = (request.headers.get("host") ?? "").toLowerCase();
   return host.startsWith("localhost") || host.startsWith("127.0.0.1");
 }
