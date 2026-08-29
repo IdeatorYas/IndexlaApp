@@ -11,6 +11,7 @@ import {
   STABLE_CLUB_LOCAL_CHAIN,
   STABLE_CLUB_LOCAL_RPC_URL,
 } from "@/lib/stable-club/constants";
+import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 
 /** Hardhat account #0 — local E2E only; never used in production. */
 const DEFAULT_E2E_PRIVATE_KEY =
@@ -67,7 +68,7 @@ export async function POST(request: Request) {
       gas: tx.gas ? BigInt(tx.gas) : undefined,
     });
 
-    await publicClient.waitForTransactionReceipt({ hash });
+    await waitForSuccessfulTransactionReceipt(publicClient, hash);
     return NextResponse.json({ hash });
   } catch (error) {
     const message = error instanceof Error ? error.message : "send-tx failed";

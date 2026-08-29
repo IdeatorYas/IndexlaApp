@@ -32,6 +32,7 @@ import {
   resolveVerifiedAdapterForPool,
   type NpmApprovalStatus,
 } from "@/lib/stable-club/nft-approval";
+import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
   verifiedStep2Adapters,
   type StableClubLocalDeployments,
@@ -215,7 +216,7 @@ export function StableClubView({
         const hash = await walletClient.writeContract(tx);
         setLastApprovalTx(hash);
 
-        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        await waitForSuccessfulTransactionReceipt(publicClient, hash);
         const approvedSpender = await publicClient.readContract({
           address: verified.npm,
           abi: erc721PositionAbi,
@@ -223,7 +224,7 @@ export function StableClubView({
           args: [BigInt(position.positionTokenId)],
         });
         const status = resolveStatusAfterApproveConfirmation({
-          receiptStatus: receipt.status === "success" ? "success" : "reverted",
+          receiptStatus: "success",
           adapter: verified.adapter,
           getApprovedSpender: approvedSpender as Address,
         });

@@ -8,6 +8,7 @@ import {
   formatUnits,
   http,
   parseUnits,
+  type Address,
   type Hex,
 } from "viem";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
@@ -29,6 +30,7 @@ import {
   STABLE_CLUB_LOCAL_RPC_URL,
   STABLE_CLUB_USDC_DECIMALS,
 } from "@/lib/stable-club/constants";
+import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 
 /** Defensive minOut for TestPoolAdapter 50/50 exit (1% slack below expected split). */
 function testPoolExitMins(lpAmount: bigint): { minA: bigint; minB: bigint } {
@@ -218,7 +220,7 @@ export function useStableClubExecution() {
       try {
         const hash = await fn();
         setLastTxHash(hash);
-        await publicClient.waitForTransactionReceipt({ hash });
+        await waitForSuccessfulTransactionReceipt(publicClient, hash);
         setExecutionNonce((n) => n + BigInt(1));
         await refreshBalances();
         setStatusMessage(`${action} confirmed.`);
@@ -233,6 +235,29 @@ export function useStableClubExecution() {
       }
     },
     [publicClient, refreshBalances],
+  );
+
+  /** ERC20 approve must succeed on-chain before a dependent executor call. */
+  const approveErc20OrThrow = useCallback(
+    async (
+      client: NonNullable<ReturnType<typeof createWalletClient>>,
+      account: Address,
+      token: Address,
+      spender: Address,
+      amount: bigint,
+    ) => {
+      const hash = await client.writeContract({
+        address: token,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [spender, amount],
+        chain,
+        account,
+      });
+      await waitForSuccessfulTransactionReceipt(publicClient, hash);
+      return hash;
+    },
+    [chain, publicClient],
   );
 
   const registerPermission = useCallback(async () => {
@@ -276,24 +301,10 @@ export function useStableClubExecution() {
       }
       const executorPull = depositAmount - swapAmount;
       if (swapAmount > BigInt(0)) {
-        await client.writeContract({
-          address: d.usdc,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [d.feeRouter, swapAmount],
-          chain,
-          account,
-        });
+        await approveErc20OrThrow(client, account, d.usdc, d.feeRouter, swapAmount);
       }
       if (executorPull > BigInt(0)) {
-        await client.writeContract({
-          address: d.usdc,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [d.executor, executorPull],
-          chain,
-          account,
-        });
+        await approveErc20OrThrow(client, account, d.usdc, d.executor, executorPull);
       }
 
       await runTx("Deposit & add liquidity", () =>
@@ -320,7 +331,7 @@ export function useStableClubExecution() {
         }),
       );
     },
-    [chain, ensureReady, executionNonce, permissionId, runTx],
+    [approveErc20OrThrow, chain, ensureReady, executionNonce, permissionId, runTx],
   );
 
   const removeLiquidity = useCallback(
@@ -329,14 +340,7 @@ export function useStableClubExecution() {
       if (!permissionId) throw new Error("Permission id unavailable.");
       const nonce = executionNonce;
 
-      await client.writeContract({
-        address: d.testAdapter,
-        abi: erc20Abi,
-        functionName: "approve",
-        args: [d.executor, lpAmount],
-        chain,
-        account,
-      });
+      await approveErc20OrThrow(client, account, d.testAdapter, d.executor, lpAmount);
 
       await runTx("Remove liquidity", () => {
         const { minA, minB } = testPoolExitMins(lpAmount);
@@ -360,7 +364,7 @@ export function useStableClubExecution() {
         });
       });
     },
-    [chain, ensureReady, executionNonce, permissionId, runTx],
+    [approveErc20OrThrow, chain, ensureReady, executionNonce, permissionId, runTx],
   );
 
   const withdrawAll = useCallback(async () => {
@@ -369,14 +373,7 @@ export function useStableClubExecution() {
     if (lpBalance === BigInt(0)) throw new Error("No LP balance to withdraw.");
     const nonce = executionNonce;
 
-    await client.writeContract({
-      address: d.testAdapter,
-      abi: erc20Abi,
-      functionName: "approve",
-      args: [d.executor, lpBalance],
-      chain,
-      account,
-    });
+    await approveErc20OrThrow(client, account, d.testAdapter, d.executor, lpBalance);
 
     await runTx("Withdraw all", () => {
       const { minA, minB } = testPoolExitMins(lpBalance);
@@ -399,7 +396,7 @@ export function useStableClubExecution() {
         account,
       });
     });
-  }, [chain, ensureReady, executionNonce, lpBalance, permissionId, runTx]);
+  }, [approveErc20OrThrow, chain, ensureReady, executionNonce, lpBalance, permissionId, runTx]);
 
   const pauseAutomation = useCallback(async () => {
     const { d, account, client } = ensureReady();
@@ -440,14 +437,7 @@ export function useStableClubExecution() {
     if (lpBalance === BigInt(0)) throw new Error("No LP balance for emergency exit.");
     const nonce = executionNonce;
 
-    await client.writeContract({
-      address: d.testAdapter,
-      abi: erc20Abi,
-      functionName: "approve",
-      args: [d.executor, lpBalance],
-      chain,
-      account,
-    });
+    await approveErc20OrThrow(client, account, d.testAdapter, d.executor, lpBalance);
 
     await runTx("Emergency exit", () => {
       const { minA, minB } = testPoolExitMins(lpBalance);
@@ -469,7 +459,7 @@ export function useStableClubExecution() {
         account,
       });
     });
-  }, [chain, ensureReady, executionNonce, lpBalance, permissionId, runTx]);
+  }, [approveErc20OrThrow, chain, ensureReady, executionNonce, lpBalance, permissionId, runTx]);
 
   return {
     deployments,

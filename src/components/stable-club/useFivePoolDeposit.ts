@@ -38,6 +38,7 @@ import {
   type FivePoolDepositProgress,
 } from "@/lib/stable-club/five-pool-deposit";
 import { buildClFivePoolPermit2Plan } from "@/lib/stable-club/five-pool-permit2";
+import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
   createOracleGuardQuoteAdapter,
   type FivePoolQuoteBundle,
@@ -472,7 +473,7 @@ export function useFivePoolDeposit() {
         args: [strategy, legPermissions as never, legs as never],
       });
       setLastTxHash(hash);
-      await publicClient.waitForTransactionReceipt({ hash });
+      await waitForSuccessfulTransactionReceipt(publicClient, hash);
       await refreshBalancesAndStrategy();
       setStatusMessage("Strategy registered");
     } catch (err) {
@@ -576,7 +577,7 @@ export function useFivePoolDeposit() {
           args: permitPlan.erc20ApproveTx.args,
         });
         hashes.push(h1);
-        await publicClient.waitForTransactionReceipt({ hash: h1 });
+        await waitForSuccessfulTransactionReceipt(publicClient, h1);
       }
 
       setStatusMessage("Approve Permit2 → CL executor (bounded, expiring)…");
@@ -596,7 +597,7 @@ export function useFivePoolDeposit() {
           args: permitPlan.permit2ApproveTx.args,
         });
         hashes.push(h2);
-        await publicClient.waitForTransactionReceipt({ hash: h2 });
+        await waitForSuccessfulTransactionReceipt(publicClient, h2);
       }
       setApprovalTxHashes(hashes);
 
@@ -642,7 +643,7 @@ export function useFivePoolDeposit() {
         ],
       });
       setLastTxHash(depositHash);
-      await publicClient.waitForTransactionReceipt({ hash: depositHash });
+      await waitForSuccessfulTransactionReceipt(publicClient, depositHash);
       setExecutionNonce(nextNonce + BigInt(1));
       setProgress("confirmed");
       setStatusMessage("Deposit confirmed");

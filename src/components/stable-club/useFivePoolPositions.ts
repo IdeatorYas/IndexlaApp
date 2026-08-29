@@ -40,6 +40,7 @@ import {
 } from "@/lib/stable-club/five-pool-positions";
 import { FIVE_POOL_LEG_COUNT } from "@/lib/stable-club/five-pool-strategy";
 import { erc721PositionAbi } from "@/lib/stable-club/nft-approval";
+import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
   isValidPhase2aPublicDeployments,
   type StableClubPhase2aPublicDeployments,
@@ -421,7 +422,7 @@ export function useFivePoolPositions() {
         functionName: "approve",
         args: [position.adapter, position.positionTokenId],
       } as never);
-      await publicClient.waitForTransactionReceipt({ hash });
+      await waitForSuccessfulTransactionReceipt(publicClient, hash);
       return hash;
     },
     [publicClient],
@@ -482,7 +483,7 @@ export function useFivePoolPositions() {
           args: [sid, leg as never, nonce],
         } as never);
         setLastTxHash(hash);
-        await publicClient.waitForTransactionReceipt({ hash });
+        await waitForSuccessfulTransactionReceipt(publicClient, hash);
         setLegResults([{ legIndex, status: "confirmed", txHash: hash }]);
         setProgress("confirmed");
         setStatusMessage("Position exited");
@@ -591,7 +592,7 @@ export function useFivePoolPositions() {
         args: [sid, legs as never, nonceBase],
       } as never);
       setLastTxHash(hash);
-      await publicClient.waitForTransactionReceipt({ hash });
+      await waitForSuccessfulTransactionReceipt(publicClient, hash);
       setLegResults((prev) =>
         prev.map((r) =>
           r.status === "skipped" ? r : { ...r, status: "confirmed", txHash: hash },
@@ -684,7 +685,7 @@ export function useFivePoolPositions() {
           args: [sid, leg as never, nonce],
         } as never);
         setLastTxHash(hash);
-        await publicClient.waitForTransactionReceipt({ hash });
+        await waitForSuccessfulTransactionReceipt(publicClient, hash);
         setLegResults([{ legIndex, status: "confirmed", txHash: hash }]);
         setProgress("confirmed");
         setStatusMessage("Emergency exit confirmed");
@@ -777,7 +778,7 @@ export function useFivePoolPositions() {
             args: [sid, leg as never, nonce],
           } as never);
           setLastTxHash(hash);
-          await publicClient.waitForTransactionReceipt({ hash });
+          await waitForSuccessfulTransactionReceipt(publicClient, hash);
           anyOk = true;
           setLegResults((prev) =>
             prev.map((r) =>
@@ -846,7 +847,7 @@ export function useFivePoolPositions() {
         args: [sid],
       } as never);
       setLastTxHash(hash);
-      await publicClient.waitForTransactionReceipt({ hash });
+      await waitForSuccessfulTransactionReceipt(publicClient, hash);
       setStatusMessage("Strategy revoked — use emergency exit for remaining NFTs");
       setProgress("confirmed");
       submittingRef.current = false;

@@ -106,6 +106,7 @@ export function toPublicPhase2aDeploymentsPayload(
     clExecutor: deployments.clExecutor,
     oracleGuard: deployments.oracleGuard,
     mevGuard: deployments.mevGuard,
+    safetyController: deployments.safetyController,
     permit2: deployments.permit2,
     canonicalBasePermit2: deployments.canonicalBasePermit2,
     usdc: deployments.usdc,
