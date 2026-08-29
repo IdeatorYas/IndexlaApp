@@ -24,6 +24,7 @@ contract FeeRouter {
     event OwnerTransferred(address indexed previous, address indexed next);
     event ExecutorWired(address indexed executor);
     event ExecutorApprovalUpdated(address indexed executor, bool approved);
+    event PrimaryExecutorCleared(address indexed previous);
     event Permit2Updated(address indexed permit2);
     event SwapFeeCharged(
         address indexed user,
@@ -65,7 +66,7 @@ contract FeeRouter {
 
     /// @notice One-shot primary executor wiring — owner/governance only (Step 1 compatibility).
     function wireExecutor(address executor_) external onlyOwner {
-        if (executor_ == address(0)) revert InvalidExecutor();
+        if (executor_ == address(0) || executor_ == feeRecipient) revert InvalidExecutor();
         if (executor != address(0)) revert ExecutorAlreadyWired();
         executor = executor_;
         approvedExecutors[executor_] = true;
@@ -74,17 +75,25 @@ contract FeeRouter {
     }
 
     /// @notice Explicit approved-executor allowlist for multi-executor Phase 2+.
+    /// @dev Owner/governance only (Safe/Timelock-ready). De-approving the primary `executor`
+    ///      clears the legacy pointer so tooling cannot assume a de-approved address remains
+    ///      authoritative. Fee recipient can never be an approved executor.
     function setExecutorApproved(address executor_, bool approved) external onlyOwner {
-        if (executor_ == address(0)) revert InvalidExecutor();
+        if (executor_ == address(0) || executor_ == feeRecipient) revert InvalidExecutor();
         approvedExecutors[executor_] = approved;
         if (approved && executor == address(0)) {
             executor = executor_;
             emit ExecutorWired(executor_);
         }
+        if (!approved && executor == executor_) {
+            emit PrimaryExecutorCleared(executor_);
+            executor = address(0);
+        }
         emit ExecutorApprovalUpdated(executor_, approved);
     }
 
     /// @notice Wire Permit2 for ERC20 pulls. Production must set the verified Base Permit2.
+    /// @dev Clearing Permit2 (address(0)) re-enables legacy transferFrom — local/test only.
     function setPermit2(address permit2_) external onlyOwner {
         permit2 = IAllowanceTransfer(permit2_);
         emit Permit2Updated(permit2_);

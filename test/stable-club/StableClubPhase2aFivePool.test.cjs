@@ -78,6 +78,9 @@ async function deployPhase2aStack() {
   await feeRouter.setExecutorApproved(clExecutorAddr, true);
   await swapRouter.setExecutorApproved(clExecutorAddr, true);
 
+  const permit2 = await ethers.deployContract("MockPermit2");
+  await clExecutor.setPermit2(await permit2.getAddress());
+
   for (const token of [tokens.usdc, tokens.cbbtc, tokens.weth]) {
     await clExecutor.setTokenApproval(token, true);
   }
@@ -146,6 +149,7 @@ async function deployPhase2aStack() {
     strategyRegistry,
     feeRouter,
     swapRouter,
+    permit2,
     oracleGuard,
     mevGuard,
     clExecutor,
@@ -326,7 +330,12 @@ async function buildDepositLegs(ctx, grossUsdc = ethers.parseUnits("1000", 6)) {
 }
 
 async function approveUsdcDeposit(ctx, user, grossUsdc) {
-  await ctx.usdc.connect(user).approve(await ctx.clExecutor.getAddress(), grossUsdc);
+  const permit2Addr = await ctx.permit2.getAddress();
+  const clAddr = await ctx.clExecutor.getAddress();
+  // Bounded Permit2 path: ERC20 approve Permit2, then Permit2 allowance for CL executor only.
+  await ctx.usdc.connect(user).approve(permit2Addr, grossUsdc);
+  const expiration = BigInt((await time.latest()) + 3600);
+  await ctx.permit2.connect(user).approve(ctx.tokens.usdc, clAddr, grossUsdc, expiration);
 }
 
 describe("Phase 2a — StrategyPermissionRegistry allocation", function () {
@@ -432,7 +441,7 @@ describe("Phase 2a — five-pool CL executor deposit and exit", function () {
     expect(await ctx.strategyRegistry.strategyDepositNonceUsed(strategyId, 2n)).to.equal(false);
   });
 
-  it("exitLeg and exitAll", async function () {
+  it("exitLeg partial keeps NFT; fullExit and exitAll burn NFTs", async function () {
     const ctx = await deployPhase2aStack();
     const { strategyId, poolIds } = await registerFivePoolStrategy(ctx);
     const grossUsdc = ethers.parseUnits("500", 6);
@@ -447,6 +456,32 @@ describe("Phase 2a — five-pool CL executor deposit and exit", function () {
       legs,
     );
 
+    const adapter0 = ctx.adapters[0];
+    const tokenId0 = 1n;
+    const fullLiq = await adapter0.contract.liquidityOf(tokenId0);
+    await adapter0.contract.connect(ctx.user).approve(adapter0.address, tokenId0);
+
+    // Partial decrease — NFT retained (tiny liquidity so mock token payout fits balances)
+    await ctx.clExecutor.connect(ctx.user).exitLeg(
+      strategyId,
+      {
+        legIndex: 0,
+        adapter: adapter0.address,
+        tokenA: adapter0.tokenA,
+        tokenB: adapter0.tokenB,
+        positionTokenId: tokenId0,
+        liquidity: 2n,
+        amountAMin: 1n,
+        amountBMin: 1n,
+        slippageBps: 100n,
+        fullExit: false,
+      },
+      300n,
+    );
+    expect(await adapter0.contract.ownerOf(tokenId0)).to.equal(ctx.user.address);
+    expect(await adapter0.contract.liquidityOf(tokenId0)).to.equal(fullLiq - 2n);
+
+    // Full exit burns NFT
     const adapter1 = ctx.adapters[1];
     const tokenId1 = 1n;
     await adapter1.contract.connect(ctx.user).approve(adapter1.address, tokenId1);
@@ -458,16 +493,34 @@ describe("Phase 2a — five-pool CL executor deposit and exit", function () {
         tokenA: adapter1.tokenA,
         tokenB: adapter1.tokenB,
         positionTokenId: tokenId1,
-        liquidity: 1n,
+        liquidity: 0n,
         amountAMin: 1n,
         amountBMin: 1n,
         slippageBps: 100n,
+        fullExit: true,
       },
       301n,
     );
+    await expect(adapter1.contract.ownerOf(tokenId1)).to.be.reverted;
 
+    // exitAll burns remaining (skip already-burned leg 1; finish leg 0 + 2..4)
     const exitAllLegs = [];
     for (let i = 0; i < 5; i++) {
+      if (i === 1) {
+        exitAllLegs.push({
+          legIndex: i,
+          adapter: ethers.ZeroAddress,
+          tokenA: ethers.ZeroAddress,
+          tokenB: ethers.ZeroAddress,
+          positionTokenId: 0n,
+          liquidity: 0n,
+          amountAMin: 1n,
+          amountBMin: 1n,
+          slippageBps: 100n,
+          fullExit: true,
+        });
+        continue;
+      }
       const adapter = ctx.adapters[i];
       const tokenId = 1n;
       await adapter.contract.connect(ctx.user).approve(adapter.address, tokenId);
@@ -477,12 +530,16 @@ describe("Phase 2a — five-pool CL executor deposit and exit", function () {
         tokenA: adapter.tokenA,
         tokenB: adapter.tokenB,
         positionTokenId: tokenId,
-        liquidity: 1n,
+        liquidity: 0n,
         amountAMin: 1n,
         amountBMin: 1n,
         slippageBps: 100n,
+        fullExit: true,
       });
     }
     await ctx.clExecutor.connect(ctx.user).exitAll(strategyId, exitAllLegs, 500n);
+    for (const i of [0, 2, 3, 4]) {
+      await expect(ctx.adapters[i].contract.ownerOf(1n)).to.be.reverted;
+    }
   });
 });

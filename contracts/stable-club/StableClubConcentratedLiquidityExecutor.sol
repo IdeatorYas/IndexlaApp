@@ -68,10 +68,13 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         address tokenA;
         address tokenB;
         uint256 positionTokenId;
+        /// @dev Required for partial exits. Ignored when `fullExit` is true (closePosition burns NFT).
         uint128 liquidity;
         uint256 amountAMin;
         uint256 amountBMin;
         uint256 slippageBps;
+        /// @dev true → closePosition (remove all liquidity + burn NFT). false → partial decreaseLiquidity.
+        bool fullExit;
     }
 
     event AdapterApproved(address indexed adapter, bool approved);
@@ -324,31 +327,47 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             revert StrategyUserMismatch();
         }
 
+        // Full exits never apply USDC value caps — users must always recover all funds.
+        // Ownership, pool/adapter binding, nonce, and minOut remain enforced.
         if (emergency) {
             strategyRegistry.validateStrategyLegEmergency(strategyId, leg.legIndex, executionNonce);
         } else {
-            // CL liquidity units are not USDC-denominated; do not feed them into USDC amount caps.
-            // Action bit, slippage, nonce, and ownership gates still apply.
+            PermissionRegistry.Action action = leg.fullExit
+                ? PermissionRegistry.Action.WithdrawAll
+                : PermissionRegistry.Action.RemoveLiquidity;
             strategyRegistry.validateStrategyLegExit(
                 strategyId,
                 leg.legIndex,
                 leg.adapter,
-                PermissionRegistry.Action.RemoveLiquidity,
+                action,
                 0,
                 leg.slippageBps,
                 executionNonce
             );
         }
 
-        IConcentratedLiquidityAdapter(leg.adapter).decreaseLiquidity(
-            user,
-            leg.positionTokenId,
-            leg.tokenA,
-            leg.tokenB,
-            leg.liquidity,
-            leg.amountAMin,
-            leg.amountBMin
-        );
+        if (leg.fullExit || emergency) {
+            // Full / emergency recovery: closePosition removes all liquidity and burns the empty NFT.
+            IConcentratedLiquidityAdapter(leg.adapter).closePosition(
+                user,
+                leg.positionTokenId,
+                leg.tokenA,
+                leg.tokenB,
+                leg.amountAMin,
+                leg.amountBMin
+            );
+        } else {
+            if (leg.liquidity == 0) revert InvalidAmount();
+            IConcentratedLiquidityAdapter(leg.adapter).decreaseLiquidity(
+                user,
+                leg.positionTokenId,
+                leg.tokenA,
+                leg.tokenB,
+                leg.liquidity,
+                leg.amountAMin,
+                leg.amountBMin
+            );
+        }
 
         _assertZeroBalance(leg.tokenA);
         _assertZeroBalance(leg.tokenB);
@@ -374,8 +393,10 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
 
         for (uint256 i = 0; i < LEG_COUNT; i++) {
             ExitLegParams calldata leg = legs[i];
-            if (leg.adapter == address(0) || leg.liquidity == 0) continue;
+            if (leg.adapter == address(0)) continue;
             if (leg.legIndex != uint8(i)) revert LegIndexOutOfBounds();
+            // exitAll is a full recovery path — require fullExit so NFTs are burned.
+            if (!leg.fullExit) revert InvalidAmount();
             _exitLegInternal(strategyId, msg.sender, leg, executionNonceBase + i, false);
         }
     }
@@ -386,6 +407,8 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         uint256 executionNonce
     ) external nonReentrant onlyApprovedAdapter(leg.adapter) {
         if (strategyRegistry.getStrategy(strategyId).user != msg.sender) revert StrategyUserMismatch();
+        // Emergency is always a full recovery with NFT burn.
+        if (!leg.fullExit) revert InvalidAmount();
         _exitLegInternal(strategyId, msg.sender, leg, executionNonce, true);
     }
 

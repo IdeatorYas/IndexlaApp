@@ -234,6 +234,12 @@ module.exports = {
   OUTPUT_PATH,
 };
 
+// Phase 2a/2b local CL stack (optional companion entrypoint)
+module.exports.deployPhase2aLocalStack = (...args) =>
+  require("./deploy-phase2a-local.cjs").deployPhase2aLocalStack(...args);
+module.exports.validatePhase2aManifest = (...args) =>
+  require("./phase2a-manifest.cjs").validatePhase2aManifest(...args);
+
 if (require.main === module) {
   main().catch((error) => {
     console.error(error);

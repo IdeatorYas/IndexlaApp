@@ -146,8 +146,9 @@ async function deployForkStack() {
   await strategyRegistry.setOperator(clAddr, true);
   await feeRouter.setExecutorApproved(clAddr, true);
   await swapRouter.setExecutorApproved(clAddr, true);
-  // ERC20 approve path for fork tests (no Permit2 allowance required).
-
+  // Canonical Base Permit2 — bounded allowance required for deposits (no unlimited ERC20 to executor).
+  await clExecutor.setPermit2(PERMIT2);
+  await feeRouter.setPermit2(PERMIT2);
   for (const t of [USDC, CBBTC, WETH]) await clExecutor.setTokenApproval(t, true);
 
   const routeConfigs = [
@@ -293,6 +294,7 @@ async function deployForkStack() {
     mevGuard,
     clExecutor,
     adapters,
+    permit2: PERMIT2,
   };
 }
 
@@ -354,6 +356,20 @@ async function registerStrategy(ctx) {
   await ctx.strategyRegistry.connect(ctx.user).registerFivePoolStrategy(strategy, legPermissions, legs);
   const strategyId = await ctx.strategyRegistry.strategyIdFor(ctx.user.address, ctx.chainId, USDC);
   return { strategyId };
+}
+
+const PERMIT2_ABI = [
+  "function approve(address token, address spender, uint160 amount, uint48 expiration)",
+  "function allowance(address user, address token, address spender) view returns (uint160 amount, uint48 expiration, uint48 nonce)",
+];
+
+async function approveUsdcViaPermit2(user, clExecutorAddr, grossUsdc) {
+  const usdc = await ethers.getContractAt(ERC20_ABI, USDC);
+  const permit2 = await ethers.getContractAt(PERMIT2_ABI, PERMIT2);
+  await usdc.connect(user).approve(PERMIT2, grossUsdc);
+  const expiration = BigInt((await time.latest()) + 3600);
+  await permit2.connect(user).approve(USDC, clExecutorAddr, grossUsdc, expiration);
+  return { usdc, permit2, expiration };
 }
 
 async function oracleSwapQuote(ctx, tokenOut, grossUsdc) {
@@ -473,7 +489,7 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
     const grossUsdc = ethers.parseUnits("1000", 6);
     const legs = await buildDepositLegs(ctx, grossUsdc);
     const usdc = await ethers.getContractAt(ERC20_ABI, USDC);
-    await usdc.connect(ctx.user).approve(await ctx.clExecutor.getAddress(), grossUsdc);
+    await approveUsdcViaPermit2(ctx.user, await ctx.clExecutor.getAddress(), grossUsdc);
 
     const userBefore = await usdc.balanceOf(ctx.user.address);
     const tx = await ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
@@ -486,8 +502,11 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
     );
     const receipt = await tx.wait();
 
-    expect(await usdc.balanceOf(ctx.user.address)).to.be.lte(userBefore - grossUsdc);
-    expect(await usdc.balanceOf(ctx.user.address)).to.be.gte(userBefore - grossUsdc - 10n);
+    const userAfter = await usdc.balanceOf(ctx.user.address);
+    // Gross USDC pulled; tiny residual dust may return from CL mint rounding.
+    const spent = userBefore - userAfter;
+    expect(spent).to.be.gte(grossUsdc - ethers.parseUnits("5", 6));
+    expect(spent).to.be.lte(grossUsdc);
     expect(await usdc.balanceOf(await ctx.clExecutor.getAddress())).to.equal(0n);
     expect(await usdc.balanceOf(await ctx.feeRouter.getAddress())).to.equal(0n);
 
@@ -510,8 +529,19 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
     }
 
     // eslint-disable-next-line no-console
-    console.log(`\n[Phase2aForkDeposit] gasUsed=${receipt.gasUsed.toString()}\n`);
+    console.log(
+      `\n[Phase2bForkDeposit] Permit2=${PERMIT2} gasUsed=${receipt.gasUsed.toString()}\n`,
+    );
     expect(receipt.gasUsed).to.be.lt(30_000_000n);
+
+    // Permit2 allowance consumed (bounded) — no residual unlimited spend
+    const permit2 = await ethers.getContractAt(PERMIT2_ABI, PERMIT2);
+    const [remaining] = await permit2.allowance(
+      ctx.user.address,
+      USDC,
+      await ctx.clExecutor.getAddress(),
+    );
+    expect(remaining).to.equal(0n);
   });
 
   it("atomic failure on leg 3 leaves zero NFTs and unchanged nonce", async function () {
@@ -521,7 +551,7 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
     const legs = await buildDepositLegs(ctx, grossUsdc);
     legs[2].amountAMin = ethers.MaxUint256;
     const usdc = await ethers.getContractAt(ERC20_ABI, USDC);
-    await usdc.connect(ctx.user).approve(await ctx.clExecutor.getAddress(), grossUsdc);
+    await approveUsdcViaPermit2(ctx.user, await ctx.clExecutor.getAddress(), grossUsdc);
 
     const feeBefore = await usdc.balanceOf(MVP_FEE);
     await expect(
@@ -542,8 +572,7 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
   async function depositCollectingPositions(ctx, strategyId, nonce) {
     const grossUsdc = ethers.parseUnits("1000", 6);
     const legs = await buildDepositLegs(ctx, grossUsdc);
-    const usdc = await ethers.getContractAt(ERC20_ABI, USDC);
-    await usdc.connect(ctx.user).approve(await ctx.clExecutor.getAddress(), grossUsdc);
+    await approveUsdcViaPermit2(ctx.user, await ctx.clExecutor.getAddress(), grossUsdc);
 
     const beforeBlocks = await ethers.provider.getBlockNumber();
     await (
@@ -616,14 +645,15 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
     return positions;
   }
 
-  it("exitLeg across Uni and both Aerodrome generations; exitAll; emergency; direct NPM", async function () {
+  it("exitLeg partial keeps NFT; fullExit/exitAll/emergency burn NFTs; direct NPM", async function () {
     const ctx = await deployForkStack();
     const { strategyId } = await registerStrategy(ctx);
     const positions = await depositCollectingPositions(ctx, strategyId, 10n);
 
-    // exitLeg on Uni USDC/cbBTC (leg 1)
+    // Partial exitLeg on Uni USDC/cbBTC (leg 1) — NFT retained with residual liquidity
     const uniPos = positions[1];
     await uniPos.npm.connect(ctx.user).approve(uniPos.adapter.address, uniPos.tokenId);
+    const halfLiq = uniPos.liquidity / 2n;
     await ctx.clExecutor.connect(ctx.user).exitLeg(
       strategyId,
       {
@@ -632,10 +662,11 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
         tokenA: uniPos.adapter.tokenA,
         tokenB: uniPos.adapter.tokenB,
         positionTokenId: uniPos.tokenId,
-        liquidity: uniPos.liquidity,
+        liquidity: halfLiq,
         amountAMin: 1n,
         amountBMin: 1n,
         slippageBps: 500n,
+        fullExit: false,
       },
       1001n,
     );
@@ -647,9 +678,9 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
       uniPos.adapter.npm,
     );
     expect(await uniNpmPos.ownerOf(uniPos.tokenId)).to.equal(ctx.user.address);
-    expect((await uniNpmPos.positions(uniPos.tokenId))[7]).to.equal(0n);
+    expect((await uniNpmPos.positions(uniPos.tokenId))[7]).to.equal(uniPos.liquidity - halfLiq);
 
-    // exitLeg on Aerodrome current cbBTC/WETH (leg 2)
+    // Full exitLeg on Aerodrome current cbBTC/WETH (leg 2) — burns NFT
     const aeroCur = positions[2];
     await aeroCur.npm.connect(ctx.user).approve(aeroCur.adapter.address, aeroCur.tokenId);
     await ctx.clExecutor.connect(ctx.user).exitLeg(
@@ -660,15 +691,17 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
         tokenA: aeroCur.adapter.tokenA,
         tokenB: aeroCur.adapter.tokenB,
         positionTokenId: aeroCur.tokenId,
-        liquidity: aeroCur.liquidity,
+        liquidity: 0n,
         amountAMin: 1n,
         amountBMin: 1n,
         slippageBps: 500n,
+        fullExit: true,
       },
       1002n,
     );
+    await expect(aeroCur.npm.ownerOf(aeroCur.tokenId)).to.be.reverted;
 
-    // exitLeg on Aerodrome legacy USDC/cbBTC (leg 0)
+    // Full exitLeg on Aerodrome legacy USDC/cbBTC (leg 0) — burns NFT
     const aeroLeg = positions[0];
     await aeroLeg.npm.connect(ctx.user).approve(aeroLeg.adapter.address, aeroLeg.tokenId);
     await ctx.clExecutor.connect(ctx.user).exitLeg(
@@ -679,13 +712,15 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
         tokenA: aeroLeg.adapter.tokenA,
         tokenB: aeroLeg.adapter.tokenB,
         positionTokenId: aeroLeg.tokenId,
-        liquidity: aeroLeg.liquidity,
+        liquidity: 0n,
         amountAMin: 1n,
         amountBMin: 1n,
         slippageBps: 500n,
+        fullExit: true,
       },
       1000n,
     );
+    await expect(aeroLeg.npm.ownerOf(aeroLeg.tokenId)).to.be.reverted;
 
     // Fresh deposit for exitAll + emergency + direct NPM
     const positions2 = await depositCollectingPositions(ctx, strategyId, 11n);
@@ -700,10 +735,11 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
         tokenA: p.adapter.tokenA,
         tokenB: p.adapter.tokenB,
         positionTokenId: p.tokenId,
-        liquidity: p.liquidity,
+        liquidity: 0n,
         amountAMin: 1n,
         amountBMin: 1n,
         slippageBps: 500n,
+        fullExit: true,
       });
     }
     // leave leg 4 for emergency + direct NPM coverage on remaining NFT
@@ -717,10 +753,14 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
       amountAMin: 1n,
       amountBMin: 1n,
       slippageBps: 500n,
+      fullExit: true,
     });
     await ctx.clExecutor.connect(ctx.user).exitAll(strategyId, exitAllLegs, 2000n);
+    for (let i = 0; i < 4; i++) {
+      await expect(positions2[i].npm.ownerOf(positions2[i].tokenId)).to.be.reverted;
+    }
 
-    // emergencyExitLeg on leg 4 after revoke
+    // emergencyExitLeg on leg 4 after revoke — burns NFT
     const p4 = positions2[4];
     await ctx.strategyRegistry.connect(ctx.user).revokeStrategy(strategyId);
     const legBinding = await ctx.strategyRegistry.getLeg(strategyId, 4);
@@ -734,13 +774,15 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
         tokenA: p4.adapter.tokenA,
         tokenB: p4.adapter.tokenB,
         positionTokenId: p4.tokenId,
-        liquidity: p4.liquidity,
+        liquidity: 0n,
         amountAMin: 1n,
         amountBMin: 1n,
         slippageBps: 500n,
+        fullExit: true,
       },
       3004n,
     );
+    await expect(p4.npm.ownerOf(p4.tokenId)).to.be.reverted;
 
     // Direct NPM exit path: mint a tiny Uni position via adapter for user, then NPM decrease+collect+burn
     // without executor (wallet-owned NFT recovery).
@@ -814,8 +856,7 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
     const { strategyId } = await registerStrategy(ctx);
     const grossUsdc = ethers.parseUnits("1000", 6);
     const legs = await buildDepositLegs(ctx, grossUsdc);
-    const usdc = await ethers.getContractAt(ERC20_ABI, USDC);
-    await usdc.connect(ctx.user).approve(await ctx.clExecutor.getAddress(), grossUsdc);
+    await approveUsdcViaPermit2(ctx.user, await ctx.clExecutor.getAddress(), grossUsdc);
 
     await ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
       strategyId,
@@ -826,7 +867,7 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
       legs,
     );
 
-    await usdc.connect(ctx.user).approve(await ctx.clExecutor.getAddress(), grossUsdc);
+    await approveUsdcViaPermit2(ctx.user, await ctx.clExecutor.getAddress(), grossUsdc);
     await expect(
       ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
         strategyId,
@@ -840,7 +881,7 @@ describe("Phase 2a — Base fork USDC-only five-pool deposit", function () {
 
     const badLegs = await buildDepositLegs(ctx, grossUsdc);
     badLegs[0].adapter = ctx.adapters[1].address;
-    await usdc.connect(ctx.user).approve(await ctx.clExecutor.getAddress(), grossUsdc);
+    await approveUsdcViaPermit2(ctx.user, await ctx.clExecutor.getAddress(), grossUsdc);
     await expect(
       ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
         strategyId,

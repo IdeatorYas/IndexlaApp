@@ -119,6 +119,7 @@ contract StrategyPermissionRegistry {
         owner = next;
     }
 
+    /// @notice Owner/governance-only operator allowlist (CL executor etc.). Safe/Timelock-ready.
     function setOperator(address operator_, bool allowed) external onlyOwner {
         if (operator_ == address(0)) revert Unauthorized();
         isOperator[operator_] = allowed;
@@ -140,6 +141,7 @@ contract StrategyPermissionRegistry {
         PoolLegBinding[5] calldata legs
     ) external returns (bytes32 strategyId) {
         if (strategy.user != msg.sender) revert UnauthorizedUser();
+        if (strategy.chainId != block.chainid) revert UnauthorizedUser();
         if (strategy.depositToken != usdc) revert InvalidDepositToken();
         if (strategy.maxSlippageBps > MAX_SLIPPAGE_BPS) {
             revert SlippageTooHigh();

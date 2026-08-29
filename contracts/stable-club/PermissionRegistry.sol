@@ -75,6 +75,7 @@ contract PermissionRegistry {
     error InvalidSlippage();
     error Unauthorized();
     error InvalidOperator();
+    error InvalidPermissionParams();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -119,6 +120,8 @@ contract PermissionRegistry {
     }
 
     /// @notice Allow StrategyPermissionRegistry to register leg permissions for users.
+    /// @dev Owner/governance only (Safe/Timelock-ready). Revoking a registrar immediately
+    ///      blocks `registerPermissionForStrategyRegistrar` — no residual ACL.
     function setStrategyRegistrar(address registrar, bool allowed) external onlyOwner {
         if (registrar == address(0)) revert InvalidOperator();
         isStrategyRegistrar[registrar] = allowed;
@@ -126,11 +129,19 @@ contract PermissionRegistry {
     }
 
     /// @dev Called by StrategyPermissionRegistry; `perm.user` is the wallet owner, not msg.sender.
+    /// @notice Registrar cannot invent permissions for a user outside a user-authenticated strategy registration.
+    /// @dev Hardened: non-zero user/tokens/poolId, distinct tokens, exact `block.chainid`, slippage/expiry.
     function registerPermissionForStrategyRegistrar(Permission calldata perm)
         external
         returns (bytes32 permissionId)
     {
         if (!isStrategyRegistrar[msg.sender]) revert Unauthorized();
+        if (perm.user == address(0)) revert UnauthorizedUser();
+        if (perm.tokenA == address(0) || perm.tokenB == address(0) || perm.tokenA == perm.tokenB) {
+            revert InvalidPermissionParams();
+        }
+        if (perm.poolId == bytes32(0)) revert InvalidPermissionParams();
+        if (perm.chainId != block.chainid) revert InvalidPermissionParams();
         if (perm.maxSlippageBps > MAX_SLIPPAGE_BPS) revert InvalidSlippage();
         if (perm.expiresAt <= block.timestamp) revert PermissionExpired();
 
