@@ -18,7 +18,9 @@ import {SafetyController} from "./SafetyController.sol";
 
 /// @title StableClubAutomationExecutor — Step 2 CL harvest / compound / rebalance operator.
 /// @notice Stateless; never retains user funds or position NFTs after execution.
-/// @dev Production ERC20 pulls use Permit2; address(0) is local/test legacy path only. NFT remains per-token approve.
+/// @dev Production ERC20 pulls use Permit2. Unset Permit2 is local/test legacy path only;
+///      `setPermit2` rejects address(0) so legacy cannot be re-enabled after configuration.
+///      NFT remains per-token approve.
 contract StableClubAutomationExecutor is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -68,6 +70,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     error InvalidSwapAmount();
     error PositionApprovalRequired();
     error PositionValueUnavailable();
+    error InvalidPermit2();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -125,7 +128,9 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     }
 
     /// @notice Wire Permit2 for user ERC20 pulls. Production must use verified Base Permit2.
+    /// @dev Rejects address(0). Legacy transferFrom only applies while Permit2 remains unset.
     function setPermit2(address permit2_) external onlyOwner {
+        if (permit2_ == address(0)) revert InvalidPermit2();
         permit2 = IAllowanceTransfer(permit2_);
         emit Permit2Updated(permit2_);
     }

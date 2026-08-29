@@ -7,7 +7,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IAllowanceTransfer} from "../interfaces/IAllowanceTransfer.sol";
 
 /// @title UserTokenPull — ERC20 pull via Permit2 when configured; legacy transferFrom only if permit2 == 0.
-/// @dev Production must set Permit2. Legacy path is for local/unit tests only.
+/// @dev Production must set Permit2 via setters that reject address(0). Legacy path is for
+///      local/unit tests that never call setPermit2 (unset default only — cannot be restored).
 library UserTokenPull {
     using SafeERC20 for IERC20;
 

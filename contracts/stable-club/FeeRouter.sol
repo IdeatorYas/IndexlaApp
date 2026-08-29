@@ -8,7 +8,9 @@ import {IAllowanceTransfer} from "./interfaces/IAllowanceTransfer.sol";
 import {UserTokenPull} from "./libraries/UserTokenPull.sol";
 
 /// @title FeeRouter — charges 1% INDEXLA fee only on swap amounts.
-/// @dev Production must wire Permit2; address(0) Permit2 is local/test legacy ERC20 path only.
+/// @dev Production must wire Permit2 via `setPermit2`. Unset (default) Permit2 is local/test
+///      legacy ERC20 path only; `setPermit2` rejects address(0) so the legacy path cannot be
+///      re-enabled after Permit2 is configured.
 contract FeeRouter {
     using SafeERC20 for IERC20;
 
@@ -40,6 +42,7 @@ contract FeeRouter {
     error ZeroAmount();
     error InvalidRecipient();
     error InvalidExecutor();
+    error InvalidPermit2();
     error ExecutorAlreadyWired();
 
     modifier onlyOwner() {
@@ -93,8 +96,9 @@ contract FeeRouter {
     }
 
     /// @notice Wire Permit2 for ERC20 pulls. Production must set the verified Base Permit2.
-    /// @dev Clearing Permit2 (address(0)) re-enables legacy transferFrom — local/test only.
+    /// @dev Rejects address(0). Legacy transferFrom only applies while Permit2 remains unset.
     function setPermit2(address permit2_) external onlyOwner {
+        if (permit2_ == address(0)) revert InvalidPermit2();
         permit2 = IAllowanceTransfer(permit2_);
         emit Permit2Updated(permit2_);
     }

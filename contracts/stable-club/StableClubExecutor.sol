@@ -13,7 +13,8 @@ import {UserTokenPull} from "./libraries/UserTokenPull.sol";
 
 /// @title StableClubExecutor — stateless operator; never retains user funds after execution.
 /// @notice Step 1: approved pools, tokens, adapters and functions only.
-/// @dev Production ERC20 pulls use Permit2; address(0) Permit2 is local/test legacy path only.
+/// @dev Production ERC20 pulls use Permit2. Unset Permit2 is local/test legacy path only;
+///      `setPermit2` rejects address(0) so legacy cannot be re-enabled after configuration.
 contract StableClubExecutor is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -48,6 +49,7 @@ contract StableClubExecutor is ReentrancyGuard {
     error Unauthorized();
     error TokenNotBound();
     error MinOutRequired();
+    error InvalidPermit2();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -89,7 +91,9 @@ contract StableClubExecutor is ReentrancyGuard {
     }
 
     /// @notice Wire Permit2 for user ERC20 pulls. Production must use verified Base Permit2.
+    /// @dev Rejects address(0). Legacy transferFrom only applies while Permit2 remains unset.
     function setPermit2(address permit2_) external onlyOwner {
+        if (permit2_ == address(0)) revert InvalidPermit2();
         permit2 = IAllowanceTransfer(permit2_);
         emit Permit2Updated(permit2_);
     }

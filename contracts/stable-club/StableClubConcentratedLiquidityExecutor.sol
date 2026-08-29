@@ -112,6 +112,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     error LegBudgetMismatch();
     error GrossDepositMismatch();
     error CanonicalLegMismatch();
+    error InvalidPermit2();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -166,6 +167,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     }
 
     function setPermit2(address permit2_) external onlyOwner {
+        if (permit2_ == address(0)) revert InvalidPermit2();
         permit2 = IAllowanceTransfer(permit2_);
         emit Permit2Updated(permit2_);
     }
