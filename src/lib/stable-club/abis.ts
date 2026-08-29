@@ -75,6 +75,16 @@ export const permissionRegistryAbi = [
       },
     ],
   },
+  {
+    type: "function",
+    name: "executionNonceUsed",
+    stateMutability: "view",
+    inputs: [
+      { name: "permissionId", type: "bytes32" },
+      { name: "executionNonce", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
 ] as const;
 
 export const stableClubExecutorAbi = [
@@ -236,6 +246,190 @@ export const concentratedLiquidityExecutorAbi = [
     ],
     outputs: [],
   },
+  {
+    type: "function",
+    name: "exitLeg",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "strategyId", type: "bytes32" },
+      {
+        name: "leg",
+        type: "tuple",
+        components: [
+          { name: "legIndex", type: "uint8" },
+          { name: "adapter", type: "address" },
+          { name: "tokenA", type: "address" },
+          { name: "tokenB", type: "address" },
+          { name: "positionTokenId", type: "uint256" },
+          { name: "liquidity", type: "uint128" },
+          { name: "amountAMin", type: "uint256" },
+          { name: "amountBMin", type: "uint256" },
+          { name: "slippageBps", type: "uint256" },
+          { name: "fullExit", type: "bool" },
+        ],
+      },
+      { name: "executionNonce", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "exitAll",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "strategyId", type: "bytes32" },
+      {
+        name: "legs",
+        type: "tuple[5]",
+        components: [
+          { name: "legIndex", type: "uint8" },
+          { name: "adapter", type: "address" },
+          { name: "tokenA", type: "address" },
+          { name: "tokenB", type: "address" },
+          { name: "positionTokenId", type: "uint256" },
+          { name: "liquidity", type: "uint128" },
+          { name: "amountAMin", type: "uint256" },
+          { name: "amountBMin", type: "uint256" },
+          { name: "slippageBps", type: "uint256" },
+          { name: "fullExit", type: "bool" },
+        ],
+      },
+      { name: "executionNonceBase", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "emergencyExitLeg",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "strategyId", type: "bytes32" },
+      {
+        name: "leg",
+        type: "tuple",
+        components: [
+          { name: "legIndex", type: "uint8" },
+          { name: "adapter", type: "address" },
+          { name: "tokenA", type: "address" },
+          { name: "tokenB", type: "address" },
+          { name: "positionTokenId", type: "uint256" },
+          { name: "liquidity", type: "uint128" },
+          { name: "amountAMin", type: "uint256" },
+          { name: "amountBMin", type: "uint256" },
+          { name: "slippageBps", type: "uint256" },
+          { name: "fullExit", type: "bool" },
+        ],
+      },
+      { name: "executionNonce", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "event",
+    name: "StrategyDepositCompleted",
+    inputs: [
+      { name: "strategyId", type: "bytes32", indexed: true },
+      { name: "user", type: "address", indexed: true },
+      { name: "grossUsdc", type: "uint256", indexed: false },
+      { name: "executionNonce", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "StrategyLegExited",
+    inputs: [
+      { name: "strategyId", type: "bytes32", indexed: true },
+      { name: "legIndex", type: "uint256", indexed: true },
+      { name: "poolId", type: "bytes32", indexed: true },
+      { name: "positionTokenId", type: "uint256", indexed: false },
+      { name: "emergency", type: "bool", indexed: false },
+    ],
+  },
+] as const;
+
+/** Concentrated-liquidity adapter view surface (real + MockConcentratedLiquidityAdapter). */
+export const concentratedLiquidityAdapterAbi = [
+  {
+    type: "function",
+    name: "ownerOf",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "positionTokens",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [
+      { name: "token0", type: "address" },
+      { name: "token1", type: "address" },
+    ],
+  },
+  {
+    type: "function",
+    name: "positionAmounts",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [
+      { name: "amount0", type: "uint256" },
+      { name: "amount1", type: "uint256" },
+    ],
+  },
+  {
+    type: "function",
+    name: "liquidityOf",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "uint128" }],
+  },
+  {
+    type: "function",
+    name: "positionManager",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "poolId",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bytes32" }],
+  },
+  {
+    type: "function",
+    name: "protocol",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
+  },
+  {
+    type: "function",
+    name: "getApproved",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "tokenId", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      { name: "from", type: "address", indexed: true },
+      { name: "to", type: "address", indexed: true },
+      { name: "tokenId", type: "uint256", indexed: true },
+    ],
+  },
 ] as const;
 
 export const strategyPermissionRegistryAbi = [
@@ -345,6 +539,38 @@ export const strategyPermissionRegistryAbi = [
       },
     ],
     outputs: [{ name: "strategyId", type: "bytes32" }],
+  },
+  {
+    type: "function",
+    name: "getLeg",
+    stateMutability: "view",
+    inputs: [
+      { name: "strategyId", type: "bytes32" },
+      { name: "legIndex", type: "uint256" },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "poolId", type: "bytes32" },
+          { name: "allocationBps", type: "uint256" },
+          { name: "adapter", type: "address" },
+          { name: "tokenA", type: "address" },
+          { name: "tokenB", type: "address" },
+          { name: "legPermissionId", type: "bytes32" },
+          { name: "maxLegPerTx", type: "uint256" },
+          { name: "maxLegPerDay", type: "uint256" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "revokeStrategy",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "strategyId", type: "bytes32" }],
+    outputs: [],
   },
 ] as const;
 
