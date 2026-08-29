@@ -21,7 +21,10 @@ test.describe("Five-pool positions & exits — runtime verification", () => {
     await page.addInitScript(STABLE_CLUB_FIVE_POOL_E2E_INJECT_WALLET_SCRIPT);
     await page.goto("/app/stable-club");
 
-    await page.getByRole("button", { name: "Connect Wallet" }).click();
+    const connectBtn = page.getByRole("button", { name: "Connect Wallet" }).first();
+    if (await connectBtn.isVisible().catch(() => false)) {
+      await connectBtn.click();
+    }
     await expect(page.getByText(E2E_USER)).toBeVisible({ timeout: 15_000 });
 
     const deposit = page

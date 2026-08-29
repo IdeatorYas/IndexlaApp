@@ -22,7 +22,7 @@ test.describe("Five-pool deposit — runtime verification", () => {
   test("wrong network is surfaced", async ({ page }) => {
     await page.addInitScript(STABLE_CLUB_E2E_WRONG_NETWORK_SCRIPT);
     await page.goto("/app/stable-club");
-    await page.getByRole("button", { name: "Connect Wallet" }).click();
+    // Injected provider returns eth_accounts immediately — UI auto-connects on wrong chain.
     await expect(page.getByText(/Wrong network/i).first()).toBeVisible({ timeout: 15_000 });
     await page.screenshot({
       path: path.join(SHOT_DIR, "wrong-network.png"),
@@ -33,7 +33,10 @@ test.describe("Five-pool deposit — runtime verification", () => {
   test("wallet rejection during deposit approvals", async ({ page }) => {
     await page.addInitScript(STABLE_CLUB_E2E_REJECT_WALLET_SCRIPT);
     await page.goto("/app/stable-club");
-    await page.getByRole("button", { name: "Connect Wallet" }).click();
+    const connectBtn = page.getByRole("button", { name: "Connect Wallet" }).first();
+    if (await connectBtn.isVisible().catch(() => false)) {
+      await connectBtn.click();
+    }
     await expect(page.getByText(E2E_USER)).toBeVisible({ timeout: 15_000 });
 
     const panel = page
@@ -63,7 +66,10 @@ test.describe("Five-pool deposit — runtime verification", () => {
       page.getByRole("heading", { name: /Base Pools \+ Dashboard \+ Automation/i }),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Connect Wallet" }).click();
+    const connectBtn = page.getByRole("button", { name: "Connect Wallet" }).first();
+    if (await connectBtn.isVisible().catch(() => false)) {
+      await connectBtn.click();
+    }
     await expect(page.getByText(E2E_USER)).toBeVisible({ timeout: 15_000 });
 
     const panel = page
