@@ -193,6 +193,196 @@ export const erc20Abi = [
   },
 ] as const;
 
+/** StableClubConcentratedLiquidityExecutor — five-pool deposit surface. */
+export const concentratedLiquidityExecutorAbi = [
+  {
+    type: "function",
+    name: "depositFivePoolStrategy",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "strategyId", type: "bytes32" },
+      { name: "executionNonce", type: "uint256" },
+      { name: "grossUsdc", type: "uint256" },
+      { name: "poolIds", type: "bytes32[5]" },
+      { name: "deadline", type: "uint256" },
+      {
+        name: "legs",
+        type: "tuple[5]",
+        components: [
+          { name: "legIndex", type: "uint8" },
+          { name: "adapter", type: "address" },
+          { name: "tokenA", type: "address" },
+          { name: "tokenB", type: "address" },
+          { name: "tickLower", type: "int24" },
+          { name: "tickUpper", type: "int24" },
+          { name: "retainUsdc", type: "uint256" },
+          {
+            name: "swaps",
+            type: "tuple[2]",
+            components: [
+              { name: "routeId", type: "bytes32" },
+              { name: "grossUsdcIn", type: "uint256" },
+              { name: "minOut", type: "uint256" },
+              { name: "quotedOut", type: "uint256" },
+              { name: "deadline", type: "uint256" },
+            ],
+          },
+          { name: "swapCount", type: "uint8" },
+          { name: "amountAMin", type: "uint256" },
+          { name: "amountBMin", type: "uint256" },
+          { name: "slippageBps", type: "uint256" },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+] as const;
+
+export const strategyPermissionRegistryAbi = [
+  {
+    type: "function",
+    name: "strategyIdFor",
+    stateMutability: "view",
+    inputs: [
+      { name: "user", type: "address" },
+      { name: "chainId", type: "uint256" },
+      { name: "depositToken", type: "address" },
+    ],
+    outputs: [{ name: "", type: "bytes32" }],
+  },
+  {
+    type: "function",
+    name: "getStrategy",
+    stateMutability: "view",
+    inputs: [{ name: "strategyId", type: "bytes32" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "user", type: "address" },
+          { name: "chainId", type: "uint256" },
+          { name: "depositToken", type: "address" },
+          { name: "allowedActions", type: "uint256" },
+          { name: "maxTotalPerTx", type: "uint256" },
+          { name: "maxTotalPerDay", type: "uint256" },
+          { name: "maxSlippageBps", type: "uint256" },
+          { name: "minTimeBetweenExecutions", type: "uint256" },
+          { name: "maxExecutionsPerDay", type: "uint256" },
+          { name: "expiresAt", type: "uint256" },
+          { name: "revoked", type: "bool" },
+          { name: "paused", type: "bool" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "strategyDepositNonceUsed",
+    stateMutability: "view",
+    inputs: [
+      { name: "strategyId", type: "bytes32" },
+      { name: "executionNonce", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "registerFivePoolStrategy",
+    stateMutability: "nonpayable",
+    inputs: [
+      {
+        name: "strategy",
+        type: "tuple",
+        components: [
+          { name: "user", type: "address" },
+          { name: "chainId", type: "uint256" },
+          { name: "depositToken", type: "address" },
+          { name: "allowedActions", type: "uint256" },
+          { name: "maxTotalPerTx", type: "uint256" },
+          { name: "maxTotalPerDay", type: "uint256" },
+          { name: "maxSlippageBps", type: "uint256" },
+          { name: "minTimeBetweenExecutions", type: "uint256" },
+          { name: "maxExecutionsPerDay", type: "uint256" },
+          { name: "expiresAt", type: "uint256" },
+          { name: "revoked", type: "bool" },
+          { name: "paused", type: "bool" },
+        ],
+      },
+      {
+        name: "legPermissions",
+        type: "tuple[5]",
+        components: [
+          { name: "user", type: "address" },
+          { name: "chainId", type: "uint256" },
+          { name: "poolId", type: "bytes32" },
+          { name: "tokenA", type: "address" },
+          { name: "tokenB", type: "address" },
+          { name: "allowedActions", type: "uint256" },
+          { name: "maxAmountPerTx", type: "uint256" },
+          { name: "maxAmountPerDay", type: "uint256" },
+          { name: "maxSlippageBps", type: "uint256" },
+          { name: "minTimeBetweenExecutions", type: "uint256" },
+          { name: "maxExecutionsPerDay", type: "uint256" },
+          { name: "expiresAt", type: "uint256" },
+          { name: "revoked", type: "bool" },
+          { name: "paused", type: "bool" },
+        ],
+      },
+      {
+        name: "legs",
+        type: "tuple[5]",
+        components: [
+          { name: "poolId", type: "bytes32" },
+          { name: "allocationBps", type: "uint256" },
+          { name: "adapter", type: "address" },
+          { name: "tokenA", type: "address" },
+          { name: "tokenB", type: "address" },
+          { name: "legPermissionId", type: "bytes32" },
+          { name: "maxLegPerTx", type: "uint256" },
+          { name: "maxLegPerDay", type: "uint256" },
+        ],
+      },
+    ],
+    outputs: [{ name: "strategyId", type: "bytes32" }],
+  },
+] as const;
+
+export const oracleGuardAbi = [
+  {
+    type: "function",
+    name: "expectedAmountOut",
+    stateMutability: "view",
+    inputs: [
+      { name: "tokenIn", type: "address" },
+      { name: "tokenOut", type: "address" },
+      { name: "amountIn", type: "uint256" },
+      { name: "decimalsIn", type: "uint8" },
+      { name: "decimalsOut", type: "uint8" },
+    ],
+    outputs: [{ name: "amountOut", type: "uint256" }],
+  },
+] as const;
+
+/** Uniswap V3 / Slipstream pool slot0 — tick at word index 1. */
+export const clPoolSlot0Abi = [
+  {
+    type: "function",
+    name: "slot0",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "sqrtPriceX96", type: "uint160" },
+      { name: "tick", type: "int24" },
+      { name: "observationIndex", type: "uint16" },
+      { name: "observationCardinality", type: "uint16" },
+      { name: "observationCardinalityNext", type: "uint16" },
+      { name: "feeProtocol", type: "uint8" },
+      { name: "unlocked", type: "bool" },
+    ],
+  },
+] as const;
+
 export const testPoolAdapterAbi = [
   ...erc20Abi,
   {

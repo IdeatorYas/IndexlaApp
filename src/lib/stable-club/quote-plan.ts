@@ -420,6 +420,59 @@ export function netUsdcAfterSwapFee(grossUsdcIn: bigint): bigint {
   return grossUsdcIn - (grossUsdcIn * SWAP_FEE_BPS) / BPS_DENOMINATOR;
 }
 
+/** One of the eight deterministic swap quote requests for a deposit. */
+export type FivePoolSwapQuoteRequest = {
+  slotId: FivePoolSwapSlotId;
+  legIndex: number;
+  swapIndex: number;
+  routeKey: StableClubSwapRouteKey;
+  tokenOut: Address;
+  tokenOutSymbol: "cbBTC" | "WETH";
+  decimalsOut: number;
+  grossUsdcIn: bigint;
+  netUsdcIn: bigint;
+};
+
+/**
+ * Derive the eight swap quote sizing requests from a gross USDC deposit.
+ * Quotes must be fetched for `netUsdcIn` (after 1% fee), matching fork oracleQuote.
+ */
+export function buildFivePoolSwapQuoteRequests(grossUsdc: bigint): FivePoolSwapQuoteRequest[] {
+  const { legBudgets } = allocateFivePoolBudgets(grossUsdc);
+  const requests: FivePoolSwapQuoteRequest[] = [];
+  for (let i = 0; i < FIVE_POOL_LEG_COUNT; i++) {
+    const spec = LEG_SWAP_SPECS[i]!;
+    const { swapGrosses } = splitLegUsdc(legBudgets[i]!, spec.dualSwap);
+    for (let s = 0; s < spec.swaps.length; s++) {
+      const swapSpec = spec.swaps[s]!;
+      const grossUsdcIn = swapGrosses[s]!;
+      requests.push({
+        slotId: swapSpec.slotId,
+        legIndex: i,
+        swapIndex: s,
+        routeKey: swapSpec.routeKey,
+        tokenOut: swapSpec.tokenOut.address,
+        tokenOutSymbol: swapSpec.tokenOut.symbol as "cbBTC" | "WETH",
+        decimalsOut: swapSpec.tokenOut.decimals,
+        grossUsdcIn,
+        netUsdcIn: netUsdcAfterSwapFee(grossUsdcIn),
+      });
+    }
+  }
+  if (requests.length !== EXPECTED_SWAP_COUNT) {
+    throw new QuotePlanError(
+      "INVALID_POOL_CONFIG",
+      `Expected ${EXPECTED_SWAP_COUNT} quote requests, got ${requests.length}`,
+    );
+  }
+  for (let i = 0; i < EXPECTED_SWAP_COUNT; i++) {
+    if (requests[i]!.slotId !== FIVE_POOL_SWAP_SLOT_ORDER[i]) {
+      throw new QuotePlanError("INVALID_POOL_CONFIG", "Quote request order is not deterministic");
+    }
+  }
+  return requests;
+}
+
 /**
  * Split gross USDC into five equal 20% leg budgets.
  * Rejects amounts that leave remainder after five floor divisions (contract requires exact sum).

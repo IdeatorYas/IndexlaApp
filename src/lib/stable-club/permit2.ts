@@ -78,15 +78,18 @@ export type DualSpenderDepositSplit = {
 /**
  * Resolve Permit2 address for a chain.
  * Base mainnet (8453): always canonical; reject zero / custom / non-canonical.
- * Local/test chains: mocks allowed when explicitly provided.
+ * Local Hardhat emulates Base chainId 8453 but deploys MockPermit2 — pass `localHardhat: true`
+ * with an explicit mock address to allow that TEST-ONLY path.
+ * Other non-Base chains: mocks allowed when explicitly provided.
  */
 export function resolvePermit2Address(params: {
   chainId: number;
   permit2?: Address | null;
+  localHardhat?: boolean;
 }): Address {
   const provided = params.permit2 ?? null;
   const zero = "0x0000000000000000000000000000000000000000";
-  if (params.chainId === BASE_CHAIN_ID) {
+  if (params.chainId === BASE_CHAIN_ID && !params.localHardhat) {
     // Omitted → use canonical. Explicit zero / custom / non-canonical → reject.
     if (provided == null) {
       return BASE_PERMIT2.address;
@@ -98,7 +101,7 @@ export function resolvePermit2Address(params: {
     }
     return BASE_PERMIT2.address;
   }
-  // Non-Base (local Hardhat / test): allow explicit mock; default still canonical for safety.
+  // Non-Base or local Hardhat (chainId 8453 + MockPermit2): allow explicit mock.
   if (provided == null || provided.toLowerCase() === zero) {
     return BASE_PERMIT2.address;
   }
@@ -161,9 +164,14 @@ export function buildBoundedPermit2ApproveTx(params: {
   amount: bigint;
   expiration: number;
   nowSec?: number;
+  localHardhat?: boolean;
 }) {
   const chainId = params.chainId ?? BASE_CHAIN_ID;
-  const permit2 = resolvePermit2Address({ chainId, permit2: params.permit2 });
+  const permit2 = resolvePermit2Address({
+    chainId,
+    permit2: params.permit2,
+    localHardhat: params.localHardhat,
+  });
   assertBoundedPermit2Amount(params.amount);
   assertFutureExpiration(params.expiration, params.nowSec);
   return {
@@ -180,9 +188,14 @@ export function buildBoundedErc20ApproveToPermit2(params: {
   amount: bigint;
   permit2?: Address;
   chainId?: number;
+  localHardhat?: boolean;
 }) {
   const chainId = params.chainId ?? BASE_CHAIN_ID;
-  const permit2 = resolvePermit2Address({ chainId, permit2: params.permit2 });
+  const permit2 = resolvePermit2Address({
+    chainId,
+    permit2: params.permit2,
+    localHardhat: params.localHardhat,
+  });
   assertBoundedErc20ApproveAmount(params.amount);
   return {
     address: params.token,

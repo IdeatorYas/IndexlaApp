@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StableClubExecutionPanel } from "@/components/stable-club/StableClubExecutionPanel";
+import { StableClubFivePoolDepositPanel } from "@/components/stable-club/StableClubFivePoolDepositPanel";
 import { StableClubApprovalsPanel } from "@/components/stable-club/StableClubApprovalsPanel";
 import {
   StableClubPoolCatalogue,
@@ -423,6 +424,7 @@ export function StableClubView({
         feeRouterAddress={deployments?.feeRouter as Address | undefined}
         executorAddress={deployments?.executor as Address | undefined}
       />
+      <StableClubFivePoolDepositPanel />
       <StableClubExecutionPanel />
 
       <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
