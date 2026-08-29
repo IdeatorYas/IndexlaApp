@@ -57,6 +57,7 @@ async function deployClPermit2Stack() {
   ]);
   const feeRouter = await ethers.deployContract("FeeRouter", [feeRecipient.address]);
   const swapRouter = await ethers.deployContract("MockSwapRouter");
+  const safetyController = await ethers.deployContract("SafetyController");
   const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
     await permissionRegistry.getAddress(),
     await strategyRegistry.getAddress(),
@@ -64,6 +65,7 @@ async function deployClPermit2Stack() {
     await swapRouter.getAddress(),
     await mevGuard.getAddress(),
     await oracleGuard.getAddress(),
+    await safetyController.getAddress(),
     tokens.usdc,
   ]);
 

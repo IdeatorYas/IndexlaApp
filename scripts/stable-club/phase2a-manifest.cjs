@@ -58,6 +58,7 @@ function validatePhase2aManifest(manifest, opts = {}) {
     "permit2",
     "oracleGuard",
     "mevGuard",
+    "safetyController",
     "feeRouter",
     "permissionRegistry",
     "adapters",
@@ -175,6 +176,7 @@ function assertRejectsWrongGeneration() {
     permit2: BASE_PERMIT2,
     oracleGuard: "0x4",
     mevGuard: "0x5",
+    safetyController: "0x8",
     feeRouter: "0x6",
     permissionRegistry: "0x7",
     routes: Object.entries(EXPECTED_ROUTE_IDS).map(([name, routeId]) => ({

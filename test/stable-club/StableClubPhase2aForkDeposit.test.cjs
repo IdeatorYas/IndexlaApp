@@ -129,6 +129,7 @@ async function deployForkStack() {
   await oracleGuard.configureFeed(WETH, WETH_USD, 4 * 3600, 8);
   await oracleGuard.configurePegMonitor(CBBTC, BTC_USD, 100, 8, true);
 
+  const safetyController = await ethers.deployContract("SafetyController");
   const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
     await permissionRegistry.getAddress(),
     await strategyRegistry.getAddress(),
@@ -136,6 +137,7 @@ async function deployForkStack() {
     await swapRouter.getAddress(),
     await mevGuard.getAddress(),
     await oracleGuard.getAddress(),
+    await safetyController.getAddress(),
     USDC,
   ]);
   const clAddr = await clExecutor.getAddress();

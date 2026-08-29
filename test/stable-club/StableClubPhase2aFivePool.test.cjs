@@ -57,6 +57,7 @@ async function deployPhase2aStack() {
   ]);
   const feeRouter = await ethers.deployContract("FeeRouter", [feeRecipient.address]);
   const swapRouter = await ethers.deployContract("MockSwapRouter");
+  const safetyController = await ethers.deployContract("SafetyController");
 
   const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
     await permissionRegistry.getAddress(),
@@ -65,6 +66,7 @@ async function deployPhase2aStack() {
     await swapRouter.getAddress(),
     await mevGuard.getAddress(),
     await oracleGuard.getAddress(),
+    await safetyController.getAddress(),
     tokens.usdc,
   ]);
 
@@ -152,6 +154,7 @@ async function deployPhase2aStack() {
     permit2,
     oracleGuard,
     mevGuard,
+    safetyController,
     clExecutor,
     usdc,
     cbbtc,
@@ -752,6 +755,260 @@ describe("SC-01 — one-sided concentrated liquidity exits", function () {
     await ctx.clExecutor
       .connect(ctx.user)
       .exitLeg(strategyId, exitParams(adapter, 4, 1n, 1n, 1n), 102n);
+    await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
+  });
+});
+
+describe("SC-02 — SafetyController gates deposits, never exits", function () {
+  async function depositFive(ctx, nonce, grossUsdc = ethers.parseUnits("1000", 6)) {
+    const { strategyId, poolIds } = await registerFivePoolStrategy(ctx);
+    const legs = await buildDepositLegs(ctx, grossUsdc);
+    await approveUsdcDeposit(ctx, ctx.user, grossUsdc);
+    await ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
+      strategyId,
+      nonce,
+      grossUsdc,
+      poolIds,
+      BigInt((await time.latest()) + 3600),
+      legs,
+    );
+    return { strategyId, poolIds };
+  }
+
+  it("rejects zero-address SafetyController at construction", async function () {
+    const ctx = await deployPhase2aStack();
+    const Factory = await ethers.getContractFactory("StableClubConcentratedLiquidityExecutor");
+    await expect(
+      Factory.deploy(
+        await ctx.permissionRegistry.getAddress(),
+        await ctx.strategyRegistry.getAddress(),
+        await ctx.feeRouter.getAddress(),
+        await ctx.swapRouter.getAddress(),
+        await ctx.mevGuard.getAddress(),
+        await ctx.oracleGuard.getAddress(),
+        ethers.ZeroAddress,
+        ctx.tokens.usdc,
+      ),
+    ).to.be.revertedWithCustomError(Factory, "InvalidSafetyController");
+  });
+
+  it("wires immutable SafetyController and cannot be unset", async function () {
+    const ctx = await deployPhase2aStack();
+    expect(await ctx.clExecutor.safetyController()).to.equal(await ctx.safetyController.getAddress());
+    expect(await ctx.clExecutor.safetyController()).to.not.equal(ethers.ZeroAddress);
+  });
+
+  it("normal five-pool deposit succeeds when safety checks pass", async function () {
+    const ctx = await deployPhase2aStack();
+    const { strategyId } = await depositFive(ctx, 1n);
+    for (const adapter of ctx.adapters) {
+      expect(await adapter.contract.balanceOf(ctx.user.address)).to.equal(1n);
+    }
+    expect(strategyId).to.not.equal(ethers.ZeroHash);
+  });
+
+  it("global pause blocks deposits", async function () {
+    const ctx = await deployPhase2aStack();
+    const { strategyId, poolIds } = await registerFivePoolStrategy(ctx);
+    const grossUsdc = ethers.parseUnits("1000", 6);
+    const legs = await buildDepositLegs(ctx, grossUsdc);
+    await approveUsdcDeposit(ctx, ctx.user, grossUsdc);
+
+    await ctx.safetyController.setGlobalPause(true);
+    await expect(
+      ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
+        strategyId,
+        1n,
+        grossUsdc,
+        poolIds,
+        BigInt((await time.latest()) + 3600),
+        legs,
+      ),
+    ).to.be.revertedWithCustomError(ctx.safetyController, "GloballyPaused");
+  });
+
+  it("newDepositPause and per-pool deposit pause block deposits", async function () {
+    const ctx = await deployPhase2aStack();
+    const { strategyId, poolIds } = await registerFivePoolStrategy(ctx);
+    const grossUsdc = ethers.parseUnits("1000", 6);
+    const legs = await buildDepositLegs(ctx, grossUsdc);
+    await approveUsdcDeposit(ctx, ctx.user, grossUsdc);
+
+    await ctx.safetyController.setNewDepositPause(true);
+    await expect(
+      ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
+        strategyId,
+        1n,
+        grossUsdc,
+        poolIds,
+        BigInt((await time.latest()) + 3600),
+        legs,
+      ),
+    ).to.be.revertedWithCustomError(ctx.safetyController, "DepositsPaused");
+
+    await ctx.safetyController.setNewDepositPause(false);
+    await ctx.safetyController.setPoolDepositPaused(POOL_IDS[2], true);
+    await expect(
+      ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
+        strategyId,
+        2n,
+        grossUsdc,
+        poolIds,
+        BigInt((await time.latest()) + 3600),
+        legs,
+      ),
+    ).to.be.revertedWithCustomError(ctx.safetyController, "PoolIsPaused");
+  });
+
+  it("swapGlobalPause blocks deposit swaps on every leg path", async function () {
+    const ctx = await deployPhase2aStack();
+    const { strategyId, poolIds } = await registerFivePoolStrategy(ctx);
+    const grossUsdc = ethers.parseUnits("1000", 6);
+    const legs = await buildDepositLegs(ctx, grossUsdc);
+    await approveUsdcDeposit(ctx, ctx.user, grossUsdc);
+
+    await ctx.safetyController.setSwapGlobalPause(true);
+    await expect(
+      ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
+        strategyId,
+        1n,
+        grossUsdc,
+        poolIds,
+        BigInt((await time.latest()) + 3600),
+        legs,
+      ),
+    ).to.be.revertedWithCustomError(ctx.safetyController, "SwapPaused");
+  });
+
+  it("USDC or leg-token depeg blocks deposits", async function () {
+    const ctx = await deployPhase2aStack();
+    const { strategyId, poolIds } = await registerFivePoolStrategy(ctx);
+    const grossUsdc = ethers.parseUnits("1000", 6);
+    const legs = await buildDepositLegs(ctx, grossUsdc);
+    await approveUsdcDeposit(ctx, ctx.user, grossUsdc);
+
+    await ctx.safetyController.setStablecoinDepegged(ctx.tokens.usdc, true);
+    await expect(
+      ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
+        strategyId,
+        1n,
+        grossUsdc,
+        poolIds,
+        BigInt((await time.latest()) + 3600),
+        legs,
+      ),
+    ).to.be.revertedWithCustomError(ctx.safetyController, "DepegActive");
+
+    await ctx.safetyController.setStablecoinDepegged(ctx.tokens.usdc, false);
+    await ctx.safetyController.setStablecoinDepegged(ctx.tokens.cbbtc, true);
+    await expect(
+      ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
+        strategyId,
+        2n,
+        grossUsdc,
+        poolIds,
+        BigInt((await time.latest()) + 3600),
+        legs,
+      ),
+    ).to.be.revertedWithCustomError(ctx.safetyController, "DepegActive");
+  });
+
+  it("individual and Exit All remain available while globally paused", async function () {
+    const ctx = await deployPhase2aStack();
+    const { strategyId } = await depositFive(ctx, 1n);
+
+    await ctx.safetyController.setGlobalPause(true);
+    await ctx.safetyController.setNewDepositPause(true);
+    await ctx.safetyController.setSwapGlobalPause(true);
+
+    const adapter0 = ctx.adapters[0];
+    await adapter0.contract.connect(ctx.user).approve(adapter0.address, 1n);
+    await ctx.clExecutor
+      .connect(ctx.user)
+      .exitLeg(strategyId, exitParams(adapter0, 0, 1n, 1n, 1n), 100n);
+    await expect(adapter0.contract.ownerOf(1n)).to.be.reverted;
+
+    const exitAllLegs = [];
+    for (let i = 0; i < 5; i++) {
+      if (i === 0) {
+        exitAllLegs.push({
+          ...exitParams(ctx.adapters[0], 0, 0n, 1n, 1n),
+          adapter: ethers.ZeroAddress,
+          tokenA: ethers.ZeroAddress,
+          tokenB: ethers.ZeroAddress,
+        });
+        continue;
+      }
+      const adapter = ctx.adapters[i];
+      await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
+      exitAllLegs.push(exitParams(adapter, i, 1n, 1n, 1n));
+    }
+    await ctx.clExecutor.connect(ctx.user).exitAll(strategyId, exitAllLegs, 200n);
+    for (const i of [1, 2, 3, 4]) {
+      await expect(ctx.adapters[i].contract.ownerOf(1n)).to.be.reverted;
+    }
+  });
+
+  it("revoked emergency exit remains available while paused", async function () {
+    const ctx = await deployPhase2aStack();
+    const { strategyId } = await depositFive(ctx, 1n);
+    await ctx.strategyRegistry.connect(ctx.user).revokeStrategy(strategyId);
+    await ctx.safetyController.setGlobalPause(true);
+
+    const adapter = ctx.adapters[1];
+    await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
+    await ctx.clExecutor
+      .connect(ctx.user)
+      .emergencyExitLeg(strategyId, exitParams(adapter, 1, 1n, 1n, 1n), 301n);
+    await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
+  });
+
+  it("expired emergency exit remains available while paused", async function () {
+    const ctx = await deployPhase2aStack();
+    const expiresAt = BigInt((await time.latest()) + 120);
+    const { strategy, legPermissions, legs } = await buildFivePoolRegistration(ctx);
+    strategy.expiresAt = expiresAt;
+    for (const lp of legPermissions) lp.expiresAt = expiresAt;
+    await ctx.strategyRegistry.connect(ctx.user).registerFivePoolStrategy(strategy, legPermissions, legs);
+    const strategyId = await ctx.strategyRegistry.strategyIdFor(
+      strategy.user,
+      strategy.chainId,
+      strategy.depositToken,
+    );
+
+    const grossUsdc = ethers.parseUnits("1000", 6);
+    const depositLegs = await buildDepositLegs(ctx, grossUsdc);
+    await approveUsdcDeposit(ctx, ctx.user, grossUsdc);
+    await ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
+      strategyId,
+      1n,
+      grossUsdc,
+      POOL_IDS,
+      BigInt((await time.latest()) + 3600),
+      depositLegs,
+    );
+
+    await time.increaseTo(expiresAt + 1n);
+    await ctx.safetyController.setGlobalPause(true);
+
+    const adapter = ctx.adapters[2];
+    await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
+    await ctx.clExecutor
+      .connect(ctx.user)
+      .emergencyExitLeg(strategyId, exitParams(adapter, 2, 1n, 1n, 1n), 51n);
+    await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
+  });
+
+  it("one-sided exit still works while paused (SC-01 ∩ SC-02)", async function () {
+    const ctx = await deployPhase2aStack();
+    const { strategyId } = await depositFive(ctx, 1n);
+    const adapter = ctx.adapters[0];
+    await zeroPositionSide(adapter, 1n, true);
+    await ctx.safetyController.setGlobalPause(true);
+    await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
+    await ctx.clExecutor
+      .connect(ctx.user)
+      .exitLeg(strategyId, exitParams(adapter, 0, 1n, 0n, 1n), 100n);
     await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
   });
 });

@@ -203,6 +203,7 @@ describe("Phase 2b — Safe/Timelock-ready Phase 2a ownership", function () {
     const oracleGuard = await ethers.deployContract("OracleGuard");
     const mevGuard = await ethers.deployContract("MevGuard");
     await mevGuard.setOracle(await oracleGuard.getAddress());
+    const safetyController = await ethers.deployContract("SafetyController");
     const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
       await permissionRegistry.getAddress(),
       await strategyRegistry.getAddress(),
@@ -210,6 +211,7 @@ describe("Phase 2b — Safe/Timelock-ready Phase 2a ownership", function () {
       await swapRouter.getAddress(),
       await mevGuard.getAddress(),
       await oracleGuard.getAddress(),
+      await safetyController.getAddress(),
       await usdc.getAddress(),
     ]);
 

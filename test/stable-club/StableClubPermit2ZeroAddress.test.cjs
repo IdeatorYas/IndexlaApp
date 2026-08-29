@@ -41,6 +41,7 @@ describe("Permit2 zero-address hardening", function () {
       await swapRouter.getAddress(),
       await mevGuard.getAddress(),
       await oracleGuard.getAddress(),
+      await safetyController.getAddress(),
       await usdc.getAddress(),
     ]);
     const permit2 = await ethers.deployContract("MockPermit2");
@@ -54,6 +55,7 @@ describe("Permit2 zero-address hardening", function () {
       clExecutor,
       permit2,
       usdc,
+      safetyController,
     };
   }
 

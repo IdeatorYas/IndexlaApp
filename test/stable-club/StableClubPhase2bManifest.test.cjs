@@ -35,6 +35,7 @@ describe("Phase 2b — deployment manifest validation", function () {
           permit2: BASE_PERMIT2,
           oracleGuard: "0x4",
           mevGuard: "0x5",
+          safetyController: "0x8",
           feeRouter: "0x6",
           permissionRegistry: "0x7",
           adapters: Array(5).fill({ adapter: "0x10", protocol: "uniswap-v3" }),

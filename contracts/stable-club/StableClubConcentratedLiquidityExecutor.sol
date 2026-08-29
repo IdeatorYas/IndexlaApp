@@ -15,9 +15,11 @@ import {IOracleGuard} from "./interfaces/IOracleGuard.sol";
 import {IConcentratedLiquidityAdapter} from "./interfaces/IConcentratedLiquidityAdapter.sol";
 import {IAllowanceTransfer} from "./interfaces/IAllowanceTransfer.sol";
 import {UserTokenPull} from "./libraries/UserTokenPull.sol";
+import {SafetyController} from "./SafetyController.sol";
 
 /// @title StableClubConcentratedLiquidityExecutor — atomic USDC-only five-pool CL deposit/exit (Phase 2a).
 /// @notice Stateless; mints position NFTs to the user. All five legs succeed or entire tx reverts.
+/// @dev SafetyController gates deposits/swaps only. Exits (individual, Exit All, emergency) never call it.
 contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -30,6 +32,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     IStableClubSwapRouter public immutable swapRouter;
     MevGuard public immutable mevGuard;
     IOracleGuard public immutable oracleGuard;
+    SafetyController public immutable safetyController;
 
     address public immutable usdc;
     address public owner;
@@ -113,6 +116,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     error GrossDepositMismatch();
     error CanonicalLegMismatch();
     error InvalidPermit2();
+    error InvalidSafetyController();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -131,14 +135,17 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         address swapRouter_,
         address mevGuard_,
         address oracleGuard_,
+        address safetyController_,
         address usdc_
     ) {
+        if (safetyController_ == address(0)) revert InvalidSafetyController();
         permissionRegistry = PermissionRegistry(permissionRegistry_);
         strategyRegistry = StrategyPermissionRegistry(strategyRegistry_);
         feeRouter = FeeRouter(feeRouter_);
         swapRouter = IStableClubSwapRouter(swapRouter_);
         mevGuard = MevGuard(mevGuard_);
         oracleGuard = IOracleGuard(oracleGuard_);
+        safetyController = SafetyController(safetyController_);
         usdc = usdc_;
         owner = msg.sender;
     }
@@ -206,6 +213,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             uint256 legBudget = strategyRegistry.legAmount(grossUsdc, i);
             budgetSum += legBudget;
             _validateLegSwapPlan(leg, legBudget);
+            _assertDepositLegSafety(poolId, leg.tokenA, leg.tokenB);
 
             strategyRegistry.validateStrategyLegDeposit(
                 strategyId, i, leg.adapter, grossUsdc, leg.slippageBps, executionNonce * 10 + i
@@ -254,6 +262,9 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         // Defense-in-depth: re-check USDC plan equals the 20% leg budget before spending.
         _validateLegSwapPlan(leg, legBudget);
 
+        bytes32 poolId = IConcentratedLiquidityAdapter(leg.adapter).poolId();
+        _assertDepositLegSafety(poolId, leg.tokenA, leg.tokenB);
+
         _requireApprovedToken(leg.tokenA);
         _requireApprovedToken(leg.tokenB);
 
@@ -268,6 +279,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             SwapInstruction calldata swap = leg.swaps[s];
             StableClubSwapRouter.RouteConfig memory route = swapRouter.getRoute(swap.routeId);
 
+            _assertSwapSafety(poolId, route.tokenOut);
             oracleGuard.validatePrices(usdc, route.tokenOut, 0);
 
             IERC20(usdc).forceApprove(address(feeRouter), swap.grossUsdcIn);
@@ -312,6 +324,21 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         if (leg.tokenB != usdc) _assertZeroBalance(leg.tokenB);
         _clearApproval(leg.tokenA, leg.adapter);
         _clearApproval(leg.tokenB, leg.adapter);
+    }
+
+    /// @notice Deposit-path circuit breakers: pause + depeg. Never called from exit paths.
+    function _assertDepositLegSafety(bytes32 poolId, address tokenA, address tokenB) internal view {
+        safetyController.assertDepositAllowed(poolId);
+        safetyController.assertTokenNotDepegged(usdc);
+        safetyController.assertTokenNotDepegged(tokenA);
+        safetyController.assertTokenNotDepegged(tokenB);
+    }
+
+    /// @notice Per-swap circuit breakers on the deposit path only.
+    function _assertSwapSafety(bytes32 poolId, address tokenOut) internal view {
+        safetyController.assertSwapAllowed(poolId);
+        safetyController.assertTokenNotDepegged(usdc);
+        safetyController.assertTokenNotDepegged(tokenOut);
     }
 
     /// @notice Require a non-zero floor for each token the live position actually holds.

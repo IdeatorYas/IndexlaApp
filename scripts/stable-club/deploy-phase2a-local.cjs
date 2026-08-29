@@ -59,6 +59,7 @@ async function deployPhase2aLocalStack(opts = {}) {
   ]);
   const feeRouter = await ethers.deployContract("FeeRouter", [feeRecipient.address]);
   const swapRouter = await ethers.deployContract("MockSwapRouter");
+  const safetyController = await ethers.deployContract("SafetyController");
   const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
     await permissionRegistry.getAddress(),
     await strategyRegistry.getAddress(),
@@ -66,6 +67,7 @@ async function deployPhase2aLocalStack(opts = {}) {
     await swapRouter.getAddress(),
     await mevGuard.getAddress(),
     await oracleGuard.getAddress(),
+    await safetyController.getAddress(),
     tokens.usdc,
   ]);
 
@@ -170,6 +172,7 @@ async function deployPhase2aLocalStack(opts = {}) {
     clExecutor: clAddr,
     oracleGuard: await oracleGuard.getAddress(),
     mevGuard: await mevGuard.getAddress(),
+    safetyController: await safetyController.getAddress(),
     permit2: permit2Addr,
     canonicalBasePermit2: BASE_PERMIT2,
     usdc: tokens.usdc,

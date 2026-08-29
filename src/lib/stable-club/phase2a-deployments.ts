@@ -38,6 +38,7 @@ export type StableClubPhase2aDeployments = {
   clExecutor: Address;
   oracleGuard: Address;
   mevGuard: Address;
+  safetyController: Address;
   permit2: Address;
   canonicalBasePermit2: Address;
   usdc: Address;
@@ -62,6 +63,8 @@ export function isValidPhase2aDeployments(
     "swapRouter",
     "clExecutor",
     "oracleGuard",
+    "mevGuard",
+    "safetyController",
     "permit2",
     "usdc",
     "cbbtc",
