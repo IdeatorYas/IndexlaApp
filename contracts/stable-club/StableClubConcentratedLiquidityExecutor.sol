@@ -314,6 +314,32 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         _clearApproval(leg.tokenB, leg.adapter);
     }
 
+    /// @notice Require a non-zero floor for each token the live position actually holds.
+    /// @dev Out-of-range CL positions commonly return only one token — zero min is allowed on a
+    ///      zero-composition side. Both mins may be zero only when live amounts are both zero
+    ///      (empty NFT burn / dust). Undetermined amounts must revert in the adapter.
+    function _validateExitMins(ExitLegParams calldata leg) internal view {
+        (address token0, address token1) =
+            IConcentratedLiquidityAdapter(leg.adapter).positionTokens(leg.positionTokenId);
+        (uint256 amount0, uint256 amount1) =
+            IConcentratedLiquidityAdapter(leg.adapter).positionAmounts(leg.positionTokenId);
+
+        uint256 expectedA;
+        uint256 expectedB;
+        if (leg.tokenA == token0 && leg.tokenB == token1) {
+            expectedA = amount0;
+            expectedB = amount1;
+        } else if (leg.tokenA == token1 && leg.tokenB == token0) {
+            expectedA = amount1;
+            expectedB = amount0;
+        } else {
+            revert InvalidLegConfiguration();
+        }
+
+        if (expectedA > 0 && leg.amountAMin == 0) revert MinOutRequired();
+        if (expectedB > 0 && leg.amountBMin == 0) revert MinOutRequired();
+    }
+
     function _exitLegInternal(
         bytes32 strategyId,
         address user,
@@ -321,13 +347,12 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         uint256 executionNonce,
         bool emergency
     ) internal {
-        if (leg.amountAMin == 0 || leg.amountBMin == 0) revert MinOutRequired();
-
         bytes32 poolId = IConcentratedLiquidityAdapter(leg.adapter).poolId();
         if (poolAdapters[poolId] != leg.adapter) revert PoolNotApproved();
         if (IConcentratedLiquidityAdapter(leg.adapter).ownerOf(leg.positionTokenId) != user) {
             revert StrategyUserMismatch();
         }
+        _validateExitMins(leg);
 
         // Full exits never apply USDC value caps — users must always recover all funds.
         // Ownership, pool/adapter binding, nonce, and minOut remain enforced.
