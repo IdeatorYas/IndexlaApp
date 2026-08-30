@@ -35,6 +35,7 @@ import {
   buildPositionDiscoveryBlockRanges,
   collectTokenIdsFromTransferLogs,
   exactPoolBindingExpectations,
+  interpretLiveExitAmounts,
   matchExactPoolMintTokenId,
   resolvePositionDiscoveryFromBlock,
   toFivePoolPosition,
@@ -126,6 +127,74 @@ async function resolveExitAllNonceBase(
     if (ok) return base;
   }
   throw new Error("No free exitAll nonce base found");
+}
+
+/** SC-F05: refresh live adapter amounts before any exit mins / approval / tx. */
+async function readLiveExitAmountsForPosition(
+  publicClient: {
+    readContract: (args: {
+      address: Address;
+      abi: typeof concentratedLiquidityAdapterAbi;
+      functionName: "ownerOf" | "positionTokens" | "positionAmounts" | "liquidityOf";
+      args: readonly [bigint];
+    }) => Promise<unknown>;
+  },
+  position: FivePoolPosition,
+  account: Address,
+): Promise<{ amountA: bigint; amountB: bigint; liquidity: bigint }> {
+  try {
+    const owner = (await publicClient.readContract({
+      address: position.adapter,
+      abi: concentratedLiquidityAdapterAbi,
+      functionName: "ownerOf",
+      args: [position.positionTokenId],
+    })) as Address;
+    assertWalletOwnsPosition(account, owner, position.positionTokenId);
+
+    const tokens = (await publicClient.readContract({
+      address: position.adapter,
+      abi: concentratedLiquidityAdapterAbi,
+      functionName: "positionTokens",
+      args: [position.positionTokenId],
+    })) as readonly [Address, Address];
+
+    const amounts = (await publicClient.readContract({
+      address: position.adapter,
+      abi: concentratedLiquidityAdapterAbi,
+      functionName: "positionAmounts",
+      args: [position.positionTokenId],
+    })) as readonly [bigint, bigint];
+
+    let liquidity = BigInt(0);
+    try {
+      liquidity = (await publicClient.readContract({
+        address: position.adapter,
+        abi: concentratedLiquidityAdapterAbi,
+        functionName: "liquidityOf",
+        args: [position.positionTokenId],
+      })) as bigint;
+    } catch {
+      liquidity = amounts[0]! + amounts[1]!;
+    }
+
+    const live = interpretLiveExitAmounts({
+      tokenA: position.tokenA,
+      tokenB: position.tokenB,
+      token0: tokens[0]!,
+      token1: tokens[1]!,
+      amount0: amounts[0]!,
+      amount1: amounts[1]!,
+      liquidity,
+    });
+    return {
+      amountA: live.amountA,
+      amountB: live.amountB,
+      liquidity: live.liquidity,
+    };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Live exit valuation failed for tokenId ${position.positionTokenId.toString()}: ${detail}`);
+  }
 }
 
 export function useFivePoolPositions() {
@@ -572,13 +641,18 @@ export function useFivePoolPositions() {
         const position = positions.find((p) => p.legIndex === legIndex);
         if (!position) throw new Error(`No open position for leg ${legIndex}`);
 
-        const liveOwner = await publicClient.readContract({
-          address: position.adapter,
-          abi: concentratedLiquidityAdapterAbi,
-          functionName: "ownerOf",
-          args: [position.positionTokenId],
+        // SC-F05: live amounts before approval / calldata / tx.
+        const live = await readLiveExitAmountsForPosition(publicClient, position, account);
+        const leg = buildFullExitLegParams({
+          legIndex: position.legIndex,
+          adapter: position.adapter,
+          tokenA: position.tokenA,
+          tokenB: position.tokenB,
+          positionTokenId: position.positionTokenId,
+          amountA: live.amountA,
+          amountB: live.amountB,
+          slippageBps,
         });
-        assertWalletOwnsPosition(account, liveOwner, position.positionTokenId);
 
         setProgress("awaiting-approval");
         setStatusMessage(`Approve NFT #${position.positionTokenId.toString()} → adapter…`);
@@ -591,16 +665,6 @@ export function useFivePoolPositions() {
           d.permissionRegistry,
           position.legPermissionId,
         );
-        const leg = buildFullExitLegParams({
-          legIndex: position.legIndex,
-          adapter: position.adapter,
-          tokenA: position.tokenA,
-          tokenB: position.tokenB,
-          positionTokenId: position.positionTokenId,
-          amountA: position.amountA,
-          amountB: position.amountB,
-          slippageBps,
-        });
 
         setProgress("awaiting-exit");
         setStatusMessage("Confirm exitLeg (full exit)…");
@@ -673,16 +737,20 @@ export function useFivePoolPositions() {
       }
 
       const byLeg = new Map(open.map((p) => [p.legIndex, p]));
+      // SC-F05: refresh all live amounts before any approval.
+      const liveAmountsByLeg = new Map<number, { amountA: bigint; amountB: bigint }>();
+      for (const position of open) {
+        const live = await readLiveExitAmountsForPosition(publicClient, position, account);
+        liveAmountsByLeg.set(position.legIndex, {
+          amountA: live.amountA,
+          amountB: live.amountB,
+        });
+      }
+      const legs = buildExitAllLegs(byLeg, liveAmountsByLeg, slippageBps);
+
       setProgress("awaiting-approval");
       const hashes: Hex[] = [];
       for (const position of open) {
-        const liveOwner = await publicClient.readContract({
-          address: position.adapter,
-          abi: concentratedLiquidityAdapterAbi,
-          functionName: "ownerOf",
-          args: [position.positionTokenId],
-        });
-        assertWalletOwnsPosition(account, liveOwner, position.positionTokenId);
         setStatusMessage(
           `Approve NFT #${position.positionTokenId.toString()} (leg ${position.legIndex})…`,
         );
@@ -705,7 +773,6 @@ export function useFivePoolPositions() {
         d.permissionRegistry,
         permissionIds,
       );
-      const legs = buildExitAllLegs(byLeg, slippageBps);
 
       setProgress("awaiting-exit");
       setStatusMessage(
@@ -776,13 +843,17 @@ export function useFivePoolPositions() {
         const position = positions.find((p) => p.legIndex === legIndex);
         if (!position) throw new Error(`No open position for leg ${legIndex}`);
 
-        const liveOwner = await publicClient.readContract({
-          address: position.adapter,
-          abi: concentratedLiquidityAdapterAbi,
-          functionName: "ownerOf",
-          args: [position.positionTokenId],
+        const live = await readLiveExitAmountsForPosition(publicClient, position, account);
+        const leg = buildFullExitLegParams({
+          legIndex: position.legIndex,
+          adapter: position.adapter,
+          tokenA: position.tokenA,
+          tokenB: position.tokenB,
+          positionTokenId: position.positionTokenId,
+          amountA: live.amountA,
+          amountB: live.amountB,
+          slippageBps,
         });
-        assertWalletOwnsPosition(account, liveOwner, position.positionTokenId);
 
         setProgress("awaiting-approval");
         setLegResults([{ legIndex, status: "approving" }]);
@@ -794,16 +865,6 @@ export function useFivePoolPositions() {
           d.permissionRegistry,
           position.legPermissionId,
         );
-        const leg = buildFullExitLegParams({
-          legIndex: position.legIndex,
-          adapter: position.adapter,
-          tokenA: position.tokenA,
-          tokenB: position.tokenB,
-          positionTokenId: position.positionTokenId,
-          amountA: position.amountA,
-          amountB: position.amountB,
-          slippageBps,
-        });
 
         setProgress("awaiting-exit");
         setStatusMessage("Confirm emergencyExitLeg…");
@@ -859,13 +920,17 @@ export function useFivePoolPositions() {
 
       for (const position of open) {
         try {
-          const liveOwner = await publicClient.readContract({
-            address: position.adapter,
-            abi: concentratedLiquidityAdapterAbi,
-            functionName: "ownerOf",
-            args: [position.positionTokenId],
+          const live = await readLiveExitAmountsForPosition(publicClient, position, account);
+          const leg = buildFullExitLegParams({
+            legIndex: position.legIndex,
+            adapter: position.adapter,
+            tokenA: position.tokenA,
+            tokenB: position.tokenB,
+            positionTokenId: position.positionTokenId,
+            amountA: live.amountA,
+            amountB: live.amountB,
+            slippageBps,
           });
-          assertWalletOwnsPosition(account, liveOwner, position.positionTokenId);
 
           setProgress("awaiting-approval");
           setStatusMessage(`Emergency: approve leg ${position.legIndex}…`);
@@ -883,16 +948,6 @@ export function useFivePoolPositions() {
             d.permissionRegistry,
             position.legPermissionId,
           );
-          const leg = buildFullExitLegParams({
-            legIndex: position.legIndex,
-            adapter: position.adapter,
-            tokenA: position.tokenA,
-            tokenB: position.tokenB,
-            positionTokenId: position.positionTokenId,
-            amountA: position.amountA,
-            amountB: position.amountB,
-            slippageBps,
-          });
 
           setProgress("awaiting-exit");
           setStatusMessage(`Emergency exitLeg ${position.legIndex}…`);
@@ -991,22 +1046,44 @@ export function useFivePoolPositions() {
   }, [ensureReady, publicClient, refreshPositions]);
 
   const showDirectExitPlan = useCallback(
-    (legIndex: number) => {
+    async (legIndex: number) => {
       const position = positions.find((p) => p.legIndex === legIndex);
-      if (!position || !deployments) {
+      if (!position || !deployments || !wallet.address) {
         setError("Position not found");
+        setDirectPlan(null);
         return;
       }
-      const plan = buildDirectNpmExitPlan({
-        network: deployments.network,
-        position,
-        liquidity: position.liquidity,
-        deadlineSec: BigInt(Math.floor(Date.now() / 1000) + 3600),
-      });
-      setDirectPlan(plan);
-      setStatusMessage("Direct protocol exit plan ready — INDEXLA not required on Base NPM path");
+      try {
+        // SC-F05: live amounts before building NPM calldata (no approval/tx here).
+        const live = await readLiveExitAmountsForPosition(
+          publicClient,
+          position,
+          wallet.address,
+        );
+        const plan = buildDirectNpmExitPlan({
+          network: deployments.network,
+          position,
+          amountA: live.amountA,
+          amountB: live.amountB,
+          liquidity: live.liquidity > BigInt(0) ? live.liquidity : position.liquidity,
+          deadlineSec: BigInt(Math.floor(Date.now() / 1000) + 3600),
+        });
+        if (!plan.decreaseLiquidityCalldata && plan.mode === "npm-owner") {
+          setDirectPlan(null);
+          setError(plan.steps.join(" "));
+          return;
+        }
+        setDirectPlan(plan);
+        setError(null);
+        setStatusMessage("Direct protocol exit plan ready — INDEXLA not required on Base NPM path");
+      } catch (err) {
+        setDirectPlan(null);
+        setError(
+          err instanceof Error ? err.message : "Live exit valuation failed for direct NPM plan",
+        );
+      }
     },
-    [deployments, positions],
+    [deployments, positions, publicClient, wallet.address],
   );
 
   const busy =

@@ -192,6 +192,59 @@ export function mapAmountsToLegOrder(params: {
   throw new Error("Token pair mismatch for position amounts");
 }
 
+/**
+ * SC-F05: interpret adapter/NPM live valuation into leg A/B amounts for exit mins.
+ * Fails closed on wrong pair, malformed data, or zero/zero with (or without) liquidity.
+ */
+export function interpretLiveExitAmounts(params: {
+  tokenA: Address;
+  tokenB: Address;
+  token0: Address;
+  token1: Address;
+  amount0: bigint;
+  amount1: bigint;
+  liquidity: bigint;
+}): { amountA: bigint; amountB: bigint; amount0: bigint; amount1: bigint; liquidity: bigint } {
+  const expected0 =
+    getAddress(params.tokenA).toLowerCase() < getAddress(params.tokenB).toLowerCase()
+      ? getAddress(params.tokenA)
+      : getAddress(params.tokenB);
+  const expected1 =
+    getAddress(params.tokenA).toLowerCase() < getAddress(params.tokenB).toLowerCase()
+      ? getAddress(params.tokenB)
+      : getAddress(params.tokenA);
+  if (
+    getAddress(params.token0) !== expected0 ||
+    getAddress(params.token1) !== expected1
+  ) {
+    throw new Error("Live valuation token pair does not match configured position");
+  }
+  if (params.amount0 < BigInt(0) || params.amount1 < BigInt(0)) {
+    throw new Error("Live valuation returned malformed negative amounts");
+  }
+  const mapped = mapAmountsToLegOrder({
+    tokenA: params.tokenA,
+    tokenB: params.tokenB,
+    token0: params.token0,
+    token1: params.token1,
+    amount0: params.amount0,
+    amount1: params.amount1,
+  });
+  if (mapped.amountA <= BigInt(0) && mapped.amountB <= BigInt(0)) {
+    if (params.liquidity > BigInt(0)) {
+      throw new Error("Live valuation returned zero amounts with non-zero liquidity");
+    }
+    throw new Error("Live valuation returned zero token amounts");
+  }
+  return {
+    amountA: mapped.amountA,
+    amountB: mapped.amountB,
+    amount0: params.amount0,
+    amount1: params.amount1,
+    liquidity: params.liquidity,
+  };
+}
+
 export function buildFullExitLegParams(params: {
   legIndex: number;
   adapter: Address;
@@ -233,10 +286,11 @@ export function buildSkippedExitLeg(legIndex: number): ExitLegParams {
 
 /**
  * Build ExitLegParams[5] for atomic exitAll.
- * Missing legs become adapter=0 skips (verified contract/test pattern).
+ * Missing legs become adapter=0 skips. Live amounts are required for open legs (SC-F05).
  */
 export function buildExitAllLegs(
   positionsByLeg: Map<number, FivePoolPosition>,
+  liveAmountsByLeg: ReadonlyMap<number, { amountA: bigint; amountB: bigint }>,
   slippageBps: bigint,
 ): ExitLegParams[] {
   const legs: ExitLegParams[] = [];
@@ -246,6 +300,10 @@ export function buildExitAllLegs(
       legs.push(buildSkippedExitLeg(i));
       continue;
     }
+    const live = liveAmountsByLeg.get(i);
+    if (!live) {
+      throw new Error(`Missing live exit amounts for leg ${i}`);
+    }
     legs.push(
       buildFullExitLegParams({
         legIndex: i,
@@ -253,8 +311,8 @@ export function buildExitAllLegs(
         tokenA: pos.tokenA,
         tokenB: pos.tokenB,
         positionTokenId: pos.positionTokenId,
-        amountA: pos.amountA,
-        amountB: pos.amountB,
+        amountA: live.amountA,
+        amountB: live.amountB,
         slippageBps,
       }),
     );
@@ -313,6 +371,10 @@ const npmDecreaseLiquidityAbi = [
 export function buildDirectNpmExitPlan(params: {
   network: string;
   position: FivePoolPosition;
+  /** SC-F05: live amountA from adapter/NPM valuation — not cached discovery. */
+  amountA: bigint;
+  /** SC-F05: live amountB from adapter/NPM valuation — not cached discovery. */
+  amountB: bigint;
   liquidity: bigint;
   deadlineSec: bigint;
   /** Exit slippage already used by this flow; defaults to FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS. */
@@ -320,6 +382,8 @@ export function buildDirectNpmExitPlan(params: {
 }): DirectNpmExitPlan {
   const {
     position,
+    amountA: expectedA,
+    amountB: expectedB,
     liquidity,
     deadlineSec,
     network,
@@ -346,8 +410,6 @@ export function buildDirectNpmExitPlan(params: {
     };
   }
 
-  const expectedA = position.amountA;
-  const expectedB = position.amountB;
   if (expectedA <= BigInt(0) && expectedB <= BigInt(0)) {
     return {
       mode: "npm-owner",

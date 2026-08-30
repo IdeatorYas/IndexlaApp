@@ -12,6 +12,7 @@ import {
   buildSkippedExitLeg,
   collectTokenIdsFromTransferLogs,
   exactPoolBindingExpectations,
+  interpretLiveExitAmounts,
   LOCAL_POSITION_DISCOVERY_FROM_BLOCK,
   mapAmountsToLegOrder,
   mapLegMinsToToken01,
@@ -160,7 +161,11 @@ describe("five-pool-positions", () => {
       [0, samplePosition(0)],
       [2, samplePosition(2)],
     ]);
-    const legs = buildExitAllLegs(map, BigInt(100));
+    const liveAmountsByLeg = new Map<number, { amountA: bigint; amountB: bigint }>([
+      [0, { amountA: map.get(0)!.amountA, amountB: map.get(0)!.amountB }],
+      [2, { amountA: map.get(2)!.amountA, amountB: map.get(2)!.amountB }],
+    ]);
+    const legs = buildExitAllLegs(map, liveAmountsByLeg, BigInt(100));
     expect(legs).toHaveLength(5);
     expect(legs[0]!.adapter).toBe(ADAPTER);
     expect(legs[0]!.fullExit).toBe(true);
@@ -221,6 +226,8 @@ describe("five-pool-positions", () => {
     const plan = buildDirectNpmExitPlan({
       network: "hardhat-local",
       position: samplePosition(0),
+      amountA: BigInt(100),
+      amountB: BigInt(200),
       liquidity: BigInt(10),
       deadlineSec: BigInt(99),
     });
@@ -233,6 +240,8 @@ describe("five-pool-positions", () => {
     const plan = buildDirectNpmExitPlan({
       network: "base",
       position: baseNpmPosition(),
+      amountA: BigInt(100),
+      amountB: BigInt(200),
       liquidity: BigInt(50),
       deadlineSec: BigInt(1_700_000_000),
       slippageBps: BigInt(100),
@@ -241,6 +250,270 @@ describe("five-pool-positions", () => {
     expect(plan.decreaseLiquidityCalldata).toMatch(/^0x/);
     expect(plan.collectCalldata).toMatch(/^0x/);
     expect(plan.burnCalldata).toMatch(/^0x/);
+  });
+});
+
+describe("SC-F05 — live amounts for exit mins", () => {
+  const slippageBps = BigInt(100);
+  const [token0, token1] =
+    getAddress(USDC).toLowerCase() < getAddress(CBBTC).toLowerCase()
+      ? ([USDC, CBBTC] as const)
+      : ([CBBTC, USDC] as const);
+
+  it("cached amounts differ from live → encoded mins use live values", () => {
+    const cachedA = BigInt(1_000);
+    const cachedB = BigInt(2_000);
+    const liveA = BigInt(50_000);
+    const liveB = BigInt(70_000);
+    const pos = baseNpmPosition({
+      amountA: cachedA,
+      amountB: cachedB,
+      amount0: cachedA,
+      amount1: cachedB,
+    });
+
+    const executorLeg = buildFullExitLegParams({
+      legIndex: pos.legIndex,
+      adapter: pos.adapter,
+      tokenA: pos.tokenA,
+      tokenB: pos.tokenB,
+      positionTokenId: pos.positionTokenId,
+      amountA: liveA,
+      amountB: liveB,
+      slippageBps,
+    });
+    expect(executorLeg.amountAMin).toBe(applyExitSlippageMin(liveA, slippageBps));
+    expect(executorLeg.amountBMin).toBe(applyExitSlippageMin(liveB, slippageBps));
+    expect(executorLeg.amountAMin).not.toBe(applyExitSlippageMin(cachedA, slippageBps));
+    expect(executorLeg.amountBMin).not.toBe(applyExitSlippageMin(cachedB, slippageBps));
+    // Cached 1000@1% → 990; live 50000@1% → 49500
+    expect(executorLeg.amountAMin).toBe(BigInt(49_500));
+    expect(executorLeg.amountBMin).toBe(BigInt(69_300));
+
+    const liveMap = new Map([[0, { amountA: liveA, amountB: liveB }]]);
+    const legs = buildExitAllLegs(new Map([[0, pos]]), liveMap, slippageBps);
+    expect(legs[0]!.amountAMin).toBe(BigInt(49_500));
+    expect(legs[0]!.amountBMin).toBe(BigInt(69_300));
+
+    const plan = buildDirectNpmExitPlan({
+      network: "base",
+      position: pos,
+      amountA: liveA,
+      amountB: liveB,
+      liquidity: BigInt(50),
+      deadlineSec: BigInt(1_700_000_000),
+      slippageBps,
+    });
+    const mins = decodeDecreaseMins(plan.decreaseLiquidityCalldata!);
+    expect(mins.amount0Min).toBe(applyNpmExitSlippageMin(liveA, slippageBps));
+    expect(mins.amount1Min).toBe(applyNpmExitSlippageMin(liveB, slippageBps));
+    expect(mins.amount0Min).toBe(BigInt(49_500));
+    expect(mins.amount1Min).toBe(BigInt(69_300));
+  });
+
+  it("tick/composition → token0-only yields valid one-sided mins", () => {
+    const live = interpretLiveExitAmounts({
+      tokenA: USDC,
+      tokenB: CBBTC,
+      token0,
+      token1,
+      amount0: token0 === USDC ? BigInt(12_000) : BigInt(0),
+      amount1: token1 === USDC ? BigInt(12_000) : BigInt(0),
+      liquidity: BigInt(10),
+    });
+    expect(live.amountA === BigInt(0) || live.amountB === BigInt(0)).toBe(true);
+    expect(live.amountA + live.amountB).toBe(BigInt(12_000));
+
+    const plan = buildDirectNpmExitPlan({
+      network: "base",
+      position: baseNpmPosition({ amountA: BigInt(5_000), amountB: BigInt(5_000) }),
+      amountA: live.amountA,
+      amountB: live.amountB,
+      liquidity: BigInt(10),
+      deadlineSec: BigInt(1_700_000_000),
+      slippageBps,
+    });
+    const mins = decodeDecreaseMins(plan.decreaseLiquidityCalldata!);
+    if (token0 === USDC) {
+      expect(mins.amount0Min).toBe(BigInt(11_880));
+      expect(mins.amount1Min).toBe(BigInt(0));
+    } else {
+      expect(mins.amount0Min).toBe(BigInt(0));
+      expect(mins.amount1Min).toBe(BigInt(11_880));
+    }
+  });
+
+  it("tick/composition → token1-only yields valid one-sided mins", () => {
+    const live = interpretLiveExitAmounts({
+      tokenA: USDC,
+      tokenB: CBBTC,
+      token0,
+      token1,
+      amount0: token0 === CBBTC ? BigInt(9_000) : BigInt(0),
+      amount1: token1 === CBBTC ? BigInt(9_000) : BigInt(0),
+      liquidity: BigInt(10),
+    });
+    expect(live.amountA === BigInt(0) || live.amountB === BigInt(0)).toBe(true);
+
+    const plan = buildDirectNpmExitPlan({
+      network: "base",
+      position: baseNpmPosition({ amountA: BigInt(1_000), amountB: BigInt(1_000) }),
+      amountA: live.amountA,
+      amountB: live.amountB,
+      liquidity: BigInt(10),
+      deadlineSec: BigInt(1_700_000_000),
+      slippageBps,
+    });
+    const mins = decodeDecreaseMins(plan.decreaseLiquidityCalldata!);
+    if (token1 === CBBTC) {
+      expect(mins.amount0Min).toBe(BigInt(0));
+      expect(mins.amount1Min).toBe(BigInt(8_910));
+    } else {
+      expect(mins.amount0Min).toBe(BigInt(8_910));
+      expect(mins.amount1Min).toBe(BigInt(0));
+    }
+  });
+
+  it("live valuation failure blocks executor exit (no legs / no mins)", () => {
+    const pos = samplePosition(0);
+    const map = new Map([[0, pos]]);
+    expect(() => buildExitAllLegs(map, new Map(), slippageBps)).toThrow(
+      /Missing live exit amounts/,
+    );
+    expect(() =>
+      interpretLiveExitAmounts({
+        tokenA: USDC,
+        tokenB: CBBTC,
+        token0,
+        token1,
+        amount0: BigInt(0),
+        amount1: BigInt(0),
+        liquidity: BigInt(100),
+      }),
+    ).toThrow(/zero amounts with non-zero liquidity/);
+  });
+
+  it("live valuation failure blocks direct NPM exit (no calldata)", () => {
+    expect(() =>
+      interpretLiveExitAmounts({
+        tokenA: USDC,
+        tokenB: CBBTC,
+        token0,
+        token1,
+        amount0: BigInt(0),
+        amount1: BigInt(0),
+        liquidity: BigInt(0),
+      }),
+    ).toThrow(/zero token amounts/);
+
+    const plan = buildDirectNpmExitPlan({
+      network: "base",
+      position: baseNpmPosition(),
+      amountA: BigInt(0),
+      amountB: BigInt(0),
+      liquidity: BigInt(10),
+      deadlineSec: BigInt(1_700_000_000),
+      slippageBps,
+    });
+    expect(plan.decreaseLiquidityCalldata).toBeNull();
+    expect(plan.collectCalldata).toBeNull();
+    expect(plan.burnCalldata).toBeNull();
+  });
+
+  it("malformed / wrong-position response fails closed", () => {
+    expect(() =>
+      interpretLiveExitAmounts({
+        tokenA: USDC,
+        tokenB: CBBTC,
+        token0: "0x00000000000000000000000000000000000000Ab" as Address,
+        token1: CBBTC,
+        amount0: BigInt(1),
+        amount1: BigInt(2),
+        liquidity: BigInt(1),
+      }),
+    ).toThrow(/token pair does not match/);
+
+    expect(() =>
+      interpretLiveExitAmounts({
+        tokenA: USDC,
+        tokenB: CBBTC,
+        token0,
+        token1,
+        amount0: BigInt(-1),
+        amount1: BigInt(2),
+        liquidity: BigInt(1),
+      }),
+    ).toThrow(/malformed/);
+  });
+
+  it("failure paths produce no approval/tx inputs (no calldata / no exit legs)", () => {
+    // Hook orders: readLiveExitAmountsForPosition → then approve → then writeContract.
+    // Lib contract: failed/missing live amounts never yield executable exit calldata.
+    expect(() =>
+      interpretLiveExitAmounts({
+        tokenA: USDC,
+        tokenB: CBBTC,
+        token0,
+        token1,
+        amount0: BigInt(0),
+        amount1: BigInt(0),
+        liquidity: BigInt(5),
+      }),
+    ).toThrow();
+
+    expect(() =>
+      buildExitAllLegs(new Map([[0, samplePosition(0)]]), new Map(), slippageBps),
+    ).toThrow(/Missing live/);
+
+    const closed = buildDirectNpmExitPlan({
+      network: "base",
+      position: baseNpmPosition({ amountA: BigInt(99), amountB: BigInt(99) }),
+      amountA: BigInt(0),
+      amountB: BigInt(0),
+      liquidity: BigInt(5),
+      deadlineSec: BigInt(1),
+      slippageBps,
+    });
+    expect(closed.decreaseLiquidityCalldata).toBeNull();
+    expect(closed.collectCalldata).toBeNull();
+    expect(closed.burnCalldata).toBeNull();
+  });
+
+  it("existing token-order reversal remains correct with live amounts", () => {
+    const tokenA = CBBTC;
+    const tokenB = USDC;
+    const liveA = BigInt(5_000);
+    const liveB = BigInt(8_000);
+    expect(getAddress(tokenA).toLowerCase() > getAddress(tokenB).toLowerCase()).toBe(true);
+
+    const mapped = mapLegMinsToToken01({
+      tokenA,
+      tokenB,
+      amountAMin: applyNpmExitSlippageMin(liveA, BigInt(200)),
+      amountBMin: applyNpmExitSlippageMin(liveB, BigInt(200)),
+    });
+    expect(mapped.amount0Min).toBe(applyNpmExitSlippageMin(liveB, BigInt(200)));
+    expect(mapped.amount1Min).toBe(applyNpmExitSlippageMin(liveA, BigInt(200)));
+
+    const plan = buildDirectNpmExitPlan({
+      network: "base",
+      position: baseNpmPosition({
+        tokenA,
+        tokenB,
+        amountA: BigInt(1),
+        amountB: BigInt(1),
+        amount0: liveB,
+        amount1: liveA,
+      }),
+      amountA: liveA,
+      amountB: liveB,
+      liquidity: BigInt(10),
+      deadlineSec: BigInt(1_700_000_000),
+      slippageBps: BigInt(200),
+    });
+    const mins = decodeDecreaseMins(plan.decreaseLiquidityCalldata!);
+    expect(mins.amount0Min).toBe(BigInt(7840));
+    expect(mins.amount1Min).toBe(BigInt(4900));
   });
 });
 
@@ -255,6 +528,8 @@ describe("SC-F06 — slippage-protected direct NPM exit", () => {
     const plan = buildDirectNpmExitPlan({
       network: "base",
       position: pos,
+      amountA,
+      amountB,
       liquidity: BigInt(50),
       deadlineSec: BigInt(1_700_000_000),
       slippageBps,
@@ -294,6 +569,8 @@ describe("SC-F06 — slippage-protected direct NPM exit", () => {
         amount0: amountB,
         amount1: amountA,
       }),
+      amountA,
+      amountB,
       liquidity: BigInt(10),
       deadlineSec: BigInt(1_700_000_000),
       slippageBps,
@@ -317,6 +594,8 @@ describe("SC-F06 — slippage-protected direct NPM exit", () => {
         amount0: amountA,
         amount1: BigInt(0),
       }),
+      amountA,
+      amountB,
       liquidity: BigInt(10),
       deadlineSec: BigInt(1_700_000_000),
       slippageBps,
@@ -338,6 +617,8 @@ describe("SC-F06 — slippage-protected direct NPM exit", () => {
         amount0: BigInt(0),
         amount1: amountB,
       }),
+      amountA,
+      amountB,
       liquidity: BigInt(10),
       deadlineSec: BigInt(1_700_000_000),
       slippageBps,
@@ -356,6 +637,8 @@ describe("SC-F06 — slippage-protected direct NPM exit", () => {
         amount0: BigInt(0),
         amount1: BigInt(0),
       }),
+      amountA: BigInt(0),
+      amountB: BigInt(0),
       liquidity: BigInt(10),
       deadlineSec: BigInt(1_700_000_000),
       slippageBps: BigInt(100),
@@ -367,21 +650,39 @@ describe("SC-F06 — slippage-protected direct NPM exit", () => {
   });
 
   it("no generated decreaseLiquidity calldata contains the old fixed 1/1 minimums", () => {
-    const cases: FivePoolPosition[] = [
-      baseNpmPosition({ amountA: BigInt(10_000), amountB: BigInt(20_000) }),
-      baseNpmPosition({ amountA: BigInt(10_000), amountB: BigInt(0) }),
-      baseNpmPosition({ amountA: BigInt(0), amountB: BigInt(10_000) }),
-      baseNpmPosition({
-        tokenA: CBBTC,
-        tokenB: USDC,
+    const cases: Array<{ position: FivePoolPosition; amountA: bigint; amountB: bigint }> = [
+      {
+        position: baseNpmPosition({ amountA: BigInt(10_000), amountB: BigInt(20_000) }),
+        amountA: BigInt(10_000),
+        amountB: BigInt(20_000),
+      },
+      {
+        position: baseNpmPosition({ amountA: BigInt(10_000), amountB: BigInt(0) }),
+        amountA: BigInt(10_000),
+        amountB: BigInt(0),
+      },
+      {
+        position: baseNpmPosition({ amountA: BigInt(0), amountB: BigInt(10_000) }),
+        amountA: BigInt(0),
+        amountB: BigInt(10_000),
+      },
+      {
+        position: baseNpmPosition({
+          tokenA: CBBTC,
+          tokenB: USDC,
+          amountA: BigInt(1_000),
+          amountB: BigInt(2_000),
+        }),
         amountA: BigInt(1_000),
         amountB: BigInt(2_000),
-      }),
+      },
     ];
-    for (const position of cases) {
+    for (const { position, amountA, amountB } of cases) {
       const plan = buildDirectNpmExitPlan({
         network: "base",
         position,
+        amountA,
+        amountB,
         liquidity: BigInt(50),
         deadlineSec: BigInt(1_700_000_000),
         slippageBps: BigInt(100),
