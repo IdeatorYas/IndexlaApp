@@ -52,9 +52,12 @@ import { FIVE_POOL_LEG_COUNT } from "@/lib/stable-club/five-pool-strategy";
 import { erc721PositionAbi } from "@/lib/stable-club/nft-approval";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
+  attestPhase2aDeployments,
   isValidPhase2aPublicDeployments,
+  requireAttestedPhase2aDeployments,
   type StableClubPhase2aPublicDeployments,
 } from "@/lib/stable-club/phase2a-deployments";
+import { base } from "viem/chains";
 
 type Phase2aResponse =
   | { configured: false; message: string }
@@ -251,7 +254,23 @@ export function useFivePoolPositions() {
         const json = (await res.json()) as Phase2aResponse;
         if (cancelled) return;
         if (json.configured && isValidPhase2aPublicDeployments(json.deployments)) {
-          setDeployments(json.deployments);
+          // SC-F09: shape-valid only — attest bytecode before exposing execution.
+          const candidate = json.deployments;
+          const attestChain =
+            candidate.network === "hardhat-local" ? STABLE_CLUB_LOCAL_CHAIN : base;
+          const attestClient = createPublicClient({
+            chain: attestChain,
+            transport: http(candidate.rpcUrl),
+          });
+          await attestPhase2aDeployments({
+            client: {
+              getChainId: () => attestClient.getChainId(),
+              getBytecode: (args) => attestClient.getBytecode(args),
+            },
+            deployments: candidate,
+          });
+          if (cancelled) return;
+          setDeployments(candidate);
           setDeploymentsError(null);
         } else {
           setDeployments(null);
@@ -259,10 +278,12 @@ export function useFivePoolPositions() {
             !json.configured ? json.message : "Invalid phase 2a deployments payload",
           );
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setDeployments(null);
-          setDeploymentsError("Failed to load phase 2a deployments");
+          setDeploymentsError(
+            err instanceof Error ? err.message : "Failed to load phase 2a deployments",
+          );
         }
       } finally {
         if (!cancelled) setDeploymentsLoading(false);
@@ -566,7 +587,8 @@ export function useFivePoolPositions() {
   }, [refreshPositions]);
 
   const ensureReady = useCallback(() => {
-    if (!deployments || !wallet.address || !wallet.provider) {
+    const d = requireAttestedPhase2aDeployments(deployments);
+    if (!wallet.address || !wallet.provider) {
       throw new Error("Wallet and deployments required");
     }
     if (!onExpectedChain) {
@@ -574,15 +596,15 @@ export function useFivePoolPositions() {
     }
     assertChainEnvironmentMatch({
       walletChainId: wallet.chainId,
-      deploymentChainId: deployments.chainId,
-      network: deployments.network,
-      permit2: deployments.permit2,
+      deploymentChainId: d.chainId,
+      network: d.network,
+      permit2: d.permit2,
     });
     if (!strategyId || !strategyRegistered) {
       throw new Error("Five-pool strategy not registered");
     }
     return {
-      d: deployments,
+      d,
       account: wallet.address,
       strategyId,
       walletClient: createWalletClient({

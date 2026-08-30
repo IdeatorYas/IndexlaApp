@@ -55,9 +55,12 @@ import { encodeAllowedActions } from "@/lib/stable-club/permissions";
 import { computeStableClubPermissionId } from "@/lib/stable-club/permission-id";
 import { permit2AllowanceAbi } from "@/lib/stable-club/permit2";
 import {
+  attestPhase2aDeployments,
   isValidPhase2aPublicDeployments,
+  requireAttestedPhase2aDeployments,
   type StableClubPhase2aPublicDeployments,
 } from "@/lib/stable-club/phase2a-deployments";
+import { base } from "viem/chains";
 import { buildFivePoolQuotePlan, QuotePlanError } from "@/lib/stable-club/quote-plan";
 
 /** Matches fork five-pool ALL_ACTIONS (bits 0–4, 6–7). */
@@ -228,7 +231,23 @@ export function useFivePoolDeposit() {
         const json = (await res.json()) as Phase2aResponse;
         if (cancelled) return;
         if (json.configured && isValidPhase2aPublicDeployments(json.deployments)) {
-          setDeployments(json.deployments);
+          // SC-F09: shape-valid only — attest bytecode before exposing execution.
+          const candidate = json.deployments;
+          const attestChain =
+            candidate.network === "hardhat-local" ? STABLE_CLUB_LOCAL_CHAIN : base;
+          const attestClient = createPublicClient({
+            chain: attestChain,
+            transport: http(candidate.rpcUrl),
+          });
+          await attestPhase2aDeployments({
+            client: {
+              getChainId: () => attestClient.getChainId(),
+              getBytecode: (args) => attestClient.getBytecode(args),
+            },
+            deployments: candidate,
+          });
+          if (cancelled) return;
+          setDeployments(candidate);
           setDeploymentsError(null);
         } else {
           setDeployments(null);
@@ -236,10 +255,12 @@ export function useFivePoolDeposit() {
             !json.configured ? json.message : "Invalid phase 2a deployments payload",
           );
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setDeployments(null);
-          setDeploymentsError("Failed to load phase 2a deployments");
+          setDeploymentsError(
+            err instanceof Error ? err.message : "Failed to load phase 2a deployments",
+          );
         }
       } finally {
         if (!cancelled) setDeploymentsLoading(false);
@@ -435,7 +456,13 @@ export function useFivePoolDeposit() {
   ]);
 
   const registerStrategy = useCallback(async () => {
-    if (!deployments || !wallet.address || !wallet.provider) {
+    try {
+      requireAttestedPhase2aDeployments(deployments);
+    } catch {
+      setError("Wallet and deployments required");
+      return;
+    }
+    if (!wallet.address || !wallet.provider) {
       setError("Wallet and deployments required");
       return;
     }
@@ -446,9 +473,9 @@ export function useFivePoolDeposit() {
     try {
       assertChainEnvironmentMatch({
         walletChainId: wallet.chainId,
-        deploymentChainId: deployments.chainId,
-        network: deployments.network,
-        permit2: deployments.permit2,
+        deploymentChainId: deployments!.chainId,
+        network: deployments!.network,
+        permit2: deployments!.permit2,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Chain/environment mismatch");
@@ -556,7 +583,8 @@ export function useFivePoolDeposit() {
     setApprovalTxHashes([]);
 
     try {
-      if (!deployments || !wallet.address || !wallet.provider) {
+      requireAttestedPhase2aDeployments(deployments);
+      if (!wallet.address || !wallet.provider) {
         throw new Error("Wallet and deployments required");
       }
       if (!onExpectedChain) {
@@ -564,9 +592,9 @@ export function useFivePoolDeposit() {
       }
       assertChainEnvironmentMatch({
         walletChainId: wallet.chainId,
-        deploymentChainId: deployments.chainId,
-        network: deployments.network,
-        permit2: deployments.permit2,
+        deploymentChainId: deployments!.chainId,
+        network: deployments!.network,
+        permit2: deployments!.permit2,
       });
       if (!strategyRegistered || !strategyId) {
         throw new Error("Register the five-pool strategy before depositing");
@@ -579,7 +607,7 @@ export function useFivePoolDeposit() {
       // Always resolve from chain — local retries / prior deposits must not reuse a nonce.
       const nextNonce = await resolveNextDepositExecutionNonce(
         publicClient,
-        deployments.strategyRegistry,
+        deployments!.strategyRegistry,
         strategyId,
       );
       setExecutionNonce(nextNonce);
