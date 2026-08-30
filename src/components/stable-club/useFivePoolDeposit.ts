@@ -6,7 +6,9 @@ import {
   createWalletClient,
   custom,
   formatUnits,
+  getAddress,
   http,
+  isAddress,
   type Address,
   type Hex,
 } from "viem";
@@ -26,6 +28,7 @@ import {
 import {
   assertChainEnvironmentMatch,
 } from "@/lib/stable-club/chain-isolation";
+import { ZERO_ADDRESS } from "@/lib/stable-club/nft-approval";
 import {
   FIVE_POOL_DEFAULT_DEADLINE_SEC,
   FIVE_POOL_DEFAULT_LP_SLIPPAGE_BPS,
@@ -82,7 +85,14 @@ function userRejectMessage(err: unknown): string | null {
   return null;
 }
 
-async function readCurrentTicks(
+/**
+ * Read live pool ticks for quote/range planning.
+ * SC-F03: RPC/slot0 failures fail closed — never substitute tick 0.
+ * Legitimate on-chain tick 0 is still returned when slot0 succeeds.
+ * Only verified local Hardhat (network hardhat-local + chainId 31337) may use
+ * intentional tick 0 without an RPC read.
+ */
+export async function readCurrentTicks(
   publicClient: {
     readContract: (args: {
       address: Address;
@@ -91,22 +101,43 @@ async function readCurrentTicks(
     }) => Promise<readonly unknown[]>;
   },
   network: string,
+  chainId: number,
+  pools: readonly { id: string; poolAddress: Address | null }[] = OFFICIAL_STABLE_CLUB_BASE_POOLS,
 ): Promise<number[]> {
+  const allowNoRpcTickZero =
+    network === "hardhat-local" && chainId === STABLE_CLUB_LOCAL_CHAIN_ID;
   const ticks: number[] = [];
-  for (const pool of OFFICIAL_STABLE_CLUB_BASE_POOLS) {
-    if (!pool.poolAddress || network === "hardhat-local") {
+
+  for (const pool of pools) {
+    if (allowNoRpcTickZero) {
       ticks.push(0);
       continue;
     }
+
+    const poolAddress = pool.poolAddress;
+    if (
+      !poolAddress ||
+      !isAddress(poolAddress) ||
+      getAddress(poolAddress) === getAddress(ZERO_ADDRESS)
+    ) {
+      throw new Error(
+        `Missing or invalid poolAddress for live tick read on pool ${pool.id}` +
+          (poolAddress ? ` (${poolAddress})` : ""),
+      );
+    }
+
     try {
       const slot0 = await publicClient.readContract({
-        address: pool.poolAddress,
+        address: poolAddress,
         abi: clPoolSlot0Abi,
         functionName: "slot0",
       });
       ticks.push(Number(slot0[1]));
-    } catch {
-      ticks.push(0);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to read current tick for pool ${pool.id} (${poolAddress}): ${detail}`,
+      );
     }
   }
   return ticks;
@@ -348,7 +379,11 @@ export function useFivePoolDeposit() {
         grossUsdc: parsed.grossUsdc,
         nowSec,
       });
-      const currentTicks = await readCurrentTicks(publicClient, deployments.network);
+      const currentTicks = await readCurrentTicks(
+        publicClient,
+        deployments.network,
+        deployments.chainId,
+      );
       const adapters = deployments.adapters.map((a) => a.adapter) as readonly Address[];
       const plan = buildFivePoolQuotePlan({
         grossUsdc: parsed.grossUsdc,
