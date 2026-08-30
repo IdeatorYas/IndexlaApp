@@ -148,7 +148,8 @@ contract PermissionRegistry {
         permissionId = permissionIdFor(perm.user, perm.chainId, perm.poolId, perm.tokenA, perm.tokenB);
 
         Permission storage existing = permissions[permissionId];
-        if (existing.user != address(0) && !existing.revoked) revert PermissionAlreadyExists();
+        // SC-05: any existing record (active or revoked) cannot be overwritten/reactivated.
+        if (existing.user != address(0)) revert PermissionAlreadyExists();
 
         permissions[permissionId] = perm;
         emit PermissionRegistered(permissionId, perm.user, perm.poolId);
@@ -172,7 +173,8 @@ contract PermissionRegistry {
         permissionId = permissionIdFor(perm.user, perm.chainId, perm.poolId, perm.tokenA, perm.tokenB);
 
         Permission storage existing = permissions[permissionId];
-        if (existing.user != address(0) && !existing.revoked) revert PermissionAlreadyExists();
+        // SC-05: any existing record (active or revoked) cannot be overwritten/reactivated.
+        if (existing.user != address(0)) revert PermissionAlreadyExists();
 
         permissions[permissionId] = perm;
 
