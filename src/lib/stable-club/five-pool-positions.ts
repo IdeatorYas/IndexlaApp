@@ -145,6 +145,36 @@ export function applyExitSlippageMin(amount: bigint, slippageBps: bigint): bigin
   return reduced > BigInt(0) ? reduced : FIVE_POOL_EXIT_MIN_FLOOR;
 }
 
+/**
+ * Direct NPM decreaseLiquidity mins — no 1-wei floor.
+ * Zero expected amount → zero min (one-sided). Non-zero → floor(amount × (10000 − bps) / 10000).
+ */
+export function applyNpmExitSlippageMin(amount: bigint, slippageBps: bigint): bigint {
+  if (amount <= BigInt(0)) return BigInt(0);
+  const bps =
+    slippageBps < BigInt(0)
+      ? BigInt(0)
+      : slippageBps > BigInt(10_000)
+        ? BigInt(10_000)
+        : slippageBps;
+  return (amount * (BigInt(10_000) - bps)) / BigInt(10_000);
+}
+
+/** Map leg-ordered A/B minimums into Uniswap/Aerodrome token0/token1 order. */
+export function mapLegMinsToToken01(params: {
+  tokenA: Address;
+  tokenB: Address;
+  amountAMin: bigint;
+  amountBMin: bigint;
+}): { amount0Min: bigint; amount1Min: bigint } {
+  const a = getAddress(params.tokenA).toLowerCase();
+  const b = getAddress(params.tokenB).toLowerCase();
+  if (a < b) {
+    return { amount0Min: params.amountAMin, amount1Min: params.amountBMin };
+  }
+  return { amount0Min: params.amountBMin, amount1Min: params.amountAMin };
+}
+
 export function mapAmountsToLegOrder(params: {
   tokenA: Address;
   tokenB: Address;
@@ -255,13 +285,46 @@ export function nftExplorerUrl(
   return null;
 }
 
+const npmDecreaseLiquidityAbi = [
+  {
+    type: "function",
+    name: "decreaseLiquidity",
+    stateMutability: "nonpayable",
+    inputs: [
+      {
+        name: "params",
+        type: "tuple",
+        components: [
+          { name: "tokenId", type: "uint256" },
+          { name: "liquidity", type: "uint128" },
+          { name: "amount0Min", type: "uint256" },
+          { name: "amount1Min", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      },
+    ],
+    outputs: [
+      { name: "amount0", type: "uint256" },
+      { name: "amount1", type: "uint256" },
+    ],
+  },
+] as const;
+
 export function buildDirectNpmExitPlan(params: {
   network: string;
   position: FivePoolPosition;
   liquidity: bigint;
   deadlineSec: bigint;
+  /** Exit slippage already used by this flow; defaults to FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS. */
+  slippageBps?: bigint;
 }): DirectNpmExitPlan {
-  const { position, liquidity, deadlineSec, network } = params;
+  const {
+    position,
+    liquidity,
+    deadlineSec,
+    network,
+    slippageBps = FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS,
+  } = params;
   const disclaimer =
     "Direct protocol exit recovers underlying pool tokens only — not USDC. Exit is not risk-free and may realize impermanent loss, fees, or failed slippage.";
 
@@ -283,39 +346,41 @@ export function buildDirectNpmExitPlan(params: {
     };
   }
 
-  // Uniswap V3 NPM ABI shapes used by fork tests (amount mins floor = 1).
+  const expectedA = position.amountA;
+  const expectedB = position.amountB;
+  if (expectedA <= BigInt(0) && expectedB <= BigInt(0)) {
+    return {
+      mode: "npm-owner",
+      nftContract: position.npm,
+      adapter: position.adapter,
+      tokenId: position.positionTokenId,
+      steps: [
+        "Direct NPM exit unavailable: expected token amounts are zero or unavailable.",
+        "Refresh position amounts, then retry — or exit via INDEXLA when amounts are known.",
+      ],
+      decreaseLiquidityCalldata: null,
+      collectCalldata: null,
+      burnCalldata: null,
+      disclaimer,
+    };
+  }
+
+  const { amount0Min, amount1Min } = mapLegMinsToToken01({
+    tokenA: position.tokenA,
+    tokenB: position.tokenB,
+    amountAMin: applyNpmExitSlippageMin(expectedA, slippageBps),
+    amountBMin: applyNpmExitSlippageMin(expectedB, slippageBps),
+  });
+
   const decreaseLiquidityCalldata = encodeFunctionData({
-    abi: [
-      {
-        type: "function",
-        name: "decreaseLiquidity",
-        stateMutability: "nonpayable",
-        inputs: [
-          {
-            name: "params",
-            type: "tuple",
-            components: [
-              { name: "tokenId", type: "uint256" },
-              { name: "liquidity", type: "uint128" },
-              { name: "amount0Min", type: "uint256" },
-              { name: "amount1Min", type: "uint256" },
-              { name: "deadline", type: "uint256" },
-            ],
-          },
-        ],
-        outputs: [
-          { name: "amount0", type: "uint256" },
-          { name: "amount1", type: "uint256" },
-        ],
-      },
-    ] as const,
+    abi: npmDecreaseLiquidityAbi,
     functionName: "decreaseLiquidity",
     args: [
       {
         tokenId: position.positionTokenId,
         liquidity: liquidity > BigInt(0) ? liquidity : BigInt(1),
-        amount0Min: FIVE_POOL_EXIT_MIN_FLOOR,
-        amount1Min: FIVE_POOL_EXIT_MIN_FLOOR,
+        amount0Min,
+        amount1Min,
         deadline: deadlineSec,
       },
     ],
