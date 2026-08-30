@@ -354,7 +354,9 @@ describe("SC-04 — cascade strategy kill switch to leg permissions", function (
     const legPermissions = [];
     const legs = [];
     for (let i = 0; i < 5; i++) {
-      const adapter = ctx.adapters[i === 1 ? 0 : i]; // leg 1 reuses leg 0 pool/tokens → same permission ID
+      // Leg 1 reuses leg 0 pool/tokens/adapter: SC-08 identity stays valid while
+      // permissionIdFor collides → LegPermissionDuplicate (not AdapterPoolIdMismatch).
+      const adapter = ctx.adapters[i === 1 ? 0 : i];
       const legPerm = {
         user: ctx.user.address,
         chainId: ctx.chainId,
@@ -382,7 +384,7 @@ describe("SC-04 — cascade strategy kill switch to leg permissions", function (
       legs.push({
         poolId: adapter.poolId,
         allocationBps: 2000n,
-        adapter: ctx.adapters[i].adapter, // adapter slot still unique
+        adapter: adapter.adapter,
         tokenA: adapter.tokenA,
         tokenB: adapter.tokenB,
         legPermissionId,
