@@ -30,6 +30,12 @@ export const FIVE_POOL_DEFAULT_SWAP_SLIPPAGE_BPS = BigInt(100);
 export const FIVE_POOL_DEFAULT_LP_SLIPPAGE_BPS = BigInt(100);
 export const FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC = 90;
 export const FIVE_POOL_DEFAULT_DEADLINE_SEC = 3600;
+/**
+ * SC-F10 — minimum remaining quote/deadline validity required before any
+ * executable wallet write (approval or deposit). Prevents starting a tx when
+ * the plan would expire during/immediately after confirmation.
+ */
+export const FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC = 30;
 export const FIVE_POOL_MIN_USDC_HUMAN = PRIVATE_BETA_LAUNCH_PARAMS.capsUsd.minimumPosition;
 
 export type FivePoolDepositProgress =
@@ -220,6 +226,117 @@ export function assertQuotesFreshForSubmission(params: {
   }
 }
 
+/**
+ * SC-F10 — fail closed unless quotes and deadline retain at least
+ * `minRemainingSec` of validity from `nowSec` (default:
+ * FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC).
+ */
+export function assertExecutableQuotePlanValidity(params: {
+  quotes: Readonly<Partial<Record<FivePoolSwapSlotId, SwapQuoteInput>>>;
+  deadline: bigint;
+  nowSec: number;
+  maxQuoteAgeSec: number;
+  minRemainingSec?: number;
+}): void {
+  const minRemaining =
+    params.minRemainingSec ?? FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC;
+  if (
+    !Number.isFinite(minRemaining) ||
+    minRemaining < 0 ||
+    !Number.isInteger(minRemaining)
+  ) {
+    throw new QuotePlanError("STALE_QUOTE", "Invalid minRemainingSec for executable quotes");
+  }
+  if (params.maxQuoteAgeSec < minRemaining) {
+    throw new QuotePlanError(
+      "STALE_QUOTE",
+      `Quote max age ${params.maxQuoteAgeSec}s is below executable buffer ${minRemaining}s — refresh quotes`,
+    );
+  }
+  assertQuotesFreshForSubmission({
+    quotes: params.quotes,
+    nowSec: params.nowSec,
+    maxQuoteAgeSec: params.maxQuoteAgeSec - minRemaining,
+  });
+  const deadlineSec = Number(params.deadline);
+  if (!Number.isFinite(deadlineSec)) {
+    throw new QuotePlanError("INVALID_DEADLINE", "Invalid deposit deadline");
+  }
+  if (deadlineSec - params.nowSec < minRemaining) {
+    throw new QuotePlanError(
+      "INVALID_DEADLINE",
+      `Deposit deadline remaining validity below ${minRemaining}s — refresh plan`,
+    );
+  }
+}
+
+/**
+ * SC-F10 — one approval write gated by executable quote TTL before and after
+ * successful receipt confirmation (SC-F01). Does not auto-retry or re-quote.
+ */
+export async function runQuoteTtlGuardedApproval(params: {
+  nowSec: () => number;
+  assertExecutable: (nowSec: number) => void;
+  writeApproval: () => Promise<Hex>;
+  waitForSuccess: (hash: Hex) => Promise<unknown>;
+}): Promise<Hex> {
+  params.assertExecutable(params.nowSec());
+  const hash = await params.writeApproval();
+  await params.waitForSuccess(hash);
+  params.assertExecutable(params.nowSec());
+  return hash;
+}
+
+/**
+ * SC-F10 — sequential Permit2 approval steps with TTL rechecks.
+ * Pass `null` for a step to skip it (existing on-chain allowance still usable).
+ */
+export async function runFivePoolDepositApprovalSequence(params: {
+  nowSec: () => number;
+  quotes: Readonly<Partial<Record<FivePoolSwapSlotId, SwapQuoteInput>>>;
+  deadline: bigint;
+  maxQuoteAgeSec: number;
+  minRemainingSec?: number;
+  erc20Approve: (() => Promise<Hex>) | null;
+  permit2Approve: (() => Promise<Hex>) | null;
+  waitForSuccess: (hash: Hex) => Promise<unknown>;
+}): Promise<Hex[]> {
+  const minRemaining =
+    params.minRemainingSec ?? FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC;
+  const assertExecutable = (atSec: number) => {
+    assertExecutableQuotePlanValidity({
+      quotes: params.quotes,
+      deadline: params.deadline,
+      nowSec: atSec,
+      maxQuoteAgeSec: params.maxQuoteAgeSec,
+      minRemainingSec: minRemaining,
+    });
+  };
+
+  const hashes: Hex[] = [];
+  if (params.erc20Approve) {
+    hashes.push(
+      await runQuoteTtlGuardedApproval({
+        nowSec: params.nowSec,
+        assertExecutable,
+        writeApproval: params.erc20Approve,
+        waitForSuccess: params.waitForSuccess,
+      }),
+    );
+  }
+  if (params.permit2Approve) {
+    hashes.push(
+      await runQuoteTtlGuardedApproval({
+        nowSec: params.nowSec,
+        assertExecutable,
+        writeApproval: params.permit2Approve,
+        waitForSuccess: params.waitForSuccess,
+      }),
+    );
+  }
+  return hashes;
+}
+
 /** Remap catalogue token addresses onto deployment adapter bindings for contract submission. */
 export function remapPlanLegsToAdapters(
   plan: FivePoolQuotePlan,
@@ -261,18 +378,19 @@ export function buildDepositFivePoolStrategyArgs(params: {
   maxQuoteAgeSec: number;
   /** When true (production UI), reject mock quote sources. */
   requireLiveQuotes: boolean;
+  /** SC-F10 executable remaining-validity buffer (defaults to shared constant). */
+  minRemainingSec?: number;
 }): DepositFivePoolStrategyArgs {
   if (params.requireLiveQuotes) {
     assertLiveQuoteSourceForSubmission(params.quoteBundle.source);
   }
-  assertQuotesFreshForSubmission({
+  assertExecutableQuotePlanValidity({
     quotes: params.quoteBundle.quotes,
+    deadline: params.plan.deadline,
     nowSec: params.nowSec,
     maxQuoteAgeSec: params.maxQuoteAgeSec,
+    minRemainingSec: params.minRemainingSec,
   });
-  if (params.nowSec >= Number(params.plan.deadline)) {
-    throw new QuotePlanError("INVALID_DEADLINE", "Deposit deadline expired — refresh plan");
-  }
   const legs = remapPlanLegsToAdapters(params.plan, params.adapters);
   const poolIds = params.plan.poolIds;
   if (poolIds.length !== 5) throw new Error("Expected 5 pool ids");

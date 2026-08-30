@@ -34,11 +34,14 @@ import {
   FIVE_POOL_DEFAULT_LP_SLIPPAGE_BPS,
   FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
   FIVE_POOL_DEFAULT_SWAP_SLIPPAGE_BPS,
+  FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
+  assertExecutableQuotePlanValidity,
   buildDepositFivePoolStrategyArgs,
   buildDepositPreview,
   explorerTxUrl,
   formatUsdcUnits,
   parseUsdcDepositInput,
+  runFivePoolDepositApprovalSequence,
   validateSlippageBps,
   type FivePoolDepositPreview,
   type FivePoolDepositProgress,
@@ -620,6 +623,7 @@ export function useFivePoolDeposit() {
         quoteBundle,
         nowSec,
         maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
+        minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
         requireLiveQuotes: true,
       });
 
@@ -650,19 +654,13 @@ export function useFivePoolDeposit() {
         functionName: "allowance",
         args: [wallet.address, permitPlan.permit2],
       });
-      const hashes: Hex[] = [];
-      if (erc20Allowance < depositArgs.grossUsdc) {
-        const h1 = await walletClient.writeContract({
-          address: permitPlan.erc20ApproveTx.address,
-          abi: permitPlan.erc20ApproveTx.abi,
-          functionName: permitPlan.erc20ApproveTx.functionName,
-          args: permitPlan.erc20ApproveTx.args,
-        });
-        hashes.push(h1);
-        await waitForSuccessfulTransactionReceipt(publicClient, h1);
-      }
+      const needsErc20Approve = erc20Allowance < depositArgs.grossUsdc;
 
-      setStatusMessage("Approve Permit2 → CL executor (bounded, expiring)…");
+      setStatusMessage(
+        needsErc20Approve
+          ? "Approve USDC → Permit2 (bounded)…"
+          : "Approve Permit2 → CL executor (bounded, expiring)…",
+      );
       const p2 = await publicClient.readContract({
         address: permitPlan.permit2,
         abi: permit2AllowanceAbi,
@@ -671,27 +669,58 @@ export function useFivePoolDeposit() {
       });
       const p2Amount = p2[0];
       const p2Exp = Number(p2[1]);
-      if (p2Amount < depositArgs.grossUsdc || p2Exp <= nowSec) {
-        const h2 = await walletClient.writeContract({
-          address: permitPlan.permit2ApproveTx.address,
-          abi: permitPlan.permit2ApproveTx.abi,
-          functionName: permitPlan.permit2ApproveTx.functionName,
-          args: permitPlan.permit2ApproveTx.args,
-        });
-        hashes.push(h2);
-        await waitForSuccessfulTransactionReceipt(publicClient, h2);
-      }
-      setApprovalTxHashes(hashes);
+      const needsPermit2Approve = p2Amount < depositArgs.grossUsdc || p2Exp <= nowSec;
 
-      // Re-check quote freshness immediately before deposit
+      const approvalHashes = await runFivePoolDepositApprovalSequence({
+        nowSec: () => Math.floor(Date.now() / 1000),
+        quotes: quoteBundle.quotes,
+        deadline: planRef.current.deadline,
+        maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
+        minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
+        erc20Approve: needsErc20Approve
+          ? async () => {
+              setStatusMessage("Approve USDC → Permit2 (bounded)…");
+              return walletClient.writeContract({
+                address: permitPlan.erc20ApproveTx.address,
+                abi: permitPlan.erc20ApproveTx.abi,
+                functionName: permitPlan.erc20ApproveTx.functionName,
+                args: permitPlan.erc20ApproveTx.args,
+              });
+            }
+          : null,
+        permit2Approve: needsPermit2Approve
+          ? async () => {
+              setStatusMessage("Approve Permit2 → CL executor (bounded, expiring)…");
+              return walletClient.writeContract({
+                address: permitPlan.permit2ApproveTx.address,
+                abi: permitPlan.permit2ApproveTx.abi,
+                functionName: permitPlan.permit2ApproveTx.functionName,
+                args: permitPlan.permit2ApproveTx.args,
+              });
+            }
+          : null,
+        waitForSuccess: (hash) => waitForSuccessfulTransactionReceipt(publicClient, hash),
+      });
+      setApprovalTxHashes(approvalHashes);
+
+      // SC-F10 — recheck remaining validity immediately before deposit write
+      const depositNowSec = Math.floor(Date.now() / 1000);
+      assertExecutableQuotePlanValidity({
+        quotes: quoteBundle.quotes,
+        deadline: planRef.current.deadline,
+        nowSec: depositNowSec,
+        maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
+        minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
+      });
       buildDepositFivePoolStrategyArgs({
         plan: planRef.current,
         adapters: deployments.adapters,
         strategyId,
         executionNonce: nextNonce,
         quoteBundle,
-        nowSec: Math.floor(Date.now() / 1000),
+        nowSec: depositNowSec,
         maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
+        minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
         requireLiveQuotes: true,
       });
 
@@ -735,7 +764,10 @@ export function useFivePoolDeposit() {
     } catch (err) {
       setProgress("failed");
       const reject = userRejectMessage(err);
-      if (err instanceof QuotePlanError && err.code === "STALE_QUOTE") {
+      if (
+        err instanceof QuotePlanError &&
+        (err.code === "STALE_QUOTE" || err.code === "INVALID_DEADLINE")
+      ) {
         setError(`${err.message} — prepare quotes again`);
         clearPlan();
         planRef.current = null;
