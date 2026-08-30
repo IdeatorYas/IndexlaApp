@@ -15,7 +15,7 @@
 ## Immediate controls (no Timelock delay)
 
 - Guardian: `setGlobalPause(true)`, pool/deposit/automation/swap pauses, depeg flags  
-- Users: revoke permissions / exit via allowed emergency paths if still available  
+- Users: revoke permissions / exit via documented paths only — executor emergency requires per-token NFT `approve(adapter, tokenId)` and is **not** unconditional; if that path is unavailable, use the user-held NFT **direct NPM** break-glass path (see [14-production-security-runbook.md](./14-production-security-runbook.md) SC-11)
 
 ## Delayed controls (Safe → Timelock ≥48h)
 
