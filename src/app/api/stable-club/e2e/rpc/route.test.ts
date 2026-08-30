@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 function mockRequest(host: string, jsonImpl?: () => Promise<unknown>): Request {
   return {
@@ -10,17 +10,21 @@ function mockRequest(host: string, jsonImpl?: () => Promise<unknown>): Request {
 describe("SC-F07 e2e/rpc route gate", () => {
   const originalDev = process.env.STABLE_CLUB_DEV_ENABLED;
   const originalE2e = process.env.STABLE_CLUB_E2E_SIGNING;
-  let fetchSpy: MockInstance<typeof fetch>;
+  let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.resetModules();
-    fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+    // Deterministic stub — never fall through to real localhost:8545 (hangs when node is down).
+    fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
       json: async () => ({ result: "0x7a69" }),
-    } as Response);
+    }));
+    vi.stubGlobal("fetch", fetchMock);
   });
 
   afterEach(() => {
-    fetchSpy.mockRestore();
+    vi.unstubAllGlobals();
     if (originalDev === undefined) delete process.env.STABLE_CLUB_DEV_ENABLED;
     else process.env.STABLE_CLUB_DEV_ENABLED = originalDev;
     if (originalE2e === undefined) delete process.env.STABLE_CLUB_E2E_SIGNING;
@@ -41,7 +45,8 @@ describe("SC-F07 e2e/rpc route gate", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ result: "0x7a69" });
     expect(json).toHaveBeenCalledTimes(1);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://127.0.0.1:8545");
   });
 
   it("DEV unset + E2E true → 404 before RPC", async () => {
@@ -52,7 +57,7 @@ describe("SC-F07 e2e/rpc route gate", () => {
     const res = await POST(mockRequest("localhost", json));
     expect(res.status).toBe(404);
     expect(json).not.toHaveBeenCalled();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("DEV true + E2E unset → 404 before RPC", async () => {
@@ -63,7 +68,7 @@ describe("SC-F07 e2e/rpc route gate", () => {
     const res = await POST(mockRequest("127.0.0.1:3457", json));
     expect(res.status).toBe(404);
     expect(json).not.toHaveBeenCalled();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("both true + non-local Host → 404 before RPC", async () => {
@@ -74,7 +79,7 @@ describe("SC-F07 e2e/rpc route gate", () => {
     const res = await POST(mockRequest("evil.example", json));
     expect(res.status).toBe(404);
     expect(json).not.toHaveBeenCalled();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("DEV=1 (not exact true) fails closed", async () => {
@@ -85,6 +90,6 @@ describe("SC-F07 e2e/rpc route gate", () => {
     const res = await POST(mockRequest("localhost", json));
     expect(res.status).toBe(404);
     expect(json).not.toHaveBeenCalled();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
