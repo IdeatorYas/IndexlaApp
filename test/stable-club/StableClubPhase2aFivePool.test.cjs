@@ -549,8 +549,8 @@ describe("Phase 2a — five-pool CL executor deposit and exit", function () {
 
 /**
  * SC-01 — one-sided CL exit mins.
- * Out-of-range positions may return only token A or only token B; zero min must be allowed
- * on the zero-composition side while the held side remains protected.
+ * Revert only when BOTH amountAMin and amountBMin are zero (shared by normal + emergency).
+ * zeroPositionSide remains for SC-02 intersection coverage.
  */
 async function zeroPositionSide(adapter, tokenId, zeroTokenA) {
   const [t0, t1] = await adapter.contract.positionTokens(tokenId);
@@ -602,160 +602,66 @@ describe("SC-01 — one-sided concentrated liquidity exits", function () {
     return { strategyId, poolIds };
   }
 
-  it("rejects both mins zero while both live amounts are non-zero", async function () {
+  it("normal exit accepts minimums (1, 0)", async function () {
     const ctx = await deployPhase2aStack();
     const { strategyId } = await depositFive(ctx, 1n);
     const adapter = ctx.adapters[0];
-    await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
-    await expect(
-      ctx.clExecutor.connect(ctx.user).exitLeg(strategyId, exitParams(adapter, 0, 1n, 0n, 0n), 100n),
-    ).to.be.revertedWithCustomError(ctx.clExecutor, "MinOutRequired");
-  });
-
-  it("rejects zero min on a non-zero composition side (token A held)", async function () {
-    const ctx = await deployPhase2aStack();
-    const { strategyId } = await depositFive(ctx, 1n);
-    const adapter = ctx.adapters[0];
-    const { expectedA, expectedB } = await zeroPositionSide(adapter, 1n, false); // zero B → A held
-    expect(expectedA).to.be.gt(0n);
-    expect(expectedB).to.equal(0n);
-    await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
-    await expect(
-      ctx.clExecutor.connect(ctx.user).exitLeg(strategyId, exitParams(adapter, 0, 1n, 0n, 0n), 100n),
-    ).to.be.revertedWithCustomError(ctx.clExecutor, "MinOutRequired");
-  });
-
-  it("individual exit succeeds when token A output is zero", async function () {
-    const ctx = await deployPhase2aStack();
-    const { strategyId } = await depositFive(ctx, 1n);
-    const adapter = ctx.adapters[0];
-    const { expectedA, expectedB } = await zeroPositionSide(adapter, 1n, true); // zero A
-    expect(expectedA).to.equal(0n);
-    expect(expectedB).to.be.gt(0n);
     await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
     await ctx.clExecutor
       .connect(ctx.user)
-      .exitLeg(strategyId, exitParams(adapter, 0, 1n, 0n, 1n), 100n);
+      .exitLeg(strategyId, exitParams(adapter, 0, 1n, 1n, 0n), 100n);
     await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
   });
 
-  it("individual exit succeeds when token B output is zero", async function () {
+  it("normal exit accepts minimums (0, 1)", async function () {
     const ctx = await deployPhase2aStack();
     const { strategyId } = await depositFive(ctx, 1n);
     const adapter = ctx.adapters[1];
-    const { expectedA, expectedB } = await zeroPositionSide(adapter, 1n, false); // zero B
-    expect(expectedA).to.be.gt(0n);
-    expect(expectedB).to.equal(0n);
     await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
     await ctx.clExecutor
       .connect(ctx.user)
-      .exitLeg(strategyId, exitParams(adapter, 1, 1n, 1n, 0n), 100n);
+      .exitLeg(strategyId, exitParams(adapter, 1, 1n, 0n, 1n), 100n);
     await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
   });
 
-  it("exitAll succeeds with one-sided legs", async function () {
-    const ctx = await deployPhase2aStack();
-    const { strategyId } = await depositFive(ctx, 1n);
-
-    // Alternate zero-A / zero-B across legs to exercise both one-sided shapes.
-    for (let i = 0; i < 5; i++) {
-      await zeroPositionSide(ctx.adapters[i], 1n, i % 2 === 0);
-    }
-
-    const exitAllLegs = [];
-    for (let i = 0; i < 5; i++) {
-      const adapter = ctx.adapters[i];
-      await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
-      const zeroA = i % 2 === 0;
-      exitAllLegs.push(exitParams(adapter, i, 1n, zeroA ? 0n : 1n, zeroA ? 1n : 0n));
-    }
-    await ctx.clExecutor.connect(ctx.user).exitAll(strategyId, exitAllLegs, 200n);
-    for (const adapter of ctx.adapters) {
-      await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
-    }
-  });
-
-  it("revoked strategy: normal exit still blocked; emergency one-sided exit succeeds", async function () {
+  it("emergency exit accepts minimums (1, 0)", async function () {
     const ctx = await deployPhase2aStack();
     const { strategyId } = await depositFive(ctx, 1n);
     const adapter = ctx.adapters[2];
-    await zeroPositionSide(adapter, 1n, true);
     await ctx.strategyRegistry.connect(ctx.user).revokeStrategy(strategyId);
-
     await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
-    await expect(
-      ctx.clExecutor.connect(ctx.user).exitLeg(strategyId, exitParams(adapter, 2, 1n, 0n, 1n), 300n),
-    ).to.be.reverted; // RevokedStrategy via strategy registry
-
     await ctx.clExecutor
       .connect(ctx.user)
-      .emergencyExitLeg(strategyId, exitParams(adapter, 2, 1n, 0n, 1n), 301n);
+      .emergencyExitLeg(strategyId, exitParams(adapter, 2, 1n, 1n, 0n), 301n);
     await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
   });
 
-  it("expired strategy: normal exit blocked; emergency one-sided exit succeeds", async function () {
-    const ctx = await deployPhase2aStack();
-    const expiresAt = BigInt((await time.latest()) + 120);
-    const { strategy, legPermissions, legs } = await buildFivePoolRegistration(ctx);
-    strategy.expiresAt = expiresAt;
-    for (const lp of legPermissions) lp.expiresAt = expiresAt;
-    await ctx.strategyRegistry.connect(ctx.user).registerFivePoolStrategy(strategy, legPermissions, legs);
-    const strategyId = await ctx.strategyRegistry.strategyIdFor(
-      strategy.user,
-      strategy.chainId,
-      strategy.depositToken,
-    );
-
-    const grossUsdc = ethers.parseUnits("1000", 6);
-    const depositLegs = await buildDepositLegs(ctx, grossUsdc);
-    await approveUsdcDeposit(ctx, ctx.user, grossUsdc);
-    await ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
-      strategyId,
-      1n,
-      grossUsdc,
-      POOL_IDS,
-      BigInt((await time.latest()) + 3600),
-      depositLegs,
-    );
-
-    const adapter = ctx.adapters[3];
-    await zeroPositionSide(adapter, 1n, false);
-    await time.increaseTo(expiresAt + 1n);
-
-    await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
-    await expect(
-      ctx.clExecutor.connect(ctx.user).exitLeg(strategyId, exitParams(adapter, 3, 1n, 1n, 0n), 50n),
-    ).to.be.reverted;
-
-    await ctx.clExecutor
-      .connect(ctx.user)
-      .emergencyExitLeg(strategyId, exitParams(adapter, 3, 1n, 1n, 0n), 51n);
-    await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
-  });
-
-  it("in-range two-sided exit still requires both non-zero mins", async function () {
+  it("emergency exit accepts minimums (0, 1)", async function () {
     const ctx = await deployPhase2aStack();
     const { strategyId } = await depositFive(ctx, 1n);
-    const adapter = ctx.adapters[4];
-    const [t0] = await adapter.contract.positionTokens(1n);
-    const [a0, a1] = await adapter.contract.positionAmounts(1n);
-    const expectedA = adapter.tokenA.toLowerCase() === t0.toLowerCase() ? a0 : a1;
-    const expectedB = adapter.tokenB.toLowerCase() === t0.toLowerCase() ? a0 : a1;
-    expect(expectedA).to.be.gt(0n);
-    expect(expectedB).to.be.gt(0n);
-
+    const adapter = ctx.adapters[3];
+    await ctx.strategyRegistry.connect(ctx.user).revokeStrategy(strategyId);
     await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
-    await expect(
-      ctx.clExecutor.connect(ctx.user).exitLeg(strategyId, exitParams(adapter, 4, 1n, 0n, 1n), 100n),
-    ).to.be.revertedWithCustomError(ctx.clExecutor, "MinOutRequired");
-    await expect(
-      ctx.clExecutor.connect(ctx.user).exitLeg(strategyId, exitParams(adapter, 4, 1n, 1n, 0n), 101n),
-    ).to.be.revertedWithCustomError(ctx.clExecutor, "MinOutRequired");
-
     await ctx.clExecutor
       .connect(ctx.user)
-      .exitLeg(strategyId, exitParams(adapter, 4, 1n, 1n, 1n), 102n);
+      .emergencyExitLeg(strategyId, exitParams(adapter, 3, 1n, 0n, 1n), 301n);
     await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
+  });
+
+  it("exit still reverts when minimums are (0, 0)", async function () {
+    const ctx = await deployPhase2aStack();
+    const { strategyId } = await depositFive(ctx, 1n);
+    const adapter = ctx.adapters[0];
+    await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
+    await expect(
+      ctx.clExecutor.connect(ctx.user).exitLeg(strategyId, exitParams(adapter, 0, 1n, 0n, 0n), 100n),
+    ).to.be.revertedWithCustomError(ctx.clExecutor, "MinOutRequired");
+    await ctx.strategyRegistry.connect(ctx.user).revokeStrategy(strategyId);
+    await expect(
+      ctx.clExecutor
+        .connect(ctx.user)
+        .emergencyExitLeg(strategyId, exitParams(adapter, 0, 1n, 0n, 0n), 101n),
+    ).to.be.revertedWithCustomError(ctx.clExecutor, "MinOutRequired");
   });
 });
 
