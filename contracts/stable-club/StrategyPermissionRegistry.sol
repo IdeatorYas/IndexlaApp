@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {PermissionRegistry} from "./PermissionRegistry.sol";
+import {IConcentratedLiquidityAdapter} from "./interfaces/IConcentratedLiquidityAdapter.sol";
 
 /// @title StrategyPermissionRegistry — parent five-pool strategy + five bound leg permissions.
 /// @notice Canonical Stable Club strategy: exactly five legs, 2_000 bps each, 10_000 bps total.
@@ -90,6 +91,9 @@ contract StrategyPermissionRegistry {
     error InvalidAmount();
     error LegPermissionDuplicate();
     error LegPermissionAlreadyBound();
+    /// @dev SC-08: adapter.poolId() must equal the registered leg poolId (non-zero).
+    error AdapterPoolIdMismatch();
+    error InvalidAdapter();
 
     event StrategyDepositNonceConsumed(bytes32 indexed strategyId, uint256 indexed executionNonce, address indexed user);
 
@@ -174,6 +178,11 @@ contract StrategyPermissionRegistry {
             if (legPerm.tokenA != leg.tokenA || legPerm.tokenB != leg.tokenB) revert LegPoolMismatch();
             if (leg.maxLegPerTx > strategy.maxTotalPerTx) revert AmountExceedsLegTxLimit();
             if (leg.allocationBps != ALLOCATION_BPS_PER_LEG) revert InvalidLegAllocation();
+
+            // SC-08: confirm live adapter.poolId() matches the registered leg before any permission bind.
+            if (leg.adapter == address(0)) revert InvalidAdapter();
+            bytes32 adapterPoolId = IConcentratedLiquidityAdapter(leg.adapter).poolId();
+            if (adapterPoolId == bytes32(0) || adapterPoolId != leg.poolId) revert AdapterPoolIdMismatch();
 
             bytes32 expectedId = permissionRegistry.permissionIdFor(
                 legPerm.user, legPerm.chainId, legPerm.poolId, legPerm.tokenA, legPerm.tokenB
