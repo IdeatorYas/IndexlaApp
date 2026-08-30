@@ -1,3 +1,7 @@
+/**
+ * Must remain CommonJS: Playwright loads this as globalTeardown.
+ */
+/* eslint-disable @typescript-eslint/no-require-imports */
 const fs = require("node:fs");
 const path = require("node:path");
 

@@ -2,7 +2,10 @@
  * Fresh Hardhat + Phase 2a local deploy for five-pool deposit/positions Playwright.
  * Writes src/lib/stable-club/generated/local-phase2a-deployments.json (not Step-1 local-deployments.json).
  * Always restarts port 8545 so prior deposit NFTs cannot contaminate the run.
+ *
+ * Must remain CommonJS: Playwright loads this as globalSetup.
  */
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { spawn, execSync } = require("node:child_process");
 const fs = require("node:fs");
 const net = require("node:net");
