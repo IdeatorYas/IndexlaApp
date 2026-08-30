@@ -199,6 +199,9 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         (address token0, address token1, uint256 amount0, uint256 amount1, uint256 amount0Min, uint256 amount1Min) =
             _sort(tokenA, tokenB, amountA, amountB, amountAMin, amountBMin);
 
+        // SC-03: factory must resolve this adapter's configured pool before any approval/mint.
+        ClNpmPositionValue.requireUniPoolIdentity(factory, pool, token0, token1, fee, fee);
+
         if (amount0 > 0) IERC20(token0).safeTransferFrom(msg.sender, address(this), amount0);
         if (amount1 > 0) IERC20(token1).safeTransferFrom(msg.sender, address(this), amount1);
         if (amount0 > 0) IERC20(token0).forceApprove(npm, amount0);
