@@ -88,6 +88,8 @@ contract StrategyPermissionRegistry {
     error DepositIntentPoolMismatch();
     error DepositIntentMismatch();
     error InvalidAmount();
+    error LegPermissionDuplicate();
+    error LegPermissionAlreadyBound();
 
     event StrategyDepositNonceConsumed(bytes32 indexed strategyId, uint256 indexed executionNonce, address indexed user);
 
@@ -150,7 +152,8 @@ contract StrategyPermissionRegistry {
 
         strategyId = strategyIdFor(strategy.user, strategy.chainId, strategy.depositToken);
         StrategyPermission storage existing = strategies[strategyId];
-        if (existing.user != address(0) && !existing.revoked) revert StrategyAlreadyExists();
+        // SC-04: strategy IDs are non-recyclable (active or revoked).
+        if (existing.user != address(0)) revert StrategyAlreadyExists();
 
         uint256 allocationSum;
         for (uint256 i = 0; i < LEG_COUNT; i++) {
@@ -161,6 +164,7 @@ contract StrategyPermissionRegistry {
 
         strategies[strategyId] = strategy;
 
+        bytes32[5] memory seenPermissionIds;
         for (uint256 i = 0; i < LEG_COUNT; i++) {
             PermissionRegistry.Permission calldata legPerm = legPermissions[i];
             PoolLegBinding calldata leg = legs[i];
@@ -171,12 +175,23 @@ contract StrategyPermissionRegistry {
             if (leg.maxLegPerTx > strategy.maxTotalPerTx) revert AmountExceedsLegTxLimit();
             if (leg.allocationBps != ALLOCATION_BPS_PER_LEG) revert InvalidLegAllocation();
 
-            bytes32 legPermissionId = permissionRegistry.registerPermissionForStrategyRegistrar(legPerm);
             bytes32 expectedId = permissionRegistry.permissionIdFor(
                 legPerm.user, legPerm.chainId, legPerm.poolId, legPerm.tokenA, legPerm.tokenB
             );
-            if (legPermissionId != expectedId) revert LegPoolMismatch();
             if (leg.legPermissionId != expectedId) revert LegPoolMismatch();
+
+            for (uint256 j = 0; j < i; j++) {
+                if (seenPermissionIds[j] == expectedId) revert LegPermissionDuplicate();
+            }
+            if (permissionRegistry.permissionStrategyId(expectedId) != bytes32(0)) {
+                revert LegPermissionAlreadyBound();
+            }
+
+            bytes32 legPermissionId = permissionRegistry.registerPermissionForStrategyRegistrar(legPerm);
+            if (legPermissionId != expectedId) revert LegPoolMismatch();
+
+            permissionRegistry.bindPermissionToStrategy(legPermissionId, strategyId);
+            seenPermissionIds[i] = legPermissionId;
 
             PoolLegBinding memory stored = leg;
             stored.legPermissionId = legPermissionId;
@@ -187,17 +202,42 @@ contract StrategyPermissionRegistry {
     }
 
     function revokeStrategy(bytes32 strategyId) external onlyStrategyUser(strategyId) {
-        strategies[strategyId].revoked = true;
+        StrategyPermission storage strategy = strategies[strategyId];
+        if (strategy.user == address(0)) revert StrategyNotFound();
+        address user = strategy.user;
+        // Cascade first — any leg failure reverts the entire kill switch.
+        for (uint256 i = 0; i < LEG_COUNT; i++) {
+            bytes32 legPermissionId = strategyLegs[strategyId][i].legPermissionId;
+            if (legPermissionId == bytes32(0)) revert LegPoolMismatch();
+            permissionRegistry.revokeFromStrategyRegistrar(legPermissionId, user, strategyId);
+        }
+        strategy.revoked = true;
         emit StrategyRevoked(strategyId, msg.sender);
     }
 
     function pauseStrategy(bytes32 strategyId) external onlyStrategyUser(strategyId) {
-        strategies[strategyId].paused = true;
+        StrategyPermission storage strategy = strategies[strategyId];
+        if (strategy.user == address(0)) revert StrategyNotFound();
+        address user = strategy.user;
+        for (uint256 i = 0; i < LEG_COUNT; i++) {
+            bytes32 legPermissionId = strategyLegs[strategyId][i].legPermissionId;
+            if (legPermissionId == bytes32(0)) revert LegPoolMismatch();
+            permissionRegistry.pauseFromStrategyRegistrar(legPermissionId, user, strategyId);
+        }
+        strategy.paused = true;
         emit StrategyPaused(strategyId, msg.sender);
     }
 
     function unpauseStrategy(bytes32 strategyId) external onlyStrategyUser(strategyId) {
-        strategies[strategyId].paused = false;
+        StrategyPermission storage strategy = strategies[strategyId];
+        if (strategy.user == address(0)) revert StrategyNotFound();
+        address user = strategy.user;
+        for (uint256 i = 0; i < LEG_COUNT; i++) {
+            bytes32 legPermissionId = strategyLegs[strategyId][i].legPermissionId;
+            if (legPermissionId == bytes32(0)) revert LegPoolMismatch();
+            permissionRegistry.unpauseFromStrategyRegistrar(legPermissionId, user, strategyId);
+        }
+        strategy.paused = false;
         emit StrategyUnpaused(strategyId, msg.sender);
     }
 

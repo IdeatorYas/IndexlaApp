@@ -52,6 +52,10 @@ contract PermissionRegistry {
     mapping(bytes32 => uint256) public dailyWindowStart;
     mapping(bytes32 => uint256) public lastExecutionAt;
     mapping(bytes32 => mapping(uint256 => bool)) public executionNonceUsed;
+    /// @dev SC-04: pause applied by StrategyPermissionRegistry cascade (independent of `Permission.paused`).
+    mapping(bytes32 => bool) public strategyCascadePaused;
+    /// @dev SC-04: each permission ID binds to at most one strategy ID.
+    mapping(bytes32 => bytes32) public permissionStrategyId;
 
     address public owner;
     mapping(address => bool) public isOperator;
@@ -76,6 +80,8 @@ contract PermissionRegistry {
     error Unauthorized();
     error InvalidOperator();
     error InvalidPermissionParams();
+    error PermissionStrategyMismatch();
+    error PermissionAlreadyBoundToStrategy();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -208,6 +214,64 @@ contract PermissionRegistry {
         emit PermissionRevoked(permissionId, user);
     }
 
+    /// @notice SC-04: bind a freshly registered leg permission to exactly one strategy.
+    function bindPermissionToStrategy(bytes32 permissionId, bytes32 strategyId) external {
+        if (!isStrategyRegistrar[msg.sender]) revert Unauthorized();
+        if (permissionId == bytes32(0) || strategyId == bytes32(0)) revert InvalidPermissionParams();
+        Permission storage perm = permissions[permissionId];
+        if (perm.user == address(0)) revert PermissionNotFound();
+        if (permissionStrategyId[permissionId] != bytes32(0)) revert PermissionAlreadyBoundToStrategy();
+        permissionStrategyId[permissionId] = strategyId;
+    }
+
+    /// @notice SC-04: strategy kill-switch revoke for a bound leg (registrar only).
+    /// @dev Idempotent if already revoked. Does not allow permission-ID reuse (SC-05).
+    function revokeFromStrategyRegistrar(bytes32 permissionId, address user, bytes32 strategyId)
+        external
+    {
+        if (!isStrategyRegistrar[msg.sender]) revert Unauthorized();
+        Permission storage perm = permissions[permissionId];
+        if (perm.user == address(0)) revert PermissionNotFound();
+        if (perm.user != user) revert UnauthorizedUser();
+        if (permissionStrategyId[permissionId] != strategyId) revert PermissionStrategyMismatch();
+        if (perm.revoked) return;
+        perm.revoked = true;
+        emit PermissionRevoked(permissionId, user);
+    }
+
+    /// @notice SC-04: strategy-applied pause — distinct from user/operator `paused`.
+    function pauseFromStrategyRegistrar(bytes32 permissionId, address user, bytes32 strategyId)
+        external
+    {
+        if (!isStrategyRegistrar[msg.sender]) revert Unauthorized();
+        Permission storage perm = permissions[permissionId];
+        if (perm.user == address(0)) revert PermissionNotFound();
+        if (perm.user != user) revert UnauthorizedUser();
+        if (permissionStrategyId[permissionId] != strategyId) revert PermissionStrategyMismatch();
+        if (perm.revoked) revert RevokedPermission();
+        strategyCascadePaused[permissionId] = true;
+        emit PermissionPaused(permissionId, user);
+    }
+
+    /// @notice SC-04: clear only strategy-cascade pause; never clears user/operator `paused`.
+    function unpauseFromStrategyRegistrar(bytes32 permissionId, address user, bytes32 strategyId)
+        external
+    {
+        if (!isStrategyRegistrar[msg.sender]) revert Unauthorized();
+        Permission storage perm = permissions[permissionId];
+        if (perm.user == address(0)) revert PermissionNotFound();
+        if (perm.user != user) revert UnauthorizedUser();
+        if (permissionStrategyId[permissionId] != strategyId) revert PermissionStrategyMismatch();
+        if (perm.revoked) return;
+        if (!strategyCascadePaused[permissionId]) return;
+        strategyCascadePaused[permissionId] = false;
+        emit PermissionUnpaused(permissionId, user);
+    }
+
+    function isStrategyCascadePaused(bytes32 permissionId) external view returns (bool) {
+        return strategyCascadePaused[permissionId];
+    }
+
     function isActionAllowed(bytes32 permissionId, Action action) public view returns (bool) {
         Permission storage perm = permissions[permissionId];
         if (perm.user == address(0)) return false;
@@ -272,7 +336,7 @@ contract PermissionRegistry {
         perm = permissions[permissionId];
         if (perm.user == address(0)) revert PermissionNotFound();
         if (perm.revoked) revert RevokedPermission();
-        if (perm.paused) revert PausedPermission();
+        if (perm.paused || strategyCascadePaused[permissionId]) revert PausedPermission();
         if (block.timestamp >= perm.expiresAt) revert PermissionExpired();
         if (perm.chainId != block.chainid) revert UnauthorizedUser();
     }
