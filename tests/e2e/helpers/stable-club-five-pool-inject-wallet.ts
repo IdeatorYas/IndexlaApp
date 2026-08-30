@@ -22,7 +22,7 @@ export const STABLE_CLUB_FIVE_POOL_E2E_INJECT_WALLET_SCRIPT = `
         return ACCOUNTS;
       }
       if (method === "eth_chainId") {
-        return "0x2105";
+        return "0x7a69";
       }
       if (method === "wallet_switchEthereumChain") {
         return null;
@@ -56,7 +56,7 @@ export const STABLE_CLUB_E2E_REJECT_WALLET_SCRIPT = `
         return ACCOUNTS;
       }
       if (method === "eth_chainId") {
-        return "0x2105";
+        return "0x7a69";
       }
       if (method === "eth_sendTransaction") {
         throw new Error("User rejected the request");

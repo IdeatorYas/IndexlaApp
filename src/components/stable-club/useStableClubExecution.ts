@@ -25,11 +25,12 @@ import {
   toOnChainPermission,
 } from "@/lib/stable-club/permissions";
 import {
-  STABLE_CLUB_CHAIN_ID,
   STABLE_CLUB_LOCAL_CHAIN,
+  STABLE_CLUB_LOCAL_CHAIN_ID,
   STABLE_CLUB_LOCAL_RPC_URL,
   STABLE_CLUB_USDC_DECIMALS,
 } from "@/lib/stable-club/constants";
+import { assertChainEnvironmentMatch } from "@/lib/stable-club/chain-isolation";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 
 /** Defensive minOut for TestPoolAdapter 50/50 exit (1% slack below expected split). */
@@ -207,8 +208,15 @@ export function useStableClubExecution() {
     if (!deployments) throw new Error("Local deployments are not configured.");
     if (!wallet.address || !walletClient) throw new Error("Connect your wallet first.");
     if (wallet.chainId !== deployments.chainId) {
-      throw new Error("Switch wallet to the local Base Hardhat network (chainId 8453).");
+      throw new Error(
+        `Switch wallet to the local Hardhat network (chainId ${STABLE_CLUB_LOCAL_CHAIN_ID}).`,
+      );
     }
+    assertChainEnvironmentMatch({
+      walletChainId: wallet.chainId,
+      deploymentChainId: deployments.chainId,
+      network: deployments.network,
+    });
     return { d: deployments, account: wallet.address, client: walletClient };
   }, [deployments, wallet.address, wallet.chainId, walletClient]);
 
@@ -485,6 +493,6 @@ export function useStableClubExecution() {
     emergencyExit,
     refreshBalances,
     localRpcUrl: deployments?.rpcUrl ?? STABLE_CLUB_LOCAL_RPC_URL,
-    expectedChainId: deployments?.chainId ?? STABLE_CLUB_CHAIN_ID,
+    expectedChainId: deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID,
   };
 }

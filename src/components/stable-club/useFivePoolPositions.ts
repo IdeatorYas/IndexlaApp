@@ -18,10 +18,11 @@ import {
   strategyPermissionRegistryAbi,
 } from "@/lib/stable-club/abis";
 import {
-  STABLE_CLUB_CHAIN_ID,
   STABLE_CLUB_LOCAL_CHAIN,
+  STABLE_CLUB_LOCAL_CHAIN_ID,
   STABLE_CLUB_LOCAL_RPC_URL,
 } from "@/lib/stable-club/constants";
+import { assertChainEnvironmentMatch } from "@/lib/stable-club/chain-isolation";
 import { explorerTxUrl } from "@/lib/stable-club/five-pool-deposit";
 import {
   FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS,
@@ -161,7 +162,7 @@ export function useFivePoolPositions() {
     return createPublicClient({ chain, transport: http(rpc) });
   }, [chain, deployments?.rpcUrl, wallet.provider]);
 
-  const expectedChainId = deployments?.chainId ?? STABLE_CLUB_CHAIN_ID;
+  const expectedChainId = deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID;
   const onExpectedChain = wallet.chainId === expectedChainId;
 
   useEffect(() => {
@@ -380,6 +381,12 @@ export function useFivePoolPositions() {
     if (!onExpectedChain) {
       throw new Error(`Wrong network — switch to chain ${expectedChainId}`);
     }
+    assertChainEnvironmentMatch({
+      walletChainId: wallet.chainId,
+      deploymentChainId: deployments.chainId,
+      network: deployments.network,
+      permit2: deployments.permit2,
+    });
     if (!strategyId || !strategyRegistered) {
       throw new Error("Five-pool strategy not registered");
     }
@@ -401,6 +408,7 @@ export function useFivePoolPositions() {
     strategyId,
     strategyRegistered,
     wallet.address,
+    wallet.chainId,
     wallet.provider,
   ]);
 

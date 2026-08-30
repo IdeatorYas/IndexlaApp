@@ -18,11 +18,14 @@ import {
   strategyPermissionRegistryAbi,
 } from "@/lib/stable-club/abis";
 import {
-  STABLE_CLUB_CHAIN_ID,
   STABLE_CLUB_LOCAL_CHAIN,
+  STABLE_CLUB_LOCAL_CHAIN_ID,
   STABLE_CLUB_LOCAL_RPC_URL,
   STABLE_CLUB_USDC_DECIMALS,
 } from "@/lib/stable-club/constants";
+import {
+  assertChainEnvironmentMatch,
+} from "@/lib/stable-club/chain-isolation";
 import {
   FIVE_POOL_DEFAULT_DEADLINE_SEC,
   FIVE_POOL_DEFAULT_LP_SLIPPAGE_BPS,
@@ -182,7 +185,7 @@ export function useFivePoolDeposit() {
     return createPublicClient({ chain, transport: http(rpc) });
   }, [chain, deployments?.rpcUrl, wallet.provider]);
 
-  const expectedChainId = deployments?.chainId ?? STABLE_CLUB_CHAIN_ID;
+  const expectedChainId = deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID;
   const onExpectedChain = wallet.chainId === expectedChainId;
 
   useEffect(() => {
@@ -405,6 +408,17 @@ export function useFivePoolDeposit() {
       setError(`Wrong network — switch to chain ${expectedChainId}`);
       return;
     }
+    try {
+      assertChainEnvironmentMatch({
+        walletChainId: wallet.chainId,
+        deploymentChainId: deployments.chainId,
+        network: deployments.network,
+        permit2: deployments.permit2,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Chain/environment mismatch");
+      return;
+    }
     setError(null);
     setStatusMessage("Registering five-pool strategy…");
     try {
@@ -513,6 +527,12 @@ export function useFivePoolDeposit() {
       if (!onExpectedChain) {
         throw new Error(`Wrong network — switch to chain ${expectedChainId}`);
       }
+      assertChainEnvironmentMatch({
+        walletChainId: wallet.chainId,
+        deploymentChainId: deployments.chainId,
+        network: deployments.network,
+        permit2: deployments.permit2,
+      });
       if (!strategyRegistered || !strategyId) {
         throw new Error("Register the five-pool strategy before depositing");
       }
@@ -558,7 +578,6 @@ export function useFivePoolDeposit() {
         grossUsdc: depositArgs.grossUsdc,
         expiration: permitExpiration,
         nowSec,
-        localHardhat: deployments.network === "hardhat-local",
       });
 
       // Skip ERC20 approve if allowance already sufficient

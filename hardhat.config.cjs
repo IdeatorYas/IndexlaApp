@@ -19,14 +19,16 @@ module.exports = {
     tests: "./test/stable-club",
   },
   networks: {
+    // Browser / E2E / local deploy — distinct from Base (SC-F02).
     hardhat: {
-      chainId: 8453,
+      chainId: 31337,
       hardfork: "cancun",
     },
     localhost: {
       url: "http://127.0.0.1:8545",
-      chainId: 8453,
+      chainId: 31337,
     },
+    // Explicit Base-fork network — preserves fork testing without sharing browser identity.
     baseFork: {
       url: baseRpcUrl ?? "http://127.0.0.1:8545",
       chainId: 8453,

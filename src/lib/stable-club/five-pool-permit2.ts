@@ -32,7 +32,7 @@ export function buildClFivePoolPermit2Plan(params: {
   grossUsdc: bigint;
   expiration: number;
   nowSec?: number;
-  /** Local Hardhat emulates Base chainId with MockPermit2. */
+  /** @deprecated Ignored. ChainId alone decides Permit2 policy (SC-F02). */
   localHardhat?: boolean;
 }): ClFivePoolPermit2Plan {
   if (params.grossUsdc <= BigInt(0)) {
@@ -41,14 +41,12 @@ export function buildClFivePoolPermit2Plan(params: {
   const permit2 = resolvePermit2Address({
     chainId: params.chainId,
     permit2: params.permit2,
-    localHardhat: params.localHardhat,
   });
   const erc20ApproveTx = buildBoundedErc20ApproveToPermit2({
     token: params.token,
     amount: params.grossUsdc,
     permit2,
     chainId: params.chainId,
-    localHardhat: params.localHardhat,
   });
   const permit2ApproveTx = buildBoundedPermit2ApproveTx({
     permit2,
@@ -58,7 +56,6 @@ export function buildClFivePoolPermit2Plan(params: {
     amount: params.grossUsdc,
     expiration: params.expiration,
     nowSec: params.nowSec,
-    localHardhat: params.localHardhat,
   });
   return {
     permit2,

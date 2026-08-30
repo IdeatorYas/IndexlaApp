@@ -122,9 +122,9 @@ describe("StableClubFivePoolDepositPanel", () => {
       error: null,
       lastTxHash: "0xtxhash",
       approvalTxHashes: [],
-      explorerUrl: "https://basescan.org/tx/0xtxhash",
+      explorerUrl: null,
       onExpectedChain: true,
-      expectedChainId: 8453,
+      expectedChainId: 31337,
       busy: false,
       prepareQuotes,
       submitDeposit,
@@ -152,11 +152,23 @@ describe("StableClubFivePoolDepositPanel", () => {
     expect(submitDeposit).toHaveBeenCalledTimes(1);
   });
 
-  it("shows confirmed explorer link", () => {
+  it("shows confirmed tx without Basescan on local chain", () => {
     mockState.progress = "confirmed";
     mockState.statusMessage = "Deposit confirmed";
+    mockState.explorerUrl = null;
+    mockState.expectedChainId = 31337;
     render(<StableClubFivePoolDepositPanel />);
     expect(screen.getByText(/4 · Confirmed/)).toBeInTheDocument();
+    expect(screen.getByText(/Tx:\s*0xtxhash/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "0xtxhash" })).toBeNull();
+  });
+
+  it("keeps Basescan explorer links on Base chainId 8453", () => {
+    mockState.progress = "confirmed";
+    mockState.statusMessage = "Deposit confirmed";
+    mockState.expectedChainId = 8453;
+    mockState.explorerUrl = "https://basescan.org/tx/0xtxhash";
+    render(<StableClubFivePoolDepositPanel />);
     const link = screen.getByRole("link", { name: "0xtxhash" });
     expect(link).toHaveAttribute("href", "https://basescan.org/tx/0xtxhash");
   });

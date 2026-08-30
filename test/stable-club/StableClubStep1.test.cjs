@@ -446,7 +446,7 @@ describe("Stable Club — Base mainnet fork", function () {
     ]);
 
     const network = await ethers.provider.getNetwork();
-    expect(network.chainId).to.equal(8453n);
+    expect(network.chainId).to.equal(31337n);
 
     const ctx = await deployStableClubStack();
     const permissionId = await registerPermission(ctx);

@@ -29,10 +29,10 @@ describe("StableClubFivePoolPositionsPanel", () => {
     revokeStrategy.mockReset();
     mockState = {
       deploymentsLoading: false,
-      deployments: { network: "hardhat-local", chainId: 8453 },
+      deployments: { network: "hardhat-local", chainId: 31337 },
       deploymentsError: null,
       onExpectedChain: true,
-      expectedChainId: 8453,
+      expectedChainId: 31337,
       strategyId: "0xstrat",
       strategyRegistered: true,
       strategyRevoked: false,

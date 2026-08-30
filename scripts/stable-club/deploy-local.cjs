@@ -217,6 +217,11 @@ function toDeploymentJson(stack) {
 
 async function main() {
   const stack = await deployStableClubStack();
+  if (stack.chainId !== 31337 || stack.network !== "hardhat-local") {
+    throw new Error(
+      `SC-F02: local deploy requires chainId 31337 / hardhat-local (got chainId=${stack.chainId} network=${stack.network})`,
+    );
+  }
   const deployments = toDeploymentJson(stack);
 
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });

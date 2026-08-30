@@ -3,6 +3,10 @@
  * Does not invent addresses; validates generated JSON shape only.
  */
 import type { Address, Hex } from "viem";
+import {
+  assertLocalHardhatDeploymentIdentity,
+  assertLocalMockPermit2Allowed,
+} from "@/lib/stable-club/chain-isolation";
 import { isNonZeroAddress, ZERO_ADDRESS } from "@/lib/stable-club/nft-approval";
 
 export type Phase2aAdapterDeployment = {
@@ -78,6 +82,21 @@ export function isValidPhase2aDeployments(
     if (!isNonZeroAddress(a.adapter) || a.adapter === ZERO_ADDRESS) return false;
     if (!isNonZeroAddress(a.tokenA) || !isNonZeroAddress(a.tokenB)) return false;
   }
+  try {
+    assertLocalHardhatDeploymentIdentity({
+      chainId: value.chainId,
+      network: value.network,
+      isTestOnly: value.isTestOnly,
+    });
+    assertLocalMockPermit2Allowed({
+      chainId: value.chainId,
+      network: value.network,
+      permit2: value.permit2,
+      isTestOnly: value.isTestOnly,
+    });
+  } catch {
+    return false;
+  }
   return true;
 }
 
@@ -92,6 +111,17 @@ export type StableClubPhase2aPublicDeployments = Omit<
 export function toPublicPhase2aDeploymentsPayload(
   deployments: StableClubPhase2aDeployments,
 ): StableClubPhase2aPublicDeployments {
+  assertLocalHardhatDeploymentIdentity({
+    chainId: deployments.chainId,
+    network: deployments.network,
+    isTestOnly: deployments.isTestOnly,
+  });
+  assertLocalMockPermit2Allowed({
+    chainId: deployments.chainId,
+    network: deployments.network,
+    permit2: deployments.permit2,
+    isTestOnly: deployments.isTestOnly,
+  });
   return {
     chainId: deployments.chainId,
     network: deployments.network,

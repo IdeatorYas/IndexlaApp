@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
 import { BASE_CHAIN_ID, BASE_PERMIT2 } from "@/lib/stable-club/verified-base-addresses";
+import { LOCAL_HARDHAT_CHAIN_ID } from "@/lib/stable-club/chain-isolation";
 import {
   PERMIT2_UNLIMITED_AMOUNT,
   assertDualSpenderAllowancesReady,
@@ -33,7 +34,7 @@ export function StableClubApprovalsPanel({
   executorAddress,
   preferSafe = true,
   connectedIsContract = false,
-  chainId = environment === "mainnet" ? BASE_CHAIN_ID : 8453,
+  chainId = environment === "mainnet" ? BASE_CHAIN_ID : LOCAL_HARDHAT_CHAIN_ID,
 }: {
   environment?: DeploymentEnvironment;
   feeRouterAddress?: Address | null;

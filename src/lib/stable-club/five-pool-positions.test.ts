@@ -50,7 +50,7 @@ function samplePosition(legIndex: number): FivePoolPosition {
     leg: { ...leg, adapter: ADAPTER },
     adapterMeta,
     network: "hardhat-local",
-    chainId: 8453,
+    chainId: 31337,
     tokenId: BigInt(1),
     owner: USER,
     liquidity: BigInt(1000),

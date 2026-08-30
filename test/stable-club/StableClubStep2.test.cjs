@@ -303,7 +303,7 @@ describe("Stable Club Step 2 — Base fork catalogue smoke", function () {
     ]);
 
     const network = await ethers.provider.getNetwork();
-    expect(network.chainId).to.equal(8453n);
+    expect(network.chainId).to.equal(31337n);
 
     const uniFactory = "0x33128a8fC17869897dcE68Ed026d694621f6FDfD";
     const aeroFactory = "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef";

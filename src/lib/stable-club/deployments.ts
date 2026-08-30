@@ -1,6 +1,7 @@
 import type { Address, Hex } from "viem";
 import type { VerifiedClAdapterDeployment } from "@/lib/stable-club/nft-approval";
 import { isNonZeroAddress, ZERO_ADDRESS } from "@/lib/stable-club/nft-approval";
+import { assertLocalHardhatDeploymentIdentity } from "@/lib/stable-club/chain-isolation";
 
 export type StableClubLocalDeployments = {
   chainId: number;
@@ -32,12 +33,24 @@ export function isValidLocalDeployments(
   value: StableClubLocalDeployments | null,
 ): value is StableClubLocalDeployments {
   if (!value?.isTestOnly) return false;
-  return (
-    value.executor !== ZERO &&
-    value.permissionRegistry !== ZERO &&
-    value.testAdapter !== ZERO &&
-    value.usdc !== ZERO
-  );
+  if (
+    value.executor === ZERO ||
+    value.permissionRegistry === ZERO ||
+    value.testAdapter === ZERO ||
+    value.usdc === ZERO
+  ) {
+    return false;
+  }
+  try {
+    assertLocalHardhatDeploymentIdentity({
+      chainId: value.chainId,
+      network: value.network,
+      isTestOnly: value.isTestOnly,
+    });
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -82,6 +95,11 @@ export function toPublicDeploymentsPayload(deployments: StableClubLocalDeploymen
   rpcUrl: string;
   step2Adapters: VerifiedClAdapterDeployment[];
 } {
+  assertLocalHardhatDeploymentIdentity({
+    chainId: deployments.chainId,
+    network: deployments.network,
+    isTestOnly: deployments.isTestOnly,
+  });
   return {
     chainId: deployments.chainId,
     network: deployments.network,

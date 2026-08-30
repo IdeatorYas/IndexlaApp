@@ -207,6 +207,11 @@ function toPhase2aDeploymentJson(stack) {
 
 async function main() {
   const stack = await deployPhase2aLocalStack();
+  if (stack.chainId !== 31337 || stack.network !== "hardhat-local") {
+    throw new Error(
+      `SC-F02: phase2a local deploy requires chainId 31337 / hardhat-local (got chainId=${stack.chainId} network=${stack.network})`,
+    );
+  }
   const deployments = toPhase2aDeploymentJson(stack);
   validatePhase2aManifest(deployments, { localMocksOk: true });
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });

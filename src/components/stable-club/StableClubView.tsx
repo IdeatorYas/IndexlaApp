@@ -12,9 +12,9 @@ import {
 } from "@/components/stable-club/StableClubStep2Panels";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
 import {
-  STABLE_CLUB_CHAIN_ID,
   STABLE_CLUB_EXECUTION_FEE_BPS,
   STABLE_CLUB_LOCAL_CHAIN,
+  STABLE_CLUB_LOCAL_CHAIN_ID,
   STABLE_CLUB_LOCAL_RPC_URL,
 } from "@/lib/stable-club/constants";
 import {
@@ -68,8 +68,6 @@ export function StableClubView({
 }) {
   void _preferLocalHardhat;
   const wallet = useStableClubWallet();
-  const expectedChainId = STABLE_CLUB_CHAIN_ID;
-  const onExpectedChain = wallet.chainId === expectedChainId;
 
   const [testPoolValidated, setTestPoolValidated] = useState(false);
   const [activatedPoolIds, setActivatedPoolIds] = useState<string[]>([]);
@@ -77,6 +75,8 @@ export function StableClubView({
   const [proposalCount, setProposalCount] = useState(0);
   const [circuitBroken, setCircuitBroken] = useState(false);
   const [deployments, setDeployments] = useState<StableClubLocalDeployments | null>(null);
+  const expectedChainId = deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID;
+  const onExpectedChain = wallet.chainId === expectedChainId;
   const [approvalByPositionId, setApprovalByPositionId] = useState<
     Record<string, NpmApprovalStatus>
   >({});
