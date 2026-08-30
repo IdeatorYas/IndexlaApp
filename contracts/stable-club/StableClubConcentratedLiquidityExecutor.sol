@@ -25,6 +25,8 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
 
     uint256 private constant LEG_COUNT = 5;
     uint256 private constant MAX_SWAPS_PER_LEG = 2;
+    /// @dev SC-10: exit permission nonces occupy the high half of uint256; deposit legs stay below this flag.
+    uint256 public constant EXIT_EXECUTION_NONCE_DOMAIN = uint256(1) << 255;
 
     PermissionRegistry public immutable permissionRegistry;
     StrategyPermissionRegistry public immutable strategyRegistry;
@@ -117,6 +119,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     error CanonicalLegMismatch();
     error InvalidPermit2();
     error InvalidSafetyController();
+    error InvalidExecutionNonce();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -148,6 +151,42 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         safetyController = SafetyController(safetyController_);
         usdc = usdc_;
         owner = msg.sender;
+    }
+
+    /**
+     * @notice SC-10 deposit domain: `strategyNonce * 10 + legIndex` (high bit clear).
+     * @dev Disjoint from {@link encodeExitExecutionNonce}. Rejects overflow / domain collision.
+     */
+    function encodeDepositLegExecutionNonce(uint256 strategyNonce, uint256 legIndex)
+        public
+        pure
+        returns (uint256)
+    {
+        if (legIndex >= LEG_COUNT) revert LegIndexOutOfBounds();
+        if (strategyNonce > (type(uint256).max - (LEG_COUNT - 1)) / 10) revert InvalidExecutionNonce();
+        uint256 derived = strategyNonce * 10 + legIndex;
+        if (derived >= EXIT_EXECUTION_NONCE_DOMAIN) revert InvalidExecutionNonce();
+        return derived;
+    }
+
+    /**
+     * @notice SC-10 exit domain: `EXIT_EXECUTION_NONCE_DOMAIN | callerNonce`.
+     * @dev Caller nonce must stay below the domain flag so deposit and exit never collide.
+     */
+    function encodeExitExecutionNonce(uint256 callerNonce) public pure returns (uint256) {
+        if (callerNonce >= EXIT_EXECUTION_NONCE_DOMAIN) revert InvalidExecutionNonce();
+        return EXIT_EXECUTION_NONCE_DOMAIN | callerNonce;
+    }
+
+    /// @notice SC-10 exitAll helper: encode `nonceBase + legIndex` into the exit domain.
+    function encodeExitAllLegExecutionNonce(uint256 nonceBase, uint256 legIndex)
+        public
+        pure
+        returns (uint256)
+    {
+        if (legIndex >= LEG_COUNT) revert LegIndexOutOfBounds();
+        if (nonceBase > type(uint256).max - legIndex) revert InvalidExecutionNonce();
+        return encodeExitExecutionNonce(nonceBase + legIndex);
     }
 
     function transferOwnership(address next) external onlyOwner {
@@ -194,6 +233,11 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         if (strategy.depositToken != usdc) revert InvalidDepositToken();
         if (grossUsdc == 0) revert InvalidAmount();
 
+        // SC-10: reject unencodable deposit nonces before consuming strategy or permission nonces.
+        for (uint256 i = 0; i < LEG_COUNT; i++) {
+            encodeDepositLegExecutionNonce(executionNonce, i);
+        }
+
         strategyRegistry.validateAndConsumeStrategyDepositIntent(
             strategyId, msg.sender, grossUsdc, poolIds, deadline, executionNonce
         );
@@ -216,7 +260,12 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             _assertDepositLegSafety(poolId, leg.tokenA, leg.tokenB);
 
             strategyRegistry.validateStrategyLegDeposit(
-                strategyId, i, leg.adapter, grossUsdc, leg.slippageBps, executionNonce * 10 + i
+                strategyId,
+                i,
+                leg.adapter,
+                grossUsdc,
+                leg.slippageBps,
+                encodeDepositLegExecutionNonce(executionNonce, i)
             );
         }
         if (budgetSum != grossUsdc) revert GrossDepositMismatch();
@@ -357,10 +406,13 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         // but never allow both mins to be zero (normal and emergency share this path).
         if (leg.amountAMin == 0 && leg.amountBMin == 0) revert MinOutRequired();
 
+        // SC-10: map caller nonce into the exit domain before any permission nonce consumption.
+        uint256 domainNonce = encodeExitExecutionNonce(executionNonce);
+
         // Full exits never apply USDC value caps — users must always recover all funds.
         // Ownership, pool/adapter binding, nonce, and minOut remain enforced.
         if (emergency) {
-            strategyRegistry.validateStrategyLegEmergency(strategyId, leg.legIndex, executionNonce);
+            strategyRegistry.validateStrategyLegEmergency(strategyId, leg.legIndex, domainNonce);
         } else {
             PermissionRegistry.Action action = leg.fullExit
                 ? PermissionRegistry.Action.WithdrawAll
@@ -372,7 +424,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
                 action,
                 0,
                 leg.slippageBps,
-                executionNonce
+                domainNonce
             );
         }
 
@@ -427,6 +479,8 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             if (leg.legIndex != uint8(i)) revert LegIndexOutOfBounds();
             // exitAll is a full recovery path — require fullExit so NFTs are burned.
             if (!leg.fullExit) revert InvalidAmount();
+            // Preflight overflow into exit domain before any leg consumes a nonce.
+            encodeExitAllLegExecutionNonce(executionNonceBase, i);
             _exitLegInternal(strategyId, msg.sender, leg, executionNonceBase + i, false);
         }
     }

@@ -71,6 +71,16 @@ function userRejectMessage(err: unknown): string | null {
   return null;
 }
 
+/** Must match StableClubConcentratedLiquidityExecutor.EXIT_EXECUTION_NONCE_DOMAIN (SC-10). */
+const EXIT_EXECUTION_NONCE_DOMAIN = BigInt(1) << BigInt(255);
+
+function encodeExitExecutionNonce(callerNonce: bigint): bigint {
+  if (callerNonce >= EXIT_EXECUTION_NONCE_DOMAIN) {
+    throw new Error("Invalid exit execution nonce domain");
+  }
+  return EXIT_EXECUTION_NONCE_DOMAIN | callerNonce;
+}
+
 async function resolveFreeExecutionNonce(
   publicClient: {
     readContract: (args: {
@@ -90,7 +100,7 @@ async function resolveFreeExecutionNonce(
       address: permissionRegistry,
       abi: permissionRegistryAbi,
       functionName: "executionNonceUsed",
-      args: [permissionId, n],
+      args: [permissionId, encodeExitExecutionNonce(n)],
     });
     if (!used) return n;
   }
@@ -120,7 +130,7 @@ async function resolveExitAllNonceBase(
         address: permissionRegistry,
         abi: permissionRegistryAbi,
         functionName: "executionNonceUsed",
-        args: [pid, base + BigInt(i)],
+        args: [pid, encodeExitExecutionNonce(base + BigInt(i))],
       });
       if (used) {
         ok = false;
