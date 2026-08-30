@@ -398,7 +398,10 @@ describe("buildFivePoolQuotePlan — rejections", () => {
 
   it("rejects invalid swap slippage", () => {
     expect(() => buildFivePoolQuotePlan(baseInput({ slippageBps: BigInt(0) }))).toThrow(QuotePlanError);
-    expect(() => buildFivePoolQuotePlan(baseInput({ slippageBps: BigInt(5001) }))).toThrow(
+    expect(() => buildFivePoolQuotePlan(baseInput({ slippageBps: BigInt(501) }))).toThrow(
+      QuotePlanError,
+    );
+    expect(() => buildFivePoolQuotePlan(baseInput({ slippageBps: BigInt(5000) }))).toThrow(
       QuotePlanError,
     );
   });
@@ -407,7 +410,10 @@ describe("buildFivePoolQuotePlan — rejections", () => {
     expect(() => buildFivePoolQuotePlan(baseInput({ lpSlippageBps: BigInt(0) }))).toThrow(
       QuotePlanError,
     );
-    expect(() => buildFivePoolQuotePlan(baseInput({ lpSlippageBps: BigInt(5001) }))).toThrow(
+    expect(() => buildFivePoolQuotePlan(baseInput({ lpSlippageBps: BigInt(501) }))).toThrow(
+      QuotePlanError,
+    );
+    expect(() => buildFivePoolQuotePlan(baseInput({ lpSlippageBps: BigInt(5000) }))).toThrow(
       QuotePlanError,
     );
     try {
@@ -459,14 +465,40 @@ describe("buildFivePoolQuotePlan — rejections", () => {
   });
 
   it("rejects when LP amount min rounds to zero", () => {
-    expect(() => applyLpSlippageMin(BigInt(1), BigInt(5000))).toThrow(QuotePlanError);
+    expect(() => applyLpSlippageMin(BigInt(1), BigInt(500))).toThrow(QuotePlanError);
     try {
-      applyLpSlippageMin(BigInt(1), BigInt(5000));
+      applyLpSlippageMin(BigInt(1), BigInt(500));
       expect.unreachable();
     } catch (e) {
       expect(e).toBeInstanceOf(QuotePlanError);
       expect((e as QuotePlanError).code).toBe("ZERO_MIN_OUT");
     }
+  });
+});
+
+describe("SC-F11 — executable slippage max 500 bps", () => {
+  it("accepts 500 bps and the existing safe default", () => {
+    expect(() =>
+      buildFivePoolQuotePlan(baseInput({ slippageBps: BigInt(500), lpSlippageBps: BigInt(500) })),
+    ).not.toThrow();
+    expect(() =>
+      buildFivePoolQuotePlan(baseInput({ slippageBps: BigInt(100), lpSlippageBps: BigInt(100) })),
+    ).not.toThrow();
+    expect(minOutFromQuote(BigInt(10_000), BigInt(500))).toBe(BigInt(9500));
+    expect(applyLpSlippageMin(BigInt(10_000), BigInt(500))).toBe(BigInt(9500));
+  });
+
+  it("rejects 501 and 5000 before any plan is built", () => {
+    expect(() => buildFivePoolQuotePlan(baseInput({ slippageBps: BigInt(501) }))).toThrow(
+      /slippageBps must be in \(0, 500]/,
+    );
+    expect(() => buildFivePoolQuotePlan(baseInput({ lpSlippageBps: BigInt(501) }))).toThrow(
+      /lpSlippageBps must be in \(0, 500]/,
+    );
+    expect(() => buildFivePoolQuotePlan(baseInput({ slippageBps: BigInt(5000) }))).toThrow(
+      QuotePlanError,
+    );
+    expect(() => applyLpSlippageMin(BigInt(10_000), BigInt(5000))).toThrow(/lpSlippageBps/);
   });
 });
 

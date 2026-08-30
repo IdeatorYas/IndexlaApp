@@ -31,8 +31,8 @@ import {
   type StableClubSwapRouteKey,
 } from "@/lib/stable-club/swap-routes";
 
-/** Matches PermissionRegistry / StrategyPermissionRegistry MAX_SLIPPAGE_BPS. */
-export const QUOTE_PLAN_MAX_SLIPPAGE_BPS = BigInt(5000);
+/** Executable Stable Club slippage ceiling — aligns with registered strategy maxSlippageBps (500). */
+export const QUOTE_PLAN_MAX_SLIPPAGE_BPS = BigInt(500);
 
 /** Uniswap V3 / Slipstream tick bounds. */
 export const CL_MIN_TICK = -887_272;
@@ -112,11 +112,11 @@ export type BuildFivePoolQuotePlanInput = {
   currentTicks: readonly number[];
   /** Quotes keyed by deterministic swap slot id (all eight required). */
   quotes: Readonly<Partial<Record<FivePoolSwapSlotId, SwapQuoteInput>>>;
-  /** Slippage bound applied to quotedOut → swap minOut (0 < bps ≤ 5000). */
+  /** Slippage bound applied to quotedOut → swap minOut (0 < bps ≤ QUOTE_PLAN_MAX_SLIPPAGE_BPS). */
   slippageBps: bigint;
   /**
    * Slippage bound applied to planned desired LP amounts → amountAMin/amountBMin
-   * (0 < bps ≤ 5000). Separate from swap slippage.
+   * (0 < bps ≤ QUOTE_PLAN_MAX_SLIPPAGE_BPS). Separate from swap slippage.
    */
   lpSlippageBps: bigint;
   /** Absolute unix deadline for all swap instructions (must be > nowSec). */

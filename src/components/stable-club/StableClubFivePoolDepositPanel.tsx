@@ -1,6 +1,7 @@
 "use client";
 
 import { useFivePoolDeposit } from "@/components/stable-club/useFivePoolDeposit";
+import { QUOTE_PLAN_MAX_SLIPPAGE_BPS } from "@/lib/stable-club/quote-plan";
 import { formatUsdcUnits } from "@/lib/stable-club/five-pool-deposit";
 
 const PROGRESS_LABEL: Record<string, string> = {
@@ -102,11 +103,14 @@ export function StableClubFivePoolDepositPanel() {
           />
         </label>
         <label className="block text-xs" htmlFor="five-pool-swap-slip">
-          <span className="font-semibold text-app-dim">Swap slippage (bps)</span>
+          <span className="font-semibold text-app-dim">
+            Swap slippage (bps, max {QUOTE_PLAN_MAX_SLIPPAGE_BPS.toString()})
+          </span>
           <input
             id="five-pool-swap-slip"
             type="text"
             inputMode="numeric"
+            max={QUOTE_PLAN_MAX_SLIPPAGE_BPS.toString()}
             value={d.swapSlippageInput}
             onChange={(e) => {
               d.setSwapSlippageInput(e.target.value);
@@ -117,11 +121,14 @@ export function StableClubFivePoolDepositPanel() {
           />
         </label>
         <label className="block text-xs" htmlFor="five-pool-lp-slip">
-          <span className="font-semibold text-app-dim">LP slippage (bps)</span>
+          <span className="font-semibold text-app-dim">
+            LP slippage (bps, max {QUOTE_PLAN_MAX_SLIPPAGE_BPS.toString()})
+          </span>
           <input
             id="five-pool-lp-slip"
             type="text"
             inputMode="numeric"
+            max={QUOTE_PLAN_MAX_SLIPPAGE_BPS.toString()}
             value={d.lpSlippageInput}
             onChange={(e) => {
               d.setLpSlippageInput(e.target.value);

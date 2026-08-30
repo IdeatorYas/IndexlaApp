@@ -77,6 +77,25 @@ describe("slippage validation", () => {
   });
 });
 
+describe("SC-F11 — slippage max 500 bps before quote/wallet", () => {
+  it("accepts 500 and the existing safe default", () => {
+    expect(validateSlippageBps("500", "Swap")).toEqual({ ok: true, bps: BigInt(500) });
+    expect(validateSlippageBps("100", "LP")).toEqual({ ok: true, bps: BigInt(100) });
+  });
+
+  it("rejects 501 and 5000 without producing a quote plan", () => {
+    const reject501 = validateSlippageBps("501", "Swap slippage");
+    expect(reject501.ok).toBe(false);
+    if (!reject501.ok) {
+      expect(reject501.message).toMatch(/\(0, 500]/);
+    }
+    const reject5000 = validateSlippageBps("5000", "LP slippage");
+    expect(reject5000.ok).toBe(false);
+    // prepareQuotes returns on validateSlippageBps failure — no wallet writeContract path.
+    expect(reject501.ok || reject5000.ok).toBe(false);
+  });
+});
+
 describe("deposit preview", () => {
   it("shows five 20% rows, eight swaps, fee and slippage", async () => {
     const { plan, bundle } = await buildPlan();
