@@ -632,6 +632,15 @@ export type NpmPositionIdentity = {
 };
 
 /**
+ * Claim key for a discovered NFT position.
+ * Must include the NFT contract: local mock adapters each mint from tokenId 1,
+ * and Uni/Aero NPMs are independent ID spaces — bare tokenId would falsely collide.
+ */
+export function positionNftClaimKey(nftContract: Address, tokenId: bigint): string {
+  return `${getAddress(nftContract).toLowerCase()}:${tokenId.toString()}`;
+}
+
+/**
  * SC-F04: bind mint tokenId only with owner + exact tokens + fee/tickSpacing + factory→pool.
  * Token-pair-only matching is rejected by requiring pool address equality.
  */
@@ -643,6 +652,8 @@ export async function matchExactPoolMintTokenId(params: {
   protocol: string;
   expectedPool: Address;
   factory: Address;
+  /** NFT contract whose token ID space this match uses (adapter on hardhat-local, NPM on Base). */
+  nftContract: Address;
   expectedFee?: number;
   expectedTickSpacing?: number;
   claimedTokenIds: ReadonlySet<string>;
@@ -671,7 +682,7 @@ export async function matchExactPoolMintTokenId(params: {
 
   for (let i = params.candidates.length - 1; i >= 0; i--) {
     const tokenId = params.candidates[i]!;
-    const claimKey = tokenId.toString();
+    const claimKey = positionNftClaimKey(params.nftContract, tokenId);
     if (params.claimedTokenIds.has(claimKey)) continue;
     try {
       const owner = await params.readOwner(tokenId);

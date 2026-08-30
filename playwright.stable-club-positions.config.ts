@@ -14,6 +14,8 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: "list",
+  globalSetup: "./tests/e2e/stable-club-phase2a-global-setup.cjs",
+  globalTeardown: "./tests/e2e/stable-club-phase2a-global-teardown.cjs",
   use: {
     baseURL,
     trace: "retain-on-failure",

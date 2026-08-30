@@ -37,6 +37,7 @@ import {
   exactPoolBindingExpectations,
   interpretLiveExitAmounts,
   matchExactPoolMintTokenId,
+  positionNftClaimKey,
   resolvePositionDiscoveryFromBlock,
   toFivePoolPosition,
   uniV3FactoryGetPoolAbi,
@@ -419,6 +420,7 @@ export function useFivePoolPositions() {
           protocol: binding.protocol,
           expectedPool: binding.expectedPool,
           factory: binding.factory,
+          nftContract,
           expectedFee: binding.expectedFee,
           expectedTickSpacing: binding.expectedTickSpacing,
           claimedTokenIds,
@@ -528,7 +530,7 @@ export function useFivePoolPositions() {
         });
 
         if (tokenId == null) continue;
-        claimedTokenIds.add(tokenId.toString());
+        claimedTokenIds.add(positionNftClaimKey(nftContract, tokenId));
 
         const owner = await publicClient.readContract({
           address: adapterMeta.adapter,

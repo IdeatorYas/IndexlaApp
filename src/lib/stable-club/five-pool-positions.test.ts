@@ -18,6 +18,7 @@ import {
   mapLegMinsToToken01,
   matchExactPoolMintTokenId,
   matchMintTokenId,
+  positionNftClaimKey,
   POSITION_DISCOVERY_LOG_CHUNK_SIZE,
   resolveNftContract,
   resolvePositionDiscoveryFromBlock,
@@ -107,7 +108,7 @@ function baseNpmPosition(overrides: Partial<FivePoolPosition> = {}): FivePoolPos
   return {
     ...base,
     nftContract: NPM,
-    npm: NPM,
+      npm: NPM,
     ...overrides,
   };
 }
@@ -765,6 +766,7 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
       protocol: "uniswap-v3",
       expectedPool: USDC_CBBTC_UNI_005_POOL,
       factory: uniPool.infrastructure.factory,
+      nftContract: NPM,
       expectedFee,
       claimedTokenIds: new Set(),
       readOwner: async () => USER,
@@ -792,6 +794,7 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
       protocol: "uniswap-v3",
       expectedPool: USDC_CBBTC_UNI_005_POOL,
       factory: uniPool.infrastructure.factory,
+      nftContract: NPM,
       expectedFee: 500,
       claimedTokenIds: new Set(),
       readOwner: async () => USER,
@@ -816,6 +819,7 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
       protocol: "aerodrome-slipstream",
       expectedPool: USDC_CBBTC_AERO_CL100_POOL,
       factory: aeroPool.infrastructure.factory,
+      nftContract: NPM,
       expectedTickSpacing: 100,
       claimedTokenIds: new Set(),
       readOwner: async () => USER,
@@ -843,6 +847,7 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
       protocol: "aerodrome-slipstream",
       expectedPool: USDC_CBBTC_AERO_CL100_POOL,
       factory: aeroPool.infrastructure.factory,
+      nftContract: NPM,
       expectedTickSpacing: 100,
       claimedTokenIds: new Set(),
       readOwner: async () => USER,
@@ -865,6 +870,7 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
       protocol: "aerodrome-slipstream",
       expectedPool: USDC_CBBTC_AERO_CL100_POOL,
       factory: aeroPool.infrastructure.factory,
+      nftContract: NPM,
       expectedTickSpacing: 100,
       claimedTokenIds: new Set(),
       readOwner: async () => USER,
@@ -889,6 +895,7 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
       protocol: "uniswap-v3",
       expectedPool: USDC_CBBTC_UNI_005_POOL,
       factory: uniPool.infrastructure.factory,
+      nftContract: NPM,
       expectedFee: 500,
       claimedTokenIds: new Set(),
       readOwner: async () => OTHER,
@@ -915,7 +922,8 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
         protocol: "uniswap-v3",
         expectedPool: USDC_CBBTC_UNI_005_POOL,
         factory: uniPool.infrastructure.factory,
-        expectedFee: 500,
+        nftContract: NPM,
+      expectedFee: 500,
         claimedTokenIds: claimed,
         readOwner: async () => USER,
         readNpmPosition: async () => ({
@@ -929,9 +937,41 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
       });
     const first = await bind();
     expect(first).toBe(BigInt(7));
-    claimed.add(first!.toString());
+    claimed.add(positionNftClaimKey(NPM, first!));
     const second = await bind();
     expect(second).toBeNull();
+  });
+
+  it("same tokenId on different NFT contracts can both bind", async () => {
+    const claimed = new Set<string>();
+    const ADAPTER_B = "0x71C95911E9a5D330f4D62181467028e998fF717e" as Address;
+    const bind = (nft: Address) =>
+      matchExactPoolMintTokenId({
+        candidates: [BigInt(1)],
+        user: USER,
+        expectedTokenA: BASE_USDC,
+        expectedTokenB: BASE_CBBTC,
+        protocol: "uniswap-v3",
+        expectedPool: USDC_CBBTC_UNI_005_POOL,
+        factory: uniPool.infrastructure.factory,
+        nftContract: nft,
+        expectedFee: 500,
+        claimedTokenIds: claimed,
+        readOwner: async () => USER,
+        readNpmPosition: async () => ({
+          token0: sorted0,
+          token1: sorted1,
+          fee: 500,
+          liquidity: BigInt(10),
+        }),
+        resolveFactoryPool: async () => USDC_CBBTC_UNI_005_POOL,
+        readAmounts: async () => [BigInt(1), BigInt(1)] as const,
+      });
+    const first = await bind(ADAPTER);
+    expect(first).toBe(BigInt(1));
+    claimed.add(positionNftClaimKey(ADAPTER, first!));
+    const second = await bind(ADAPTER_B);
+    expect(second).toBe(BigInt(1));
   });
 
   it("token-pair-only matching is impossible under exact pool binding", async () => {
@@ -944,6 +984,7 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
       protocol: "uniswap-v3",
       expectedPool: USDC_CBBTC_UNI_005_POOL,
       factory: uniPool.infrastructure.factory,
+      nftContract: NPM,
       expectedFee: 500,
       claimedTokenIds: new Set(),
       readOwner: async () => USER,
