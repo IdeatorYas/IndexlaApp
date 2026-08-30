@@ -3,12 +3,19 @@ import type { Hex } from "viem";
 
 const HASH = "0xabc123" as Hex;
 
-const sendTransaction = vi.fn(async () => HASH);
-const privateKeyToAccount = vi.fn(() => ({ address: "0x1111111111111111111111111111111111111111" }));
-const createWalletClient = vi.fn(() => ({ sendTransaction }));
-const createPublicClient = vi.fn(() => ({ waitForTransactionReceipt: vi.fn() }));
-const http = vi.fn(() => ({}));
-const waitForSuccessfulTransactionReceipt = vi.fn(async () => ({ status: "success", transactionHash: HASH }));
+const sendTransaction = vi.fn(async (..._args: unknown[]) => HASH);
+const privateKeyToAccount = vi.fn((..._args: unknown[]) => ({
+  address: "0x1111111111111111111111111111111111111111",
+}));
+const createWalletClient = vi.fn((..._args: unknown[]) => ({ sendTransaction }));
+const createPublicClient = vi.fn((..._args: unknown[]) => ({
+  waitForTransactionReceipt: vi.fn(),
+}));
+const http = vi.fn((..._args: unknown[]) => ({}));
+const waitForSuccessfulTransactionReceipt = vi.fn(async (..._args: unknown[]) => ({
+  status: "success",
+  transactionHash: HASH,
+}));
 
 vi.mock("viem", () => ({
   createWalletClient: (...args: unknown[]) => createWalletClient(...args),

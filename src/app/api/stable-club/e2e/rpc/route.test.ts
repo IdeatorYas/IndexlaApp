@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
 function mockRequest(host: string, jsonImpl?: () => Promise<unknown>): Request {
   return {
@@ -10,7 +10,7 @@ function mockRequest(host: string, jsonImpl?: () => Promise<unknown>): Request {
 describe("SC-F07 e2e/rpc route gate", () => {
   const originalDev = process.env.STABLE_CLUB_DEV_ENABLED;
   const originalE2e = process.env.STABLE_CLUB_E2E_SIGNING;
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let fetchSpy: MockInstance<typeof fetch>;
 
   beforeEach(() => {
     vi.resetModules();

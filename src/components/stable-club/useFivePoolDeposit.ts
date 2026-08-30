@@ -459,8 +459,9 @@ export function useFivePoolDeposit() {
   ]);
 
   const registerStrategy = useCallback(async () => {
+    let attestedDeployments: StableClubPhase2aPublicDeployments;
     try {
-      requireAttestedPhase2aDeployments(deployments);
+      attestedDeployments = requireAttestedPhase2aDeployments(deployments);
     } catch {
       setError("Wallet and deployments required");
       return;
@@ -476,9 +477,9 @@ export function useFivePoolDeposit() {
     try {
       assertChainEnvironmentMatch({
         walletChainId: wallet.chainId,
-        deploymentChainId: deployments!.chainId,
-        network: deployments!.network,
-        permit2: deployments!.permit2,
+        deploymentChainId: attestedDeployments.chainId,
+        network: attestedDeployments.network,
+        permit2: attestedDeployments.permit2,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Chain/environment mismatch");
@@ -496,7 +497,7 @@ export function useFivePoolDeposit() {
       const strategy = {
         user: wallet.address,
         chainId: BigInt(expectedChainId),
-        depositToken: deployments.usdc,
+        depositToken: attestedDeployments.usdc,
         allowedActions: FIVE_POOL_ALLOWED_ACTIONS,
         maxTotalPerTx: BigInt(10_000) * BigInt(10 ** STABLE_CLUB_USDC_DECIMALS),
         maxTotalPerDay: BigInt(50_000) * BigInt(10 ** STABLE_CLUB_USDC_DECIMALS),
@@ -510,7 +511,7 @@ export function useFivePoolDeposit() {
       const legPermissions = [];
       const legs = [];
       for (let i = 0; i < 5; i++) {
-        const a = deployments.adapters[i]!;
+        const a = attestedDeployments.adapters[i]!;
         const legPermissionId = computeStableClubPermissionId({
           user: wallet.address,
           chainId: expectedChainId,
@@ -546,7 +547,7 @@ export function useFivePoolDeposit() {
         });
       }
       const hash = await walletClient.writeContract({
-        address: deployments.strategyRegistry,
+        address: attestedDeployments.strategyRegistry,
         abi: strategyPermissionRegistryAbi,
         functionName: "registerFivePoolStrategy",
         args: [strategy, legPermissions as never, legs as never],
@@ -586,7 +587,7 @@ export function useFivePoolDeposit() {
     setApprovalTxHashes([]);
 
     try {
-      requireAttestedPhase2aDeployments(deployments);
+      const attestedDeployments = requireAttestedPhase2aDeployments(deployments);
       if (!wallet.address || !wallet.provider) {
         throw new Error("Wallet and deployments required");
       }
@@ -595,9 +596,9 @@ export function useFivePoolDeposit() {
       }
       assertChainEnvironmentMatch({
         walletChainId: wallet.chainId,
-        deploymentChainId: deployments!.chainId,
-        network: deployments!.network,
-        permit2: deployments!.permit2,
+        deploymentChainId: attestedDeployments.chainId,
+        network: attestedDeployments.network,
+        permit2: attestedDeployments.permit2,
       });
       if (!strategyRegistered || !strategyId) {
         throw new Error("Register the five-pool strategy before depositing");
@@ -610,14 +611,14 @@ export function useFivePoolDeposit() {
       // Always resolve from chain — local retries / prior deposits must not reuse a nonce.
       const nextNonce = await resolveNextDepositExecutionNonce(
         publicClient,
-        deployments!.strategyRegistry,
+        attestedDeployments.strategyRegistry,
         strategyId,
       );
       setExecutionNonce(nextNonce);
 
       const depositArgs = buildDepositFivePoolStrategyArgs({
         plan: planRef.current,
-        adapters: deployments.adapters,
+        adapters: attestedDeployments.adapters,
         strategyId,
         executionNonce: nextNonce,
         quoteBundle,
@@ -639,9 +640,9 @@ export function useFivePoolDeposit() {
       const permitExpiration = nowSec + FIVE_POOL_DEFAULT_DEADLINE_SEC;
       const permitPlan = buildClFivePoolPermit2Plan({
         chainId: expectedChainId,
-        permit2: deployments.permit2,
-        token: deployments.usdc,
-        clExecutor: deployments.clExecutor,
+        permit2: attestedDeployments.permit2,
+        token: attestedDeployments.usdc,
+        clExecutor: attestedDeployments.clExecutor,
         grossUsdc: depositArgs.grossUsdc,
         expiration: permitExpiration,
         nowSec,
@@ -649,7 +650,7 @@ export function useFivePoolDeposit() {
 
       // Skip ERC20 approve if allowance already sufficient
       const erc20Allowance = await publicClient.readContract({
-        address: deployments.usdc,
+        address: attestedDeployments.usdc,
         abi: erc20Abi,
         functionName: "allowance",
         args: [wallet.address, permitPlan.permit2],
@@ -665,7 +666,7 @@ export function useFivePoolDeposit() {
         address: permitPlan.permit2,
         abi: permit2AllowanceAbi,
         functionName: "allowance",
-        args: [wallet.address, deployments.usdc, deployments.clExecutor],
+        args: [wallet.address, attestedDeployments.usdc, attestedDeployments.clExecutor],
       });
       const p2Amount = p2[0];
       const p2Exp = Number(p2[1]);
@@ -714,7 +715,7 @@ export function useFivePoolDeposit() {
       });
       buildDepositFivePoolStrategyArgs({
         plan: planRef.current,
-        adapters: deployments.adapters,
+        adapters: attestedDeployments.adapters,
         strategyId,
         executionNonce: nextNonce,
         quoteBundle,
@@ -728,7 +729,7 @@ export function useFivePoolDeposit() {
       setStatusMessage("Confirm depositFivePoolStrategy…");
 
       const depositHash = await walletClient.writeContract({
-        address: deployments.clExecutor,
+        address: attestedDeployments.clExecutor,
         abi: concentratedLiquidityExecutorAbi,
         functionName: "depositFivePoolStrategy",
         args: [

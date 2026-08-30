@@ -42,7 +42,10 @@ describe("SC-F08 O(1) — random permission execution nonce", () => {
 
     expect(next).toBe(candidate);
     expect(publicClient.readContract).toHaveBeenCalledTimes(1);
-    expect(publicClient.readContract.mock.calls[0]![0].args[1]).toBe(candidate);
+    const firstCall = publicClient.readContract.mock.calls[0] as unknown as
+      | [{ args: readonly [Hex, bigint] }]
+      | undefined;
+    expect(firstCall?.[0]?.args[1]).toBe(candidate);
   });
 
   it("used candidate regenerates and retries", async () => {
@@ -103,7 +106,7 @@ describe("SC-F08 O(1) — random permission execution nonce", () => {
   });
 
   it("RPC nonce-read failure causes no wallet submission", async () => {
-    const writeContract = vi.fn(async () => "0xhash" as Hex);
+    const writeContract = vi.fn(async (..._args: unknown[]) => "0xhash" as Hex);
     const publicClient = {
       readContract: vi.fn(async () => {
         throw new Error("RPC timeout");
