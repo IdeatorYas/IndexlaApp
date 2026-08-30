@@ -90,8 +90,15 @@ test.describe("Five-pool deposit — runtime verification", () => {
     await expect(panel.getByRole("button", { name: /^Prepare quotes$/i })).toBeEnabled();
 
     await panel.getByLabel("Deposit USDC").fill("1000");
-    await panel.getByLabel("Swap slippage (bps)").fill("100");
-    await panel.getByLabel("LP slippage (bps)").fill("100");
+    // SC-F11: accessible names include the executable max (500 bps).
+    const swapSlip = panel.getByLabel("Swap slippage (bps, max 500)");
+    const lpSlip = panel.getByLabel("LP slippage (bps, max 500)");
+    await expect(swapSlip).toBeVisible();
+    await expect(lpSlip).toBeVisible();
+    await expect(swapSlip).toHaveAttribute("max", "500");
+    await expect(lpSlip).toHaveAttribute("max", "500");
+    await swapSlip.fill("100");
+    await lpSlip.fill("100");
 
     await panel.getByRole("button", { name: /^Prepare quotes$/i }).click();
     await expect(panel.getByText("Deposit preview")).toBeVisible({ timeout: 60_000 });
