@@ -329,6 +329,9 @@ export function StableClubView({
               </span>
               {wallet.status === "wrong-network" ? (
                 <>
+                  <span className="rounded-md border border-app-danger/30 bg-app-danger/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-app-danger">
+                    Wrong network
+                  </span>
                   <button
                     type="button"
                     onClick={() => void wallet.switchToLocalHardhat()}

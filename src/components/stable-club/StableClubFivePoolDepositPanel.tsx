@@ -15,11 +15,18 @@ const PROGRESS_LABEL: Record<string, string> = {
 
 export function StableClubFivePoolDepositPanel() {
   const d = useFivePoolDeposit();
+  const showWrongNetwork = d.wallet.chainId != null && !d.onExpectedChain;
+  const wrongNetworkMessage = (
+    <p className="mt-3 text-[11px] text-app-danger">
+      Wrong network — switch wallet to chain {d.expectedChainId}.
+    </p>
+  );
 
   if (d.deploymentsLoading) {
     return (
       <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
         <p className="text-xs text-app-muted">Loading five-pool deployments…</p>
+        {showWrongNetwork ? wrongNetworkMessage : null}
       </section>
     );
   }
@@ -32,6 +39,7 @@ export function StableClubFivePoolDepositPanel() {
           {d.deploymentsError ??
             "Phase 2a local deployments are required for the five-pool deposit flow."}
         </p>
+        {showWrongNetwork ? wrongNetworkMessage : null}
       </section>
     );
   }
@@ -69,11 +77,7 @@ export function StableClubFivePoolDepositPanel() {
         </div>
       </dl>
 
-      {!d.onExpectedChain ? (
-        <p className="mt-3 text-[11px] text-app-danger">
-          Wrong network — switch wallet to chain {d.expectedChainId}.
-        </p>
-      ) : null}
+      {showWrongNetwork ? wrongNetworkMessage : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button
