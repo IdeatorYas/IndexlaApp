@@ -209,9 +209,43 @@ function assertRejectsWrongGeneration() {
   }
 }
 
+/**
+ * SC-F04: earliest confirmed contract-deployment receipt block (> 0).
+ * Used as discoveryStartBlock — never invent; never fall back to 0/1 here.
+ */
+function earliestDiscoveryStartBlock(receiptBlockNumbers) {
+  if (!Array.isArray(receiptBlockNumbers) || receiptBlockNumbers.length === 0) {
+    throw new Error("discoveryStartBlock requires at least one deployment receipt block");
+  }
+  let min = null;
+  for (const raw of receiptBlockNumbers) {
+    const n = typeof raw === "bigint" ? Number(raw) : Number(raw);
+    if (!Number.isInteger(n) || n <= 0) {
+      throw new Error(`Invalid deployment receipt block: ${String(raw)}`);
+    }
+    if (min === null || n < min) min = n;
+  }
+  return min;
+}
+
+/** Wait for a Hardhat/ethers contract deployment receipt and return its blockNumber. */
+async function collectDeploymentReceiptBlock(contract) {
+  const tx = contract.deploymentTransaction();
+  if (!tx) {
+    throw new Error("Missing deployment transaction for discoveryStartBlock");
+  }
+  const receipt = await tx.wait();
+  if (receipt == null || receipt.blockNumber == null) {
+    throw new Error("Missing deployment receipt blockNumber for discoveryStartBlock");
+  }
+  return earliestDiscoveryStartBlock([receipt.blockNumber]);
+}
+
 module.exports = {
   validatePhase2aManifest,
   assertRejectsWrongGeneration,
+  earliestDiscoveryStartBlock,
+  collectDeploymentReceiptBlock,
   EXPECTED_ROUTE_IDS,
   CANONICAL_INFRA,
   BASE_PERMIT2,

@@ -1,4 +1,4 @@
-import { decodeFunctionData, getAddress } from "viem";
+import { decodeFunctionData, getAddress, type Address } from "viem";
 import { describe, expect, it } from "vitest";
 import { ZERO_ADDRESS } from "@/lib/stable-club/nft-approval";
 import {
@@ -8,16 +8,28 @@ import {
   buildDirectNpmExitPlan,
   buildExitAllLegs,
   buildFullExitLegParams,
+  buildPositionDiscoveryBlockRanges,
   buildSkippedExitLeg,
   collectTokenIdsFromTransferLogs,
+  exactPoolBindingExpectations,
+  LOCAL_POSITION_DISCOVERY_FROM_BLOCK,
   mapAmountsToLegOrder,
   mapLegMinsToToken01,
+  matchExactPoolMintTokenId,
   matchMintTokenId,
+  POSITION_DISCOVERY_LOG_CHUNK_SIZE,
   resolveNftContract,
+  resolvePositionDiscoveryFromBlock,
   toFivePoolPosition,
+  uniswapV3FeeFromCatalogueBps,
   type FivePoolPosition,
   type StrategyLegBinding,
 } from "@/lib/stable-club/five-pool-positions";
+import {
+  OFFICIAL_STABLE_CLUB_BASE_POOLS,
+  USDC_CBBTC_AERO_CL100_POOL,
+  USDC_CBBTC_UNI_005_POOL,
+} from "@/lib/stable-club/official-pools";
 import type { Phase2aAdapterDeployment } from "@/lib/stable-club/phase2a-deployments";
 
 const USDC = "0x5FbDB2315678afecb367f032d93F642f64180aa3" as const;
@@ -378,5 +390,329 @@ describe("SC-F06 — slippage-protected direct NPM exit", () => {
       const mins = decodeDecreaseMins(plan.decreaseLiquidityCalldata!);
       expect(mins.amount0Min === BigInt(1) && mins.amount1Min === BigInt(1)).toBe(false);
     }
+  });
+});
+
+describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
+  const uniPool = OFFICIAL_STABLE_CLUB_BASE_POOLS.find((p) => p.id === "USDC-cbBTC-UNI-005")!;
+  const aeroPool = OFFICIAL_STABLE_CLUB_BASE_POOLS.find((p) => p.id === "USDC-cbBTC-AERO-CL100")!;
+  const BASE_USDC = uniPool.tokenA.address;
+  const BASE_CBBTC = uniPool.tokenB.address;
+  const [sorted0, sorted1] =
+    BASE_USDC.toLowerCase() < BASE_CBBTC.toLowerCase()
+      ? ([BASE_USDC, BASE_CBBTC] as const)
+      : ([BASE_CBBTC, BASE_USDC] as const);
+  const OTHER = "0x00000000000000000000000000000000000000Ab" as Address;
+
+  it("non-local discovery never uses fromBlock 0 when start block is trusted", () => {
+    const from = resolvePositionDiscoveryFromBlock({
+      network: "base",
+      chainId: 8453,
+      discoveryStartBlock: 12_345_678,
+    });
+    expect(from).toBe(BigInt(12_345_678));
+    expect(from).not.toBe(BigInt(0));
+  });
+
+  it("missing trusted non-local start block fails closed", () => {
+    expect(() =>
+      resolvePositionDiscoveryFromBlock({
+        network: "base",
+        chainId: 8453,
+        discoveryStartBlock: undefined,
+      }),
+    ).toThrow(/Missing trusted discoveryStartBlock/);
+    expect(() =>
+      resolvePositionDiscoveryFromBlock({
+        network: "base",
+        chainId: 8453,
+        discoveryStartBlock: 0,
+      }),
+    ).toThrow(/greater than 0/);
+  });
+
+  it("local 31337 defaults to bounded start block 1 (never 0)", () => {
+    expect(
+      resolvePositionDiscoveryFromBlock({
+        network: "hardhat-local",
+        chainId: 31337,
+      }),
+    ).toBe(LOCAL_POSITION_DISCOVERY_FROM_BLOCK);
+    expect(LOCAL_POSITION_DISCOVERY_FROM_BLOCK).toBe(BigInt(1));
+  });
+
+  it("log queries are split into bounded ranges", () => {
+    const ranges = buildPositionDiscoveryBlockRanges(BigInt(100), BigInt(5_100));
+    expect(POSITION_DISCOVERY_LOG_CHUNK_SIZE).toBe(BigInt(2_000));
+    expect(ranges).toEqual([
+      { fromBlock: BigInt(100), toBlock: BigInt(2_099) },
+      { fromBlock: BigInt(2_100), toBlock: BigInt(4_099) },
+      { fromBlock: BigInt(4_100), toBlock: BigInt(5_100) },
+    ]);
+    expect(() => buildPositionDiscoveryBlockRanges(BigInt(0), BigInt(10))).toThrow(
+      /fromBlock must be greater than 0/,
+    );
+  });
+
+  it("correct Uni tokenId binds to its exact pool", async () => {
+    const expectedFee = uniswapV3FeeFromCatalogueBps(5);
+    const id = await matchExactPoolMintTokenId({
+      candidates: [BigInt(1), BigInt(9)],
+      user: USER,
+      expectedTokenA: BASE_USDC,
+      expectedTokenB: BASE_CBBTC,
+      protocol: "uniswap-v3",
+      expectedPool: USDC_CBBTC_UNI_005_POOL,
+      factory: uniPool.infrastructure.factory,
+      expectedFee,
+      claimedTokenIds: new Set(),
+      readOwner: async () => USER,
+      readNpmPosition: async (tokenId) => ({
+        token0: sorted0,
+        token1: sorted1,
+        fee: expectedFee,
+        liquidity: tokenId === BigInt(9) ? BigInt(10) : BigInt(1),
+      }),
+      resolveFactoryPool: async ({ fee }) => {
+        expect(fee).toBe(expectedFee);
+        return USDC_CBBTC_UNI_005_POOL;
+      },
+      readAmounts: async () => [BigInt(1), BigInt(1)] as const,
+    });
+    expect(id).toBe(BigInt(9));
+  });
+
+  it("same Uni token pair with wrong fee is rejected", async () => {
+    const id = await matchExactPoolMintTokenId({
+      candidates: [BigInt(3)],
+      user: USER,
+      expectedTokenA: BASE_USDC,
+      expectedTokenB: BASE_CBBTC,
+      protocol: "uniswap-v3",
+      expectedPool: USDC_CBBTC_UNI_005_POOL,
+      factory: uniPool.infrastructure.factory,
+      expectedFee: 500,
+      claimedTokenIds: new Set(),
+      readOwner: async () => USER,
+      readNpmPosition: async () => ({
+        token0: sorted0,
+        token1: sorted1,
+        fee: 3000,
+        liquidity: BigInt(10),
+      }),
+      resolveFactoryPool: async () => USDC_CBBTC_UNI_005_POOL,
+      readAmounts: async () => [BigInt(1), BigInt(1)] as const,
+    });
+    expect(id).toBeNull();
+  });
+
+  it("correct Aero tokenId binds using tickSpacing/factory pool resolution", async () => {
+    const id = await matchExactPoolMintTokenId({
+      candidates: [BigInt(4)],
+      user: USER,
+      expectedTokenA: BASE_USDC,
+      expectedTokenB: BASE_CBBTC,
+      protocol: "aerodrome-slipstream",
+      expectedPool: USDC_CBBTC_AERO_CL100_POOL,
+      factory: aeroPool.infrastructure.factory,
+      expectedTickSpacing: 100,
+      claimedTokenIds: new Set(),
+      readOwner: async () => USER,
+      readNpmPosition: async () => ({
+        token0: sorted0,
+        token1: sorted1,
+        tickSpacing: 100,
+        liquidity: BigInt(5),
+      }),
+      resolveFactoryPool: async ({ tickSpacing }) => {
+        expect(tickSpacing).toBe(100);
+        return USDC_CBBTC_AERO_CL100_POOL;
+      },
+      readAmounts: async () => [BigInt(2), BigInt(2)] as const,
+    });
+    expect(id).toBe(BigInt(4));
+  });
+
+  it("same Aero pair with wrong tickSpacing/pool is rejected", async () => {
+    const wrongSpacing = await matchExactPoolMintTokenId({
+      candidates: [BigInt(5)],
+      user: USER,
+      expectedTokenA: BASE_USDC,
+      expectedTokenB: BASE_CBBTC,
+      protocol: "aerodrome-slipstream",
+      expectedPool: USDC_CBBTC_AERO_CL100_POOL,
+      factory: aeroPool.infrastructure.factory,
+      expectedTickSpacing: 100,
+      claimedTokenIds: new Set(),
+      readOwner: async () => USER,
+      readNpmPosition: async () => ({
+        token0: sorted0,
+        token1: sorted1,
+        tickSpacing: 10,
+        liquidity: BigInt(5),
+      }),
+      resolveFactoryPool: async () => USDC_CBBTC_AERO_CL100_POOL,
+      readAmounts: async () => [BigInt(2), BigInt(2)] as const,
+    });
+    expect(wrongSpacing).toBeNull();
+
+    const wrongPool = await matchExactPoolMintTokenId({
+      candidates: [BigInt(5)],
+      user: USER,
+      expectedTokenA: BASE_USDC,
+      expectedTokenB: BASE_CBBTC,
+      protocol: "aerodrome-slipstream",
+      expectedPool: USDC_CBBTC_AERO_CL100_POOL,
+      factory: aeroPool.infrastructure.factory,
+      expectedTickSpacing: 100,
+      claimedTokenIds: new Set(),
+      readOwner: async () => USER,
+      readNpmPosition: async () => ({
+        token0: sorted0,
+        token1: sorted1,
+        tickSpacing: 100,
+        liquidity: BigInt(5),
+      }),
+      resolveFactoryPool: async () => "0x1111111111111111111111111111111111111111" as Address,
+      readAmounts: async () => [BigInt(2), BigInt(2)] as const,
+    });
+    expect(wrongPool).toBeNull();
+  });
+
+  it("NFT owned by another address is rejected", async () => {
+    const id = await matchExactPoolMintTokenId({
+      candidates: [BigInt(6)],
+      user: USER,
+      expectedTokenA: BASE_USDC,
+      expectedTokenB: BASE_CBBTC,
+      protocol: "uniswap-v3",
+      expectedPool: USDC_CBBTC_UNI_005_POOL,
+      factory: uniPool.infrastructure.factory,
+      expectedFee: 500,
+      claimedTokenIds: new Set(),
+      readOwner: async () => OTHER,
+      readNpmPosition: async () => ({
+        token0: sorted0,
+        token1: sorted1,
+        fee: 500,
+        liquidity: BigInt(10),
+      }),
+      resolveFactoryPool: async () => USDC_CBBTC_UNI_005_POOL,
+      readAmounts: async () => [BigInt(1), BigInt(1)] as const,
+    });
+    expect(id).toBeNull();
+  });
+
+  it("one tokenId cannot bind to two legs", async () => {
+    const claimed = new Set<string>();
+    const bind = () =>
+      matchExactPoolMintTokenId({
+        candidates: [BigInt(7)],
+        user: USER,
+        expectedTokenA: BASE_USDC,
+        expectedTokenB: BASE_CBBTC,
+        protocol: "uniswap-v3",
+        expectedPool: USDC_CBBTC_UNI_005_POOL,
+        factory: uniPool.infrastructure.factory,
+        expectedFee: 500,
+        claimedTokenIds: claimed,
+        readOwner: async () => USER,
+        readNpmPosition: async () => ({
+          token0: sorted0,
+          token1: sorted1,
+          fee: 500,
+          liquidity: BigInt(10),
+        }),
+        resolveFactoryPool: async () => USDC_CBBTC_UNI_005_POOL,
+        readAmounts: async () => [BigInt(1), BigInt(1)] as const,
+      });
+    const first = await bind();
+    expect(first).toBe(BigInt(7));
+    claimed.add(first!.toString());
+    const second = await bind();
+    expect(second).toBeNull();
+  });
+
+  it("token-pair-only matching is impossible under exact pool binding", async () => {
+    // Same tokens + owner + amounts, but factory resolves to a different pool → reject.
+    const id = await matchExactPoolMintTokenId({
+      candidates: [BigInt(8)],
+      user: USER,
+      expectedTokenA: BASE_USDC,
+      expectedTokenB: BASE_CBBTC,
+      protocol: "uniswap-v3",
+      expectedPool: USDC_CBBTC_UNI_005_POOL,
+      factory: uniPool.infrastructure.factory,
+      expectedFee: 500,
+      claimedTokenIds: new Set(),
+      readOwner: async () => USER,
+      readNpmPosition: async () => ({
+        token0: sorted0,
+        token1: sorted1,
+        fee: 500,
+        liquidity: BigInt(10),
+      }),
+      resolveFactoryPool: async () => USDC_CBBTC_AERO_CL100_POOL,
+      readAmounts: async () => [BigInt(100), BigInt(100)] as const,
+    });
+    expect(id).toBeNull();
+    // Contrast: legacy token-pair matcher would accept this candidate.
+    const legacy = await matchMintTokenId({
+      candidates: [BigInt(8)],
+      user: USER,
+      expectedTokenA: BASE_USDC,
+      expectedTokenB: BASE_CBBTC,
+      readOwner: async () => USER,
+      readTokens: async () => [sorted0, sorted1] as const,
+      readAmounts: async () => [BigInt(100), BigInt(100)] as const,
+    });
+    expect(legacy).toBe(BigInt(8));
+  });
+
+  it("valid discovered positions still render and produce the existing exit path", () => {
+    const expectations = exactPoolBindingExpectations(uniPool.poolIdHash);
+    expect(expectations?.expectedPool).toBe(getAddress(USDC_CBBTC_UNI_005_POOL));
+    expect(expectations?.expectedFee).toBe(500);
+
+    const pos = toFivePoolPosition({
+      legIndex: 1,
+      leg: {
+        ...leg,
+        poolId: uniPool.poolIdHash,
+        tokenA: BASE_USDC,
+        tokenB: BASE_CBBTC,
+      },
+      adapterMeta: {
+        ...adapterMeta,
+        poolId: uniPool.poolIdHash,
+        protocol: "uniswap-v3",
+        tokenA: BASE_USDC,
+        tokenB: BASE_CBBTC,
+      },
+      network: "base",
+      chainId: 8453,
+      tokenId: BigInt(42),
+      owner: USER,
+      liquidity: BigInt(1000),
+      amount0: BigInt(100),
+      amount1: BigInt(200),
+      adapterApproved: true,
+    });
+    expect(pos.positionTokenId).toBe(BigInt(42));
+    expect(pos.protocol).toBe("uniswap-v3");
+
+    const exitParams = buildFullExitLegParams({
+      legIndex: pos.legIndex,
+      adapter: pos.adapter,
+      tokenA: pos.tokenA,
+      tokenB: pos.tokenB,
+      positionTokenId: pos.positionTokenId,
+      amountA: pos.amountA,
+      amountB: pos.amountB,
+      slippageBps: BigInt(100),
+    });
+    expect(exitParams.fullExit).toBe(true);
+    expect(exitParams.positionTokenId).toBe(BigInt(42));
+    expect(exitParams.amountAMin).toBeGreaterThan(BigInt(0));
   });
 });

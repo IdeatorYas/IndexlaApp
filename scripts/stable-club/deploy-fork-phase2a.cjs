@@ -11,6 +11,8 @@ const {
   EXPECTED_ROUTE_IDS,
   CANONICAL_INFRA,
   BASE_PERMIT2,
+  earliestDiscoveryStartBlock,
+  collectDeploymentReceiptBlock,
 } = require("./phase2a-manifest.cjs");
 
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -73,25 +75,32 @@ async function deployAdapter(deployer, spec) {
 async function deployForkPhase2aStack() {
   const [deployer] = await ethers.getSigners();
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
+  const deploymentReceiptBlocks = [];
 
-  const permissionRegistry = await ethers.deployContract("PermissionRegistry");
-  const strategyRegistry = await ethers.deployContract("StrategyPermissionRegistry", [
+  async function deployTracked(name, ...args) {
+    const contract = await ethers.deployContract(name, ...args);
+    deploymentReceiptBlocks.push(await collectDeploymentReceiptBlock(contract));
+    return contract;
+  }
+
+  const permissionRegistry = await deployTracked("PermissionRegistry");
+  const strategyRegistry = await deployTracked("StrategyPermissionRegistry", [
     await permissionRegistry.getAddress(),
     STRATEGY_KIND,
     USDC,
   ]);
-  const feeRouter = await ethers.deployContract("FeeRouter", [MVP_FEE]);
-  const swapRouter = await ethers.deployContract("StableClubSwapRouter");
-  const oracleGuard = await ethers.deployContract("OracleGuard");
-  const mevGuard = await ethers.deployContract("MevGuard");
+  const feeRouter = await deployTracked("FeeRouter", [MVP_FEE]);
+  const swapRouter = await deployTracked("StableClubSwapRouter");
+  const oracleGuard = await deployTracked("OracleGuard");
+  const mevGuard = await deployTracked("MevGuard");
   await mevGuard.setOracle(await oracleGuard.getAddress());
   await oracleGuard.configureFeed(USDC, USDC_USD, 48 * 3600, 8);
   await oracleGuard.configureFeed(CBBTC, CBBTC_USD, 4 * 3600, 8);
   await oracleGuard.configureFeed(WETH, WETH_USD, 4 * 3600, 8);
   await oracleGuard.configurePegMonitor(CBBTC, BTC_USD, 100, 8, true);
 
-  const safetyController = await ethers.deployContract("SafetyController");
-  const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
+  const safetyController = await deployTracked("SafetyController");
+  const clExecutor = await deployTracked("StableClubConcentratedLiquidityExecutor", [
     await permissionRegistry.getAddress(),
     await strategyRegistry.getAddress(),
     await feeRouter.getAddress(),
@@ -245,6 +254,7 @@ async function deployForkPhase2aStack() {
   const adapters = [];
   for (const spec of lpSpecs) {
     const adapter = await deployAdapter(deployer, { ...spec, executor: clAddr });
+    deploymentReceiptBlocks.push(await collectDeploymentReceiptBlock(adapter));
     const addr = await adapter.getAddress();
     await clExecutor.setAdapterApproval(addr, true);
     await clExecutor.registerPool(spec.poolId, addr);
@@ -261,6 +271,8 @@ async function deployForkPhase2aStack() {
       fee: spec.fee,
     });
   }
+
+  const discoveryStartBlock = earliestDiscoveryStartBlock(deploymentReceiptBlocks);
 
   return {
     chainId,
@@ -285,6 +297,7 @@ async function deployForkPhase2aStack() {
     adapters,
     routes: routeConfigs.map((r) => ({ name: r.name, routeId: r.id, enabled: true })),
     strategyKind: STRATEGY_KIND,
+    discoveryStartBlock,
   };
 }
 
@@ -298,13 +311,18 @@ async function main() {
   });
 
   const stack = await deployForkPhase2aStack();
+  if (stack.discoveryStartBlock == null || Number(stack.discoveryStartBlock) <= 0) {
+    throw new Error(
+      "SC-F04: fork phase2a deploy must record discoveryStartBlock from a deployment receipt (> 0)",
+    );
+  }
   validatePhase2aManifest(stack, { localMocksOk: false });
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
   fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(stack, null, 2)}\n`, "utf8");
   console.log("Phase 2a fork deployment manifest written to:");
   console.log(OUTPUT_PATH);
   console.log(
-    `permit2=${stack.permit2} routes=${stack.routes.length} adapters=${stack.adapters.length}`,
+    `permit2=${stack.permit2} routes=${stack.routes.length} adapters=${stack.adapters.length} discoveryStartBlock=${stack.discoveryStartBlock}`,
   );
 }
 

@@ -26,16 +26,24 @@ import { assertChainEnvironmentMatch } from "@/lib/stable-club/chain-isolation";
 import { explorerTxUrl } from "@/lib/stable-club/five-pool-deposit";
 import {
   FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS,
+  aeroFactoryGetPoolAbi,
+  aeroNpmPositionsAbi,
   assertWalletOwnsPosition,
   buildDirectNpmExitPlan,
   buildExitAllLegs,
   buildFullExitLegParams,
+  buildPositionDiscoveryBlockRanges,
   collectTokenIdsFromTransferLogs,
-  matchMintTokenId,
+  exactPoolBindingExpectations,
+  matchExactPoolMintTokenId,
+  resolvePositionDiscoveryFromBlock,
   toFivePoolPosition,
+  uniV3FactoryGetPoolAbi,
+  uniV3NpmPositionsAbi,
   type DirectNpmExitPlan,
   type FivePoolExitProgress,
   type FivePoolPosition,
+  type NpmPositionIdentity,
   type PerLegExitResult,
   type StrategyLegBinding,
 } from "@/lib/stable-club/five-pool-positions";
@@ -238,7 +246,16 @@ export function useFivePoolPositions() {
       }
 
       const discovered: FivePoolPosition[] = [];
-      const fromBlock = BigInt(0);
+      const fromBlock = resolvePositionDiscoveryFromBlock({
+        network: deployments.network,
+        chainId: deployments.chainId,
+        discoveryStartBlock: deployments.discoveryStartBlock,
+      });
+      const latestBlock = await publicClient.getBlockNumber();
+      const logRanges = buildPositionDiscoveryBlockRanges(fromBlock, latestBlock);
+      const isVerifiedLocal =
+        deployments.network === "hardhat-local" && deployments.chainId === 31337;
+      const claimedTokenIds = new Set<string>();
 
       for (let legIndex = 0; legIndex < FIVE_POOL_LEG_COUNT; legIndex++) {
         const legRaw = await publicClient.readContract({
@@ -260,29 +277,51 @@ export function useFivePoolPositions() {
           continue;
         }
 
+        const binding = exactPoolBindingExpectations(leg.poolId);
+        if (!binding) {
+          // Exact pool identity cannot be proven — no executable exit for this leg.
+          setStale(true);
+          continue;
+        }
+
         const nftContract =
           deployments.network === "hardhat-local" ? adapterMeta.adapter : adapterMeta.npm;
 
         const transferEvent = parseAbiItem(
           "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
         );
-        const logs = await publicClient.getLogs({
-          address: nftContract,
-          event: transferEvent,
-          args: {
-            from: "0x0000000000000000000000000000000000000000",
-            to: wallet.address,
-          },
-          fromBlock,
-          toBlock: "latest",
-        });
+        const logs: { args?: { tokenId?: bigint } | null }[] = [];
+        for (const range of logRanges) {
+          const chunk = await publicClient.getLogs({
+            address: nftContract,
+            event: transferEvent,
+            args: {
+              from: "0x0000000000000000000000000000000000000000",
+              to: wallet.address,
+            },
+            fromBlock: range.fromBlock,
+            toBlock: range.toBlock,
+          });
+          logs.push(...chunk);
+        }
         const candidates = collectTokenIdsFromTransferLogs(logs);
 
-        const tokenId = await matchMintTokenId({
+        const isUni =
+          binding.protocol === "uniswap-v3" || binding.protocol === "uniswap";
+        const isAero =
+          binding.protocol === "aerodrome-slipstream" || binding.protocol === "aerodrome";
+
+        const tokenId = await matchExactPoolMintTokenId({
           candidates,
           user: wallet.address,
           expectedTokenA: leg.tokenA,
           expectedTokenB: leg.tokenB,
+          protocol: binding.protocol,
+          expectedPool: binding.expectedPool,
+          factory: binding.factory,
+          expectedFee: binding.expectedFee,
+          expectedTickSpacing: binding.expectedTickSpacing,
+          claimedTokenIds,
           readOwner: (id) =>
             publicClient.readContract({
               address: adapterMeta.adapter,
@@ -290,13 +329,95 @@ export function useFivePoolPositions() {
               functionName: "ownerOf",
               args: [id],
             }),
-          readTokens: (id) =>
-            publicClient.readContract({
-              address: adapterMeta.adapter,
-              abi: concentratedLiquidityAdapterAbi,
-              functionName: "positionTokens",
-              args: [id],
-            }),
+          readNpmPosition: async (id): Promise<NpmPositionIdentity> => {
+            if (isVerifiedLocal) {
+              // Local mock NFT has no Uni/Aero positions(); synthesize fee/tickSpacing
+              // from catalogue after token reads. Factory proof is short-circuited below.
+              const [token0, token1] = await publicClient.readContract({
+                address: adapterMeta.adapter,
+                abi: concentratedLiquidityAdapterAbi,
+                functionName: "positionTokens",
+                args: [id],
+              });
+              let liquidity = BigInt(0);
+              try {
+                liquidity = await publicClient.readContract({
+                  address: adapterMeta.adapter,
+                  abi: concentratedLiquidityAdapterAbi,
+                  functionName: "liquidityOf",
+                  args: [id],
+                });
+              } catch {
+                liquidity = BigInt(0);
+              }
+              if (isUni) {
+                return {
+                  token0,
+                  token1,
+                  fee: binding.expectedFee,
+                  liquidity,
+                };
+              }
+              return {
+                token0,
+                token1,
+                tickSpacing: binding.expectedTickSpacing,
+                liquidity,
+              };
+            }
+            if (isUni) {
+              const pos = await publicClient.readContract({
+                address: adapterMeta.npm,
+                abi: uniV3NpmPositionsAbi,
+                functionName: "positions",
+                args: [id],
+              });
+              return {
+                token0: pos[2],
+                token1: pos[3],
+                fee: Number(pos[4]),
+                liquidity: BigInt(pos[7]),
+              };
+            }
+            if (isAero) {
+              const pos = await publicClient.readContract({
+                address: adapterMeta.npm,
+                abi: aeroNpmPositionsAbi,
+                functionName: "positions",
+                args: [id],
+              });
+              return {
+                token0: pos[2],
+                token1: pos[3],
+                tickSpacing: Number(pos[4]),
+                liquidity: BigInt(pos[7]),
+              };
+            }
+            throw new Error(`Unsupported protocol for NPM binding: ${binding.protocol}`);
+          },
+          resolveFactoryPool: async ({ token0, token1, fee, tickSpacing }) => {
+            if (isVerifiedLocal) {
+              // Mock adapters are poolId-scoped; catalogue pool is the configured binding target.
+              return binding.expectedPool;
+            }
+            if (isUni && fee != null) {
+              return publicClient.readContract({
+                address: binding.factory,
+                abi: uniV3FactoryGetPoolAbi,
+                functionName: "getPool",
+                args: [token0, token1, fee],
+              });
+            }
+            if (isAero && tickSpacing != null) {
+              return publicClient.readContract({
+                address: binding.factory,
+                abi: aeroFactoryGetPoolAbi,
+                functionName: "getPool",
+                args: [token0, token1, tickSpacing],
+              });
+            }
+            throw new Error("Factory pool resolution requires fee or tickSpacing");
+          },
           readAmounts: (id) =>
             publicClient.readContract({
               address: adapterMeta.adapter,
@@ -307,6 +428,7 @@ export function useFivePoolPositions() {
         });
 
         if (tokenId == null) continue;
+        claimedTokenIds.add(tokenId.toString());
 
         const owner = await publicClient.readContract({
           address: adapterMeta.adapter,

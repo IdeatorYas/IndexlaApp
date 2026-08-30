@@ -10,6 +10,8 @@ const {
   validatePhase2aManifest,
   EXPECTED_ROUTE_IDS,
   CANONICAL_INFRA,
+  earliestDiscoveryStartBlock,
+  collectDeploymentReceiptBlock,
 } = require("./phase2a-manifest.cjs");
 
 const STRATEGY_KIND = ethers.id("STABLE_CLUB_FIVE_POOL_V1");
@@ -31,36 +33,43 @@ const OUTPUT_PATH = path.join(
 async function deployPhase2aLocalStack(opts = {}) {
   const [deployer, testUser, feeRecipient] = await ethers.getSigners();
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
+  const deploymentReceiptBlocks = [];
 
-  const usdc = await ethers.deployContract("MockERC20", ["USD Coin", "USDC", 6]);
-  const cbbtc = await ethers.deployContract("MockERC20", ["Coinbase BTC", "cbBTC", 8]);
-  const weth = await ethers.deployContract("MockERC20", ["Wrapped Ether", "WETH", 18]);
+  async function deployTracked(name, ...args) {
+    const contract = await ethers.deployContract(name, ...args);
+    deploymentReceiptBlocks.push(await collectDeploymentReceiptBlock(contract));
+    return contract;
+  }
+
+  const usdc = await deployTracked("MockERC20", ["USD Coin", "USDC", 6]);
+  const cbbtc = await deployTracked("MockERC20", ["Coinbase BTC", "cbBTC", 8]);
+  const weth = await deployTracked("MockERC20", ["Wrapped Ether", "WETH", 18]);
   const tokens = {
     usdc: await usdc.getAddress(),
     cbbtc: await cbbtc.getAddress(),
     weth: await weth.getAddress(),
   };
 
-  const oracleGuard = await ethers.deployContract("OracleGuard");
-  const mevGuard = await ethers.deployContract("MevGuard");
+  const oracleGuard = await deployTracked("OracleGuard");
+  const mevGuard = await deployTracked("MevGuard");
   await mevGuard.setOracle(await oracleGuard.getAddress());
-  const usdcFeed = await ethers.deployContract("MockAggregatorV3", [100_000000n]);
-  const cbbtcFeed = await ethers.deployContract("MockAggregatorV3", [100_000_00000000n]);
-  const wethFeed = await ethers.deployContract("MockAggregatorV3", [2_000_00000000n]);
+  const usdcFeed = await deployTracked("MockAggregatorV3", [100_000000n]);
+  const cbbtcFeed = await deployTracked("MockAggregatorV3", [100_000_00000000n]);
+  const wethFeed = await deployTracked("MockAggregatorV3", [2_000_00000000n]);
   await oracleGuard.configureFeed(tokens.usdc, await usdcFeed.getAddress(), 3600, 8);
   await oracleGuard.configureFeed(tokens.cbbtc, await cbbtcFeed.getAddress(), 3600, 8);
   await oracleGuard.configureFeed(tokens.weth, await wethFeed.getAddress(), 3600, 8);
 
-  const permissionRegistry = await ethers.deployContract("PermissionRegistry");
-  const strategyRegistry = await ethers.deployContract("StrategyPermissionRegistry", [
+  const permissionRegistry = await deployTracked("PermissionRegistry");
+  const strategyRegistry = await deployTracked("StrategyPermissionRegistry", [
     await permissionRegistry.getAddress(),
     STRATEGY_KIND,
     tokens.usdc,
   ]);
-  const feeRouter = await ethers.deployContract("FeeRouter", [feeRecipient.address]);
-  const swapRouter = await ethers.deployContract("MockSwapRouter");
-  const safetyController = await ethers.deployContract("SafetyController");
-  const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
+  const feeRouter = await deployTracked("FeeRouter", [feeRecipient.address]);
+  const swapRouter = await deployTracked("MockSwapRouter");
+  const safetyController = await deployTracked("SafetyController");
+  const clExecutor = await deployTracked("StableClubConcentratedLiquidityExecutor", [
     await permissionRegistry.getAddress(),
     await strategyRegistry.getAddress(),
     await feeRouter.getAddress(),
@@ -80,7 +89,7 @@ async function deployPhase2aLocalStack(opts = {}) {
   await feeRouter.setExecutorApproved(clAddr, true);
   await swapRouter.setExecutorApproved(clAddr, true);
 
-  const permit2 = await ethers.deployContract("MockPermit2");
+  const permit2 = await deployTracked("MockPermit2");
   const permit2Addr = await permit2.getAddress();
   await clExecutor.setPermit2(permit2Addr);
   await feeRouter.setPermit2(permit2Addr);
@@ -129,7 +138,7 @@ async function deployPhase2aLocalStack(opts = {}) {
   ];
   const adapters = [];
   for (const entry of catalogue) {
-    const adapter = await ethers.deployContract("MockConcentratedLiquidityAdapter", [
+    const adapter = await deployTracked("MockConcentratedLiquidityAdapter", [
       clAddr,
       entry.poolId,
       entry.protocol,
@@ -155,6 +164,8 @@ async function deployPhase2aLocalStack(opts = {}) {
     routeId: id,
     enabled: true,
   }));
+
+  const discoveryStartBlock = earliestDiscoveryStartBlock(deploymentReceiptBlocks);
 
   return {
     chainId,
@@ -182,6 +193,7 @@ async function deployPhase2aLocalStack(opts = {}) {
     adapters,
     routes: routeList,
     strategyKind: STRATEGY_KIND,
+    discoveryStartBlock,
     // contracts for tests
     contracts: {
       permissionRegistry,
@@ -213,12 +225,22 @@ async function main() {
     );
   }
   const deployments = toPhase2aDeploymentJson(stack);
+  if (
+    deployments.discoveryStartBlock == null ||
+    Number(deployments.discoveryStartBlock) <= 0
+  ) {
+    throw new Error(
+      "SC-F04: local phase2a deploy must record discoveryStartBlock from a deployment receipt (> 0)",
+    );
+  }
   validatePhase2aManifest(deployments, { localMocksOk: true });
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
   fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(deployments, null, 2)}\n`, "utf8");
   console.log("Phase 2a local deployment written to:");
   console.log(OUTPUT_PATH);
-  console.log(`routes=${deployments.routes.length} adapters=${deployments.adapters.length} permit2=${deployments.permit2}`);
+  console.log(
+    `routes=${deployments.routes.length} adapters=${deployments.adapters.length} permit2=${deployments.permit2} discoveryStartBlock=${deployments.discoveryStartBlock}`,
+  );
 }
 
 module.exports = {

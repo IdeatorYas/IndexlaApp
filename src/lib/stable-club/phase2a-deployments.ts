@@ -53,6 +53,11 @@ export type StableClubPhase2aDeployments = {
   routes: Phase2aRouteDeployment[];
   strategyKind: Hex;
   rpcUrl?: string;
+  /**
+   * Trusted earliest block for NFT Transfer log discovery (must be > 0).
+   * Required on non-local networks; optional on hardhat-local 31337 (defaults to 1).
+   */
+  discoveryStartBlock?: number | string;
 };
 
 export function isValidPhase2aDeployments(
@@ -147,6 +152,9 @@ export function toPublicPhase2aDeploymentsPayload(
     routes: deployments.routes,
     strategyKind: deployments.strategyKind,
     rpcUrl: deployments.rpcUrl ?? "http://127.0.0.1:8545",
+    ...(deployments.discoveryStartBlock !== undefined
+      ? { discoveryStartBlock: deployments.discoveryStartBlock }
+      : {}),
   };
 }
 
@@ -154,4 +162,25 @@ export function isValidPhase2aPublicDeployments(
   value: StableClubPhase2aPublicDeployments | null | undefined,
 ): value is StableClubPhase2aPublicDeployments {
   return isValidPhase2aDeployments(value as StableClubPhase2aDeployments | null);
+}
+
+/**
+ * Earliest confirmed contract-deployment receipt block for NFT log discovery.
+ * Never returns 0; throws if no valid receipt blocks are provided.
+ */
+export function earliestDiscoveryStartBlock(
+  receiptBlockNumbers: readonly (number | bigint | string)[],
+): number {
+  if (receiptBlockNumbers.length === 0) {
+    throw new Error("discoveryStartBlock requires at least one deployment receipt block");
+  }
+  let min: number | null = null;
+  for (const raw of receiptBlockNumbers) {
+    const n = typeof raw === "bigint" ? Number(raw) : Number(raw);
+    if (!Number.isInteger(n) || n <= 0) {
+      throw new Error(`Invalid deployment receipt block: ${String(raw)}`);
+    }
+    if (min === null || n < min) min = n;
+  }
+  return min!;
 }
