@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+/**
+ * Avoid importing real constants → viem/chains (multi-second cold import under full-suite load).
+ * URL value matches production local RPC so forwarding assertions stay honest.
+ */
+vi.mock("@/lib/stable-club/constants", () => ({
+  STABLE_CLUB_LOCAL_RPC_URL: "http://127.0.0.1:8545",
+}));
+
 function mockRequest(host: string, jsonImpl?: () => Promise<unknown>): Request {
   return {
     headers: new Headers({ host }),
@@ -13,18 +21,26 @@ describe("SC-F07 e2e/rpc route gate", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    // Isolate from any prior file/worker pollution before installing our stub.
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
     vi.resetModules();
-    // Deterministic stub — never fall through to real localhost:8545 (hangs when node is down).
+
+    // Deterministic stub — never fall through to real localhost:8545.
     fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
       json: async () => ({ result: "0x7a69" }),
     }));
     vi.stubGlobal("fetch", fetchMock);
+    expect(globalThis.fetch).toBe(fetchMock);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
     if (originalDev === undefined) delete process.env.STABLE_CLUB_DEV_ENABLED;
     else process.env.STABLE_CLUB_DEV_ENABLED = originalDev;
     if (originalE2e === undefined) delete process.env.STABLE_CLUB_E2E_SIGNING;
@@ -40,6 +56,9 @@ describe("SC-F07 e2e/rpc route gate", () => {
     process.env.STABLE_CLUB_DEV_ENABLED = "true";
     process.env.STABLE_CLUB_E2E_SIGNING = "true";
     const POST = await loadPost();
+    // Re-bind after import in case the module graph replaced global fetch.
+    vi.stubGlobal("fetch", fetchMock);
+    expect(globalThis.fetch).toBe(fetchMock);
     const json = vi.fn(async () => ({ method: "eth_chainId", params: [] }));
     const res = await POST(mockRequest("localhost:3457", json));
     expect(res.status).toBe(200);
@@ -47,6 +66,7 @@ describe("SC-F07 e2e/rpc route gate", () => {
     expect(json).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("http://127.0.0.1:8545");
+    expect(globalThis.fetch).toBe(fetchMock);
   });
 
   it("DEV unset + E2E true → 404 before RPC", async () => {
