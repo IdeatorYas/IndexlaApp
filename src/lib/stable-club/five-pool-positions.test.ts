@@ -130,9 +130,125 @@ describe("five-pool-positions", () => {
     expect(resolveNftContract(adapterMeta, "hardhat-local")).toBe(ADAPTER);
   });
 
-  it("applies exit slippage with floor of 1", () => {
+  it("applies exit slippage without forcing empty side to 1", () => {
     expect(applyExitSlippageMin(BigInt(10_000), BigInt(100))).toBe(BigInt(9900));
-    expect(applyExitSlippageMin(BigInt(0), BigInt(100))).toBe(BigInt(1));
+    expect(applyExitSlippageMin(BigInt(0), BigInt(100))).toBe(BigInt(0));
+  });
+
+  describe("REAUDIT-F01 — preserve zero min on empty exit side", () => {
+    const slippageBps = BigInt(100);
+
+    it("(positive, 0) → percentage min on A, zero min on B", () => {
+      const legParams = buildFullExitLegParams({
+        legIndex: 0,
+        adapter: ADAPTER,
+        tokenA: USDC,
+        tokenB: CBBTC,
+        positionTokenId: BigInt(1),
+        amountA: BigInt(10_000),
+        amountB: BigInt(0),
+        slippageBps,
+      });
+      expect(legParams.amountAMin).toBe(BigInt(9900));
+      expect(legParams.amountBMin).toBe(BigInt(0));
+      expect(applyExitSlippageMin(BigInt(10_000), slippageBps)).toBe(BigInt(9900));
+      expect(applyExitSlippageMin(BigInt(0), slippageBps)).toBe(BigInt(0));
+    });
+
+    it("(0, positive) → zero min on A, percentage min on B", () => {
+      const legParams = buildFullExitLegParams({
+        legIndex: 1,
+        adapter: ADAPTER,
+        tokenA: USDC,
+        tokenB: CBBTC,
+        positionTokenId: BigInt(2),
+        amountA: BigInt(0),
+        amountB: BigInt(20_000),
+        slippageBps,
+      });
+      expect(legParams.amountAMin).toBe(BigInt(0));
+      expect(legParams.amountBMin).toBe(BigInt(19_800));
+    });
+
+    it("both positive → percentage mins on both sides", () => {
+      const legParams = buildFullExitLegParams({
+        legIndex: 2,
+        adapter: ADAPTER,
+        tokenA: USDC,
+        tokenB: CBBTC,
+        positionTokenId: BigInt(3),
+        amountA: BigInt(10_000),
+        amountB: BigInt(20_000),
+        slippageBps,
+      });
+      expect(legParams.amountAMin).toBe(BigInt(9900));
+      expect(legParams.amountBMin).toBe(BigInt(19_800));
+    });
+
+    it("both zero fails closed before calldata", () => {
+      expect(() =>
+        buildFullExitLegParams({
+          legIndex: 3,
+          adapter: ADAPTER,
+          tokenA: USDC,
+          tokenB: CBBTC,
+          positionTokenId: BigInt(4),
+          amountA: BigInt(0),
+          amountB: BigInt(0),
+          slippageBps,
+        }),
+      ).toThrow(/both zero/i);
+
+      const map = new Map<number, FivePoolPosition>([[0, samplePosition(0)]]);
+      const liveAmountsByLeg = new Map<number, { amountA: bigint; amountB: bigint }>([
+        [0, { amountA: BigInt(0), amountB: BigInt(0) }],
+      ]);
+      expect(() => buildExitAllLegs(map, liveAmountsByLeg, slippageBps)).toThrow(/both zero/i);
+    });
+
+    it("reversed token ordering maps one-sided mins to token0/token1", () => {
+      const tokenA = CBBTC;
+      const tokenB = USDC;
+      expect(getAddress(tokenA).toLowerCase() > getAddress(tokenB).toLowerCase()).toBe(true);
+
+      const amountA = BigInt(5_000);
+      const amountB = BigInt(0);
+      const amountAMin = applyExitSlippageMin(amountA, slippageBps);
+      const amountBMin = applyExitSlippageMin(amountB, slippageBps);
+      expect(amountAMin).toBe(BigInt(4950));
+      expect(amountBMin).toBe(BigInt(0));
+
+      const mapped = mapLegMinsToToken01({
+        tokenA,
+        tokenB,
+        amountAMin,
+        amountBMin,
+      });
+      // token0=USDC=B side (empty), token1=CBBTC=A side
+      expect(mapped.amount0Min).toBe(BigInt(0));
+      expect(mapped.amount1Min).toBe(BigInt(4950));
+
+      const flipped = buildFullExitLegParams({
+        legIndex: 0,
+        adapter: ADAPTER,
+        tokenA,
+        tokenB,
+        positionTokenId: BigInt(7),
+        amountA: BigInt(0),
+        amountB: BigInt(8_000),
+        slippageBps,
+      });
+      const flipped01 = mapLegMinsToToken01({
+        tokenA,
+        tokenB,
+        amountAMin: flipped.amountAMin,
+        amountBMin: flipped.amountBMin,
+      });
+      expect(flipped.amountAMin).toBe(BigInt(0));
+      expect(flipped.amountBMin).toBe(BigInt(7920));
+      expect(flipped01.amount0Min).toBe(BigInt(7920));
+      expect(flipped01.amount1Min).toBe(BigInt(0));
+    });
   });
 
   it("maps token0/1 amounts into leg A/B order", () => {

@@ -138,11 +138,21 @@ export function resolveNftContract(
   return adapter.npm;
 }
 
+/**
+ * Executor exit mins (SC-01 / REAUDIT-F01):
+ * - expectedAmount == 0 → min 0 (one-sided / empty side)
+ * - expectedAmount > 0 → floor(amount × (10000 − bps) / 10000)
+ * Callers must fail closed before calldata when both expected amounts are 0.
+ */
 export function applyExitSlippageMin(amount: bigint, slippageBps: bigint): bigint {
-  if (amount <= BigInt(0)) return FIVE_POOL_EXIT_MIN_FLOOR;
-  const bps = slippageBps > BigInt(10_000) ? BigInt(10_000) : slippageBps;
-  const reduced = (amount * (BigInt(10_000) - bps)) / BigInt(10_000);
-  return reduced > BigInt(0) ? reduced : FIVE_POOL_EXIT_MIN_FLOOR;
+  if (amount <= BigInt(0)) return BigInt(0);
+  const bps =
+    slippageBps < BigInt(0)
+      ? BigInt(0)
+      : slippageBps > BigInt(10_000)
+        ? BigInt(10_000)
+        : slippageBps;
+  return (amount * (BigInt(10_000) - bps)) / BigInt(10_000);
 }
 
 /**
@@ -255,6 +265,11 @@ export function buildFullExitLegParams(params: {
   amountB: bigint;
   slippageBps: bigint;
 }): ExitLegParams {
+  if (params.amountA <= BigInt(0) && params.amountB <= BigInt(0)) {
+    throw new Error(
+      `Exit amounts are both zero for leg ${params.legIndex} — refusing calldata (would revert as 0/0)`,
+    );
+  }
   return {
     legIndex: params.legIndex,
     adapter: params.adapter,
