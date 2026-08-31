@@ -315,10 +315,9 @@ describe("PR1 security remediation — adversarial regressions", function () {
         ethers.parseUnits("0.2", 8),
       );
 
-      const amountA = ethers.parseUnits("10", 6);
-      const amountB = ethers.parseUnits("0.01", 8);
-      await ctx.usdc.connect(ctx.user).approve(await ctx.automation.getAddress(), amountA);
-      await ctx.cbbtc.connect(ctx.user).approve(await ctx.automation.getAddress(), amountB);
+      // Mock default collect fee: 1 USDC + 0.01 cbBTC (1e6 raw each).
+      const amountA = 1_000_000n;
+      const amountB = 1_000_000n;
 
       await expect(
         ctx.automation.connect(ctx.user).compound(
@@ -341,6 +340,9 @@ describe("PR1 security remediation — adversarial regressions", function () {
         ),
       ).to.be.revertedWithCustomError(ctx.automation, "SlippageMinRequired");
 
+      const preUsdc = await ctx.usdc.balanceOf(await ctx.automation.getAddress());
+      const preBtc = await ctx.cbbtc.balanceOf(await ctx.automation.getAddress());
+
       await ctx.automation.connect(ctx.user).compound(
         permissionId,
         2n,
@@ -360,8 +362,8 @@ describe("PR1 security remediation — adversarial regressions", function () {
         0n,
       );
 
-      expect(await ctx.usdc.balanceOf(await ctx.automation.getAddress())).to.equal(0n);
-      expect(await ctx.cbbtc.balanceOf(await ctx.automation.getAddress())).to.equal(0n);
+      expect(await ctx.usdc.balanceOf(await ctx.automation.getAddress())).to.equal(preUsdc);
+      expect(await ctx.cbbtc.balanceOf(await ctx.automation.getAddress())).to.equal(preBtc);
     });
 
     it("compound with swap routes output into LP and retains no balances", async function () {
@@ -398,7 +400,13 @@ describe("PR1 security remediation — adversarial regressions", function () {
       );
 
       const swapAmount = ethers.parseUnits("100", 6);
-      // Align oracle so expectedOut matches 1:1 mock (USDC 6 → cbBTC 8).
+      const usdcAddr = await ctx.usdc.getAddress();
+      const [t0] = await ctx.clAdapter.positionTokens(tokenId);
+      if (t0 === usdcAddr) {
+        await ctx.clAdapter.setCollectFeeAmounts(swapAmount, 0n);
+      } else {
+        await ctx.clAdapter.setCollectFeeAmounts(0n, swapAmount);
+      }
       await ctx.btcFeed.setAnswer(100_00000000n);
       const net = (swapAmount * 99n) / 100n;
       const expected = await ctx.oracleGuard.expectedAmountOut(
@@ -409,7 +417,10 @@ describe("PR1 security remediation — adversarial regressions", function () {
         8,
       );
       const minOut = (expected * 9850n) / 10000n;
-      await ctx.usdc.connect(ctx.user).approve(await ctx.feeRouter.getAddress(), swapAmount);
+
+      const preUsdc = await ctx.usdc.balanceOf(await ctx.automation.getAddress());
+      const preBtc = await ctx.cbbtc.balanceOf(await ctx.automation.getAddress());
+      const feeBefore = await ctx.usdc.balanceOf(ctx.feeRecipient.address);
 
       await ctx.automation.connect(ctx.user).compound(
         permissionId,
@@ -430,8 +441,11 @@ describe("PR1 security remediation — adversarial regressions", function () {
         expected,
       );
 
-      expect(await ctx.usdc.balanceOf(await ctx.automation.getAddress())).to.equal(0n);
-      expect(await ctx.cbbtc.balanceOf(await ctx.automation.getAddress())).to.equal(0n);
+      expect(await ctx.usdc.balanceOf(await ctx.automation.getAddress())).to.equal(preUsdc);
+      expect(await ctx.cbbtc.balanceOf(await ctx.automation.getAddress())).to.equal(preBtc);
+      expect(await ctx.usdc.balanceOf(ctx.feeRecipient.address)).to.equal(
+        feeBefore + (swapAmount * 1n) / 100n,
+      );
     });
   });
 

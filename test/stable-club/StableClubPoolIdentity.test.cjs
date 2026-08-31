@@ -168,7 +168,7 @@ describe("Pool identity — Uni V3 / Aerodrome valuation", function () {
     const tokenA = await ctx.lo.getAddress();
     const tokenB = await ctx.hi.getAddress();
 
-    await expectIdentityRevert(ctx.adapter.collectFees(ctx.user.address, 1n));
+    await expectIdentityRevert(ctx.adapter.collectFees(ctx.user.address, 1n, ctx.user.address));
     await expectIdentityRevert(
       ctx.adapter.increaseLiquidity(ctx.user.address, 1n, tokenA, tokenB, 1n, 1n, 0n, 0n),
     );
@@ -210,8 +210,8 @@ describe("Pool identity — Uni V3 / Aerodrome valuation", function () {
     const tokenA = await ctx.lo.getAddress();
     const tokenB = await ctx.hi.getAddress();
 
-    await expectIdentityRevert(ctx.adapter.collectFees(ctx.user.address, 1n));
-    await expectIdentityRevert(ctx.adapter.collectRewards(ctx.user.address, 1n));
+    await expectIdentityRevert(ctx.adapter.collectFees(ctx.user.address, 1n, ctx.user.address));
+    await expectIdentityRevert(ctx.adapter.collectRewards(ctx.user.address, 1n, ctx.user.address));
     await expectIdentityRevert(
       ctx.adapter.increaseLiquidity(ctx.user.address, 1n, tokenA, tokenB, 1n, 1n, 0n, 0n),
     );

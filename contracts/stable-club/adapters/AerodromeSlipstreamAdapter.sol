@@ -301,17 +301,17 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         (amountA, amountB) = _mapFrom01(tokenA, tokenB, token0, token1, amount0, amount1);
     }
 
-    function collectFees(address lpOwner, uint256 tokenId)
+    function collectFees(address lpOwner, uint256 tokenId, address recipient)
         external
         onlyExecutor
         returns (uint256 amountA, uint256 amountB)
     {
         _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
-        (amountA, amountB) = _collectTo(lpOwner, tokenId);
+        (amountA, amountB) = _collectTo(recipient, tokenId);
     }
 
-    function collectRewards(address lpOwner, uint256 tokenId) external onlyExecutor returns (uint256 amount) {
+    function collectRewards(address lpOwner, uint256 tokenId, address) external onlyExecutor returns (uint256 amount) {
         _requirePoolIdentity(tokenId);
         if (ownerOf(tokenId) != lpOwner) revert NotOwner();
         if (gauge == address(0)) return 0;

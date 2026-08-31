@@ -84,6 +84,9 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     error ProposalBindingMismatch();
     error ProposalActionMismatch();
     error ProposalAdapterMismatch();
+    error ExceedsCollectedFees();
+    error NoOpCompound();
+    error SameTokenSwap();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -226,8 +229,8 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         );
         safetyController.consumeAutomationSlot();
 
-        IConcentratedLiquidityAdapter(adapter).collectFees(perm.user, positionTokenId);
-        IConcentratedLiquidityAdapter(adapter).collectRewards(perm.user, positionTokenId);
+        IConcentratedLiquidityAdapter(adapter).collectFees(perm.user, positionTokenId, perm.user);
+        IConcentratedLiquidityAdapter(adapter).collectRewards(perm.user, positionTokenId, perm.user);
 
         emit AutomationExecuted(
             permissionId,
@@ -265,71 +268,112 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         _requireBoundTokens(perm, tokenA, tokenB);
         _requirePositionBound(adapter, positionTokenId, perm);
 
+        bool rewardIsA = rewardToken == tokenA;
+        bool rewardIsB = rewardToken == tokenB;
+        bool rewardDistinct = !rewardIsA && !rewardIsB;
+
+        if (swapAmount > 0) {
+            if (rewardIsB) revert SameTokenSwap();
+            _requireApprovedToken(rewardToken);
+        }
+        if (rewardDistinct) {
+            _requireApprovedToken(rewardToken);
+        }
+
         if ((amountA > 0 && amountAMin == 0) || (amountB > 0 && amountBMin == 0)) {
             revert SlippageMinRequired();
         }
         if (swapAmount > 0 && minAmountOut == 0) revert SlippageMinRequired();
+        if (swapAmount == 0 && amountA == 0 && amountB == 0) revert NoOpCompound();
 
         safetyController.assertAutomationAllowed(poolId);
         safetyController.assertTokenNotDepegged(tokenA);
         safetyController.assertTokenNotDepegged(tokenB);
+        if (swapAmount > 0 || rewardDistinct) {
+            safetyController.assertTokenNotDepegged(rewardToken);
+        }
         if (!oracleGuard.validatePrices(tokenA, tokenB, 0)) revert OracleRejected();
 
+        uint256 preBalA = IERC20(tokenA).balanceOf(address(this));
+        uint256 preBalB = tokenB == tokenA ? preBalA : IERC20(tokenB).balanceOf(address(this));
+        uint256 preBalReward;
+        if (rewardDistinct) {
+            preBalReward = IERC20(rewardToken).balanceOf(address(this));
+        }
+
+        IConcentratedLiquidityAdapter(adapter).collectFees(perm.user, positionTokenId, address(this));
+        IConcentratedLiquidityAdapter(adapter).collectRewards(perm.user, positionTokenId, address(this));
+
+        uint256 availA = IERC20(tokenA).balanceOf(address(this)) - preBalA;
+        uint256 availB = tokenB == tokenA ? availA : IERC20(tokenB).balanceOf(address(this)) - preBalB;
+
+        if (rewardDistinct && swapAmount > 0) {
+            uint256 availReward = IERC20(rewardToken).balanceOf(address(this)) - preBalReward;
+            if (swapAmount > availReward) revert ExceedsCollectedFees();
+        }
+
+        uint256 totalSpendA = amountA + (rewardIsA ? swapAmount : 0);
+        uint256 totalSpendB = amountB + (rewardIsB ? swapAmount : 0);
+        if (totalSpendA > availA || totalSpendB > availB) revert ExceedsCollectedFees();
+
+        uint256 notional = _compoundNotional(
+            perm.tokenA, perm.tokenB, tokenA, tokenB, rewardToken, amountA, amountB, swapAmount
+        );
         permissionRegistry.validateExecution(
             permissionId,
             PermissionRegistry.Action.Compound,
-            amountA + amountB + swapAmount,
+            notional,
             slippageBps,
             executionNonce
         );
         safetyController.consumeAutomationSlot();
 
-        IConcentratedLiquidityAdapter(adapter).collectFees(perm.user, positionTokenId);
-        IConcentratedLiquidityAdapter(adapter).collectRewards(perm.user, positionTokenId);
-
         uint256 swapOutOnExecutor;
         if (swapAmount > 0) {
             safetyController.assertSwapAllowed(poolId);
             _requireApprovedToken(rewardToken);
-            uint256 net = feeRouter.applySwapFee(rewardToken, perm.user, swapAmount, permissionId);
+            IERC20(rewardToken).forceApprove(address(feeRouter), swapAmount);
+            uint256 net = feeRouter.applySwapFeeOnHeld(rewardToken, perm.user, swapAmount, permissionId);
+            _clearApproval(rewardToken, address(feeRouter));
             mevGuard.assertSwapProtections(
                 rewardToken, tokenB, net, minAmountOut, quotedAmountOut, slippageBps, deadline
             );
             IERC20(rewardToken).forceApprove(adapter, net);
             swapOutOnExecutor =
                 IConcentratedLiquidityAdapter(adapter).swap(perm.user, rewardToken, tokenB, net, minAmountOut);
-            _assertZeroBalance(rewardToken);
+            _clearApproval(rewardToken, adapter);
         }
 
         uint256 totalB = amountB + swapOutOnExecutor;
         uint256 totalBMin = amountBMin;
         if (swapOutOnExecutor > 0) {
-            // Preserve caller floor for user-supplied B; require non-zero floor covering swap out.
             if (totalBMin == 0) totalBMin = minAmountOut;
         }
 
         if (amountA > 0 || totalB > 0) {
             _requireApprovedToken(tokenA);
             _requireApprovedToken(tokenB);
-            if (amountA > 0) {
-                UserTokenPull.pull(permit2, tokenA, perm.user, address(this), amountA);
-                IERC20(tokenA).forceApprove(adapter, amountA);
-            }
-            if (amountB > 0) {
-                UserTokenPull.pull(permit2, tokenB, perm.user, address(this), amountB);
-            }
-            // swapOutOnExecutor already on this contract
-            if (totalB > 0) {
-                IERC20(tokenB).forceApprove(adapter, totalB);
-            }
+            if (amountA > 0) IERC20(tokenA).forceApprove(adapter, amountA);
+            if (totalB > 0) IERC20(tokenB).forceApprove(adapter, totalB);
             IConcentratedLiquidityAdapter(adapter).increaseLiquidity(
                 perm.user, positionTokenId, tokenA, tokenB, amountA, totalB, amountAMin, totalBMin
             );
-            _assertZeroBalance(tokenA);
-            _assertZeroBalance(tokenB);
+            _clearApproval(tokenA, adapter);
+            _clearApproval(tokenB, adapter);
         } else if (swapOutOnExecutor > 0) {
-            // Swap without subsequent LP increase would strand funds — fail closed.
             revert FundsRemaining();
+        }
+
+        _refundExcess(perm.user, tokenA, preBalA);
+        if (tokenB != tokenA) _refundExcess(perm.user, tokenB, preBalB);
+        if (rewardDistinct) {
+            _refundExcess(perm.user, rewardToken, preBalReward);
+        }
+
+        _assertBalanceRestored(tokenA, preBalA);
+        if (tokenB != tokenA) _assertBalanceRestored(tokenB, preBalB);
+        if (rewardDistinct) {
+            _assertBalanceRestored(rewardToken, preBalReward);
         }
 
         emit AutomationExecuted(
@@ -391,7 +435,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         );
         safetyController.consumeAutomationSlot();
 
-        IConcentratedLiquidityAdapter(adapter).collectFees(perm.user, positionTokenId);
+        IConcentratedLiquidityAdapter(adapter).collectFees(perm.user, positionTokenId, perm.user);
         (uint256 closedA, uint256 closedB) = IConcentratedLiquidityAdapter(adapter).closePosition(
             perm.user, positionTokenId, tokenA, tokenB, closeAmountAMin, closeAmountBMin
         );
@@ -524,6 +568,67 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         }
         if (value == 0) revert PositionValueUnavailable();
         return value;
+    }
+
+    function _compoundNotional(
+        address permTokenA,
+        address permTokenB,
+        address tokenA,
+        address tokenB,
+        address rewardToken,
+        uint256 amountA,
+        uint256 amountB,
+        uint256 swapAmount
+    ) internal view returns (uint256 value) {
+        uint256 spendA = amountA;
+        uint256 spendB = amountB;
+        if (rewardToken == tokenA) {
+            spendA += swapAmount;
+        } else if (rewardToken == tokenB) {
+            spendB += swapAmount;
+        }
+
+        value = _tokenValueInPermA(permTokenA, permTokenB, tokenA, spendA);
+        if (tokenB != tokenA) {
+            value += _tokenValueInPermA(permTokenA, permTokenB, tokenB, spendB);
+        }
+        if (swapAmount > 0 && rewardToken != tokenA && rewardToken != tokenB) {
+            value += _tokenValueInPermA(permTokenA, permTokenB, rewardToken, swapAmount);
+        }
+    }
+
+    function _tokenValueInPermA(
+        address permTokenA,
+        address permTokenB,
+        address token,
+        uint256 amount
+    ) internal view returns (uint256) {
+        if (amount == 0) return 0;
+        if (token == permTokenA) return amount;
+        uint8 dPermA = IERC20Metadata(permTokenA).decimals();
+        if (token == permTokenB) {
+            uint8 dPermB = IERC20Metadata(permTokenB).decimals();
+            return oracleGuard.expectedAmountOut(permTokenB, permTokenA, amount, dPermB, dPermA);
+        }
+        uint8 dToken = IERC20Metadata(token).decimals();
+        return oracleGuard.expectedAmountOut(token, permTokenA, amount, dToken, dPermA);
+    }
+
+    function _refundExcess(address user, address token, uint256 preBalance) internal {
+        uint256 bal = IERC20(token).balanceOf(address(this));
+        if (bal > preBalance) {
+            IERC20(token).safeTransfer(user, bal - preBalance);
+        }
+    }
+
+    function _clearApproval(address token, address spender) internal {
+        if (IERC20(token).allowance(address(this), spender) != 0) {
+            IERC20(token).forceApprove(spender, 0);
+        }
+    }
+
+    function _assertBalanceRestored(address token, uint256 preBalance) internal view {
+        if (IERC20(token).balanceOf(address(this)) != preBalance) revert FundsRemaining();
     }
 
     function _requireApprovedToken(address token) internal view {

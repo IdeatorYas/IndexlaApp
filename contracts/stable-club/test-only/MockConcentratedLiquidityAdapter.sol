@@ -19,6 +19,10 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
     string private _protocol;
     address public immutable executor;
     uint256 private _nextId = 1;
+    uint256 public collectFee0 = 1e6;
+    uint256 public collectFee1 = 1e6;
+    address public collectRewardToken;
+    uint256 public collectRewardAmount;
     uint256 public dustLeaveBps;
 
     mapping(uint256 => uint128) public liquidityOf;
@@ -43,6 +47,16 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
         executor = executor_;
         poolId = poolId_;
         _protocol = protocol_;
+    }
+
+    function setCollectFeeAmounts(uint256 fee0, uint256 fee1) external {
+        collectFee0 = fee0;
+        collectFee1 = fee1;
+    }
+
+    function setCollectReward(address token, uint256 amount) external {
+        collectRewardToken = token;
+        collectRewardAmount = amount;
     }
 
     function setDustLeaveBps(uint256 bps) external {
@@ -173,28 +187,36 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
         (amountA, amountB) = _mapFrom01(tokenA, tokenB, token0Of[tokenId], token1Of[tokenId], amount0, amount1);
     }
 
-    function collectFees(address lpOwner, uint256 tokenId)
+    function collectFees(address lpOwner, uint256 tokenId, address recipient)
         external
         onlyExecutor
         returns (uint256 amountA, uint256 amountB)
     {
         _requireAdapterApproval(tokenId, lpOwner);
-        amountA = 1e6;
-        amountB = 1e6;
-        if (IERC20(token0Of[tokenId]).balanceOf(address(this)) >= amountA) {
-            IERC20(token0Of[tokenId]).safeTransfer(lpOwner, amountA);
-        } else {
-            amountA = 0;
-        }
-        if (IERC20(token1Of[tokenId]).balanceOf(address(this)) >= amountB) {
-            IERC20(token1Of[tokenId]).safeTransfer(lpOwner, amountB);
-        } else {
-            amountB = 0;
-        }
+        address token0 = token0Of[tokenId];
+        address token1 = token1Of[tokenId];
+        amountA = collectFee0;
+        amountB = collectFee1;
+        uint256 bal0 = IERC20(token0).balanceOf(address(this));
+        uint256 bal1 = IERC20(token1).balanceOf(address(this));
+        if (bal0 < amountA) amountA = bal0;
+        if (bal1 < amountB) amountB = bal1;
+        if (amountA > 0) IERC20(token0).safeTransfer(recipient, amountA);
+        if (amountB > 0) IERC20(token1).safeTransfer(recipient, amountB);
     }
 
-    function collectRewards(address, uint256) external pure returns (uint256 amount) {
-        return 0;
+    function collectRewards(address lpOwner, uint256 tokenId, address recipient)
+        external
+        onlyExecutor
+        returns (uint256 amount)
+    {
+        _requireAdapterApproval(tokenId, lpOwner);
+        amount = collectRewardAmount;
+        if (amount > 0 && collectRewardToken != address(0)) {
+            uint256 bal = IERC20(collectRewardToken).balanceOf(address(this));
+            if (amount > bal) amount = bal;
+            if (amount > 0) IERC20(collectRewardToken).safeTransfer(recipient, amount);
+        }
     }
 
     function closePosition(

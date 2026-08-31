@@ -45,12 +45,14 @@ interface IConcentratedLiquidityAdapter {
         uint256 amountBMin
     ) external returns (uint256 amountA, uint256 amountB);
 
+    /// @param recipient NPM fee/reward recipient (user for harvest; executor for atomic compound).
     function collectFees(
         address lpOwner,
-        uint256 tokenId
+        uint256 tokenId,
+        address recipient
     ) external returns (uint256 amountA, uint256 amountB);
 
-    function collectRewards(address lpOwner, uint256 tokenId) external returns (uint256 amount);
+    function collectRewards(address lpOwner, uint256 tokenId, address recipient) external returns (uint256 amount);
 
     function closePosition(
         address lpOwner,

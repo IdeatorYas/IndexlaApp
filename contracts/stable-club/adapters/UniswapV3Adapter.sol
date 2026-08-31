@@ -293,17 +293,17 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         (amountA, amountB) = _mapFrom01(tokenA, tokenB, token0, token1, amount0, amount1);
     }
 
-    function collectFees(address lpOwner, uint256 tokenId)
+    function collectFees(address lpOwner, uint256 tokenId, address recipient)
         external
         onlyExecutor
         returns (uint256 amountA, uint256 amountB)
     {
         _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
-        (amountA, amountB) = _collectTo(lpOwner, tokenId);
+        (amountA, amountB) = _collectTo(recipient, tokenId);
     }
 
-    function collectRewards(address, uint256) external pure returns (uint256) {
+    function collectRewards(address, uint256, address) external pure returns (uint256) {
         return 0;
     }
 
