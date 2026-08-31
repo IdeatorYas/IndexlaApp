@@ -8,6 +8,13 @@ export const stableClubAutomationExecutorAbi = [
   },
   {
     type: "function",
+    name: "executeCompoundProposal",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "proposalId", type: "bytes32" }],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "setAuthorizedKeeper",
     stateMutability: "nonpayable",
     inputs: [

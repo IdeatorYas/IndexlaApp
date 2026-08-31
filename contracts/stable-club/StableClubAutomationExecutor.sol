@@ -42,6 +42,25 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     mapping(bytes32 => bool) public approvedOfficialPoolIds;
     mapping(bytes32 => bool) public officialPoolsActivated;
 
+    struct CompoundParams {
+        bytes32 permissionId;
+        uint256 executionNonce;
+        address adapter;
+        uint256 positionTokenId;
+        address rewardToken;
+        address tokenA;
+        address tokenB;
+        uint256 swapAmount;
+        uint256 minAmountOut;
+        uint256 amountA;
+        uint256 amountB;
+        uint256 amountAMin;
+        uint256 amountBMin;
+        uint256 slippageBps;
+        uint256 swapDeadline;
+        uint256 quotedAmountOut;
+    }
+
     event AdapterApproved(address indexed adapter, bool approved);
     event PoolRegistered(bytes32 indexed poolId, address indexed adapter, bool official);
     event OfficialPoolCatalogueUpdated(bytes32 indexed poolId, bool approved);
@@ -157,7 +176,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         emit ProposalGateSet(gate);
     }
 
-    /// @notice Governance-revocable keeper allowlist for automated harvest proposals only.
+    /// @notice Governance-revocable keeper allowlist for automated harvest/compound proposals.
     function setAuthorizedKeeper(address keeper, bool authorized) external onlyOwner {
         if (keeper == address(0)) revert Unauthorized();
         authorizedKeepers[keeper] = authorized;
@@ -206,6 +225,54 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         );
 
         proposalGate.markConsumedByExecutor(proposalId);
+    }
+
+    /// @notice Keeper-only automated compound — caller supplies proposalId only; all fields come from gate storage.
+    function executeCompoundProposal(bytes32 proposalId) external nonReentrant {
+        if (!authorizedKeepers[msg.sender]) revert KeeperNotAuthorized();
+        if (address(proposalGate) == address(0)) revert ProposalGateNotSet();
+
+        OpenServProposalGate.CompoundProposal memory proposal = proposalGate.getCompoundProposal(proposalId);
+        if (proposal.user == address(0)) revert ProposalInvalid();
+        if (proposal.consumed || proposal.rejected) revert ProposalAlreadyHandled();
+        if (block.timestamp > proposal.deadline) revert ProposalExpired();
+        if (proposal.chainId != block.chainid) revert ProposalBindingMismatch();
+
+        PermissionRegistry.Permission memory perm = permissionRegistry.getPermission(proposal.permissionId);
+        if (perm.user != proposal.user) revert ProposalBindingMismatch();
+        if (perm.poolId != proposal.poolId) revert ProposalBindingMismatch();
+        if (!permissionRegistry.isActionAllowed(proposal.permissionId, PermissionRegistry.Action.Compound)) {
+            revert PermissionRegistry.ActionNotAllowed();
+        }
+
+        address derivedAdapter = poolAdapters[proposal.poolId];
+        if (derivedAdapter == address(0) || derivedAdapter != proposal.adapter) {
+            revert ProposalAdapterMismatch();
+        }
+
+        _executeCompound(
+            CompoundParams({
+                permissionId: proposal.permissionId,
+                executionNonce: proposal.executionNonce,
+                adapter: derivedAdapter,
+                positionTokenId: proposal.positionTokenId,
+                rewardToken: proposal.rewardToken,
+                tokenA: proposal.tokenA,
+                tokenB: proposal.tokenB,
+                swapAmount: proposal.swapAmount,
+                minAmountOut: proposal.minAmountOut,
+                amountA: proposal.amountA,
+                amountB: proposal.amountB,
+                amountAMin: proposal.amountAMin,
+                amountBMin: proposal.amountBMin,
+                slippageBps: proposal.slippageBps,
+                swapDeadline: proposal.swapDeadline,
+                quotedAmountOut: proposal.quotedAmountOut
+            }),
+            perm
+        );
+
+        proposalGate.markCompoundConsumedByExecutor(proposalId);
     }
 
     function _executeHarvest(
@@ -262,6 +329,50 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     ) external nonReentrant {
         PermissionRegistry.Permission memory perm = permissionRegistry.getPermission(permissionId);
         if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
+
+        _executeCompound(
+            CompoundParams({
+                permissionId: permissionId,
+                executionNonce: executionNonce,
+                adapter: adapter,
+                positionTokenId: positionTokenId,
+                rewardToken: rewardToken,
+                tokenA: tokenA,
+                tokenB: tokenB,
+                swapAmount: swapAmount,
+                minAmountOut: minAmountOut,
+                amountA: amountA,
+                amountB: amountB,
+                amountAMin: amountAMin,
+                amountBMin: amountBMin,
+                slippageBps: slippageBps,
+                swapDeadline: deadline,
+                quotedAmountOut: quotedAmountOut
+            }),
+            perm
+        );
+    }
+
+    function _executeCompound(
+        CompoundParams memory params,
+        PermissionRegistry.Permission memory perm
+    ) internal {
+        bytes32 permissionId = params.permissionId;
+        uint256 executionNonce = params.executionNonce;
+        address adapter = params.adapter;
+        uint256 positionTokenId = params.positionTokenId;
+        address rewardToken = params.rewardToken;
+        address tokenA = params.tokenA;
+        address tokenB = params.tokenB;
+        uint256 swapAmount = params.swapAmount;
+        uint256 minAmountOut = params.minAmountOut;
+        uint256 amountA = params.amountA;
+        uint256 amountB = params.amountB;
+        uint256 amountAMin = params.amountAMin;
+        uint256 amountBMin = params.amountBMin;
+        uint256 slippageBps = params.slippageBps;
+        uint256 swapDeadline = params.swapDeadline;
+        uint256 quotedAmountOut = params.quotedAmountOut;
 
         bytes32 poolId = _requirePoolAdapter(adapter, perm.poolId);
         _requirePositionApproval(adapter, positionTokenId, perm.user);
@@ -336,7 +447,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
             uint256 net = feeRouter.applySwapFeeOnHeld(rewardToken, perm.user, swapAmount, permissionId);
             _clearApproval(rewardToken, address(feeRouter));
             mevGuard.assertSwapProtections(
-                rewardToken, tokenB, net, minAmountOut, quotedAmountOut, slippageBps, deadline
+                rewardToken, tokenB, net, minAmountOut, quotedAmountOut, slippageBps, swapDeadline
             );
             IERC20(rewardToken).forceApprove(adapter, net);
             swapOutOnExecutor =
