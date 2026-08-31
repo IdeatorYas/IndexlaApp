@@ -85,6 +85,11 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
         return (amount0Of[tokenId], amount1Of[tokenId]);
     }
 
+    function collectibleFees(uint256) external view returns (uint256 amount0, uint256 amount1) {
+        amount0 = collectFee0;
+        amount1 = collectFee1;
+    }
+
     /// @dev Test-only: force amounts for fail-closed valuation regressions.
     function setAmountsForTest(uint256 tokenId, uint256 amount0, uint256 amount1) external {
         amount0Of[tokenId] = amount0;

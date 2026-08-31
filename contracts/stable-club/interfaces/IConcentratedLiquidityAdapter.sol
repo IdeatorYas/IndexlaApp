@@ -71,6 +71,9 @@ interface IConcentratedLiquidityAdapter {
         uint256 minAmountOut
     ) external returns (uint256 amountOut);
 
+    /// @notice Live uncollected fees owed to the position (token0/token1 order). View only.
+    function collectibleFees(uint256 tokenId) external view returns (uint256 amount0, uint256 amount1);
+
     function ownerOf(uint256 tokenId) external view returns (address);
 
     /// @notice Underlying pool tokens for an existing position NFT (order: token0, token1).

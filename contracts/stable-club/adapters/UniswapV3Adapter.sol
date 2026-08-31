@@ -185,6 +185,13 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         );
     }
 
+    function collectibleFees(uint256 tokenId) external view returns (uint256 amount0, uint256 amount1) {
+        _requirePoolIdentity(tokenId);
+        (, , , , , , , , , , uint128 tokensOwed0, uint128 tokensOwed1) = IUniswapV3NPM(npm).positions(tokenId);
+        amount0 = tokensOwed0;
+        amount1 = tokensOwed1;
+    }
+
     function mintPosition(
         address lpOwner,
         address tokenA,

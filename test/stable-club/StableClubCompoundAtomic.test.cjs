@@ -212,7 +212,14 @@ describe("Stable Club — atomic compound accounting (Phase 1)", function () {
       maxAmountPerDay: ethers.parseUnits("200000", 6),
     });
     const tokenId = await mintPosition(ctx, ethers.parseUnits("50", 6), ethers.parseUnits("0.05", 8));
-    await ctx.clAdapter.setCollectFeeAmounts(5_000_000n, 1_000_000n);
+    // collectFee0/1 are token0/token1 amounts (address-sorted), not tokenA/tokenB.
+    const usdcAddr = await ctx.usdc.getAddress();
+    const [t0] = await ctx.clAdapter.positionTokens(tokenId);
+    if (t0.toLowerCase() === usdcAddr.toLowerCase()) {
+      await ctx.clAdapter.setCollectFeeAmounts(5_000_000n, 1_000_000n);
+    } else {
+      await ctx.clAdapter.setCollectFeeAmounts(1_000_000n, 5_000_000n);
+    }
 
     // Raw sum 5e6 + 1e6 = 6e6 would pass old check; oracle cbBTC leg adds ~1000 USDC notional.
     await expect(

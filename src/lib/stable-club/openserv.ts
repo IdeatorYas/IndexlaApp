@@ -1,6 +1,8 @@
 /**
  * OpenServ Step 2 — untrusted monitoring proposals (no keys, no arbitrary calldata).
  */
+import { encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
+
 export type OpenServProposedAction =
   | "harvest"
   | "compound"
@@ -141,4 +143,163 @@ export function buildHarvestProposal(input: {
     timestamp: Math.floor(Date.now() / 1000),
     idempotencyKey: input.idempotencyKey,
   };
+}
+
+/**
+ * On-chain OpenServ CompoundProposal fields — must match
+ * OpenServProposalGate.submitCompoundProposal hash encoding exactly.
+ */
+export type CompoundProposalFields = {
+  chainId: bigint;
+  user: Address;
+  permissionId: Hex;
+  poolId: Hex;
+  adapter: Address;
+  positionTokenId: bigint;
+  executionNonce: bigint;
+  deadline: bigint;
+  idempotencyKey: Hex;
+  rewardToken: Address;
+  tokenA: Address;
+  tokenB: Address;
+  swapAmount: bigint;
+  minAmountOut: bigint;
+  quotedAmountOut: bigint;
+  amountA: bigint;
+  amountB: bigint;
+  amountAMin: bigint;
+  amountBMin: bigint;
+  slippageBps: bigint;
+  swapDeadline: bigint;
+};
+
+export type BuiltCompoundProposal = {
+  fields: CompoundProposalFields;
+  proposalId: Hex;
+};
+
+/** Exact proposalId = keccak256(abi.encode(...)) matching Solidity gate. */
+export function hashCompoundProposal(fields: CompoundProposalFields): Hex {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: "uint256" },
+        { type: "address" },
+        { type: "bytes32" },
+        { type: "bytes32" },
+        { type: "address" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "bytes32" },
+        { type: "address" },
+        { type: "address" },
+        { type: "address" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+      ],
+      [
+        fields.chainId,
+        fields.user,
+        fields.permissionId,
+        fields.poolId,
+        fields.adapter,
+        fields.positionTokenId,
+        fields.executionNonce,
+        fields.deadline,
+        fields.idempotencyKey,
+        fields.rewardToken,
+        fields.tokenA,
+        fields.tokenB,
+        fields.swapAmount,
+        fields.minAmountOut,
+        fields.quotedAmountOut,
+        fields.amountA,
+        fields.amountB,
+        fields.amountAMin,
+        fields.amountBMin,
+        fields.slippageBps,
+        fields.swapDeadline,
+      ],
+    ),
+  );
+}
+
+/**
+ * Typed compound proposal builder for gate/keeper path.
+ * Returns null when spend is a no-op (matches on-chain InvalidProposalParams / NoOpCompound).
+ */
+export function buildCompoundProposal(input: {
+  chainId: number;
+  user: Address;
+  permissionId: Hex;
+  poolId: Hex;
+  adapter: Address;
+  positionTokenId: bigint;
+  executionNonce: bigint;
+  deadline: bigint;
+  idempotencyKey: Hex;
+  rewardToken: Address;
+  tokenA: Address;
+  tokenB: Address;
+  swapAmount: bigint;
+  minAmountOut: bigint;
+  quotedAmountOut: bigint;
+  amountA: bigint;
+  amountB: bigint;
+  amountAMin: bigint;
+  amountBMin: bigint;
+  slippageBps: bigint;
+  swapDeadline: bigint;
+}): BuiltCompoundProposal | null {
+  if (
+    input.swapAmount === BigInt(0) &&
+    input.amountA === BigInt(0) &&
+    input.amountB === BigInt(0)
+  ) {
+    return null;
+  }
+  if (
+    (input.amountA > BigInt(0) && input.amountAMin === BigInt(0)) ||
+    (input.amountB > BigInt(0) && input.amountBMin === BigInt(0))
+  ) {
+    return null;
+  }
+  if (input.swapAmount > BigInt(0) && input.minAmountOut === BigInt(0)) {
+    return null;
+  }
+  if (input.executionNonce === BigInt(0)) return null;
+  if (input.deadline === BigInt(0) || input.swapDeadline === BigInt(0)) return null;
+
+  const fields: CompoundProposalFields = {
+    chainId: BigInt(input.chainId),
+    user: input.user,
+    permissionId: input.permissionId,
+    poolId: input.poolId,
+    adapter: input.adapter,
+    positionTokenId: input.positionTokenId,
+    executionNonce: input.executionNonce,
+    deadline: input.deadline,
+    idempotencyKey: input.idempotencyKey,
+    rewardToken: input.rewardToken,
+    tokenA: input.tokenA,
+    tokenB: input.tokenB,
+    swapAmount: input.swapAmount,
+    minAmountOut: input.minAmountOut,
+    quotedAmountOut: input.quotedAmountOut,
+    amountA: input.amountA,
+    amountB: input.amountB,
+    amountAMin: input.amountAMin,
+    amountBMin: input.amountBMin,
+    slippageBps: input.slippageBps,
+    swapDeadline: input.swapDeadline,
+  };
+  return { fields, proposalId: hashCompoundProposal(fields) };
 }

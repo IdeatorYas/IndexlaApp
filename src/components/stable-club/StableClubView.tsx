@@ -23,6 +23,7 @@ import {
 } from "@/lib/stable-club/official-pools";
 import { STAGE1_PRIVATE_BETA_POOL_ID } from "@/lib/stable-club/stage1-launch";
 import { useStableClubHarvest } from "@/components/stable-club/useStableClubHarvest";
+import { useStableClubCompound } from "@/components/stable-club/useStableClubCompound";
 import {
   buildPerTokenApproveTx,
   erc721PositionAbi,
@@ -70,6 +71,7 @@ export function StableClubView({
   const [testPoolValidated, setTestPoolValidated] = useState(false);
   const [activatedPoolIds, setActivatedPoolIds] = useState<string[]>([]);
   const harvest = useStableClubHarvest();
+  const compound = useStableClubCompound();
   const [deployments, setDeployments] = useState<StableClubLocalDeployments | null>(null);
   const expectedChainId = deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID;
   const onExpectedChain = wallet.chainId === expectedChainId;
@@ -157,7 +159,7 @@ export function StableClubView({
           lastUpdated: Math.floor(Date.now() / 1000),
           automation: {
             harvest: harvest.permissionRegistered,
-            compound: false,
+            compound: compound.permissionRegistered,
             rebalance: false,
             paused: false,
           },
@@ -197,6 +199,7 @@ export function StableClubView({
     approvalByPositionId,
     harvest.deployments,
     harvest.permissionRegistered,
+    compound.permissionRegistered,
   ]);
 
   const approvePositionNft = useCallback(
@@ -430,6 +433,38 @@ export function StableClubView({
       </section>
 
       <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
+        <h2 className="text-sm font-bold text-app-ink">Compound permission (Step 2)</h2>
+        <p className="mt-1 text-xs text-app-muted">
+          Separate on-chain compound permission (compound bit, tokenA-denominated limits,
+          slippage cap). Manual compound is wallet-signed via the atomic compound() path.
+          Keeper automation stays unavailable until OpenServ publisher/keeper is connected.
+          Launch policy keeps compoundEnabled=false outside local development.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!wallet.address || compound.busy || compound.permissionRegistered}
+            onClick={() => void compound.registerCompoundPermission()}
+            className="app-btn-secondary h-9 px-3 text-xs font-bold disabled:opacity-50"
+          >
+            Enable compound permission
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-app-dim">
+          Permission: {compound.permissionRegistered ? "registered (opt-in)" : "not registered"}
+          {" · "}
+          Manual status: {compound.uiStatus.status}
+          {compound.uiStatus.message ? ` — ${compound.uiStatus.message}` : ""}
+        </p>
+        <p className="mt-1 text-[11px] text-app-dim">{compound.automationStatusMessage}</p>
+        {compound.uiStatus.lastTxHash ? (
+          <p className="mt-1 font-mono text-[10px] text-app-dim">
+            Last compound tx: {compound.uiStatus.lastTxHash}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
         <h2 className="text-sm font-bold text-app-ink">Activation gate</h2>
         <p className="mt-1 text-xs text-app-muted">
           Official pools unlock only after the private internal test pool has been validated.
@@ -469,6 +504,19 @@ export function StableClubView({
             adapter: pos.adapterAddress,
             feesUsd: Number.parseFloat(pos.feesEarnedUsd) || 0,
             gasUsd: 4,
+            manual: true,
+          });
+        }}
+        compoundOptInEnabled={compound.permissionRegistered}
+        compoundBusy={compound.busy}
+        compoundUiStatus={compound.uiStatus}
+        compoundAutomationAvailable={compound.automationAvailable}
+        compoundAutomationMessage={compound.automationStatusMessage}
+        onCompoundPosition={(pos) => {
+          if (!pos.adapterAddress) return;
+          void compound.runCompound({
+            positionTokenId: pos.positionTokenId,
+            adapter: pos.adapterAddress,
             manual: true,
           });
         }}

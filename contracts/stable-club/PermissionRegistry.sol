@@ -171,12 +171,48 @@ contract PermissionRegistry {
         return keccak256(abi.encode(user, chainId, poolId, tokenA, tokenB));
     }
 
+    /// @notice Scoped permission id — never collides with legacy 5-field `permissionIdFor`.
+    /// @dev Extra `scope` word changes the ABI encoding arity, so even scope=0 is distinct from legacy.
+    function permissionIdForScoped(
+        address user,
+        uint256 chainId,
+        bytes32 poolId,
+        address tokenA,
+        address tokenB,
+        bytes32 scope
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode(user, chainId, poolId, tokenA, tokenB, scope));
+    }
+
     function registerPermission(Permission calldata perm) external returns (bytes32 permissionId) {
         if (perm.user != msg.sender) revert UnauthorizedUser();
         if (perm.maxSlippageBps > MAX_SLIPPAGE_BPS) revert InvalidSlippage();
         if (perm.expiresAt <= block.timestamp) revert PermissionExpired();
 
         permissionId = permissionIdFor(perm.user, perm.chainId, perm.poolId, perm.tokenA, perm.tokenB);
+
+        Permission storage existing = permissions[permissionId];
+        // SC-05: any existing record (active or revoked) cannot be overwritten/reactivated.
+        if (existing.user != address(0)) revert PermissionAlreadyExists();
+
+        permissions[permissionId] = perm;
+
+        emit PermissionRegistered(permissionId, perm.user, perm.poolId);
+    }
+
+    /// @notice Register a scoped permission (e.g. compound) that coexists with legacy unscoped ids.
+    /// @dev Requires non-zero `scope`. Does not modify or weaken legacy `registerPermission`.
+    function registerScopedPermission(Permission calldata perm, bytes32 scope)
+        external
+        returns (bytes32 permissionId)
+    {
+        if (perm.user != msg.sender) revert UnauthorizedUser();
+        if (scope == bytes32(0)) revert InvalidPermissionParams();
+        if (perm.maxSlippageBps > MAX_SLIPPAGE_BPS) revert InvalidSlippage();
+        if (perm.expiresAt <= block.timestamp) revert PermissionExpired();
+
+        permissionId =
+            permissionIdForScoped(perm.user, perm.chainId, perm.poolId, perm.tokenA, perm.tokenB, scope);
 
         Permission storage existing = permissions[permissionId];
         // SC-05: any existing record (active or revoked) cannot be overwritten/reactivated.

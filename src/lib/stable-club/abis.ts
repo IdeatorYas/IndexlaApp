@@ -36,6 +36,30 @@ export const stableClubAutomationExecutorAbi = [
     outputs: [],
   },
   {
+    type: "function",
+    name: "compound",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "permissionId", type: "bytes32" },
+      { name: "executionNonce", type: "uint256" },
+      { name: "adapter", type: "address" },
+      { name: "positionTokenId", type: "uint256" },
+      { name: "rewardToken", type: "address" },
+      { name: "tokenA", type: "address" },
+      { name: "tokenB", type: "address" },
+      { name: "swapAmount", type: "uint256" },
+      { name: "minAmountOut", type: "uint256" },
+      { name: "amountA", type: "uint256" },
+      { name: "amountB", type: "uint256" },
+      { name: "amountAMin", type: "uint256" },
+      { name: "amountBMin", type: "uint256" },
+      { name: "slippageBps", type: "uint256" },
+      { name: "deadline", type: "uint256" },
+      { name: "quotedAmountOut", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
     type: "event",
     name: "AutomationExecuted",
     inputs: [
@@ -75,6 +99,20 @@ export const permissionRegistryAbi = [
   },
   {
     type: "function",
+    name: "permissionIdForScoped",
+    stateMutability: "pure",
+    inputs: [
+      { name: "user", type: "address" },
+      { name: "chainId", type: "uint256" },
+      { name: "poolId", type: "bytes32" },
+      { name: "tokenA", type: "address" },
+      { name: "tokenB", type: "address" },
+      { name: "scope", type: "bytes32" },
+    ],
+    outputs: [{ name: "", type: "bytes32" }],
+  },
+  {
+    type: "function",
     name: "registerPermission",
     stateMutability: "nonpayable",
     inputs: [
@@ -98,6 +136,35 @@ export const permissionRegistryAbi = [
           { name: "paused", type: "bool" },
         ],
       },
+    ],
+    outputs: [{ name: "permissionId", type: "bytes32" }],
+  },
+  {
+    type: "function",
+    name: "registerScopedPermission",
+    stateMutability: "nonpayable",
+    inputs: [
+      {
+        name: "perm",
+        type: "tuple",
+        components: [
+          { name: "user", type: "address" },
+          { name: "chainId", type: "uint256" },
+          { name: "poolId", type: "bytes32" },
+          { name: "tokenA", type: "address" },
+          { name: "tokenB", type: "address" },
+          { name: "allowedActions", type: "uint256" },
+          { name: "maxAmountPerTx", type: "uint256" },
+          { name: "maxAmountPerDay", type: "uint256" },
+          { name: "maxSlippageBps", type: "uint256" },
+          { name: "minTimeBetweenExecutions", type: "uint256" },
+          { name: "maxExecutionsPerDay", type: "uint256" },
+          { name: "expiresAt", type: "uint256" },
+          { name: "revoked", type: "bool" },
+          { name: "paused", type: "bool" },
+        ],
+      },
+      { name: "scope", type: "bytes32" },
     ],
     outputs: [{ name: "permissionId", type: "bytes32" }],
   },
@@ -261,6 +328,13 @@ export const erc20Abi = [
       { name: "spender", type: "address" },
     ],
     outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "decimals",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
   },
 ] as const;
 
@@ -430,6 +504,16 @@ export const concentratedLiquidityAdapterAbi = [
   {
     type: "function",
     name: "positionAmounts",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [
+      { name: "amount0", type: "uint256" },
+      { name: "amount1", type: "uint256" },
+    ],
+  },
+  {
+    type: "function",
+    name: "collectibleFees",
     stateMutability: "view",
     inputs: [{ name: "tokenId", type: "uint256" }],
     outputs: [

@@ -7,6 +7,7 @@ import {
 } from "@/lib/stable-club/nft-approval";
 import type { StableClubPosition } from "@/lib/stable-club/positions";
 import type { HarvestUiStatus } from "@/lib/stable-club/harvest";
+import type { CompoundUiStatus } from "@/lib/stable-club/compound";
 
 export function StableClubPoolCatalogue({
   activatedPoolIds,
@@ -106,6 +107,12 @@ export function StableClubPositionDashboard({
   harvestBusy = false,
   harvestUiStatus,
   onHarvestPosition,
+  compoundOptInEnabled = false,
+  compoundBusy = false,
+  compoundUiStatus,
+  compoundAutomationAvailable = false,
+  compoundAutomationMessage,
+  onCompoundPosition,
 }: {
   positions: StableClubPosition[];
   pendingProposals: number;
@@ -116,6 +123,12 @@ export function StableClubPositionDashboard({
   harvestBusy?: boolean;
   harvestUiStatus?: HarvestUiStatus;
   onHarvestPosition?: (position: StableClubPosition) => void;
+  compoundOptInEnabled?: boolean;
+  compoundBusy?: boolean;
+  compoundUiStatus?: CompoundUiStatus;
+  compoundAutomationAvailable?: boolean;
+  compoundAutomationMessage?: string;
+  onCompoundPosition?: (position: StableClubPosition) => void;
 }) {
   return (
     <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
@@ -159,6 +172,14 @@ export function StableClubPositionDashboard({
               pos.dataVerifiedOnChain &&
               pos.npmApprovalStatus === "approved" &&
               Boolean(onHarvestPosition) &&
+              Boolean(pos.adapterAddress) &&
+              /^\d+$/.test(pos.positionTokenId) &&
+              !pos.automation.paused;
+            const canCompound =
+              compoundOptInEnabled &&
+              pos.dataVerifiedOnChain &&
+              pos.npmApprovalStatus === "approved" &&
+              Boolean(onCompoundPosition) &&
               Boolean(pos.adapterAddress) &&
               /^\d+$/.test(pos.positionTokenId) &&
               !pos.automation.paused;
@@ -246,6 +267,31 @@ export function StableClubPositionDashboard({
                       </span>
                     ) : harvestUiStatus?.status === "failed" ? (
                       <span className="text-[10px] text-app-danger">{harvestUiStatus.message}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {canCompound ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={compoundBusy || compoundUiStatus?.status === "pending-receipt"}
+                      onClick={() => onCompoundPosition?.(pos)}
+                      className="app-btn-primary h-8 px-3 text-[11px] font-bold disabled:opacity-50"
+                    >
+                      {compoundBusy ? "Compounding…" : "Manual compound"}
+                    </button>
+                    {compoundUiStatus?.status === "confirmed" ? (
+                      <span className="text-[10px] font-bold uppercase text-app-success">
+                        Compound confirmed
+                      </span>
+                    ) : compoundUiStatus?.status === "failed" ? (
+                      <span className="text-[10px] text-app-danger">{compoundUiStatus.message}</span>
+                    ) : null}
+                    {!compoundAutomationAvailable ? (
+                      <span className="text-[10px] text-app-dim">
+                        {compoundAutomationMessage ??
+                          "Automation unavailable until OpenServ publisher/keeper is connected"}
+                      </span>
                     ) : null}
                   </div>
                 ) : null}
