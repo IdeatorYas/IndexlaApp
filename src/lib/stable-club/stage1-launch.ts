@@ -24,8 +24,8 @@ export type Stage1LaunchConfiguration = {
   automationDisabled: true;
   /** Explicitly excluded until Stage 2 onboarding + tighter caps + UNI beta evidence. */
   deferredPoolIds: readonly ["cbBTC-WETH-AERO-CL10", "cbBTC-WETH-UNI-005"];
-  /** Phase 2a: all five catalogue pools verified on-chain (legacy CL100 included). */
-  unavailablePoolIds: readonly [];
+  /** Stage 1 excludes CL100 legs; catalogue retains legacy factory-verified bindings for Phase 2a. */
+  unavailablePoolIds: readonly ["USDC-cbBTC-AERO-CL100", "cbBTC-WETH-AERO-CL100"];
 };
 
 export function buildStage1LaunchConfiguration(
@@ -55,7 +55,7 @@ export function buildStage1LaunchConfiguration(
     params,
     automationDisabled: true,
     deferredPoolIds: ["cbBTC-WETH-AERO-CL10", "cbBTC-WETH-UNI-005"],
-    unavailablePoolIds: [],
+    unavailablePoolIds: ["USDC-cbBTC-AERO-CL100", "cbBTC-WETH-AERO-CL100"],
   };
 }
 

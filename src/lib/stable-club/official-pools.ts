@@ -115,6 +115,12 @@ function poolKey(label: string): Hex {
   return keccak256(stringToHex(label));
 }
 
+/** REAUDIT-F02: legacy-generation factory-verified CL100 pool addresses (Base mainnet). */
+export const VERIFIED_LEGACY_AERO_CL100_FACTORY_POOLS = {
+  "USDC-cbBTC-AERO-CL100": USDC_CBBTC_AERO_CL100_POOL,
+  "cbBTC-WETH-AERO-CL100": CBBTC_WETH_AERO_CL100_POOL,
+} as const;
+
 export const OFFICIAL_STABLE_CLUB_BASE_POOLS: readonly OfficialStableClubPool[] = [
   {
     id: "USDC-cbBTC-AERO-CL100",

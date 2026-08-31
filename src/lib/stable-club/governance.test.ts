@@ -37,7 +37,10 @@ describe("Stage 1 launch configuration", () => {
     expect(cfg.automationDisabled).toBe(true);
     expect(cfg.params.automation.harvestEnabled).toBe(false);
     expect(cfg.deferredPoolIds).toContain("cbBTC-WETH-AERO-CL10");
-    expect(cfg.unavailablePoolIds).toEqual([]);
+    expect(cfg.unavailablePoolIds).toEqual([
+      "USDC-cbBTC-AERO-CL100",
+      "cbBTC-WETH-AERO-CL100",
+    ]);
     expect(isStage1AllowedPoolId("USDC-cbBTC-UNI-005")).toBe(true);
     expect(isStage1AllowedPoolId("cbBTC-WETH-AERO-CL10")).toBe(false);
   });

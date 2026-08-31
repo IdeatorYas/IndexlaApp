@@ -35,7 +35,19 @@ describe("official Base pool catalogue", () => {
     expect(protocols.has("aerodrome-slipstream")).toBe(true);
   });
 
-  it("marks all five official pools launch-ready", () => {
+  it("binds CL100 Aero pools to legacy Slipstream infrastructure", () => {
+    const cl100 = OFFICIAL_STABLE_CLUB_BASE_POOLS.filter(
+      (p) => p.feeOrTick.kind === "tickSpacing" && p.feeOrTick.tickSpacing === 100,
+    );
+    expect(cl100).toHaveLength(2);
+    for (const pool of cl100) {
+      expect(pool.infrastructure.generation).toBe("aerodrome-legacy");
+      expect(pool.availability).toBe("available");
+      expect(pool.poolAddress).toMatch(/^0x[a-fA-F0-9]{40}$/);
+    }
+  });
+
+  it("marks all five official pools resolvable for Phase 2a execution", () => {
     const unavailable = listUnavailableOfficialPools();
     expect(unavailable).toHaveLength(0);
     for (const pool of OFFICIAL_STABLE_CLUB_BASE_POOLS) {
