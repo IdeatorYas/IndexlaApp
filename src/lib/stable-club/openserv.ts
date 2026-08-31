@@ -303,3 +303,127 @@ export function buildCompoundProposal(input: {
   };
   return { fields, proposalId: hashCompoundProposal(fields) };
 }
+
+/** Fields hashed by OpenServProposalGate.submitRebalanceProposal. */
+export type RebalanceProposalFields = {
+  chainId: bigint;
+  user: Address;
+  permissionId: Hex;
+  poolId: Hex;
+  adapter: Address;
+  positionTokenId: bigint;
+  executionNonce: bigint;
+  deadline: bigint;
+  idempotencyKey: Hex;
+  tokenA: Address;
+  tokenB: Address;
+  newTickLower: number;
+  newTickUpper: number;
+  swapAmount: bigint;
+  minAmountOut: bigint;
+  quotedAmountOut: bigint;
+  closeAmountAMin: bigint;
+  closeAmountBMin: bigint;
+  mintAmountAMin: bigint;
+  mintAmountBMin: bigint;
+  slippageBps: bigint;
+  swapDeadline: bigint;
+};
+
+export type BuiltRebalanceProposal = {
+  fields: RebalanceProposalFields;
+  proposalId: Hex;
+};
+
+/** Exact proposalId = keccak256(abi.encode(...)) matching the Solidity gate. */
+export function hashRebalanceProposal(fields: RebalanceProposalFields): Hex {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: "uint256" },
+        { type: "address" },
+        { type: "bytes32" },
+        { type: "bytes32" },
+        { type: "address" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "bytes32" },
+        { type: "address" },
+        { type: "address" },
+        { type: "int24" },
+        { type: "int24" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+      ],
+      [
+        fields.chainId,
+        fields.user,
+        fields.permissionId,
+        fields.poolId,
+        fields.adapter,
+        fields.positionTokenId,
+        fields.executionNonce,
+        fields.deadline,
+        fields.idempotencyKey,
+        fields.tokenA,
+        fields.tokenB,
+        fields.newTickLower,
+        fields.newTickUpper,
+        fields.swapAmount,
+        fields.minAmountOut,
+        fields.quotedAmountOut,
+        fields.closeAmountAMin,
+        fields.closeAmountBMin,
+        fields.mintAmountAMin,
+        fields.mintAmountBMin,
+        fields.slippageBps,
+        fields.swapDeadline,
+      ],
+    ),
+  );
+}
+
+export function buildRebalanceProposal(input: {
+  chainId: number;
+  user: Address;
+  permissionId: Hex;
+  poolId: Hex;
+  adapter: Address;
+  positionTokenId: bigint;
+  executionNonce: bigint;
+  deadline: bigint;
+  idempotencyKey: Hex;
+  tokenA: Address;
+  tokenB: Address;
+  newTickLower: number;
+  newTickUpper: number;
+  swapAmount: bigint;
+  minAmountOut: bigint;
+  quotedAmountOut: bigint;
+  closeAmountAMin: bigint;
+  closeAmountBMin: bigint;
+  mintAmountAMin: bigint;
+  mintAmountBMin: bigint;
+  slippageBps: bigint;
+  swapDeadline: bigint;
+}): BuiltRebalanceProposal | null {
+  if (input.executionNonce === BigInt(0)) return null;
+  if (input.deadline === BigInt(0) || input.swapDeadline === BigInt(0)) return null;
+  if (input.newTickLower >= input.newTickUpper) return null;
+  if (input.closeAmountAMin === BigInt(0) || input.closeAmountBMin === BigInt(0)) return null;
+  if (input.swapAmount > BigInt(0) && input.minAmountOut === BigInt(0)) return null;
+
+  const fields: RebalanceProposalFields = {
+    ...input,
+    chainId: BigInt(input.chainId),
+  };
+  return { fields, proposalId: hashRebalanceProposal(fields) };
+}

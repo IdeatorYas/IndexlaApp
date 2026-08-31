@@ -176,7 +176,7 @@ describe("Pool identity — Uni V3 / Aerodrome valuation", function () {
       ctx.adapter.decreaseLiquidity(ctx.user.address, 1n, tokenA, tokenB, 1n, 0n, 0n),
     );
     await expectIdentityRevert(
-      ctx.adapter.closePosition(ctx.user.address, 1n, tokenA, tokenB, 0n, 0n),
+      ctx.adapter.closePosition(ctx.user.address, 1n, ctx.user.address, tokenA, tokenB, 0n, 0n),
     );
   });
 
@@ -219,7 +219,7 @@ describe("Pool identity — Uni V3 / Aerodrome valuation", function () {
       ctx.adapter.decreaseLiquidity(ctx.user.address, 1n, tokenA, tokenB, 1n, 0n, 0n),
     );
     await expectIdentityRevert(
-      ctx.adapter.closePosition(ctx.user.address, 1n, tokenA, tokenB, 0n, 0n),
+      ctx.adapter.closePosition(ctx.user.address, 1n, ctx.user.address, tokenA, tokenB, 0n, 0n),
     );
   });
 });

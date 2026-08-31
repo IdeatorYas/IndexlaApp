@@ -126,6 +126,7 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
     error TokenMismatch();
     error AdapterNotApprovedForPosition();
     error InvalidPool();
+    error InvalidCloseRecipient();
 
     modifier onlyExecutor() {
         if (msg.sender != executor) revert OnlyExecutor();
@@ -331,11 +332,13 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
     function closePosition(
         address lpOwner,
         uint256 tokenId,
+        address recipient,
         address tokenA,
         address tokenB,
         uint256 amountAMin,
         uint256 amountBMin
     ) external onlyExecutor returns (uint256 amountA, uint256 amountB) {
+        if (recipient != lpOwner && recipient != msg.sender) revert InvalidCloseRecipient();
         _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
         (, , address token0, address token1, , , , uint128 liquidity, , , , ) =
@@ -343,10 +346,8 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
         (, , uint256 amount0Min, uint256 amount1Min) =
             _mapTo01(tokenA, tokenB, token0, token1, 0, 0, amountAMin, amountBMin);
 
-        uint256 amount0;
-        uint256 amount1;
         if (liquidity > 0) {
-            (amount0, amount1) = IAerodromeSlipstreamNPM(npm).decreaseLiquidity(
+            IAerodromeSlipstreamNPM(npm).decreaseLiquidity(
                 IAerodromeSlipstreamNPM.DecreaseLiquidityParams({
                     tokenId: tokenId,
                     liquidity: liquidity,
@@ -356,7 +357,7 @@ contract AerodromeSlipstreamAdapter is IConcentratedLiquidityAdapter {
                 })
             );
         }
-        _collectTo(lpOwner, tokenId);
+        (uint256 amount0, uint256 amount1) = _collectTo(recipient, tokenId);
         IAerodromeSlipstreamNPM(npm).burn(tokenId);
         (amountA, amountB) = _mapFrom01(tokenA, tokenB, token0, token1, amount0, amount1);
     }

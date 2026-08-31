@@ -15,6 +15,13 @@ export const stableClubAutomationExecutorAbi = [
   },
   {
     type: "function",
+    name: "executeRebalanceProposal",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "proposalId", type: "bytes32" }],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "setAuthorizedKeeper",
     stateMutability: "nonpayable",
     inputs: [
@@ -53,6 +60,31 @@ export const stableClubAutomationExecutorAbi = [
       { name: "amountB", type: "uint256" },
       { name: "amountAMin", type: "uint256" },
       { name: "amountBMin", type: "uint256" },
+      { name: "slippageBps", type: "uint256" },
+      { name: "deadline", type: "uint256" },
+      { name: "quotedAmountOut", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "rebalance",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "permissionId", type: "bytes32" },
+      { name: "executionNonce", type: "uint256" },
+      { name: "adapter", type: "address" },
+      { name: "positionTokenId", type: "uint256" },
+      { name: "tokenA", type: "address" },
+      { name: "tokenB", type: "address" },
+      { name: "newTickLower", type: "int24" },
+      { name: "newTickUpper", type: "int24" },
+      { name: "swapAmount", type: "uint256" },
+      { name: "minAmountOut", type: "uint256" },
+      { name: "closeAmountAMin", type: "uint256" },
+      { name: "closeAmountBMin", type: "uint256" },
+      { name: "mintAmountAMin", type: "uint256" },
+      { name: "mintAmountBMin", type: "uint256" },
       { name: "slippageBps", type: "uint256" },
       { name: "deadline", type: "uint256" },
       { name: "quotedAmountOut", type: "uint256" },
@@ -484,6 +516,24 @@ export const concentratedLiquidityExecutorAbi = [
 
 /** Concentrated-liquidity adapter view surface (real + MockConcentratedLiquidityAdapter). */
 export const concentratedLiquidityAdapterAbi = [
+  {
+    type: "function",
+    name: "closePosition",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "lpOwner", type: "address" },
+      { name: "tokenId", type: "uint256" },
+      { name: "recipient", type: "address" },
+      { name: "tokenA", type: "address" },
+      { name: "tokenB", type: "address" },
+      { name: "amountAMin", type: "uint256" },
+      { name: "amountBMin", type: "uint256" },
+    ],
+    outputs: [
+      { name: "amountA", type: "uint256" },
+      { name: "amountB", type: "uint256" },
+    ],
+  },
   {
     type: "function",
     name: "ownerOf",

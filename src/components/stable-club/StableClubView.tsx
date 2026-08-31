@@ -24,6 +24,7 @@ import {
 import { STAGE1_PRIVATE_BETA_POOL_ID } from "@/lib/stable-club/stage1-launch";
 import { useStableClubHarvest } from "@/components/stable-club/useStableClubHarvest";
 import { useStableClubCompound } from "@/components/stable-club/useStableClubCompound";
+import { useStableClubRebalance } from "@/components/stable-club/useStableClubRebalance";
 import {
   buildPerTokenApproveTx,
   erc721PositionAbi,
@@ -72,6 +73,7 @@ export function StableClubView({
   const [activatedPoolIds, setActivatedPoolIds] = useState<string[]>([]);
   const harvest = useStableClubHarvest();
   const compound = useStableClubCompound();
+  const rebalance = useStableClubRebalance();
   const [deployments, setDeployments] = useState<StableClubLocalDeployments | null>(null);
   const expectedChainId = deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID;
   const onExpectedChain = wallet.chainId === expectedChainId;
@@ -452,9 +454,9 @@ export function StableClubView({
         </div>
         <p className="mt-2 text-[11px] text-app-dim">
           Permission: {compound.permissionRegistered ? "registered (opt-in)" : "not registered"}
-          {" · "}
+          {" ï¿½ "}
           Manual status: {compound.uiStatus.status}
-          {compound.uiStatus.message ? ` — ${compound.uiStatus.message}` : ""}
+          {compound.uiStatus.message ? ` ï¿½ ${compound.uiStatus.message}` : ""}
         </p>
         <p className="mt-1 text-[11px] text-app-dim">{compound.automationStatusMessage}</p>
         {compound.uiStatus.lastTxHash ? (
@@ -464,6 +466,36 @@ export function StableClubView({
         ) : null}
       </section>
 
+      <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
+        <h2 className="text-sm font-bold text-app-ink">Rebalance permission (Step 2)</h2>
+        <p className="mt-1 text-xs text-app-muted">
+          Separate on-chain rebalance permission with tokenA-denominated limits and a slippage cap.
+          Manual rebalance is wallet-signed via the atomic rebalance() path. Launch policy keeps
+          rebalanceEnabled=false outside local development, and keeper automation is unavailable.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!wallet.address || rebalance.busy || rebalance.permissionRegistered}
+            onClick={() => void rebalance.registerRebalancePermission()}
+            className="app-btn-secondary h-9 px-3 text-xs font-bold disabled:opacity-50"
+          >
+            Enable rebalance permission
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-app-dim">
+          Permission: {rebalance.permissionRegistered ? "registered (opt-in)" : "not registered"}
+          {" | "}
+          Manual status: {rebalance.uiStatus.status}
+          {rebalance.uiStatus.message ? ` | ${rebalance.uiStatus.message}` : ""}
+        </p>
+        <p className="mt-1 text-[11px] text-app-dim">{rebalance.automationStatusMessage}</p>
+        {rebalance.uiStatus.lastTxHash ? (
+          <p className="mt-1 font-mono text-[10px] text-app-dim">
+            Last rebalance tx: {rebalance.uiStatus.lastTxHash}
+          </p>
+        ) : null}
+      </section>
       <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
         <h2 className="text-sm font-bold text-app-ink">Activation gate</h2>
         <p className="mt-1 text-xs text-app-muted">
@@ -517,6 +549,21 @@ export function StableClubView({
           void compound.runCompound({
             positionTokenId: pos.positionTokenId,
             adapter: pos.adapterAddress,
+            manual: true,
+          });
+        }}
+        rebalanceOptInEnabled={rebalance.permissionRegistered}
+        rebalanceBusy={rebalance.busy}
+        rebalanceUiStatus={rebalance.uiStatus}
+        rebalanceAutomationAvailable={rebalance.automationAvailable}
+        rebalanceAutomationMessage={rebalance.automationStatusMessage}
+        onRebalancePosition={(pos) => {
+          if (!pos.adapterAddress) return;
+          void rebalance.runRebalance({
+            positionTokenId: pos.positionTokenId,
+            adapter: pos.adapterAddress,
+            newTickLower: -90000,
+            newTickUpper: -80000,
             manual: true,
           });
         }}

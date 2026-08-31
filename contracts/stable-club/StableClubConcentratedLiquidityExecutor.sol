@@ -433,6 +433,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             IConcentratedLiquidityAdapter(leg.adapter).closePosition(
                 user,
                 leg.positionTokenId,
+                user,
                 leg.tokenA,
                 leg.tokenB,
                 leg.amountAMin,

@@ -12,15 +12,13 @@ import {FeeRouter} from "./FeeRouter.sol";
 import {IConcentratedLiquidityAdapter} from "./interfaces/IConcentratedLiquidityAdapter.sol";
 import {IOracleGuard} from "./interfaces/IOracleGuard.sol";
 import {IAllowanceTransfer} from "./interfaces/IAllowanceTransfer.sol";
-import {UserTokenPull} from "./libraries/UserTokenPull.sol";
 import {MevGuard} from "./MevGuard.sol";
 import {OpenServProposalGate} from "./OpenServProposalGate.sol";
 import {SafetyController} from "./SafetyController.sol";
 
 /// @title StableClubAutomationExecutor — Step 2 CL harvest / compound / rebalance operator.
 /// @notice Stateless; never retains user funds or position NFTs after execution.
-/// @dev Production ERC20 pulls use Permit2. Unset Permit2 is local/test legacy path only;
-///      `setPermit2` rejects address(0) so legacy cannot be re-enabled after configuration.
+/// @dev Production ERC20 pulls use Permit2 only where explicitly required (none on atomic compound/rebalance).
 ///      NFT remains per-token approve.
 contract StableClubAutomationExecutor is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -56,6 +54,26 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         uint256 amountB;
         uint256 amountAMin;
         uint256 amountBMin;
+        uint256 slippageBps;
+        uint256 swapDeadline;
+        uint256 quotedAmountOut;
+    }
+
+    struct RebalanceParams {
+        bytes32 permissionId;
+        uint256 executionNonce;
+        address adapter;
+        uint256 positionTokenId;
+        address tokenA;
+        address tokenB;
+        int24 newTickLower;
+        int24 newTickUpper;
+        uint256 swapAmount;
+        uint256 minAmountOut;
+        uint256 closeAmountAMin;
+        uint256 closeAmountBMin;
+        uint256 mintAmountAMin;
+        uint256 mintAmountBMin;
         uint256 slippageBps;
         uint256 swapDeadline;
         uint256 quotedAmountOut;
@@ -106,6 +124,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     error ExceedsCollectedFees();
     error NoOpCompound();
     error SameTokenSwap();
+    error NoOpRebalance();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -273,6 +292,55 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         );
 
         proposalGate.markCompoundConsumedByExecutor(proposalId);
+    }
+
+    /// @notice Keeper-only automated rebalance — caller supplies proposalId only; fields from gate storage.
+    function executeRebalanceProposal(bytes32 proposalId) external nonReentrant {
+        if (!authorizedKeepers[msg.sender]) revert KeeperNotAuthorized();
+        if (address(proposalGate) == address(0)) revert ProposalGateNotSet();
+
+        OpenServProposalGate.RebalanceProposal memory proposal = proposalGate.getRebalanceProposal(proposalId);
+        if (proposal.user == address(0)) revert ProposalInvalid();
+        if (proposal.consumed || proposal.rejected) revert ProposalAlreadyHandled();
+        if (block.timestamp > proposal.deadline) revert ProposalExpired();
+        if (proposal.chainId != block.chainid) revert ProposalBindingMismatch();
+
+        PermissionRegistry.Permission memory perm = permissionRegistry.getPermission(proposal.permissionId);
+        if (perm.user != proposal.user) revert ProposalBindingMismatch();
+        if (perm.poolId != proposal.poolId) revert ProposalBindingMismatch();
+        if (!permissionRegistry.isActionAllowed(proposal.permissionId, PermissionRegistry.Action.Rebalance)) {
+            revert PermissionRegistry.ActionNotAllowed();
+        }
+
+        address derivedAdapter = poolAdapters[proposal.poolId];
+        if (derivedAdapter == address(0) || derivedAdapter != proposal.adapter) {
+            revert ProposalAdapterMismatch();
+        }
+
+        _executeRebalance(
+            RebalanceParams({
+                permissionId: proposal.permissionId,
+                executionNonce: proposal.executionNonce,
+                adapter: derivedAdapter,
+                positionTokenId: proposal.positionTokenId,
+                tokenA: proposal.tokenA,
+                tokenB: proposal.tokenB,
+                newTickLower: proposal.newTickLower,
+                newTickUpper: proposal.newTickUpper,
+                swapAmount: proposal.swapAmount,
+                minAmountOut: proposal.minAmountOut,
+                closeAmountAMin: proposal.closeAmountAMin,
+                closeAmountBMin: proposal.closeAmountBMin,
+                mintAmountAMin: proposal.mintAmountAMin,
+                mintAmountBMin: proposal.mintAmountBMin,
+                slippageBps: proposal.slippageBps,
+                swapDeadline: proposal.swapDeadline,
+                quotedAmountOut: proposal.quotedAmountOut
+            }),
+            perm
+        );
+
+        proposalGate.markRebalanceConsumedByExecutor(proposalId);
     }
 
     function _executeHarvest(
@@ -519,20 +587,61 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         PermissionRegistry.Permission memory perm = permissionRegistry.getPermission(permissionId);
         if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
 
+        _executeRebalance(
+            RebalanceParams({
+                permissionId: permissionId,
+                executionNonce: executionNonce,
+                adapter: adapter,
+                positionTokenId: positionTokenId,
+                tokenA: tokenA,
+                tokenB: tokenB,
+                newTickLower: newTickLower,
+                newTickUpper: newTickUpper,
+                swapAmount: swapAmount,
+                minAmountOut: minAmountOut,
+                closeAmountAMin: closeAmountAMin,
+                closeAmountBMin: closeAmountBMin,
+                mintAmountAMin: mintAmountAMin,
+                mintAmountBMin: mintAmountBMin,
+                slippageBps: slippageBps,
+                swapDeadline: deadline,
+                quotedAmountOut: quotedAmountOut
+            }),
+            perm
+        );
+    }
+
+    /// @notice Atomic rebalance: collect+close to executor → optional held swap → mint → refund; no user pulls.
+    function _executeRebalance(
+        RebalanceParams memory params,
+        PermissionRegistry.Permission memory perm
+    ) internal {
+        bytes32 permissionId = params.permissionId;
+        uint256 executionNonce = params.executionNonce;
+        address adapter = params.adapter;
+        uint256 positionTokenId = params.positionTokenId;
+        address tokenA = params.tokenA;
+        address tokenB = params.tokenB;
+        uint256 swapAmount = params.swapAmount;
+        uint256 minAmountOut = params.minAmountOut;
+        uint256 closeAmountAMin = params.closeAmountAMin;
+        uint256 closeAmountBMin = params.closeAmountBMin;
+        uint256 mintAmountAMin = params.mintAmountAMin;
+        uint256 mintAmountBMin = params.mintAmountBMin;
+        uint256 slippageBps = params.slippageBps;
+        uint256 swapDeadline = params.swapDeadline;
+        uint256 quotedAmountOut = params.quotedAmountOut;
+
         bytes32 poolId = _requirePoolAdapter(adapter, perm.poolId);
         _requirePositionApproval(adapter, positionTokenId, perm.user);
         _requireBoundTokens(perm, tokenA, tokenB);
         _requirePositionBound(adapter, positionTokenId, perm);
-        // Finding 6: both position / swap legs must be on the token allowlist.
         _requireApprovedToken(tokenA);
         _requireApprovedToken(tokenB);
 
-        if (
-            closeAmountAMin == 0 || closeAmountBMin == 0 || mintAmountAMin == 0 || mintAmountBMin == 0
-        ) {
-            revert SlippageMinRequired();
-        }
+        if (closeAmountAMin == 0 || closeAmountBMin == 0) revert SlippageMinRequired();
         if (swapAmount > 0 && minAmountOut == 0) revert SlippageMinRequired();
+        if (params.newTickLower >= params.newTickUpper) revert NoOpRebalance();
 
         safetyController.assertAutomationAllowed(poolId);
         safetyController.assertTokenNotDepegged(tokenA);
@@ -546,56 +655,71 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         );
         safetyController.consumeAutomationSlot();
 
-        IConcentratedLiquidityAdapter(adapter).collectFees(perm.user, positionTokenId, perm.user);
-        (uint256 closedA, uint256 closedB) = IConcentratedLiquidityAdapter(adapter).closePosition(
-            perm.user, positionTokenId, tokenA, tokenB, closeAmountAMin, closeAmountBMin
+        uint256 preBalA = IERC20(tokenA).balanceOf(address(this));
+        uint256 preBalB = tokenB == tokenA ? preBalA : IERC20(tokenB).balanceOf(address(this));
+
+        IConcentratedLiquidityAdapter(adapter).collectFees(perm.user, positionTokenId, address(this));
+        IConcentratedLiquidityAdapter(adapter).closePosition(
+            perm.user,
+            positionTokenId,
+            address(this),
+            tokenA,
+            tokenB,
+            closeAmountAMin,
+            closeAmountBMin
         );
+
+        uint256 availA = IERC20(tokenA).balanceOf(address(this)) - preBalA;
+        uint256 availB = tokenB == tokenA ? availA : IERC20(tokenB).balanceOf(address(this)) - preBalB;
+        if (availA == 0 && availB == 0) revert NoOpRebalance();
+        if (swapAmount > availA) revert ExceedsCollectedFees();
 
         uint256 swapOutOnExecutor;
         if (swapAmount > 0) {
-            if (swapAmount > closedA) revert InvalidSwapAmount();
             safetyController.assertSwapAllowed(poolId);
-            uint256 net = feeRouter.applySwapFee(tokenA, perm.user, swapAmount, permissionId);
+            IERC20(tokenA).forceApprove(address(feeRouter), swapAmount);
+            uint256 net = feeRouter.applySwapFeeOnHeld(tokenA, perm.user, swapAmount, permissionId);
+            _clearApproval(tokenA, address(feeRouter));
             mevGuard.assertSwapProtections(
-                tokenA, tokenB, net, minAmountOut, quotedAmountOut, slippageBps, deadline
+                tokenA, tokenB, net, minAmountOut, quotedAmountOut, slippageBps, swapDeadline
             );
             IERC20(tokenA).forceApprove(adapter, net);
             swapOutOnExecutor =
                 IConcentratedLiquidityAdapter(adapter).swap(perm.user, tokenA, tokenB, net, minAmountOut);
+            _clearApproval(tokenA, adapter);
         }
 
-        uint256 amountA = closedA > swapAmount ? closedA - swapAmount : 0;
-        uint256 amountB = closedB + swapOutOnExecutor;
-
-        if (amountA > 0) {
-            UserTokenPull.pull(permit2, tokenA, perm.user, address(this), amountA);
-            IERC20(tokenA).forceApprove(adapter, amountA);
-        }
-        if (closedB > 0) {
-            UserTokenPull.pull(permit2, tokenB, perm.user, address(this), closedB);
-        }
-        if (amountB > 0) {
-            IERC20(tokenB).forceApprove(adapter, amountB);
+        uint256 amountA = availA - swapAmount;
+        uint256 amountB = availB + swapOutOnExecutor;
+        if (amountA == 0 && amountB == 0) revert NoOpRebalance();
+        if ((amountA > 0 && mintAmountAMin == 0) || (amountB > 0 && mintAmountBMin == 0)) {
+            revert SlippageMinRequired();
         }
 
+        if (amountA > 0) IERC20(tokenA).forceApprove(adapter, amountA);
+        if (amountB > 0) IERC20(tokenB).forceApprove(adapter, amountB);
         (uint256 newTokenId, ) = IConcentratedLiquidityAdapter(adapter).mintPosition(
             perm.user,
             tokenA,
             tokenB,
-            newTickLower,
-            newTickUpper,
+            params.newTickLower,
+            params.newTickUpper,
             amountA,
             amountB,
             mintAmountAMin,
             mintAmountBMin
         );
+        _clearApproval(tokenA, adapter);
+        _clearApproval(tokenB, adapter);
 
         if (IConcentratedLiquidityAdapter(adapter).ownerOf(newTokenId) != perm.user) {
             revert NotPositionOwner();
         }
 
-        _assertZeroBalance(tokenA);
-        _assertZeroBalance(tokenB);
+        _refundExcess(perm.user, tokenA, preBalA);
+        if (tokenB != tokenA) _refundExcess(perm.user, tokenB, preBalB);
+        _assertBalanceRestored(tokenA, preBalA);
+        if (tokenB != tokenA) _assertBalanceRestored(tokenB, preBalB);
 
         emit AutomationExecuted(
             permissionId,

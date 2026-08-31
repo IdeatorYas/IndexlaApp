@@ -54,9 +54,12 @@ interface IConcentratedLiquidityAdapter {
 
     function collectRewards(address lpOwner, uint256 tokenId, address recipient) external returns (uint256 amount);
 
+    /// @param recipient NPM close proceeds recipient (user for strategy exit; executor for atomic rebalance).
+    /// @dev Caller (executor-only adapters) may set recipient to `lpOwner` or `msg.sender` only.
     function closePosition(
         address lpOwner,
         uint256 tokenId,
+        address recipient,
         address tokenA,
         address tokenB,
         uint256 amountAMin,

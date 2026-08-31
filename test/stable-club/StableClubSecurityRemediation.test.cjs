@@ -553,18 +553,20 @@ describe("PR1 security remediation — adversarial regressions", function () {
     it("decrements position proposal count on consume and reject", async function () {
       const ctx = await deployStep2Stack();
       await ctx.openServGate.setLimits(10, 20, 10);
+      const network = await ethers.provider.getNetwork();
       const proposal = {
+        chainId: network.chainId,
         user: ctx.user.address,
         permissionId: ethers.ZeroHash,
         poolId: STEP2_POOL,
+        adapter: await ctx.clAdapter.getAddress(),
         positionTokenId: 7n,
         action: 0,
+        executionNonce: 1n,
+        deadline: BigInt((await time.latest()) + 600),
+        idempotencyKey: ethers.id("m4-a"),
         reasonCode: ethers.id("fees"),
         observedValue: 1n,
-        timestamp: 0n,
-        idempotencyKey: ethers.id("m4-a"),
-        consumed: false,
-        rejected: false,
       };
       const id = await ctx.openServGate.submitProposal.staticCall(proposal);
       await ctx.openServGate.submitProposal(proposal);
@@ -579,6 +581,7 @@ describe("PR1 security remediation — adversarial regressions", function () {
       expect(await ctx.openServGate.positionProposalCount(posKey)).to.equal(0n);
 
       proposal.idempotencyKey = ethers.id("m4-b");
+      proposal.executionNonce = 2n;
       const id2 = await ctx.openServGate.submitProposal.staticCall(proposal);
       await ctx.openServGate.submitProposal(proposal);
       expect(await ctx.openServGate.positionProposalCount(posKey)).to.equal(1n);

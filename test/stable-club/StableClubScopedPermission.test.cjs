@@ -8,12 +8,16 @@ const {
 
 const HARVEST_BIT = 1n << 8n;
 const COMPOUND_BIT = 1n << 9n;
+const REBALANCE_BIT = 1n << 10n;
 const PAUSE_BIT = 1n << 5n;
 const REVOKE_BIT = 1n << 6n;
 const EMERGENCY_BIT = 1n << 7n;
 
 const SCOPE_COMPOUND = ethers.keccak256(
   ethers.toUtf8Bytes("INDEXLA_PERMISSION_SCOPE_COMPOUND"),
+);
+const SCOPE_REBALANCE = ethers.keccak256(
+  ethers.toUtf8Bytes("INDEXLA_PERMISSION_SCOPE_REBALANCE"),
 );
 const SCOPE_OTHER = ethers.keccak256(
   ethers.toUtf8Bytes("INDEXLA_PERMISSION_SCOPE_OTHER"),
@@ -92,6 +96,65 @@ describe("PermissionRegistry — scoped harvest+compound coexistence", function 
     expect(c.revoked).to.equal(false);
     expect(h.allowedActions & HARVEST_BIT).to.equal(HARVEST_BIT);
     expect(c.allowedActions & COMPOUND_BIT).to.equal(COMPOUND_BIT);
+  });
+
+  it("legacy harvest, scoped compound, and scoped rebalance coexist with independent revoke", async function () {
+    const ctx = await setup();
+    const reg = ctx.permissionRegistryContract;
+
+    const harvestPerm = basePerm(ctx, { expiresAt: ctx.expiresAt });
+    const compoundPerm = basePerm(ctx, {
+      allowedActions: COMPOUND_BIT | REVOKE_BIT,
+      maxAmountPerTx: ethers.parseUnits("5000", 6),
+      maxAmountPerDay: ethers.parseUnits("20000", 6),
+      maxSlippageBps: 500n,
+      expiresAt: ctx.expiresAt,
+    });
+    const rebalancePerm = basePerm(ctx, {
+      allowedActions: REBALANCE_BIT | REVOKE_BIT,
+      maxAmountPerTx: ethers.parseUnits("5000", 6),
+      maxAmountPerDay: ethers.parseUnits("20000", 6),
+      maxSlippageBps: 500n,
+      expiresAt: ctx.expiresAt,
+    });
+
+    await reg.connect(ctx.testUser).registerPermission(harvestPerm);
+    await reg.connect(ctx.testUser).registerScopedPermission(compoundPerm, SCOPE_COMPOUND);
+    await reg.connect(ctx.testUser).registerScopedPermission(rebalancePerm, SCOPE_REBALANCE);
+
+    const harvestId = await reg.permissionIdFor(
+      harvestPerm.user,
+      harvestPerm.chainId,
+      harvestPerm.poolId,
+      harvestPerm.tokenA,
+      harvestPerm.tokenB,
+    );
+    const compoundId = await reg.permissionIdForScoped(
+      compoundPerm.user,
+      compoundPerm.chainId,
+      compoundPerm.poolId,
+      compoundPerm.tokenA,
+      compoundPerm.tokenB,
+      SCOPE_COMPOUND,
+    );
+    const rebalanceId = await reg.permissionIdForScoped(
+      rebalancePerm.user,
+      rebalancePerm.chainId,
+      rebalancePerm.poolId,
+      rebalancePerm.tokenA,
+      rebalancePerm.tokenB,
+      SCOPE_REBALANCE,
+    );
+
+    expect(new Set([harvestId, compoundId, rebalanceId]).size).to.equal(3);
+    await reg.connect(ctx.testUser).revoke(compoundId);
+    expect((await reg.getPermission(harvestId)).revoked).to.equal(false);
+    expect((await reg.getPermission(compoundId)).revoked).to.equal(true);
+    expect((await reg.getPermission(rebalanceId)).revoked).to.equal(false);
+
+    await reg.connect(ctx.testUser).revoke(rebalanceId);
+    expect((await reg.getPermission(harvestId)).revoked).to.equal(false);
+    expect((await reg.getPermission(rebalanceId)).revoked).to.equal(true);
   });
 
   it("scoped id never equals legacy id (collision prevention)", async function () {

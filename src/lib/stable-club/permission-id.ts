@@ -32,6 +32,9 @@ export const PERMISSION_SCOPE_COMPOUND = keccak256(
 export const PERMISSION_SCOPE_HARVEST = keccak256(
   toBytes("INDEXLA_PERMISSION_SCOPE_HARVEST"),
 ) as Hex;
+export const PERMISSION_SCOPE_REBALANCE = keccak256(
+  toBytes("INDEXLA_PERMISSION_SCOPE_REBALANCE"),
+) as Hex;
 
 /** Scoped id — 6-field encode; never collides with legacy 5-field ids. */
 export function computeStableClubScopedPermissionId(input: {

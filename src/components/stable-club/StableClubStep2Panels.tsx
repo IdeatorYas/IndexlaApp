@@ -8,6 +8,7 @@ import {
 import type { StableClubPosition } from "@/lib/stable-club/positions";
 import type { HarvestUiStatus } from "@/lib/stable-club/harvest";
 import type { CompoundUiStatus } from "@/lib/stable-club/compound";
+import type { RebalanceUiStatus } from "@/lib/stable-club/rebalance";
 
 export function StableClubPoolCatalogue({
   activatedPoolIds,
@@ -113,6 +114,12 @@ export function StableClubPositionDashboard({
   compoundAutomationAvailable = false,
   compoundAutomationMessage,
   onCompoundPosition,
+  rebalanceOptInEnabled = false,
+  rebalanceBusy = false,
+  rebalanceUiStatus,
+  rebalanceAutomationAvailable = false,
+  rebalanceAutomationMessage,
+  onRebalancePosition,
 }: {
   positions: StableClubPosition[];
   pendingProposals: number;
@@ -129,6 +136,12 @@ export function StableClubPositionDashboard({
   compoundAutomationAvailable?: boolean;
   compoundAutomationMessage?: string;
   onCompoundPosition?: (position: StableClubPosition) => void;
+  rebalanceOptInEnabled?: boolean;
+  rebalanceBusy?: boolean;
+  rebalanceUiStatus?: RebalanceUiStatus;
+  rebalanceAutomationAvailable?: boolean;
+  rebalanceAutomationMessage?: string;
+  onRebalancePosition?: (position: StableClubPosition) => void;
 }) {
   return (
     <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
@@ -180,6 +193,14 @@ export function StableClubPositionDashboard({
               pos.dataVerifiedOnChain &&
               pos.npmApprovalStatus === "approved" &&
               Boolean(onCompoundPosition) &&
+              Boolean(pos.adapterAddress) &&
+              /^\d+$/.test(pos.positionTokenId) &&
+              !pos.automation.paused;
+            const canRebalance =
+              rebalanceOptInEnabled &&
+              pos.dataVerifiedOnChain &&
+              pos.npmApprovalStatus === "approved" &&
+              Boolean(onRebalancePosition) &&
               Boolean(pos.adapterAddress) &&
               /^\d+$/.test(pos.positionTokenId) &&
               !pos.automation.paused;
@@ -290,6 +311,31 @@ export function StableClubPositionDashboard({
                     {!compoundAutomationAvailable ? (
                       <span className="text-[10px] text-app-dim">
                         {compoundAutomationMessage ??
+                          "Automation unavailable until OpenServ publisher/keeper is connected"}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {canRebalance ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={rebalanceBusy || rebalanceUiStatus?.status === "pending-receipt"}
+                      onClick={() => onRebalancePosition?.(pos)}
+                      className="app-btn-primary h-8 px-3 text-[11px] font-bold disabled:opacity-50"
+                    >
+                      {rebalanceBusy ? "Rebalancing…" : "Manual rebalance"}
+                    </button>
+                    {rebalanceUiStatus?.status === "confirmed" ? (
+                      <span className="text-[10px] font-bold uppercase text-app-success">
+                        Rebalance confirmed
+                      </span>
+                    ) : rebalanceUiStatus?.status === "failed" ? (
+                      <span className="text-[10px] text-app-danger">{rebalanceUiStatus.message}</span>
+                    ) : null}
+                    {!rebalanceAutomationAvailable ? (
+                      <span className="text-[10px] text-app-dim">
+                        {rebalanceAutomationMessage ??
                           "Automation unavailable until OpenServ publisher/keeper is connected"}
                       </span>
                     ) : null}
