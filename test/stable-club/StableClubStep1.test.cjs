@@ -432,6 +432,10 @@ describe("StableClubExecutor — test pool flow", function () {
 });
 
 describe("Stable Club — Base mainnet fork", function () {
+  after(async function () {
+    await ethers.provider.send("hardhat_reset", []);
+  });
+
   it("executes test-pool deposit on Base fork when BASE_RPC_URL is configured", async function () {
     if (!process.env.BASE_RPC_URL?.trim()) {
       this.skip();

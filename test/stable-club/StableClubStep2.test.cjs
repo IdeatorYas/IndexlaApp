@@ -292,6 +292,10 @@ describe("Stable Club Step 2 — automation harvest", function () {
 });
 
 describe("Stable Club Step 2 — Base fork catalogue smoke", function () {
+  after(async function () {
+    await ethers.provider.send("hardhat_reset", []);
+  });
+
   it("resolves Uniswap and Aerodrome factories when BASE_RPC_URL is set", async function () {
     if (!process.env.BASE_RPC_URL?.trim()) {
       this.skip();

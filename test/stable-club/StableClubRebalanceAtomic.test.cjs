@@ -289,4 +289,33 @@ describe("Stable Club — atomic rebalance accounting", function () {
       ),
     ).to.be.revertedWithCustomError(ctx.clAdapter, "InvalidCloseRecipient");
   });
+
+  it("E05: arbitrary caller cannot redirect proceeds even when NFT is approved to the adapter", async function () {
+    const ctx = await deployRebalanceStack();
+    const { tokenId } = await mintPositionViaExecutor(ctx);
+
+    expect(await ctx.clAdapter.getApproved(tokenId)).to.equal(await ctx.clAdapter.getAddress());
+
+    await expect(
+      ctx.clAdapter.connect(ctx.stranger).closePosition(
+        ctx.user.address,
+        tokenId,
+        ctx.stranger.address,
+        await ctx.usdc.getAddress(),
+        await ctx.cbbtc.getAddress(),
+        1n,
+        1n,
+      ),
+    ).to.be.revertedWithCustomError(ctx.clAdapter, "OnlyExecutor");
+
+    await expect(
+      ctx.clAdapter.connect(ctx.stranger).collectFees(
+        ctx.user.address,
+        tokenId,
+        ctx.stranger.address,
+      ),
+    ).to.be.revertedWithCustomError(ctx.clAdapter, "OnlyExecutor");
+
+    expect(await ctx.clAdapter.ownerOf(tokenId)).to.equal(ctx.user.address);
+  });
 });

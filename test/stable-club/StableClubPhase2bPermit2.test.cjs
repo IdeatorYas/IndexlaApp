@@ -316,6 +316,12 @@ async function approveBounded(ctx, amount, opts = {}) {
 }
 
 describe("Phase 2b — Permit2 CL deposit adversarial", function () {
+  // Local mock stack must not inherit a prior Base-fork provider (slow / flaky timeouts).
+  this.timeout(120_000);
+  before(async function () {
+    await network.provider.request({ method: "hardhat_reset", params: [] });
+  });
+
   it("succeeds with bounded Permit2 allowance to CL executor only", async function () {
     const ctx = await deployClPermit2Stack();
     const { strategyId, poolIds } = await registerStrategy(ctx);
