@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
-const { deployStableClubStack, POOL_ID: STEP1_POOL_ID } = require("../../scripts/stable-club/deploy-local.cjs");
+const { deployStableClubStack, POOL_ID: STEP1_POOL_ID, approvePermit2Pull } = require("../../scripts/stable-club/deploy-local.cjs");
 
 const POOL_ID = ethers.keccak256(
   ethers.toUtf8Bytes("INDEXLA_STABLE_CLUB_BASE_USDC_cbBTC_AERO_CL100"),
@@ -389,7 +389,7 @@ describe("Stable Club keeper harvest (Phase 1)", function () {
     );
 
     const deposit = ethers.parseUnits("400", 6);
-    await ctx.usdcContract.connect(ctx.testUser).approve(ctx.executor, deposit);
+    await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.executor, deposit);
     await ctx.executorContract.connect(ctx.testUser).depositAndAddLiquidity(
       permissionId,
       1n,

@@ -263,6 +263,11 @@ async function deployStableClubStack() {
   await executor.setTokenApproval(usdcAddress, true);
   await executor.setTokenApproval(wethAddress, true);
 
+  const permit2 = await ethers.deployContract("MockPermit2");
+  const permit2Address = await permit2.getAddress();
+  await feeRouter.setPermit2(permit2Address);
+  await executor.setPermit2(permit2Address);
+
   await usdc.mint(deployer.address, ethers.parseUnits("1000000", 6));
   await usdc.mint(testUser.address, ethers.parseUnits("1000000", 6));
   await weth.mint(testAdapterAddress, ethers.parseEther("100000"));
@@ -296,6 +301,7 @@ async function deployStableClubStack() {
     testAdapter: testAdapterAddress,
     usdc: usdcAddress,
     weth: wethAddress,
+    permit2: permit2Address,
     poolId: POOL_ID,
     rpcUrl: "http://127.0.0.1:8545",
     step2Adapters: automationStack.step2AdaptersOverride ?? step2Adapters,
@@ -306,6 +312,7 @@ async function deployStableClubStack() {
     testAdapterContract: testAdapter,
     usdcContract: usdc,
     wethContract: weth,
+    permit2Contract: permit2,
     testUser,
     feeRecipientSigner: feeRecipient,
   };
@@ -319,6 +326,7 @@ function toDeploymentJson(stack) {
     testAdapterContract,
     usdcContract,
     wethContract,
+    permit2Contract,
     testUser,
     feeRecipientSigner,
     ...json
@@ -364,11 +372,25 @@ async function main() {
   console.log(JSON.stringify(deployments, null, 2));
 }
 
+/** ERC20 approve → Permit2 (max), then bounded Permit2 allowance to spender.
+ *  Uses MaxUint256 for the ERC20→Permit2 allowance so multiple spenders in one
+ *  tx (e.g. FeeRouter then Executor) do not overwrite each other's pull capacity.
+ */
+async function approvePermit2Pull(token, owner, permit2, spender, amount) {
+  const { time } = require("@nomicfoundation/hardhat-network-helpers");
+  const { ethers } = require("hardhat");
+  await token.connect(owner).approve(await permit2.getAddress(), ethers.MaxUint256);
+  await permit2
+    .connect(owner)
+    .approve(await token.getAddress(), spender, amount, BigInt((await time.latest()) + 3600));
+}
+
 module.exports = {
   deployStableClubStack,
   toDeploymentJson,
   POOL_ID,
   OUTPUT_PATH,
+  approvePermit2Pull,
 };
 
 // Phase 2a/2b local CL stack (optional companion entrypoint)

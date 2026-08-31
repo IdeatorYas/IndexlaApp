@@ -4,6 +4,7 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
 const {
   deployStableClubStack,
   POOL_ID,
+  approvePermit2Pull,
 } = require("../../scripts/stable-club/deploy-local.cjs");
 
 const ALL_ACTIONS =
@@ -260,8 +261,8 @@ describe("PR1 security remediation — adversarial regressions", function () {
 
       const deposit = ethers.parseUnits("1000", 6);
       const swapPart = ethers.parseUnits("400", 6);
-      await ctx.usdcContract.connect(ctx.testUser).approve(ctx.executor, deposit);
-      await ctx.usdcContract.connect(ctx.testUser).approve(ctx.feeRouter, swapPart);
+      await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.executor, deposit);
+      await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.feeRouter, swapPart);
 
       await expect(
         ctx.executorContract.connect(ctx.testUser).depositAndAddLiquidity(

@@ -4,6 +4,7 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
 const {
   deployStableClubStack,
   POOL_ID,
+  approvePermit2Pull,
 } = require("../../scripts/stable-club/deploy-local.cjs");
 
 const ALL_ACTIONS =
@@ -146,7 +147,7 @@ describe("FeeRouter", function () {
     const gross = ethers.parseUnits("1000", 6);
     const fee = gross / 100n;
 
-    await ctx.usdcContract.connect(ctx.testUser).approve(ctx.feeRouter, gross);
+    await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.feeRouter, gross);
     await ethers.provider.send("hardhat_impersonateAccount", [ctx.executor]);
     await ethers.provider.send("hardhat_setBalance", [
       ctx.executor,
@@ -177,8 +178,8 @@ describe("StableClubExecutor — test pool flow", function () {
     const swapPart = ethers.parseUnits("400", 6);
     const feeBefore = await ctx.usdcContract.balanceOf(ctx.feeRecipient);
 
-    await ctx.usdcContract.connect(ctx.testUser).approve(ctx.executor, deposit);
-    await ctx.usdcContract.connect(ctx.testUser).approve(ctx.feeRouter, swapPart);
+    await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.executor, deposit);
+    await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.feeRouter, swapPart);
 
     await ctx.executorContract.connect(ctx.testUser).depositAndAddLiquidity(
       ctx.permissionId,
@@ -206,7 +207,7 @@ describe("StableClubExecutor — test pool flow", function () {
     const ctx = await ctxWithPermission();
     const deposit = ethers.parseUnits("200", 6);
 
-    await ctx.usdcContract.connect(ctx.testUser).approve(ctx.executor, deposit * 2n);
+    await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.executor, deposit * 2n);
 
     await ctx.executorContract.connect(ctx.testUser).depositAndAddLiquidity(
       ctx.permissionId,
@@ -246,7 +247,7 @@ describe("StableClubExecutor — test pool flow", function () {
     const deposit = ethers.parseUnits("300", 6);
     const feeBefore = await ctx.usdcContract.balanceOf(ctx.feeRecipient);
 
-    await ctx.usdcContract.connect(ctx.testUser).approve(ctx.executor, deposit);
+    await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.executor, deposit);
     await ctx.executorContract.connect(ctx.testUser).depositAndAddLiquidity(
       ctx.permissionId,
       2n,
@@ -268,7 +269,7 @@ describe("StableClubExecutor — test pool flow", function () {
     const ctx = await ctxWithPermission();
     const deposit = ethers.parseUnits("500", 6);
 
-    await ctx.usdcContract.connect(ctx.testUser).approve(ctx.executor, deposit);
+    await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.executor, deposit);
     await ctx.executorContract.connect(ctx.testUser).depositAndAddLiquidity(
       ctx.permissionId,
       3n,
@@ -322,7 +323,7 @@ describe("StableClubExecutor — test pool flow", function () {
     const deposit = ethers.parseUnits("400", 6);
     const feeBefore = await ctx.usdcContract.balanceOf(ctx.feeRecipient);
 
-    await ctx.usdcContract.connect(ctx.testUser).approve(ctx.executor, deposit);
+    await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.executor, deposit);
     await ctx.executorContract.connect(ctx.testUser).depositAndAddLiquidity(
       ctx.permissionId,
       6n,
@@ -397,7 +398,7 @@ describe("StableClubExecutor — test pool flow", function () {
     const ctx = await ctxWithPermission();
     const deposit = ethers.parseUnits("100", 6);
 
-    await ctx.usdcContract.connect(ctx.testUser).approve(ctx.executor, deposit * 2n);
+    await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.executor, deposit * 2n);
 
     await ctx.executorContract.connect(ctx.testUser).depositAndAddLiquidity(
       ctx.permissionId,
@@ -456,7 +457,7 @@ describe("Stable Club — Base mainnet fork", function () {
     const permissionId = await registerPermission(ctx);
     const deposit = ethers.parseUnits("200", 6);
 
-    await ctx.usdcContract.connect(ctx.testUser).approve(ctx.executor, deposit);
+    await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.executor, deposit);
     await ctx.executorContract.connect(ctx.testUser).depositAndAddLiquidity(
       permissionId,
       1n,

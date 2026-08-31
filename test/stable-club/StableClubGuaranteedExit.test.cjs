@@ -4,6 +4,7 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
 const {
   deployStableClubStack,
   POOL_ID,
+  approvePermit2Pull,
 } = require("../../scripts/stable-club/deploy-local.cjs");
 
 const ALL_ACTIONS =
@@ -61,7 +62,7 @@ function testPoolExitMins(lpAmount) {
 }
 
 async function depositForUser(ctx, permissionId, executionNonce, deposit = ethers.parseUnits("400", 6)) {
-  await ctx.usdcContract.connect(ctx.testUser).approve(ctx.executor, deposit);
+  await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.executor, deposit);
   await ctx.executorContract.connect(ctx.testUser).depositAndAddLiquidity(
     permissionId,
     executionNonce,

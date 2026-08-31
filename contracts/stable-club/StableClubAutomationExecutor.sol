@@ -182,7 +182,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     }
 
     /// @notice Wire Permit2 for user ERC20 pulls. Production must use verified Base Permit2.
-    /// @dev Rejects address(0). Legacy transferFrom only applies while Permit2 remains unset.
+    /// @dev Rejects address(0). Pulls fail closed until a non-zero Permit2 is wired.
     function setPermit2(address permit2_) external onlyOwner {
         if (permit2_ == address(0)) revert InvalidPermit2();
         permit2 = IAllowanceTransfer(permit2_);
@@ -868,9 +868,5 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
 
     function _requireApprovedToken(address token) internal view {
         if (!approvedTokens[token]) revert TokenNotApproved();
-    }
-
-    function _assertZeroBalance(address token) internal view {
-        if (IERC20(token).balanceOf(address(this)) != 0) revert FundsRemaining();
     }
 }

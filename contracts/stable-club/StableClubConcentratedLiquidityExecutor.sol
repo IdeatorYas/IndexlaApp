@@ -120,6 +120,8 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     error InvalidPermit2();
     error InvalidSafetyController();
     error InvalidExecutionNonce();
+    /// @dev Same selector as UserTokenPull.Permit2Required — declared for ABI/test matching.
+    error Permit2Required();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -272,13 +274,15 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
 
         strategyRegistry.validateStrategyDeposit(strategyId, grossUsdc, legs[0].slippageBps);
 
+        uint256 preUsdc = IERC20(usdc).balanceOf(address(this));
         UserTokenPull.pull(permit2, usdc, msg.sender, address(this), grossUsdc);
 
         for (uint256 i = 0; i < LEG_COUNT; i++) {
             _executeDepositLeg(strategyId, msg.sender, legs[i], strategyRegistry.legAmount(grossUsdc, i));
         }
 
-        _assertZeroBalance(usdc);
+        _refundExcess(msg.sender, usdc, preUsdc);
+        _assertBalanceRestored(usdc, preUsdc);
 
         emit StrategyDepositCompleted(strategyId, msg.sender, grossUsdc, executionNonce);
     }
@@ -316,6 +320,9 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
 
         _requireApprovedToken(leg.tokenA);
         _requireApprovedToken(leg.tokenB);
+
+        uint256 preA = IERC20(leg.tokenA).balanceOf(address(this));
+        uint256 preB = IERC20(leg.tokenB).balanceOf(address(this));
 
         uint256 amountA;
         uint256 amountB;
@@ -369,8 +376,10 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             leg.amountBMin
         );
 
-        if (leg.tokenA != usdc) _assertZeroBalance(leg.tokenA);
-        if (leg.tokenB != usdc) _assertZeroBalance(leg.tokenB);
+        _refundExcess(user, leg.tokenA, preA);
+        if (leg.tokenB != leg.tokenA) _refundExcess(user, leg.tokenB, preB);
+        _assertBalanceRestored(leg.tokenA, preA);
+        if (leg.tokenB != leg.tokenA) _assertBalanceRestored(leg.tokenB, preB);
         _clearApproval(leg.tokenA, leg.adapter);
         _clearApproval(leg.tokenB, leg.adapter);
     }
@@ -428,6 +437,9 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             );
         }
 
+        uint256 preA = IERC20(leg.tokenA).balanceOf(address(this));
+        uint256 preB = IERC20(leg.tokenB).balanceOf(address(this));
+
         if (leg.fullExit || emergency) {
             // Full / emergency recovery: closePosition removes all liquidity and burns the empty NFT.
             IConcentratedLiquidityAdapter(leg.adapter).closePosition(
@@ -452,8 +464,10 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             );
         }
 
-        _assertZeroBalance(leg.tokenA);
-        _assertZeroBalance(leg.tokenB);
+        _refundExcess(user, leg.tokenA, preA);
+        if (leg.tokenB != leg.tokenA) _refundExcess(user, leg.tokenB, preB);
+        _assertBalanceRestored(leg.tokenA, preA);
+        if (leg.tokenB != leg.tokenA) _assertBalanceRestored(leg.tokenB, preB);
 
         emit StrategyLegExited(strategyId, leg.legIndex, poolId, leg.positionTokenId, emergency);
     }
@@ -530,8 +544,16 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         if (token == address(0) || !approvedTokens[token]) revert TokenNotApproved();
     }
 
-    function _assertZeroBalance(address token) internal view {
-        if (IERC20(token).balanceOf(address(this)) != 0) revert FundsRemaining();
+    /// @dev Forward only the balance delta created by this call; leave pre-existing dust untouched.
+    function _refundExcess(address user, address token, uint256 preBalance) internal {
+        uint256 bal = IERC20(token).balanceOf(address(this));
+        if (bal > preBalance) {
+            IERC20(token).safeTransfer(user, bal - preBalance);
+        }
+    }
+
+    function _assertBalanceRestored(address token, uint256 preBalance) internal view {
+        if (IERC20(token).balanceOf(address(this)) != preBalance) revert FundsRemaining();
     }
 
     function _clearApproval(address token, address spender) internal {

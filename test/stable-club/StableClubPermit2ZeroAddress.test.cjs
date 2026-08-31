@@ -167,7 +167,7 @@ describe("Permit2 zero-address hardening", function () {
     expect(await token.balanceOf(executorSigner.address)).to.equal(9_900n);
   });
 
-  it("unset Permit2 legacy ERC20 path still works for local/test (never calling setPermit2)", async function () {
+  it("unset Permit2 fails closed — no legacy ERC20 transferFrom pull", async function () {
     const [, executorSigner, user, feeRecipient] = await ethers.getSigners();
     const token = await ethers.deployContract("MockERC20", ["USDC", "USDC", 6]);
     const feeRouter = await ethers.deployContract("FeeRouter", [feeRecipient.address]);
@@ -175,10 +175,14 @@ describe("Permit2 zero-address hardening", function () {
     expect(await feeRouter.permit2()).to.equal(ethers.ZeroAddress);
     const gross = 1_000n;
     await token.mint(user.address, gross);
+    // Even with a direct ERC20 allowance to FeeRouter, unset Permit2 must fail closed.
     await token.connect(user).approve(await feeRouter.getAddress(), gross);
-    await feeRouter
-      .connect(executorSigner)
-      .applySwapFee(await token.getAddress(), user.address, gross, ethers.id("l"));
-    expect(await token.balanceOf(feeRecipient.address)).to.equal(10n);
+    await expect(
+      feeRouter
+        .connect(executorSigner)
+        .applySwapFee(await token.getAddress(), user.address, gross, ethers.id("l")),
+    ).to.be.revertedWithCustomError(feeRouter, "Permit2Required");
+    expect(await token.balanceOf(feeRecipient.address)).to.equal(0n);
+    expect(await token.balanceOf(user.address)).to.equal(gross);
   });
 });
