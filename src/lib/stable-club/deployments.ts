@@ -15,6 +15,10 @@ export type StableClubLocalDeployments = {
   permissionRegistry: Address;
   feeRouter: Address;
   executor: Address;
+  /** Step 2 automation executor — harvest (local dev / staged rollout). */
+  automationExecutor?: Address;
+  /** Safety policy reads for harvest preflight (optional). */
+  safetyController?: Address;
   testAdapter: Address;
   usdc: Address;
   weth: Address;
@@ -25,6 +29,15 @@ export type StableClubLocalDeployments = {
    * Never hardcode Base mainnet adapters outside this verified registry.
    */
   step2Adapters?: VerifiedClAdapterDeployment[];
+  /** Local-only seeded harvest position for dev E2E (optional). */
+  harvestDev?: {
+    poolCatalogueId: string;
+    poolIdHash: Hex;
+    adapter: Address;
+    npm: Address;
+    positionTokenId: string;
+    testUser: Address;
+  };
 };
 
 const ZERO = ZERO_ADDRESS;
@@ -88,12 +101,15 @@ export function toPublicDeploymentsPayload(deployments: StableClubLocalDeploymen
   permissionRegistry: Address;
   feeRouter: Address;
   executor: Address;
+  automationExecutor?: Address;
+  safetyController?: Address;
   testAdapter: Address;
   usdc: Address;
   weth: Address;
   poolId: Hex;
   rpcUrl: string;
   step2Adapters: VerifiedClAdapterDeployment[];
+  harvestDev?: StableClubLocalDeployments["harvestDev"];
 } {
   assertLocalHardhatDeploymentIdentity({
     chainId: deployments.chainId,
@@ -109,11 +125,14 @@ export function toPublicDeploymentsPayload(deployments: StableClubLocalDeploymen
     permissionRegistry: deployments.permissionRegistry,
     feeRouter: deployments.feeRouter,
     executor: deployments.executor,
+    automationExecutor: deployments.automationExecutor,
+    safetyController: deployments.safetyController,
     testAdapter: deployments.testAdapter,
     usdc: deployments.usdc,
     weth: deployments.weth,
     poolId: deployments.poolId,
     rpcUrl: deployments.rpcUrl,
     step2Adapters: verifiedStep2Adapters(deployments),
+    harvestDev: deployments.harvestDev,
   };
 }

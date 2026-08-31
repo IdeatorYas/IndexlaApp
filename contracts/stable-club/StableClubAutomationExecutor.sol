@@ -14,6 +14,7 @@ import {IOracleGuard} from "./interfaces/IOracleGuard.sol";
 import {IAllowanceTransfer} from "./interfaces/IAllowanceTransfer.sol";
 import {UserTokenPull} from "./libraries/UserTokenPull.sol";
 import {MevGuard} from "./MevGuard.sol";
+import {OpenServProposalGate} from "./OpenServProposalGate.sol";
 import {SafetyController} from "./SafetyController.sol";
 
 /// @title StableClubAutomationExecutor — Step 2 CL harvest / compound / rebalance operator.
@@ -31,7 +32,9 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     MevGuard public immutable mevGuard;
     address public owner;
     IAllowanceTransfer public permit2;
+    OpenServProposalGate public proposalGate;
 
+    mapping(address => bool) public authorizedKeepers;
     mapping(address => bool) public approvedAdapters;
     mapping(bytes32 => address) public poolAdapters;
     mapping(address => bool) public approvedTokens;
@@ -46,6 +49,8 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     event TokenApproved(address indexed token, bool approved);
     event Permit2Updated(address indexed permit2);
     event OwnerTransferred(address indexed previous, address indexed next);
+    event ProposalGateSet(address indexed gate);
+    event KeeperAuthorized(address indexed keeper, bool authorized);
     event AutomationExecuted(
         bytes32 indexed permissionId,
         PermissionRegistry.Action indexed action,
@@ -71,6 +76,14 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     error PositionApprovalRequired();
     error PositionValueUnavailable();
     error InvalidPermit2();
+    error KeeperNotAuthorized();
+    error ProposalGateNotSet();
+    error ProposalInvalid();
+    error ProposalExpired();
+    error ProposalAlreadyHandled();
+    error ProposalBindingMismatch();
+    error ProposalActionMismatch();
+    error ProposalAdapterMismatch();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -135,6 +148,20 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         emit Permit2Updated(permit2_);
     }
 
+    function setProposalGate(address gate) external onlyOwner {
+        if (gate == address(0)) revert Unauthorized();
+        proposalGate = OpenServProposalGate(gate);
+        emit ProposalGateSet(gate);
+    }
+
+    /// @notice Governance-revocable keeper allowlist for automated harvest proposals only.
+    function setAuthorizedKeeper(address keeper, bool authorized) external onlyOwner {
+        if (keeper == address(0)) revert Unauthorized();
+        authorizedKeepers[keeper] = authorized;
+        emit KeeperAuthorized(keeper, authorized);
+    }
+
+    /// @notice Manual harvest — permission owner must call directly.
     function harvest(
         bytes32 permissionId,
         uint256 executionNonce,
@@ -143,7 +170,48 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     ) external nonReentrant {
         PermissionRegistry.Permission memory perm = permissionRegistry.getPermission(permissionId);
         if (perm.user != msg.sender) revert PermissionRegistry.UnauthorizedUser();
+        _executeHarvest(permissionId, executionNonce, adapter, positionTokenId, perm);
+    }
 
+    /// @notice Keeper-only automated harvest — caller supplies proposalId only; all fields come from gate storage.
+    function executeHarvestProposal(bytes32 proposalId) external nonReentrant {
+        if (!authorizedKeepers[msg.sender]) revert KeeperNotAuthorized();
+        if (address(proposalGate) == address(0)) revert ProposalGateNotSet();
+
+        OpenServProposalGate.Proposal memory proposal = proposalGate.getProposal(proposalId);
+        if (proposal.user == address(0)) revert ProposalInvalid();
+        if (proposal.consumed || proposal.rejected) revert ProposalAlreadyHandled();
+        if (block.timestamp > proposal.deadline) revert ProposalExpired();
+        if (proposal.action != OpenServProposalGate.ProposedAction.Harvest) revert ProposalActionMismatch();
+        if (proposal.chainId != block.chainid) revert ProposalBindingMismatch();
+
+        PermissionRegistry.Permission memory perm = permissionRegistry.getPermission(proposal.permissionId);
+        if (perm.user != proposal.user) revert ProposalBindingMismatch();
+        if (perm.poolId != proposal.poolId) revert ProposalBindingMismatch();
+
+        address derivedAdapter = poolAdapters[proposal.poolId];
+        if (derivedAdapter == address(0) || derivedAdapter != proposal.adapter) {
+            revert ProposalAdapterMismatch();
+        }
+
+        _executeHarvest(
+            proposal.permissionId,
+            proposal.executionNonce,
+            proposal.adapter,
+            proposal.positionTokenId,
+            perm
+        );
+
+        proposalGate.markConsumedByExecutor(proposalId);
+    }
+
+    function _executeHarvest(
+        bytes32 permissionId,
+        uint256 executionNonce,
+        address adapter,
+        uint256 positionTokenId,
+        PermissionRegistry.Permission memory perm
+    ) internal {
         bytes32 poolId = _requirePoolAdapter(adapter, perm.poolId);
         _requirePositionApproval(adapter, positionTokenId, perm.user);
         _requirePositionBound(adapter, positionTokenId, perm);
@@ -151,7 +219,6 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         safetyController.assertAutomationAllowed(poolId);
         safetyController.assertTokenNotDepegged(perm.tokenA);
         safetyController.assertTokenNotDepegged(perm.tokenB);
-        // Oracle uses its own deviation limit (not permission slippage) — M3.
         if (!oracleGuard.validatePrices(perm.tokenA, perm.tokenB, 0)) revert OracleRejected();
 
         permissionRegistry.validateExecution(

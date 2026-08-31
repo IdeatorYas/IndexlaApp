@@ -6,6 +6,7 @@ import {
   type NpmApprovalStatus,
 } from "@/lib/stable-club/nft-approval";
 import type { StableClubPosition } from "@/lib/stable-club/positions";
+import type { HarvestUiStatus } from "@/lib/stable-club/harvest";
 
 export function StableClubPoolCatalogue({
   activatedPoolIds,
@@ -101,12 +102,20 @@ export function StableClubPositionDashboard({
   circuitBroken,
   onApprovePosition,
   approvingPositionId,
+  harvestOptInEnabled = false,
+  harvestBusy = false,
+  harvestUiStatus,
+  onHarvestPosition,
 }: {
   positions: StableClubPosition[];
   pendingProposals: number;
   circuitBroken: boolean;
   onApprovePosition?: (position: StableClubPosition) => void;
   approvingPositionId?: string | null;
+  harvestOptInEnabled?: boolean;
+  harvestBusy?: boolean;
+  harvestUiStatus?: HarvestUiStatus;
+  onHarvestPosition?: (position: StableClubPosition) => void;
 }) {
   return (
     <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
@@ -145,6 +154,14 @@ export function StableClubPositionDashboard({
               Boolean(pos.positionTokenId) &&
               /^\d+$/.test(pos.positionTokenId) &&
               needsApproval;
+            const canHarvest =
+              harvestOptInEnabled &&
+              pos.dataVerifiedOnChain &&
+              pos.npmApprovalStatus === "approved" &&
+              Boolean(onHarvestPosition) &&
+              Boolean(pos.adapterAddress) &&
+              /^\d+$/.test(pos.positionTokenId) &&
+              !pos.automation.paused;
             return (
               <li
                 key={pos.id}
@@ -211,6 +228,25 @@ export function StableClubPositionDashboard({
                     <p className="text-[10px] text-app-dim">
                       Per-token only · spender = adapter · tokenId #{pos.positionTokenId}
                     </p>
+                  </div>
+                ) : null}
+                {canHarvest ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={harvestBusy || harvestUiStatus?.status === "pending-receipt"}
+                      onClick={() => onHarvestPosition?.(pos)}
+                      className="app-btn-primary h-8 px-3 text-[11px] font-bold disabled:opacity-50"
+                    >
+                      {harvestBusy ? "Harvesting…" : "Manual harvest"}
+                    </button>
+                    {harvestUiStatus?.status === "confirmed" ? (
+                      <span className="text-[10px] font-bold uppercase text-app-success">
+                        Harvest confirmed
+                      </span>
+                    ) : harvestUiStatus?.status === "failed" ? (
+                      <span className="text-[10px] text-app-danger">{harvestUiStatus.message}</span>
+                    ) : null}
                   </div>
                 ) : null}
               </li>

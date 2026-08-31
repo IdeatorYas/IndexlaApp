@@ -22,7 +22,7 @@ import {
   isPoolLaunchReady,
 } from "@/lib/stable-club/official-pools";
 import { STAGE1_PRIVATE_BETA_POOL_ID } from "@/lib/stable-club/stage1-launch";
-import { OpenServMonitor, buildHarvestProposal } from "@/lib/stable-club/openserv";
+import { useStableClubHarvest } from "@/components/stable-club/useStableClubHarvest";
 import {
   buildPerTokenApproveTx,
   erc721PositionAbi,
@@ -47,8 +47,6 @@ import {
   createWalletClient,
   custom,
   http,
-  keccak256,
-  stringToHex,
   type Address,
   type Hex,
 } from "viem";
@@ -71,9 +69,7 @@ export function StableClubView({
 
   const [testPoolValidated, setTestPoolValidated] = useState(false);
   const [activatedPoolIds, setActivatedPoolIds] = useState<string[]>([]);
-  const monitor = useMemo(() => new OpenServMonitor(60, 10), []);
-  const [proposalCount, setProposalCount] = useState(0);
-  const [circuitBroken, setCircuitBroken] = useState(false);
+  const harvest = useStableClubHarvest();
   const [deployments, setDeployments] = useState<StableClubLocalDeployments | null>(null);
   const expectedChainId = deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID;
   const onExpectedChain = wallet.chainId === expectedChainId;
@@ -123,7 +119,53 @@ export function StableClubView({
 
   const positions = useMemo((): StableClubPosition[] => {
     if (!wallet.address) return [];
-    return buildIllustrativePositions(wallet.address).map((pos) => {
+    const rows = buildIllustrativePositions(wallet.address);
+    const dev = harvest.deployments?.harvestDev;
+    if (
+      dev &&
+      wallet.address.toLowerCase() === dev.testUser.toLowerCase() &&
+      harvest.deployments?.network === "hardhat-local"
+    ) {
+      const verified = resolveVerifiedAdapterForPool({
+        deployments: verifiedAdapters,
+        chainId: harvest.deployments.chainId,
+        poolId: dev.poolCatalogueId,
+      });
+      return [
+        {
+          id: "local-harvest-dev-1",
+          poolId: dev.poolCatalogueId,
+          poolLabel: "USDC/cbBTC 0.05% — Uniswap V3 (local harvest dev)",
+          protocol: "uniswap-v3",
+          chainId: harvest.deployments.chainId,
+          owner: wallet.address,
+          positionTokenId: dev.positionTokenId,
+          npmAddress: verified?.npm ?? dev.npm,
+          adapterAddress: verified?.adapter ?? dev.adapter,
+          npmApprovalStatus:
+            approvalByPositionId["local-harvest-dev-1"] ??
+            resolvePerTokenApprovalStatus({
+              adapter: verified?.adapter ?? dev.adapter,
+              approvedSpender: verified?.adapter ?? dev.adapter,
+            }),
+          tokenASymbol: "USDC",
+          tokenBSymbol: "cbBTC",
+          liquidity: "100000000",
+          feesEarnedUsd: "25.00",
+          rewardsEarnedUsd: "0.00",
+          rangeStatus: "in-range",
+          lastUpdated: Math.floor(Date.now() / 1000),
+          automation: {
+            harvest: harvest.permissionRegistered,
+            compound: false,
+            rebalance: false,
+            paused: false,
+          },
+          dataVerifiedOnChain: true,
+        },
+      ];
+    }
+    return rows.map((pos) => {
       const verified = resolveVerifiedAdapterForPool({
         deployments: verifiedAdapters,
         chainId: deployments?.chainId ?? wallet.chainId,
@@ -153,6 +195,8 @@ export function StableClubView({
     deployments?.chainId,
     verifiedAdapters,
     approvalByPositionId,
+    harvest.deployments,
+    harvest.permissionRegistered,
   ]);
 
   const approvePositionNft = useCallback(
@@ -253,34 +297,11 @@ export function StableClubView({
 
   function activateReadyPools() {
     if (!testPoolValidated) return;
-    // Dev UI only: Stage 1 allows UNI-005 when launch-ready. Never activate unavailable CL100 IDs.
-    // This does not deploy or enable mainnet pools.
     setActivatedPoolIds(
       OFFICIAL_STABLE_CLUB_BASE_POOLS.filter(
         (p) => p.id === STAGE1_PRIVATE_BETA_POOL_ID && isPoolLaunchReady(p),
       ).map((p) => p.id),
     );
-  }
-
-  function simulateOpenServHarvest() {
-    if (!wallet.address) return;
-    const proposal = buildHarvestProposal({
-      user: wallet.address,
-      permissionId: keccak256(stringToHex("demo-permission")),
-      poolId:
-        OFFICIAL_STABLE_CLUB_BASE_POOLS.find((p) => p.id === STAGE1_PRIVATE_BETA_POOL_ID)
-          ?.poolIdHash ?? OFFICIAL_STABLE_CLUB_BASE_POOLS[1].poolIdHash,
-      positionTokenId: "0",
-      feesUsd: 25,
-      gasUsd: 4,
-      idempotencyKey: keccak256(stringToHex(`harvest-${Date.now()}`)),
-    });
-    if (!proposal) return;
-    const result = monitor.submit(proposal);
-    if (result.ok) {
-      setProposalCount(monitor.listProposals().length);
-      setCircuitBroken(monitor.circuitBroken);
-    }
   }
 
   return (
@@ -379,6 +400,36 @@ export function StableClubView({
       />
 
       <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
+        <h2 className="text-sm font-bold text-app-ink">Harvest permission (Step 2)</h2>
+        <p className="mt-1 text-xs text-app-muted">
+          On-chain harvest permission is the automation opt-in. Manual harvest is wallet-signed;
+          keeper execution requires a stored OpenServ proposal (not connected in this build).
+          Launch policy keeps harvestEnabled=false.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!wallet.address || harvest.busy || harvest.permissionRegistered}
+            onClick={() => void harvest.registerHarvestPermission()}
+            className="app-btn-secondary h-9 px-3 text-xs font-bold disabled:opacity-50"
+          >
+            Register harvest permission (automation opt-in)
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-app-dim">
+          Permission: {harvest.permissionRegistered ? "registered (opt-in)" : "not registered"}
+          {" · "}
+          Manual status: {harvest.uiStatus.status}
+          {harvest.uiStatus.message ? ` — ${harvest.uiStatus.message}` : ""}
+        </p>
+        {harvest.uiStatus.lastTxHash ? (
+          <p className="mt-1 font-mono text-[10px] text-app-dim">
+            Last harvest tx: {harvest.uiStatus.lastTxHash}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
         <h2 className="text-sm font-bold text-app-ink">Activation gate</h2>
         <p className="mt-1 text-xs text-app-muted">
           Official pools unlock only after the private internal test pool has been validated.
@@ -397,25 +448,30 @@ export function StableClubView({
             onClick={activateReadyPools}
             className="app-btn-primary h-9 px-3 text-xs font-bold disabled:opacity-50"
           >
-            Activate five official Base pools
-          </button>
-          <button
-            type="button"
-            disabled={!wallet.address || !testPoolValidated}
-            onClick={simulateOpenServHarvest}
-            className="app-btn-secondary h-9 px-3 text-xs font-bold disabled:opacity-50"
-          >
-            Simulate OpenServ harvest proposal
+            Activate Stage 1 pool (UNI-005)
           </button>
         </div>
       </section>
 
       <StableClubPositionDashboard
         positions={positions}
-        pendingProposals={proposalCount}
-        circuitBroken={circuitBroken}
+        pendingProposals={harvest.proposalCount}
+        circuitBroken={harvest.circuitBroken}
         onApprovePosition={(pos) => void approvePositionNft(pos)}
         approvingPositionId={approvingPositionId}
+        harvestOptInEnabled={harvest.permissionRegistered}
+        harvestBusy={harvest.busy}
+        harvestUiStatus={harvest.uiStatus}
+        onHarvestPosition={(pos) => {
+          if (!pos.adapterAddress) return;
+          void harvest.runHarvest({
+            positionTokenId: pos.positionTokenId,
+            adapter: pos.adapterAddress,
+            feesUsd: Number.parseFloat(pos.feesEarnedUsd) || 0,
+            gasUsd: 4,
+            manual: true,
+          });
+        }}
       />
       {approvalError ? (
         <p className="text-[11px] text-app-danger">{approvalError}</p>

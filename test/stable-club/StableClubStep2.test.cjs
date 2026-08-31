@@ -165,18 +165,21 @@ describe("Stable Club Step 2 — Oracle / Safety / OpenServ", function () {
   it("OpenServ proposal gate rejects duplicates and can trip circuit", async function () {
     const ctx = await deployStep2Stack();
     await ctx.openServGate.setLimits(10, 20, 2);
+    const chainId = (await ethers.provider.getNetwork()).chainId;
+    const latest = await time.latest();
     const proposal = {
+      chainId,
       user: ctx.user.address,
       permissionId: ethers.ZeroHash,
       poolId: POOL_ID,
+      adapter: await ctx.clAdapter.getAddress(),
       positionTokenId: 1n,
       action: 0,
+      executionNonce: 1n,
+      deadline: BigInt(latest + 3600),
+      idempotencyKey: ethers.id("idem-a"),
       reasonCode: ethers.id("fees-exceed-gas"),
       observedValue: 25n,
-      timestamp: 0n,
-      idempotencyKey: ethers.id("idem-a"),
-      consumed: false,
-      rejected: false,
     };
     const id = await ctx.openServGate.submitProposal.staticCall(proposal);
     await ctx.openServGate.submitProposal(proposal);

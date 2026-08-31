@@ -1,3 +1,57 @@
+export const stableClubAutomationExecutorAbi = [
+  {
+    type: "function",
+    name: "executeHarvestProposal",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "proposalId", type: "bytes32" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setAuthorizedKeeper",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "keeper", type: "address" },
+      { name: "authorized", type: "bool" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "harvest",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "permissionId", type: "bytes32" },
+      { name: "executionNonce", type: "uint256" },
+      { name: "adapter", type: "address" },
+      { name: "positionTokenId", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "event",
+    name: "AutomationExecuted",
+    inputs: [
+      { name: "permissionId", type: "bytes32", indexed: true },
+      { name: "action", type: "uint8", indexed: false },
+      { name: "poolId", type: "bytes32", indexed: true },
+      { name: "user", type: "address", indexed: true },
+      { name: "positionTokenId", type: "uint256", indexed: false },
+      { name: "executionNonce", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
+
+export const safetyControllerAbi = [
+  {
+    type: "function",
+    name: "isAutomationPaused",
+    stateMutability: "view",
+    inputs: [{ name: "poolId", type: "bytes32" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
 export const permissionRegistryAbi = [
   {
     type: "function",
