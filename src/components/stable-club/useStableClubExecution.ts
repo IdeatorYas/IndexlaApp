@@ -32,6 +32,10 @@ import {
   STABLE_CLUB_USDC_DECIMALS,
 } from "@/lib/stable-club/constants";
 import { assertChainEnvironmentMatch } from "@/lib/stable-club/chain-isolation";
+import {
+  buildDualSpenderDepositApprovalPlan,
+  permit2AllowanceAbi,
+} from "@/lib/stable-club/permit2";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
   createSyncSubmissionLock,
@@ -338,12 +342,59 @@ export function useStableClubExecution() {
         if (swapAmount > depositAmount) {
           throw new Error("swapAmount cannot exceed depositAmount");
         }
-        const executorPull = depositAmount - swapAmount;
-        if (swapAmount > BigInt(0)) {
-          await approveErc20OrThrow(client, account, d.usdc, d.feeRouter, swapAmount);
+
+        const permit2Address = (await publicClient.readContract({
+          address: d.executor,
+          abi: [{ type: "function", name: "permit2", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const,
+          functionName: "permit2",
+        })) as Address;
+
+        const nowSec = Number((await publicClient.getBlock()).timestamp);
+        const expiration = nowSec + 3600;
+        const approvalPlan = buildDualSpenderDepositApprovalPlan({
+          chainId: d.chainId,
+          permit2: permit2Address,
+          token: d.usdc,
+          feeRouter: d.feeRouter,
+          executor: d.executor,
+          depositAmount,
+          swapAmount,
+          expiration,
+          nowSec,
+        });
+
+        if (approvalPlan.erc20ApproveTx) {
+          const hash = await client.writeContract({
+            address: approvalPlan.erc20ApproveTx.address,
+            abi: erc20Abi,
+            functionName: approvalPlan.erc20ApproveTx.functionName,
+            args: [...approvalPlan.erc20ApproveTx.args],
+            chain,
+            account,
+          });
+          await waitForSuccessfulTransactionReceipt(publicClient, hash);
         }
-        if (executorPull > BigInt(0)) {
-          await approveErc20OrThrow(client, account, d.usdc, d.executor, executorPull);
+        if (approvalPlan.feeRouterPermit2Tx) {
+          const hash = await client.writeContract({
+            address: approvalPlan.feeRouterPermit2Tx.address,
+            abi: permit2AllowanceAbi,
+            functionName: approvalPlan.feeRouterPermit2Tx.functionName,
+            args: [...approvalPlan.feeRouterPermit2Tx.args],
+            chain,
+            account,
+          });
+          await waitForSuccessfulTransactionReceipt(publicClient, hash);
+        }
+        if (approvalPlan.executorPermit2Tx) {
+          const hash = await client.writeContract({
+            address: approvalPlan.executorPermit2Tx.address,
+            abi: permit2AllowanceAbi,
+            functionName: approvalPlan.executorPermit2Tx.functionName,
+            args: [...approvalPlan.executorPermit2Tx.args],
+            chain,
+            account,
+          });
+          await waitForSuccessfulTransactionReceipt(publicClient, hash);
         }
 
         // SC-F08: chain nonce immediately before building the executable executor tx.
@@ -371,7 +422,7 @@ export function useStableClubExecution() {
         });
       });
     },
-    [approveErc20OrThrow, chain, ensureReady, permissionId, readNextExecutionNonce, runGuarded],
+    [chain, ensureReady, permissionId, publicClient, readNextExecutionNonce, runGuarded],
   );
 
   const removeLiquidity = useCallback(

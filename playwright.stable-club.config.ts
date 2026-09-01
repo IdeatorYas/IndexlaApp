@@ -23,10 +23,10 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run build && npx next start -p 4010",
-    url: baseURL,
+    command: "node tests/e2e/start-stable-club-webserver.cjs",
+    url: `${baseURL}/app/stable-club`,
     reuseExistingServer: false,
-    timeout: 240_000,
+    timeout: 480_000,
     env: {
       STABLE_CLUB_DEV_ENABLED: "true",
       NEXT_PUBLIC_STABLE_CLUB_DEV_ENABLED: "true",

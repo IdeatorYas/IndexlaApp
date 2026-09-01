@@ -6,6 +6,7 @@ const {
   POOL_ID,
   approvePermit2Pull,
 } = require("../../scripts/stable-club/deploy-local.cjs");
+const { impersonateTimelock } = require("../../scripts/stable-club/governance-activation-local.cjs");
 
 const ALL_ACTIONS =
   (1n << 0n) |
@@ -18,12 +19,17 @@ const ALL_ACTIONS =
 
 
 async function asOperator(ctx) {
-  const reg = ctx.permissionRegistryContract;
-  const [deployer] = await ethers.getSigners();
-  if (!(await reg.isOperator(deployer.address))) {
-    await reg.setOperator(deployer.address, true);
+  const executorAddr = ctx.executor;
+  if (!(await ctx.permissionRegistryContract.isOperator(executorAddr))) {
+    const tlSigner = await impersonateTimelock(ctx.timelockAddr);
+    await ctx.permissionRegistryContract.connect(tlSigner).setOperator(executorAddr, true);
   }
-  return reg.connect(deployer);
+  await ethers.provider.send("hardhat_impersonateAccount", [executorAddr]);
+  await ethers.provider.send("hardhat_setBalance", [
+    executorAddr,
+    ethers.toQuantity(ethers.parseEther("1")),
+  ]);
+  return ctx.permissionRegistryContract.connect(await ethers.getSigner(executorAddr));
 }
 
 async function registerPermission(ctx) {
