@@ -29,6 +29,16 @@ const eslintConfig = [
       "tmp/**",
     ],
   },
+  {
+    files: [
+      "tests/e2e/stable-club-harness-process.cjs",
+      "tests/e2e/start-stable-club-webserver.cjs",
+      "tests/e2e/verify-stable-club-cleanup.cjs",
+    ],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 ];
 
 export default eslintConfig;
