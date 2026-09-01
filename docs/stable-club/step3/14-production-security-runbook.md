@@ -53,6 +53,45 @@ Other fields (for example `maxTotalPerTx`, `maxTotalPerDay`, `maxLegPerTx`, per-
 
 If product copy or operator runbooks previously implied these two fields gate execution, that implication is **incorrect** until a future contract change explicitly enforces them.
 
+### PermissionRegistry amount caps and `amount=0` validation paths
+
+`PermissionRegistry.maxAmountPerTx` and `maxAmountPerDay` are enforced **only when the operator passes a non-zero `amount`** to `validateExecution`.
+
+Production paths that pass **`amount=0`** (tx/daily caps **not** enforced at validation):
+
+| Path | Call site |
+|---|---|
+| Harvest | `StableClubAutomationExecutor._executeHarvest` |
+| Exit (remove / withdraw-all) | `StrategyPermissionRegistry.validateStrategyLegExit` |
+| Emergency | `PermissionRegistry.validateEmergencyExecution` (no amount parameter) |
+
+**Do not** describe harvest or exit monetary caps as enforced via leg `PermissionRegistry` tx/daily fields. Deposit, swap, compound and rebalance pass authoritative non-zero amounts.
+
+Harvest opt-in registration uses `maxAmountPerTx=0` / `maxAmountPerDay=0` in client scope builders — these are **non-applicable** on the harvest path (validation passes `amount=0`), not authoritative monetary caps. Do not describe them as active enforcement.
+
+Harvest passes `slippage=0` to `validateExecution` — `maxSlippageBps` is **non-applicable** on the harvest path (not an active slippage cap at validation). Swap slippage is not part of harvest execution.
+
+Exit and emergency monetary caps are likewise **non-applicable** at `PermissionRegistry` validation (`amount=0` or nonce-only emergency path). Exit slippage (`leg.slippageBps`) remains **enforced**.
+
+---
+
+## OpenServ proposal gate — global circuit-breaker policy
+
+`OpenServProposalGate` uses **gate-wide** (not per-user/pool/strategy) accounting:
+
+| Field | Scope | Behavior |
+|---|---|---|
+| `failedExecutionStreak` | Global | Any owner rejection (non-expiry) increments once |
+| `circuitBroken` | Global | Trips when streak ≥ `autoBreakAfterFailures`; blocks all publisher submits and keeper execute |
+| `positionProposalCount` | Per `keccak256(user, poolId, positionTokenId)` | Isolated active-proposal counter |
+
+**Intentional coupling:** compound/harvest/rebalance failures share one circuit. Expiry cleanup (`finalizeExpired*Proposal`) remains allowed while circuit is open to decrement counters without incrementing the streak.
+
+**Deadline rule (consistent across execute / reject / finalize):**
+
+- Active while `block.timestamp <= deadline` (execute allowed; owner reject allowed; finalize **not** yet)
+- Expired when `block.timestamp > deadline` (execute reverts; owner reject reverts `ProposalExpired`; finalize allowed)
+
 ---
 
 ## SC-09 — Equal five-way deposit (exact divisibility)
@@ -164,6 +203,33 @@ These are **not** closed by documentation alone:
 4. Run fork rehearsal / go-live checklist with ownership map green.
 5. Operator training: adapter change freeze while positions open; equal five-way deposit rule; emergency vs direct NPM distinction.
 6. Founder authorization for mainnet activation (separate from this runbook).
+
+---
+
+## Base pool catalogue — configured vs verified vs activated
+
+**Canonical catalogue:** `src/lib/stable-club/official-pools.ts` (chainId **8453** only).
+**Stage 1 launch policy:** `src/lib/stable-club/stage1-launch.ts` — activates **`USDC-cbBTC-UNI-005` only**.
+
+| State | Meaning | Ops rule |
+|---|---|---|
+| **Configured** | Pool ID, tokens, protocol, and infrastructure generation exist in catalogue | Do not treat as user-facing "active" |
+| **Factory-verified** | Bound factory returns non-zero pool address on Base (CL100 uses **legacy** Aero factory `0x5e7BB104…`) | Catalogue-resolvable; still may be excluded from Stage 1 |
+| **Stage 1 eligible** | Listed as activation candidate in `stage1-launch.ts` | Currently UNI-005 only |
+| **Activated** | On-chain official pool activation + governance preflight (`activateStage1OfficialPools`) | Only state that may be called "active" in product copy |
+
+**Stage 1 exclusions (must not activate):** `USDC-cbBTC-AERO-CL100`, `cbBTC-WETH-AERO-CL100`.
+**Stage 2 deferred:** `cbBTC-WETH-AERO-CL10`, `cbBTC-WETH-UNI-005`.
+
+Local Hardhat manifests (`chainId 31337`, `isTestOnly: true`) are **isolated** from Base mainnet catalogue values. Never pair Base chainId 8453 with mock Permit2 or local deployment JSON.
+
+### Launch automation flags (Stage 1 private beta)
+
+`launch-params.ts` keeps **`harvestEnabled=false`**, **`compoundEnabled=false`**, **`rebalanceEnabled=false`**.
+
+Do not describe keeper/OpenServ harvest, compound, or rebalance as **running** or **production-ready** while these flags are false. Manual wallet-signed paths may exist in development; production automation requires explicit launch-policy change plus keeper wiring.
+
+UI/API helpers: `pool-launch-status.ts`, `local-automation-policy.ts`.
 
 ---
 

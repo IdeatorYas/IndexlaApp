@@ -3,17 +3,29 @@
 **Status:** read-only Base fork inspection (no transactions, no real funds)  
 **Fork block:** see `official-pools-inspection.json`  
 **Catalogue source:** `src/lib/stable-club/official-pools.ts`  
+**REAUDIT-F02 (2026-08-31):** Aerodrome CL100 catalogue IDs bind to the **legacy** Slipstream factory (`0x5e7BB104…`), not the current-generation factory.
 **Rule:** RLUSD/USDC and PYUSD/USDC are **not** approved unless formally onboarded.
 
 ## Summary table (five official catalogue IDs)
 
-| Catalogue ID | Protocol | Pair | Fee / tickSpacing | Factory-derived pool | Exists? | Approx. balances (fork) | Catalogue risk |
-|---|---|---|---|---|---|---|---|
-| `USDC-cbBTC-AERO-CL100` | Aerodrome Slipstream | USDC/cbBTC | tickSpacing **100** | `address(0)` | **NO** | n/a | medium |
-| `USDC-cbBTC-UNI-005` | Uniswap V3 | USDC/cbBTC | fee **500** (0.05%) | `0xfBB6Eed8e7aa03B138556eeDaF5D271A5E1e43ef` | **YES** | ~5.69M USDC + ~29.13 cbBTC | medium |
-| `cbBTC-WETH-AERO-CL10` | Aerodrome Slipstream | cbBTC/WETH | tickSpacing **10** | `0x42d4a22CaD0F5a49681a5715cE994Af73A43B76b` | **YES** | ~2358 WETH + ~60.67 cbBTC | high |
-| `cbBTC-WETH-AERO-CL100` | Aerodrome Slipstream | cbBTC/WETH | tickSpacing **100** | `address(0)` | **NO** | n/a | high |
-| `cbBTC-WETH-UNI-005` | Uniswap V3 | cbBTC/WETH | fee **500** (0.05%) | `0x7AeA2E8A3843516afa07293a10Ac8E49906dabD1` | **YES** | ~2181 WETH + ~33.21 cbBTC | high |
+| Catalogue ID | Protocol | Pair | Fee / tickSpacing | Factory generation | Factory-derived pool | Exists on bound factory? | Stage 1 policy | Catalogue risk |
+|---|---|---|---|---|---|---|---|---|
+| `USDC-cbBTC-AERO-CL100` | Aerodrome Slipstream | USDC/cbBTC | tickSpacing **100** | **legacy** | `0x4e962bb3889bf030368f56810a9c96b83cb3e778` | **YES** (legacy factory) | **Excluded — must not activate Stage 1** | medium |
+| `USDC-cbBTC-UNI-005` | Uniswap V3 | USDC/cbBTC | fee **500** (0.05%; catalogue `feeBps=5`) | uniswap-v3 | `0xfBB6Eed8e7aa03B138556eeDaF5D271A5E1e43ef` | **YES** | **Stage 1 only activated candidate** | medium |
+| `cbBTC-WETH-AERO-CL10` | Aerodrome Slipstream | cbBTC/WETH | tickSpacing **10** | current | `0x42d4a22CaD0F5a49681a5715cE994Af73A43B76b` | **YES** | Deferred Stage 2 | high |
+| `cbBTC-WETH-AERO-CL100` | Aerodrome Slipstream | cbBTC/WETH | tickSpacing **100** | **legacy** | `0x70acdf2ad0bf2402c957154f944c19ef4e1cbae1` | **YES** (legacy factory) | **Excluded — must not activate Stage 1** | high |
+| `cbBTC-WETH-UNI-005` | Uniswap V3 | cbBTC/WETH | fee **500** (0.05%) | uniswap-v3 | `0x7AeA2E8A3843516afa07293a10Ac8E49906dabD1` | **YES** | Deferred Stage 2 | high |
+
+### Terminology (configured vs verified vs activated)
+
+| State | Meaning |
+|---|---|
+| **Configured** | Pool ID exists in `official-pools.ts` with tokens, protocol, and infrastructure generation. |
+| **Factory-verified** | Bound factory returns a non-zero pool address on Base (chainId 8453). CL100 uses **legacy** factory only. |
+| **Stage 1 eligible** | Listed in `stage1-launch.ts` activation candidate set (currently **UNI-005 only**). |
+| **Activated** | On-chain `officialPoolsActivated` + governance preflight completed — not UI-only state. |
+
+CL100 pools are **factory-verified on the catalogue** but **excluded from Stage 1 activation**. Do not conflate catalogue verification with launch activation.
 
 ### Related Aero pools that exist but are **not** in the official catalogue
 
@@ -26,7 +38,7 @@ Factory probe (not activation candidates until onboarding):
 | USDC/cbBTC | 50 | `0x160D7E9d…` | exists; not catalogue |
 | cbBTC/WETH | 1 / 50 | see probe | exists; not catalogue |
 
-**Critical:** Catalogue IDs `*-AERO-CL100` do **not** resolve on Base. Do not activate them. Correct tickSpacing (or remove the IDs) only through the formal onboarding process.
+**Critical:** Never silently remap CL100 catalogue IDs to a different tickSpacing or factory generation. Onboarding must be explicit.
 
 ## Oracle availability (inspection-time)
 
@@ -45,7 +57,7 @@ Gas at inspection: ~1.0 gwei base fee band; recommended configurable ceiling ≈
 **`USDC-cbBTC-UNI-005` only.**
 
 - `cbBTC-WETH-AERO-CL10` deferred to Stage 2 after onboarding, tighter caps, and successful UNI beta monitoring.
-- Unavailable Aero CL100 IDs must never activate or silently remap.
+- Aero **CL100** catalogue IDs are factory-verified on the **legacy** generation but **must never activate in Stage 1**.
 
 ### Historical recommendation notes
 

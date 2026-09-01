@@ -1,6 +1,7 @@
 "use client";
 
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
+import { resolvePoolLaunchStatus } from "@/lib/stable-club/pool-launch-status";
 import {
   automationRequiresNftApproval,
   type NpmApprovalStatus,
@@ -21,15 +22,26 @@ export function StableClubPoolCatalogue({
     <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
       <h2 className="text-sm font-bold text-app-ink">Official Base pools (Step 2)</h2>
       <p className="mt-1 text-xs text-app-muted">
-        Five approved pools. Activation requires internal test-pool validation.
+        Five approved catalogue pools on Base (chainId 8453). Factory-verified status is separate
+        from Stage 1 activation policy. CL100 pools remain excluded from Stage 1.
         {" "}
         Test pool validated: {testPoolValidated ? "yes" : "pending"}
       </p>
       <ul className="mt-3 space-y-2">
         {OFFICIAL_STABLE_CLUB_BASE_POOLS.map((pool) => {
-          const unavailable = pool.availability !== "available";
-          const active = activatedPoolIds.includes(pool.id);
-          const canActivate = testPoolValidated && !unavailable;
+          const status = resolvePoolLaunchStatus(pool, { activatedOnChainIds: activatedPoolIds });
+          const badgeClass =
+            status.publicBadge === "Activated"
+              ? "rounded border border-app-success/30 bg-app-success/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-success"
+              : status.publicBadge === "Unverified"
+                ? "rounded border border-app-danger/30 bg-app-danger/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-danger"
+                : status.launchPolicy === "stage1-excluded-cl100"
+                  ? "rounded border border-app-danger/30 bg-app-danger/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-danger"
+                  : status.launchPolicy === "stage2-deferred"
+                    ? "rounded border border-app-line px-2 py-0.5 text-[10px] font-bold uppercase text-app-dim"
+                    : status.canAdvertiseAsReadyForStage1Activation && testPoolValidated
+                      ? "rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600"
+                      : "rounded border border-app-line px-2 py-0.5 text-[10px] font-bold uppercase text-app-dim";
           return (
             <li
               key={pool.id}
@@ -42,31 +54,9 @@ export function StableClubPoolCatalogue({
                     {pool.protocol} · {pool.tokenA.symbol}/{pool.tokenB.symbol} · risk{" "}
                     {pool.riskLevel}
                   </p>
-                  {unavailable ? (
-                    <p className="mt-1 text-[10px] text-app-danger">
-                      Unavailable — factory missing. Not launch-ready. No silent remap.
-                    </p>
-                  ) : null}
+                  <p className="mt-1 text-[10px] text-app-muted">{status.publicDetail}</p>
                 </div>
-                <span
-                  className={
-                    unavailable
-                      ? "rounded border border-app-danger/30 bg-app-danger/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-danger"
-                      : active
-                        ? "rounded border border-app-success/30 bg-app-success/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-success"
-                        : canActivate
-                          ? "rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600"
-                          : "rounded border border-app-line px-2 py-0.5 text-[10px] font-bold uppercase text-app-dim"
-                  }
-                >
-                  {unavailable
-                    ? "Unavailable"
-                    : active
-                      ? "Activated"
-                      : canActivate
-                        ? "Ready"
-                        : "Locked"}
-                </span>
+                <span className={badgeClass}>{status.publicBadge}</span>
               </div>
             </li>
           );

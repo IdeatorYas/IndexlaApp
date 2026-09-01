@@ -131,6 +131,8 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     error ProposalGateNotSet();
     error ProposalInvalid();
     error ProposalExpired();
+    error ProposalNotExpired();
+    error CircuitOpen();
     error ProposalAlreadyHandled();
     error ProposalBindingMismatch();
     error ProposalActionMismatch();
@@ -260,6 +262,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     function executeHarvestProposal(bytes32 proposalId) external nonReentrant {
         if (!authorizedKeepers[msg.sender]) revert KeeperNotAuthorized();
         if (address(proposalGate) == address(0)) revert ProposalGateNotSet();
+        _assertProposalCircuitClosed();
 
         OpenServProposalGate.Proposal memory proposal = proposalGate.getProposal(proposalId);
         if (proposal.user == address(0)) revert ProposalInvalid();
@@ -292,6 +295,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     function executeCompoundProposal(bytes32 proposalId) external nonReentrant {
         if (!authorizedKeepers[msg.sender]) revert KeeperNotAuthorized();
         if (address(proposalGate) == address(0)) revert ProposalGateNotSet();
+        _assertProposalCircuitClosed();
 
         OpenServProposalGate.CompoundProposal memory proposal = proposalGate.getCompoundProposal(proposalId);
         if (proposal.user == address(0)) revert ProposalInvalid();
@@ -340,6 +344,7 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     function executeRebalanceProposal(bytes32 proposalId) external nonReentrant {
         if (!authorizedKeepers[msg.sender]) revert KeeperNotAuthorized();
         if (address(proposalGate) == address(0)) revert ProposalGateNotSet();
+        _assertProposalCircuitClosed();
 
         OpenServProposalGate.RebalanceProposal memory proposal = proposalGate.getRebalanceProposal(proposalId);
         if (proposal.user == address(0)) revert ProposalInvalid();
@@ -383,6 +388,43 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         );
 
         proposalGate.markRebalanceConsumedByExecutor(proposalId);
+    }
+
+    /// @notice Keeper expiry cleanup — marks proposal terminal once and decrements active counters.
+    function finalizeExpiredHarvestProposal(bytes32 proposalId) external nonReentrant {
+        if (!authorizedKeepers[msg.sender]) revert KeeperNotAuthorized();
+        if (address(proposalGate) == address(0)) revert ProposalGateNotSet();
+
+        OpenServProposalGate.Proposal memory proposal = proposalGate.getProposal(proposalId);
+        if (proposal.user == address(0)) revert ProposalInvalid();
+        if (proposal.consumed || proposal.rejected) revert ProposalAlreadyHandled();
+        if (block.timestamp <= proposal.deadline) revert ProposalNotExpired();
+
+        proposalGate.markHarvestExpiredByExecutor(proposalId);
+    }
+
+    function finalizeExpiredCompoundProposal(bytes32 proposalId) external nonReentrant {
+        if (!authorizedKeepers[msg.sender]) revert KeeperNotAuthorized();
+        if (address(proposalGate) == address(0)) revert ProposalGateNotSet();
+
+        OpenServProposalGate.CompoundProposal memory proposal = proposalGate.getCompoundProposal(proposalId);
+        if (proposal.user == address(0)) revert ProposalInvalid();
+        if (proposal.consumed || proposal.rejected) revert ProposalAlreadyHandled();
+        if (block.timestamp <= proposal.deadline) revert ProposalNotExpired();
+
+        proposalGate.markCompoundExpiredByExecutor(proposalId);
+    }
+
+    function finalizeExpiredRebalanceProposal(bytes32 proposalId) external nonReentrant {
+        if (!authorizedKeepers[msg.sender]) revert KeeperNotAuthorized();
+        if (address(proposalGate) == address(0)) revert ProposalGateNotSet();
+
+        OpenServProposalGate.RebalanceProposal memory proposal = proposalGate.getRebalanceProposal(proposalId);
+        if (proposal.user == address(0)) revert ProposalInvalid();
+        if (proposal.consumed || proposal.rejected) revert ProposalAlreadyHandled();
+        if (block.timestamp <= proposal.deadline) revert ProposalNotExpired();
+
+        proposalGate.markRebalanceExpiredByExecutor(proposalId);
     }
 
     function _executeHarvest(
@@ -910,6 +952,12 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
 
     function _requireApprovedToken(address token) internal view {
         if (!approvedTokens[token]) revert TokenNotApproved();
+    }
+
+    function _assertProposalCircuitClosed() internal view {
+        if (address(proposalGate) != address(0) && proposalGate.circuitBroken()) {
+            revert CircuitOpen();
+        }
     }
 
     function _criticalOwnables() internal view returns (address[8] memory critical) {

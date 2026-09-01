@@ -68,6 +68,7 @@ export function buildHarvestOptInPermissionScope(input: {
     tokenA: input.tokenA,
     tokenB: input.tokenB,
     allowedActions: ["harvest", "pause-automation", "revoke-permission", "emergency-exit"],
+    // Harvest passes amount=0 and slippage=0 — tx/daily/slippage caps are non-applicable at validation.
     maxAmountPerTx: BigInt(0),
     maxAmountPerDay: BigInt(0),
     maxSlippageBps: 0,

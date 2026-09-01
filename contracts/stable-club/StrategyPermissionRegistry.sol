@@ -22,6 +22,7 @@ contract StrategyPermissionRegistry {
         address user;
         uint256 chainId;
         address depositToken;
+        /// @notice SC-07 metadata-only — not enforced; leg `PermissionRegistry.allowedActions` gates actions.
         uint256 allowedActions;
         uint256 maxTotalPerTx;
         uint256 maxTotalPerDay;
@@ -41,6 +42,7 @@ contract StrategyPermissionRegistry {
         address tokenB;
         bytes32 legPermissionId;
         uint256 maxLegPerTx;
+        /// @notice SC-07 metadata-only — not enforced; leg `PermissionRegistry.maxAmountPerDay` enforces daily caps.
         uint256 maxLegPerDay;
     }
 
@@ -393,10 +395,10 @@ contract StrategyPermissionRegistry {
         if (leg.adapter != adapter) revert LegAdapterMismatch();
         if (slippageBps > strategy.maxSlippageBps) revert SlippageTooHigh();
 
+        // Exit passes amount=0 — leg PermissionRegistry maxAmountPerTx/maxAmountPerDay are not enforced on exit.
         permissionRegistry.validateExecution(
             leg.legPermissionId,
             action,
-            // Liquidity units are not USDC-denominated; deposit caps already bound position size at mint.
             0,
             slippageBps,
             executionNonce

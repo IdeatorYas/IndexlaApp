@@ -4,7 +4,7 @@ Base Mainnet first · wallet connection · no vault or internal balance ledger �
 
 ### Step 2 — Base Pools + Dashboard + Automation
 
-Integrate Uniswap V3 and Aerodrome · activate five approved Base pools after test-pool validation · position dashboard · OpenServ monitoring and proposals · **auto-harvest · auto-compound · auto-rebalance** · oracle, MEV, gas, rate-limit and depeg circuit breakers · complete action testing.
+Integrate Uniswap V3 and Aerodrome · Stage 1 activates **one** verified Base pool (`USDC-cbBTC-UNI-005`) after test-pool validation and governance preflight · five-pool Phase 2a catalogue includes CL100 on legacy factory (excluded from Stage 1) · position dashboard · OpenServ monitoring and proposals · **keeper-gated** harvest / compound / rebalance (**disabled in Stage 1**: `harvestEnabled`, `compoundEnabled`, `rebalanceEnabled` = false) · oracle, MEV, gas, rate-limit and depeg circuit breakers · complete action testing.
 
 ### Step 3 — Security + Mainnet Launch
 

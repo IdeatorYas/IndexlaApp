@@ -158,10 +158,13 @@ contract OpenServProposalGate {
     address public openservPublisher;
     address public automationExecutor;
     bool public circuitBroken;
+    /// @notice Global OpenServ intake circuit — trips on `failedExecutionStreak >= autoBreakAfterFailures`.
+    /// @dev Intentionally gate-wide (all proposal types/users/pools). See runbook §OpenServ circuit-breaker.
     uint256 public maxProposalsPerMinute = 60;
     uint256 public maxProposalsPerPosition = 20;
     uint256 public windowStart;
     uint256 public windowCount;
+    /// @dev Global failure streak — not scoped per user, pool, or proposal type.
     uint256 public failedExecutionStreak;
     uint256 public autoBreakAfterFailures = 10;
 
@@ -181,7 +184,12 @@ contract OpenServProposalGate {
     event CompoundProposalConsumed(bytes32 indexed proposalId);
     event RebalanceProposalConsumed(bytes32 indexed proposalId);
     event ProposalRejected(bytes32 indexed proposalId, bytes32 reason);
+    event CompoundProposalRejected(bytes32 indexed proposalId, bytes32 reason);
+    event RebalanceProposalRejected(bytes32 indexed proposalId, bytes32 reason);
     event CircuitBroken(bool broken);
+
+    /// @dev Canonical terminal reason for expiry cleanup (does not increment failure streak).
+    bytes32 public constant REASON_EXPIRED = keccak256("EXPIRED");
 
     error Unauthorized();
     error CircuitOpen();
@@ -191,6 +199,8 @@ contract OpenServProposalGate {
     error UnknownProposal();
     error AlreadyHandled();
     error InvalidProposalParams();
+    /// @dev Owner reject path — expired proposals must use executor expiry cleanup, not failure streak.
+    error ProposalExpired();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -492,17 +502,67 @@ contract OpenServProposalGate {
     }
 
     function markRejected(bytes32 proposalId, bytes32 reason) external onlyOwner {
+        _markHarvestTerminal(proposalId, reason, true);
+    }
+
+    function markCompoundRejected(bytes32 proposalId, bytes32 reason) external onlyOwner {
+        _markCompoundTerminal(proposalId, reason, true);
+    }
+
+    function markRebalanceRejected(bytes32 proposalId, bytes32 reason) external onlyOwner {
+        _markRebalanceTerminal(proposalId, reason, true);
+    }
+
+    /// @notice Expiry cleanup — terminal once; does not increment failure streak.
+    function markHarvestExpiredByExecutor(bytes32 proposalId) external onlyAutomationExecutor {
+        _markHarvestTerminal(proposalId, REASON_EXPIRED, false);
+    }
+
+    function markCompoundExpiredByExecutor(bytes32 proposalId) external onlyAutomationExecutor {
+        _markCompoundTerminal(proposalId, REASON_EXPIRED, false);
+    }
+
+    function markRebalanceExpiredByExecutor(bytes32 proposalId) external onlyAutomationExecutor {
+        _markRebalanceTerminal(proposalId, REASON_EXPIRED, false);
+    }
+
+    function _markHarvestTerminal(bytes32 proposalId, bytes32 reason, bool incrementFailureStreak) internal {
         Proposal storage p = proposals[proposalId];
         if (p.user == address(0)) revert UnknownProposal();
         if (p.consumed || p.rejected) revert AlreadyHandled();
+        if (incrementFailureStreak && block.timestamp > p.deadline) revert ProposalExpired();
         p.rejected = true;
         _decrementPositionCount(p);
-        failedExecutionStreak += 1;
-        if (failedExecutionStreak >= autoBreakAfterFailures) {
-            circuitBroken = true;
-            emit CircuitBroken(true);
+        if (incrementFailureStreak) {
+            _recordFailureStreak();
         }
         emit ProposalRejected(proposalId, reason);
+    }
+
+    function _markCompoundTerminal(bytes32 proposalId, bytes32 reason, bool incrementFailureStreak) internal {
+        CompoundProposal storage p = compoundProposals[proposalId];
+        if (p.user == address(0)) revert UnknownProposal();
+        if (p.consumed || p.rejected) revert AlreadyHandled();
+        if (incrementFailureStreak && block.timestamp > p.deadline) revert ProposalExpired();
+        p.rejected = true;
+        _decrementPositionCountKey(keccak256(abi.encode(p.user, p.poolId, p.positionTokenId)));
+        if (incrementFailureStreak) {
+            _recordFailureStreak();
+        }
+        emit CompoundProposalRejected(proposalId, reason);
+    }
+
+    function _markRebalanceTerminal(bytes32 proposalId, bytes32 reason, bool incrementFailureStreak) internal {
+        RebalanceProposal storage p = rebalanceProposals[proposalId];
+        if (p.user == address(0)) revert UnknownProposal();
+        if (p.consumed || p.rejected) revert AlreadyHandled();
+        if (incrementFailureStreak && block.timestamp > p.deadline) revert ProposalExpired();
+        p.rejected = true;
+        _decrementPositionCountKey(keccak256(abi.encode(p.user, p.poolId, p.positionTokenId)));
+        if (incrementFailureStreak) {
+            _recordFailureStreak();
+        }
+        emit RebalanceProposalRejected(proposalId, reason);
     }
 
     function _markConsumed(bytes32 proposalId) internal {
@@ -511,7 +571,7 @@ contract OpenServProposalGate {
         if (p.consumed || p.rejected) revert AlreadyHandled();
         p.consumed = true;
         _decrementPositionCount(p);
-        failedExecutionStreak = 0;
+        _resetFailureStreak();
         emit ProposalConsumed(proposalId);
     }
 
@@ -520,12 +580,8 @@ contract OpenServProposalGate {
         if (p.user == address(0)) revert UnknownProposal();
         if (p.consumed || p.rejected) revert AlreadyHandled();
         p.consumed = true;
-        bytes32 posKey = keccak256(abi.encode(p.user, p.poolId, p.positionTokenId));
-        uint256 count = positionProposalCount[posKey];
-        if (count > 0) {
-            positionProposalCount[posKey] = count - 1;
-        }
-        failedExecutionStreak = 0;
+        _decrementPositionCountKey(keccak256(abi.encode(p.user, p.poolId, p.positionTokenId)));
+        _resetFailureStreak();
         emit CompoundProposalConsumed(proposalId);
     }
 
@@ -534,21 +590,32 @@ contract OpenServProposalGate {
         if (p.user == address(0)) revert UnknownProposal();
         if (p.consumed || p.rejected) revert AlreadyHandled();
         p.consumed = true;
-        bytes32 posKey = keccak256(abi.encode(p.user, p.poolId, p.positionTokenId));
-        uint256 count = positionProposalCount[posKey];
-        if (count > 0) {
-            positionProposalCount[posKey] = count - 1;
-        }
-        failedExecutionStreak = 0;
+        _decrementPositionCountKey(keccak256(abi.encode(p.user, p.poolId, p.positionTokenId)));
+        _resetFailureStreak();
         emit RebalanceProposalConsumed(proposalId);
     }
 
     function _decrementPositionCount(Proposal storage p) internal {
-        bytes32 posKey = keccak256(abi.encode(p.user, p.poolId, p.positionTokenId));
+        _decrementPositionCountKey(keccak256(abi.encode(p.user, p.poolId, p.positionTokenId)));
+    }
+
+    function _decrementPositionCountKey(bytes32 posKey) internal {
         uint256 count = positionProposalCount[posKey];
         if (count > 0) {
             positionProposalCount[posKey] = count - 1;
         }
+    }
+
+    function _recordFailureStreak() internal {
+        failedExecutionStreak += 1;
+        if (failedExecutionStreak >= autoBreakAfterFailures) {
+            circuitBroken = true;
+            emit CircuitBroken(true);
+        }
+    }
+
+    function _resetFailureStreak() internal {
+        failedExecutionStreak = 0;
     }
 
     function getProposal(bytes32 proposalId) external view returns (Proposal memory) {

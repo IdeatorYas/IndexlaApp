@@ -1,9 +1,10 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
-const { activateStep2PoolWithGovernance } = require("../../scripts/stable-club/governance-activation-local.cjs");
+const { activateStep2PoolWithGovernance, impersonateTimelock } = require("../../scripts/stable-club/governance-activation-local.cjs");
 
 const REBALANCE_ACTION = 1n << 10n;
+const HARVEST_ONLY_ACTIONS = 1n << 8n;
 const POOL_ID = ethers.keccak256(
   ethers.toUtf8Bytes("INDEXLA_STABLE_CLUB_BASE_USDC_cbBTC_AERO_CL100"),
 );
@@ -47,7 +48,7 @@ async function deployRebalanceStack() {
   await automation.setTokenApproval(await usdc.getAddress(), true);
   await automation.setTokenApproval(await cbbtc.getAddress(), true);
   const signers = await ethers.getSigners();
-  await activateStep2PoolWithGovernance({
+  const { timelockAddr } = await activateStep2PoolWithGovernance({
     automation,
     permissionRegistry,
     feeRouter,
@@ -78,6 +79,7 @@ async function deployRebalanceStack() {
     clAdapter,
     usdc,
     cbbtc,
+    timelockAddr,
   };
 }
 
@@ -145,6 +147,7 @@ async function mintPositionViaExecutor(
 }
 
 async function rebalance(ctx, permissionId, overrides = {}) {
+  const { signer = ctx.user, ...rest } = overrides;
   const params = {
     executionNonce: 1n,
     tokenId: 1n,
@@ -159,9 +162,9 @@ async function rebalance(ctx, permissionId, overrides = {}) {
     slippageBps: 150n,
     deadline: BigInt((await time.latest()) + 600),
     quotedAmountOut: 0n,
-    ...overrides,
+    ...rest,
   };
-  return ctx.automation.connect(ctx.user).rebalance(
+  return ctx.automation.connect(signer).rebalance(
     permissionId,
     params.executionNonce,
     await ctx.clAdapter.getAddress(),
@@ -331,5 +334,182 @@ describe("Stable Club — atomic rebalance accounting", function () {
     ).to.be.revertedWithCustomError(ctx.clAdapter, "OnlyExecutor");
 
     expect(await ctx.clAdapter.ownerOf(tokenId)).to.equal(ctx.user.address);
+  });
+
+  describe("permission limits via rebalance()", function () {
+    it("enforces Rebalance action bit on manual rebalance() path", async function () {
+      const ctx = await deployRebalanceStack();
+      const permissionId = await registerRebalancePermission(ctx, { allowedActions: HARVEST_ONLY_ACTIONS });
+      const tokenId = 1n;
+      await mintPositionViaExecutor(ctx);
+
+      const preOwner = await ctx.clAdapter.ownerOf(tokenId);
+      const preAmounts = await ctx.clAdapter.positionAmounts(tokenId);
+      const preUserUsdc = await ctx.usdc.balanceOf(ctx.user.address);
+      const preUserBtc = await ctx.cbbtc.balanceOf(ctx.user.address);
+      const preAutoUsdc = await ctx.usdc.balanceOf(await ctx.automation.getAddress());
+      const preAutoBtc = await ctx.cbbtc.balanceOf(await ctx.automation.getAddress());
+
+      await expect(rebalance(ctx, permissionId)).to.be.revertedWithCustomError(
+        ctx.permissionRegistry,
+        "ActionNotAllowed",
+      );
+
+      expect(await ctx.permissionRegistry.executionNonceUsed(permissionId, 1n)).to.equal(false);
+      expect(await ctx.clAdapter.ownerOf(tokenId)).to.equal(preOwner);
+      expect(await ctx.clAdapter.positionAmounts(tokenId)).to.deep.equal(preAmounts);
+      expect(await ctx.usdc.balanceOf(ctx.user.address)).to.equal(preUserUsdc);
+      expect(await ctx.cbbtc.balanceOf(ctx.user.address)).to.equal(preUserBtc);
+      expect(await ctx.usdc.balanceOf(await ctx.automation.getAddress())).to.equal(preAutoUsdc);
+      expect(await ctx.cbbtc.balanceOf(await ctx.automation.getAddress())).to.equal(preAutoBtc);
+    });
+
+    it("accumulates maxAmountPerDay on executor path", async function () {
+      const ctx = await deployRebalanceStack();
+      const permissionId = await registerRebalancePermission(ctx, {
+        maxAmountPerDay: ethers.parseUnits("55", 6),
+      });
+      await mintPositionViaExecutor(ctx, ethers.parseUnits("50", 6), ethers.parseUnits("0.05", 8));
+      await rebalance(ctx, permissionId, { executionNonce: 1n });
+      await ctx.clAdapter.connect(ctx.user).approve(await ctx.clAdapter.getAddress(), 2n);
+
+      await expect(rebalance(ctx, permissionId, { executionNonce: 2n, tokenId: 2n })).to.be.revertedWithCustomError(
+        ctx.permissionRegistry,
+        "AmountExceedsDailyLimit",
+      );
+    });
+
+    it("enforces maxSlippageBps on executor path", async function () {
+      const ctx = await deployRebalanceStack();
+      const permissionId = await registerRebalancePermission(ctx, { maxSlippageBps: 100n });
+      await mintPositionViaExecutor(ctx);
+
+      await expect(rebalance(ctx, permissionId, { slippageBps: 600n })).to.be.revertedWithCustomError(
+        ctx.permissionRegistry,
+        "SlippageTooHigh",
+      );
+      expect(await ctx.permissionRegistry.executionNonceUsed(permissionId, 1n)).to.equal(false);
+    });
+
+    it("enforces minTimeBetweenExecutions on executor path", async function () {
+      const ctx = await deployRebalanceStack();
+      const permissionId = await registerRebalancePermission(ctx, { minTimeBetweenExecutions: 3600n });
+      await mintPositionViaExecutor(ctx);
+      await rebalance(ctx, permissionId, { executionNonce: 1n });
+      await ctx.clAdapter.connect(ctx.user).approve(await ctx.clAdapter.getAddress(), 2n);
+
+      await expect(rebalance(ctx, permissionId, { executionNonce: 2n, tokenId: 2n })).to.be.revertedWithCustomError(
+        ctx.permissionRegistry,
+        "ExecutionTooSoon",
+      );
+    });
+
+    it("enforces maxExecutionsPerDay on executor path", async function () {
+      const ctx = await deployRebalanceStack();
+      const permissionId = await registerRebalancePermission(ctx, { maxExecutionsPerDay: 1n });
+      await mintPositionViaExecutor(ctx);
+      await rebalance(ctx, permissionId, { executionNonce: 1n });
+      await ctx.clAdapter.connect(ctx.user).approve(await ctx.clAdapter.getAddress(), 2n);
+
+      await expect(rebalance(ctx, permissionId, { executionNonce: 2n, tokenId: 2n })).to.be.revertedWithCustomError(
+        ctx.permissionRegistry,
+        "DailyExecutionLimitReached",
+      );
+    });
+
+    it("enforces PermissionRegistry expiresAt on executor path", async function () {
+      const ctx = await deployRebalanceStack();
+      const permissionId = await registerRebalancePermission(ctx, {
+        expiresAt: BigInt((await time.latest()) + 5),
+      });
+      await mintPositionViaExecutor(ctx);
+      await time.increase(6);
+
+      await expect(rebalance(ctx, permissionId)).to.be.revertedWithCustomError(
+        ctx.permissionRegistry,
+        "PermissionExpired",
+      );
+    });
+
+    it("enforces permission user identity binding on executor path", async function () {
+      const ctx = await deployRebalanceStack();
+      const permissionId = await registerRebalancePermission(ctx);
+      await mintPositionViaExecutor(ctx);
+
+      await expect(rebalance(ctx, permissionId, { signer: ctx.stranger })).to.be.revertedWithCustomError(
+        ctx.permissionRegistry,
+        "UnauthorizedUser",
+      );
+    });
+
+    it("rejects pool adapter mismatch on executor path", async function () {
+      const ctx = await deployRebalanceStack();
+      const permissionId = await registerRebalancePermission(ctx);
+      await mintPositionViaExecutor(ctx);
+      const otherAdapter = await ethers.deployContract("MockConcentratedLiquidityAdapter", [
+        await ctx.automation.getAddress(),
+        ethers.id("OTHER_POOL"),
+        "uniswap-v3",
+      ]);
+      const tlSigner = await impersonateTimelock(ctx.timelockAddr);
+      await ctx.automation.connect(tlSigner).setAdapterApproval(await otherAdapter.getAddress(), true);
+      await ctx.automation.connect(tlSigner).registerPool(
+        ethers.id("OTHER_POOL"),
+        await otherAdapter.getAddress(),
+        true,
+      );
+      await ctx.automation.connect(tlSigner).setOfficialPoolCatalogue(ethers.id("OTHER_POOL"), true);
+
+      await expect(
+        ctx.automation.connect(ctx.user).rebalance(
+          permissionId,
+          1n,
+          await otherAdapter.getAddress(),
+          1n,
+          await ctx.usdc.getAddress(),
+          await ctx.cbbtc.getAddress(),
+          -90000,
+          -80000,
+          0n,
+          0n,
+          1n,
+          1n,
+          1n,
+          1n,
+          150n,
+          BigInt((await time.latest()) + 600),
+          0n,
+        ),
+      ).to.be.revertedWithCustomError(ctx.automation, "PoolMismatch");
+    });
+
+    it("rejects unbound token pair on executor path", async function () {
+      const ctx = await deployRebalanceStack();
+      const permissionId = await registerRebalancePermission(ctx);
+      await mintPositionViaExecutor(ctx);
+      const weth = await ethers.deployContract("MockERC20", ["Wrapped Ether", "WETH", 18]);
+
+      await expect(
+        ctx.automation.connect(ctx.user).rebalance(
+          permissionId,
+          1n,
+          await ctx.clAdapter.getAddress(),
+          1n,
+          await ctx.usdc.getAddress(),
+          await weth.getAddress(),
+          -90000,
+          -80000,
+          0n,
+          0n,
+          1n,
+          1n,
+          1n,
+          1n,
+          150n,
+          BigInt((await time.latest()) + 600),
+          0n,
+        ),
+      ).to.be.revertedWithCustomError(ctx.automation, "TokenNotBound");
+    });
   });
 });

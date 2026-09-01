@@ -543,6 +543,7 @@ export function useFivePoolDeposit() {
           tokenB: a.tokenB,
           legPermissionId,
           maxLegPerTx: BigInt(2_000) * BigInt(10 ** STABLE_CLUB_USDC_DECIMALS),
+          // SC-07 metadata-only — stored for registration UX; not an on-chain security cap.
           maxLegPerDay: BigInt(10_000) * BigInt(10 ** STABLE_CLUB_USDC_DECIMALS),
         });
       }

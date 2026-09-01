@@ -319,6 +319,10 @@ contract PermissionRegistry {
         return permissions[permissionId];
     }
 
+    /// @notice Authoritative on-chain permission validation for operator executors.
+    /// @dev `maxAmountPerTx` / `maxAmountPerDay` apply only when `amount > 0`.
+    ///      Harvest, exit and emergency pass `amount=0` — monetary caps non-applicable on those paths.
+    ///      Harvest passes `slippage=0` — `maxSlippageBps` non-applicable on harvest path.
     function validateExecution(
         bytes32 permissionId,
         Action action,

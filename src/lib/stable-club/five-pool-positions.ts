@@ -99,7 +99,9 @@ export type StrategyLegBinding = {
   tokenA: Address;
   tokenB: Address;
   legPermissionId: Hex;
+  /** Per-leg tx cap — enforced on-chain via validateStrategyLegDeposit. */
   maxLegPerTx: bigint;
+  /** SC-07 metadata-only — not enforced; leg Permission.maxAmountPerDay is authoritative. */
   maxLegPerDay: bigint;
 };
 

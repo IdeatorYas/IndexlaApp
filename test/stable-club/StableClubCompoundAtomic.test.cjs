@@ -4,6 +4,7 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
 const { activateStep2PoolWithGovernance, impersonateTimelock } = require("../../scripts/stable-club/governance-activation-local.cjs");
 
 const COMPOUND_ACTIONS = (1n << 8n) | (1n << 9n);
+const HARVEST_ONLY_ACTIONS = 1n << 8n;
 const STEP2_POOL = ethers.keccak256(
   ethers.toUtf8Bytes("INDEXLA_STABLE_CLUB_BASE_USDC_cbBTC_AERO_CL100"),
 );
@@ -154,6 +155,44 @@ async function mintPosition(ctx, amountA, amountB) {
   const tokenId = 1n;
   await ctx.clAdapter.connect(ctx.user).approve(await ctx.clAdapter.getAddress(), tokenId);
   return tokenId;
+}
+
+async function compoundViaExecutor(ctx, permissionId, tokenId, overrides = {}) {
+  const { signer = ctx.user, ...paramsOverrides } = overrides;
+  const params = {
+    executionNonce: 1n,
+    rewardToken: await ctx.usdc.getAddress(),
+    tokenA: await ctx.usdc.getAddress(),
+    tokenB: await ctx.cbbtc.getAddress(),
+    swapAmount: 0n,
+    minAmountOut: 0n,
+    amountA: 1_000_000n,
+    amountB: 0n,
+    amountAMin: 1n,
+    amountBMin: 0n,
+    slippageBps: 100n,
+    deadline: BigInt((await time.latest()) + 600),
+    quotedAmountOut: 0n,
+    ...paramsOverrides,
+  };
+  return ctx.automation.connect(signer).compound(
+    permissionId,
+    params.executionNonce,
+    await ctx.clAdapter.getAddress(),
+    tokenId,
+    params.rewardToken,
+    params.tokenA,
+    params.tokenB,
+    params.swapAmount,
+    params.minAmountOut,
+    params.amountA,
+    params.amountB,
+    params.amountAMin,
+    params.amountBMin,
+    params.slippageBps,
+    params.deadline,
+    params.quotedAmountOut,
+  );
 }
 
 describe("Stable Club — atomic compound accounting (Phase 1)", function () {
@@ -631,6 +670,143 @@ describe("Stable Club — atomic compound accounting (Phase 1)", function () {
       expect(await ctx.usdc.balanceOf(await ctx.automation.getAddress())).to.equal(preUsdc);
       expect(await ctx.cbbtc.balanceOf(await ctx.automation.getAddress())).to.equal(preBtc);
       expect(await ctx.aero.balanceOf(await ctx.automation.getAddress())).to.equal(preAero);
+    });
+  });
+
+  describe("permission limits via compound()", function () {
+    it("enforces Compound action bit on executor path", async function () {
+      const ctx = await deployCompoundStack();
+      const permissionId = await registerCompoundPermission(ctx, { allowedActions: HARVEST_ONLY_ACTIONS });
+      const tokenId = await mintPosition(ctx, ethers.parseUnits("50", 6), ethers.parseUnits("0.05", 8));
+      await setUsdcCollectFee(ctx, tokenId, 1_000_000n);
+
+      await expect(compoundViaExecutor(ctx, permissionId, tokenId)).to.be.revertedWithCustomError(
+        ctx.permissionRegistry,
+        "ActionNotAllowed",
+      );
+      expect(await ctx.permissionRegistry.executionNonceUsed(permissionId, 1n)).to.equal(false);
+    });
+
+    it("enforces maxSlippageBps on executor path", async function () {
+      const ctx = await deployCompoundStack();
+      const permissionId = await registerCompoundPermission(ctx, { maxSlippageBps: 100n });
+      const tokenId = await mintPosition(ctx, ethers.parseUnits("50", 6), ethers.parseUnits("0.05", 8));
+      await setUsdcCollectFee(ctx, tokenId, 1_000_000n);
+
+      await expect(
+        compoundViaExecutor(ctx, permissionId, tokenId, { slippageBps: 600n }),
+      ).to.be.revertedWithCustomError(ctx.permissionRegistry, "SlippageTooHigh");
+      expect(await ctx.permissionRegistry.executionNonceUsed(permissionId, 1n)).to.equal(false);
+    });
+
+    it("enforces minTimeBetweenExecutions on executor path", async function () {
+      const ctx = await deployCompoundStack();
+      const permissionId = await registerCompoundPermission(ctx, { minTimeBetweenExecutions: 3600n });
+      const tokenId = await mintPosition(ctx, ethers.parseUnits("50", 6), ethers.parseUnits("0.05", 8));
+      await setUsdcCollectFee(ctx, tokenId, 1_000_000n);
+      await compoundViaExecutor(ctx, permissionId, tokenId, { executionNonce: 1n });
+      await setUsdcCollectFee(ctx, tokenId, 1_000_000n);
+
+      await expect(
+        compoundViaExecutor(ctx, permissionId, tokenId, { executionNonce: 2n }),
+      ).to.be.revertedWithCustomError(ctx.permissionRegistry, "ExecutionTooSoon");
+    });
+
+    it("enforces maxExecutionsPerDay on executor path", async function () {
+      const ctx = await deployCompoundStack();
+      const permissionId = await registerCompoundPermission(ctx, { maxExecutionsPerDay: 1n });
+      const tokenId = await mintPosition(ctx, ethers.parseUnits("50", 6), ethers.parseUnits("0.05", 8));
+      await setUsdcCollectFee(ctx, tokenId, 1_000_000n);
+      await compoundViaExecutor(ctx, permissionId, tokenId, { executionNonce: 1n });
+      await setUsdcCollectFee(ctx, tokenId, 1_000_000n);
+
+      await expect(
+        compoundViaExecutor(ctx, permissionId, tokenId, { executionNonce: 2n }),
+      ).to.be.revertedWithCustomError(ctx.permissionRegistry, "DailyExecutionLimitReached");
+    });
+
+    it("enforces PermissionRegistry expiresAt on executor path", async function () {
+      const ctx = await deployCompoundStack();
+      const permissionId = await registerCompoundPermission(ctx, {
+        expiresAt: BigInt((await time.latest()) + 5),
+      });
+      const tokenId = await mintPosition(ctx, ethers.parseUnits("50", 6), ethers.parseUnits("0.05", 8));
+      await setUsdcCollectFee(ctx, tokenId, 1_000_000n);
+      await time.increase(6);
+
+      await expect(compoundViaExecutor(ctx, permissionId, tokenId)).to.be.revertedWithCustomError(
+        ctx.permissionRegistry,
+        "PermissionExpired",
+      );
+    });
+
+    it("enforces permission user identity binding on executor path", async function () {
+      const ctx = await deployCompoundStack();
+      const permissionId = await registerCompoundPermission(ctx);
+      const tokenId = await mintPosition(ctx, ethers.parseUnits("50", 6), ethers.parseUnits("0.05", 8));
+      await setUsdcCollectFee(ctx, tokenId, 1_000_000n);
+      const signers = await ethers.getSigners();
+      const stranger = signers[4];
+
+      await expect(
+        compoundViaExecutor(ctx, permissionId, tokenId, { signer: stranger }),
+      ).to.be.revertedWithCustomError(ctx.permissionRegistry, "UnauthorizedUser");
+    });
+
+    it("rejects pool adapter mismatch on executor path", async function () {
+      const ctx = await deployCompoundStack();
+      const permissionId = await registerCompoundPermission(ctx);
+      const tokenId = await mintPosition(ctx, ethers.parseUnits("50", 6), ethers.parseUnits("0.05", 8));
+      await setUsdcCollectFee(ctx, tokenId, 1_000_000n);
+      const otherAdapter = await ethers.deployContract("MockConcentratedLiquidityAdapter", [
+        await ctx.automation.getAddress(),
+        ethers.id("OTHER_POOL"),
+        "uniswap-v3",
+      ]);
+      const tlSigner = await impersonateTimelock(ctx.timelockAddr);
+      await ctx.automation.connect(tlSigner).setAdapterApproval(await otherAdapter.getAddress(), true);
+      await ctx.automation.connect(tlSigner).registerPool(
+        ethers.id("OTHER_POOL"),
+        await otherAdapter.getAddress(),
+        true,
+      );
+      await ctx.automation.connect(tlSigner).setOfficialPoolCatalogue(ethers.id("OTHER_POOL"), true);
+
+      await expect(
+        ctx.automation.connect(ctx.user).compound(
+          permissionId,
+          1n,
+          await otherAdapter.getAddress(),
+          tokenId,
+          await ctx.usdc.getAddress(),
+          await ctx.usdc.getAddress(),
+          await ctx.cbbtc.getAddress(),
+          0n,
+          0n,
+          1_000_000n,
+          0n,
+          1n,
+          0n,
+          100n,
+          BigInt((await time.latest()) + 600),
+          0n,
+        ),
+      ).to.be.revertedWithCustomError(ctx.automation, "PoolMismatch");
+    });
+
+    it("rejects unbound token pair on executor path", async function () {
+      const ctx = await deployCompoundStack();
+      const permissionId = await registerCompoundPermission(ctx);
+      const tokenId = await mintPosition(ctx, ethers.parseUnits("50", 6), ethers.parseUnits("0.05", 8));
+      await setUsdcCollectFee(ctx, tokenId, 1_000_000n);
+      const weth = await ethers.deployContract("MockERC20", ["Wrapped Ether", "WETH", 18]);
+
+      await expect(
+        compoundViaExecutor(ctx, permissionId, tokenId, {
+          tokenA: await ctx.usdc.getAddress(),
+          tokenB: await weth.getAddress(),
+        }),
+      ).to.be.revertedWithCustomError(ctx.automation, "TokenNotBound");
     });
   });
 });

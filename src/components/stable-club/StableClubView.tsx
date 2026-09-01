@@ -342,8 +342,10 @@ export function StableClubView({
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-app-muted">
           Uniswap V3 + Aerodrome Slipstream adapters, official Base catalogue, position
-          dashboard, OpenServ proposals, and auto harvest / compound / rebalance with
-          circuit breakers. Non-custodial — users own LP NFTs.
+          dashboard, and OpenServ proposals. Manual harvest / compound / rebalance paths exist;
+          keeper automation is disabled in Stage 1 private beta (harvestEnabled,
+          compoundEnabled, rebalanceEnabled = false). Concentrated liquidity carries IL,
+          oracle, MEV, and smart-contract risk — non-custodial; users own LP NFTs.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-300">
@@ -476,9 +478,9 @@ export function StableClubView({
         </div>
         <p className="mt-2 text-[11px] text-app-dim">
           Permission: {compound.permissionRegistered ? "registered (opt-in)" : "not registered"}
-          {" � "}
+          {" · "}
           Manual status: {compound.uiStatus.status}
-          {compound.uiStatus.message ? ` � ${compound.uiStatus.message}` : ""}
+          {compound.uiStatus.message ? ` · ${compound.uiStatus.message}` : ""}
         </p>
         <p className="mt-1 text-[11px] text-app-dim">{compound.automationStatusMessage}</p>
         {compound.uiStatus.lastTxHash ? (
@@ -616,7 +618,8 @@ export function StableClubView({
           <li>Oracle Guard + MevGuard + SafetyController circuit breakers</li>
           <li>OpenServ typed proposals only — no keys, no arbitrary calldata</li>
           <li>
-            Auto-harvest / compound / rebalance via Automation Executor (1% fee on swaps only)
+            Keeper-gated harvest / compound / rebalance via Automation Executor (disabled in
+            Stage 1 launch policy; 1% fee on swaps only when enabled)
           </li>
           <li>
             Fee Router — {STABLE_CLUB_EXECUTION_FEE_BPS / 100}% charged on swaps only

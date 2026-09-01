@@ -378,8 +378,13 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
 
         _refundExcess(user, leg.tokenA, preA);
         if (leg.tokenB != leg.tokenA) _refundExcess(user, leg.tokenB, preB);
-        _assertBalanceRestored(leg.tokenA, preA);
-        if (leg.tokenB != leg.tokenA) _assertBalanceRestored(leg.tokenB, preB);
+        // Gross USDC is consumed across legs from the single deposit pull; only assert intermediates.
+        if (leg.tokenA != usdc) {
+            _assertBalanceRestored(leg.tokenA, preA);
+        }
+        if (leg.tokenB != leg.tokenA && leg.tokenB != usdc) {
+            _assertBalanceRestored(leg.tokenB, preB);
+        }
         _clearApproval(leg.tokenA, leg.adapter);
         _clearApproval(leg.tokenB, leg.adapter);
     }
