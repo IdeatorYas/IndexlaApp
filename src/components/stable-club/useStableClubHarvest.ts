@@ -21,6 +21,7 @@ import {
   verifiedStep2Adapters,
   type StableClubLocalDeployments,
 } from "@/lib/stable-club/deployments";
+import { hydrateLocalDeploymentsFromApi } from "@/lib/stable-club/runtime-deployments";
 import { computeStableClubPermissionId } from "@/lib/stable-club/permission-id";
 import { toOnChainPermission } from "@/lib/stable-club/permissions";
 import { buildHarvestOptInPermissionScope } from "@/lib/stable-club/harvest-validation";
@@ -104,8 +105,8 @@ export function useStableClubHarvest() {
     (async () => {
       try {
         const res = await fetch("/api/stable-club/deployments");
-        const json = (await res.json()) as DeploymentsResponse;
-        if (!cancelled && json.configured) setDeployments(json.deployments);
+        const json = await res.json();
+        if (!cancelled) setDeployments(hydrateLocalDeploymentsFromApi(json));
       } catch {
         if (!cancelled) setDeployments(null);
       }

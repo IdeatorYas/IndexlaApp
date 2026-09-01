@@ -59,6 +59,7 @@ function baseDeployments(): StableClubLocalDeployments {
     chainId: 31337,
     network: "hardhat-local",
     isTestOnly: true,
+    localAutomationBypass: true,
     label: "test",
     deployedAt: new Date().toISOString(),
     deployer: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
@@ -438,13 +439,17 @@ describe("buildCompoundProposal hash/binding", () => {
 });
 
 describe("compound policy and UI honesty", () => {
-  it("keeps launch compoundEnabled=false and disables outside hardhat-local", () => {
+  it("keeps launch compoundEnabled=false and disables without explicit local opt-in", () => {
     expect(PRIVATE_BETA_LAUNCH_PARAMS.automation.compoundEnabled).toBe(false);
     expect(COMPOUND_OPENSERV_CONNECTED).toBe(false);
     expect(compoundAutomationStatusMessage()).toContain("unavailable");
 
-    const nonLocal = { ...baseDeployments(), network: "base" as const };
+    const nonLocal = { ...baseDeployments(), network: "base" as const, localAutomationBypass: true };
     expectRejected(validateCompoundEnvironment(nonLocal, true), "launch-compound-disabled");
+    expectRejected(
+      validateCompoundEnvironment({ ...baseDeployments(), localAutomationBypass: false }, true),
+      "launch-compound-disabled",
+    );
     expectRejected(validateCompoundEnvironment(baseDeployments(), false), "opt-in-disabled");
   });
 

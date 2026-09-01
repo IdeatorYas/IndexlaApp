@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
+const { activateStep2PoolWithGovernance } = require("../../scripts/stable-club/governance-activation-local.cjs");
 
 const REBALANCE_ACTION = 1n << 10n;
 const POOL_ID = ethers.keccak256(
@@ -26,6 +27,8 @@ async function deployRebalanceStack() {
   await safetyController.wireExecutor(await automation.getAddress());
   await mevGuard.setOracle(await oracleGuard.getAddress());
 
+  const openServGate = await ethers.deployContract("OpenServProposalGate");
+
   const usdcFeed = await ethers.deployContract("MockAggregatorV3", [1_00000000n]);
   const btcFeed = await ethers.deployContract("MockAggregatorV3", [100_00000000n]);
   const usdc = await ethers.deployContract("MockERC20", ["USD Coin", "USDC", 6]);
@@ -41,9 +44,20 @@ async function deployRebalanceStack() {
   await automation.setAdapterApproval(await clAdapter.getAddress(), true);
   await automation.registerPool(POOL_ID, await clAdapter.getAddress(), true);
   await automation.setOfficialPoolCatalogue(POOL_ID, true);
-  await automation.activateOfficialPool(POOL_ID);
   await automation.setTokenApproval(await usdc.getAddress(), true);
   await automation.setTokenApproval(await cbbtc.getAddress(), true);
+  const signers = await ethers.getSigners();
+  await activateStep2PoolWithGovernance({
+    automation,
+    permissionRegistry,
+    feeRouter,
+    oracleGuard,
+    mevGuard,
+    safetyController,
+    openServGate,
+    poolId: POOL_ID,
+    signers: signers.slice(0, 3),
+  });
 
   await usdc.mint(user.address, ethers.parseUnits("100000", 6));
   await cbbtc.mint(user.address, ethers.parseUnits("10", 8));

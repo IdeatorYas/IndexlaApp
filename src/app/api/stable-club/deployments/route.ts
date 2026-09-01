@@ -3,10 +3,13 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import {
   isValidLocalDeployments,
-  toPublicDeploymentsPayload,
   type StableClubLocalDeployments,
 } from "@/lib/stable-club/deployments";
 import { getStableClubServerConfig } from "@/lib/stable-club/config";
+import {
+  buildPublicPayloadFromTrustedFile,
+  isServerLocalAutomationDevBypassEnabled,
+} from "@/lib/stable-club/runtime-deployments";
 
 const DEPLOYMENTS_PATH = path.join(
   process.cwd(),
@@ -43,6 +46,7 @@ export async function GET() {
 
   return NextResponse.json({
     configured: true,
-    deployments: toPublicDeploymentsPayload(deployments),
+    deployments: buildPublicPayloadFromTrustedFile(deployments),
+    ...(isServerLocalAutomationDevBypassEnabled() ? { automationDevBypass: true as const } : {}),
   });
 }

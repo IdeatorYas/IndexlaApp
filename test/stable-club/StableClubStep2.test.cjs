@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
+const { activateStep2PoolWithGovernance, impersonateTimelock } = require("../../scripts/stable-club/governance-activation-local.cjs");
 
 const POOL_ID = ethers.keccak256(
   ethers.toUtf8Bytes("INDEXLA_STABLE_CLUB_BASE_USDC_cbBTC_AERO_CL100"),
@@ -50,9 +51,20 @@ async function deployStep2Stack() {
   await automation.setAdapterApproval(await clAdapter.getAddress(), true);
   await automation.registerPool(POOL_ID, await clAdapter.getAddress(), true);
   await automation.setOfficialPoolCatalogue(POOL_ID, true);
-  await automation.activateOfficialPool(POOL_ID);
   await automation.setTokenApproval(await usdc.getAddress(), true);
   await automation.setTokenApproval(await cbbtc.getAddress(), true);
+  const signers = await ethers.getSigners();
+  const { timelockAddr } = await activateStep2PoolWithGovernance({
+    automation,
+    permissionRegistry,
+    feeRouter,
+    oracleGuard,
+    mevGuard,
+    safetyController,
+    openServGate,
+    poolId: POOL_ID,
+    signers: signers.slice(0, 3),
+  });
 
   await usdc.mint(user.address, ethers.parseUnits("100000", 6));
   await cbbtc.mint(user.address, ethers.parseUnits("10", 8));
@@ -75,6 +87,7 @@ async function deployStep2Stack() {
     cbbtc,
     usdcFeed,
     btcFeed,
+    timelockAddr,
   };
 }
 
@@ -124,14 +137,15 @@ describe("Stable Club Step 2 — Oracle / Safety / OpenServ", function () {
 
   it("safety controller blocks automation when paused or depegged", async function () {
     const ctx = await deployStep2Stack();
-    await ctx.safetyController.setPoolAutomationPaused(POOL_ID, true);
+    const tlSigner = await impersonateTimelock(ctx.timelockAddr);
+    await ctx.safetyController.connect(tlSigner).setPoolAutomationPaused(POOL_ID, true);
     await expect(ctx.safetyController.assertAutomationAllowed(POOL_ID)).to.be.revertedWithCustomError(
       ctx.safetyController,
       "AutomationPaused",
     );
 
-    await ctx.safetyController.setPoolAutomationPaused(POOL_ID, false);
-    await ctx.safetyController.setStablecoinDepegged(await ctx.usdc.getAddress(), true);
+    await ctx.safetyController.connect(tlSigner).setPoolAutomationPaused(POOL_ID, false);
+    await ctx.safetyController.connect(tlSigner).setStablecoinDepegged(await ctx.usdc.getAddress(), true);
     await expect(
       ctx.safetyController.assertTokenNotDepegged(await ctx.usdc.getAddress()),
     ).to.be.revertedWithCustomError(ctx.safetyController, "DepegActive");
@@ -164,7 +178,8 @@ describe("Stable Club Step 2 — Oracle / Safety / OpenServ", function () {
 
   it("OpenServ proposal gate rejects duplicates and can trip circuit", async function () {
     const ctx = await deployStep2Stack();
-    await ctx.openServGate.setLimits(10, 20, 2);
+    const tlSigner = await impersonateTimelock(ctx.timelockAddr);
+    await ctx.openServGate.connect(tlSigner).setLimits(10, 20, 2);
     const chainId = (await ethers.provider.getNetwork()).chainId;
     const latest = await time.latest();
     const proposal = {
@@ -188,11 +203,11 @@ describe("Stable Club Step 2 — Oracle / Safety / OpenServ", function () {
       "DuplicateIdempotency",
     );
 
-    await ctx.openServGate.markRejected(id, ethers.id("failed"));
+    await ctx.openServGate.connect(tlSigner).markRejected(id, ethers.id("failed"));
     proposal.idempotencyKey = ethers.id("idem-b");
     const id2 = await ctx.openServGate.submitProposal.staticCall(proposal);
     await ctx.openServGate.submitProposal(proposal);
-    await ctx.openServGate.markRejected(id2, ethers.id("failed"));
+    await ctx.openServGate.connect(tlSigner).markRejected(id2, ethers.id("failed"));
     expect(await ctx.openServGate.circuitBroken()).to.equal(true);
   });
 });
@@ -250,14 +265,15 @@ describe("Stable Club Step 2 — automation harvest", function () {
 
   it("rejects harvest on non-activated official pool", async function () {
     const ctx = await deployStep2Stack();
+    const tlSigner = await impersonateTimelock(ctx.timelockAddr);
     const otherPool = ethers.keccak256(ethers.toUtf8Bytes("OTHER_POOL"));
     const otherAdapter = await ethers.deployContract("MockConcentratedLiquidityAdapter", [
       await ctx.automation.getAddress(),
       otherPool,
       "uniswap-v3",
     ]);
-    await ctx.automation.setAdapterApproval(await otherAdapter.getAddress(), true);
-    await ctx.automation.registerPool(otherPool, await otherAdapter.getAddress(), true);
+    await ctx.automation.connect(tlSigner).setAdapterApproval(await otherAdapter.getAddress(), true);
+    await ctx.automation.connect(tlSigner).registerPool(otherPool, await otherAdapter.getAddress(), true);
     // deliberately not catalogued / activated
 
     const perm = {

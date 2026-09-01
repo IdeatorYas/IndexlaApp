@@ -38,6 +38,11 @@ export type StableClubLocalDeployments = {
     positionTokenId: string;
     testUser: Address;
   };
+  /**
+   * Test/audit-only explicit opt-in to bypass launch automation disable on hardhat-local.
+   * Default false. Ignored on production networks and Base mainnet chain id.
+   */
+  localAutomationBypass?: boolean;
 };
 
 const ZERO = ZERO_ADDRESS;

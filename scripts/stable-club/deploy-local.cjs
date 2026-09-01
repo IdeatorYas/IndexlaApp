@@ -113,6 +113,10 @@ async function deployStep2Adapters(deployer, tokenA, tokenB, chainId) {
   return { step2Adapters };
 }
 
+const {
+  setupGovernanceActivationForAutomation,
+  activateOfficialPoolViaTimelock,
+} = require("./governance-activation-local.cjs");
 const HARVEST_DEV_POOL_LABEL = "USDC-cbBTC-UNI-005";
 const HARVEST_DEV_POOL_HASH = ethers.id("INDEXLA_STABLE_CLUB_BASE_USDC_cbBTC_UNI_005");
 const AUTOMATION_ACTIONS = (1n << 8n) | (1n << 5n) | (1n << 6n) | (1n << 7n);
@@ -120,15 +124,18 @@ const AUTOMATION_ACTIONS = (1n << 8n) | (1n << 5n) | (1n << 6n) | (1n << 7n);
 async function deployAutomationHarvestStack({
   deployer,
   permissionRegistry,
+  step1Executor,
   feeRecipient,
   usdc,
   weth,
   testUser,
+  governanceSigners,
 }) {
   const automationFeeRouter = await ethers.deployContract("FeeRouter", [feeRecipient]);
   const oracleGuard = await ethers.deployContract("OracleGuard");
   const safetyController = await ethers.deployContract("SafetyController");
   const mevGuard = await ethers.deployContract("MevGuard");
+  const openServGate = await ethers.deployContract("OpenServProposalGate");
   const automation = await ethers.deployContract("StableClubAutomationExecutor", [
     await permissionRegistry.getAddress(),
     await automationFeeRouter.getAddress(),
@@ -154,7 +161,6 @@ async function deployAutomationHarvestStack({
   await automation.setAdapterApproval(await harvestAdapter.getAddress(), true);
   await automation.registerPool(HARVEST_DEV_POOL_HASH, await harvestAdapter.getAddress(), true);
   await automation.setOfficialPoolCatalogue(HARVEST_DEV_POOL_HASH, true);
-  await automation.activateOfficialPool(HARVEST_DEV_POOL_HASH);
   await automation.setTokenApproval(await usdc.getAddress(), true);
   await automation.setTokenApproval(await weth.getAddress(), true);
 
@@ -206,6 +212,19 @@ async function deployAutomationHarvestStack({
   };
   await permissionRegistry.connect(testUser).registerPermission(perm);
 
+  const { timelockAddr } = await setupGovernanceActivationForAutomation({
+    automation,
+    permissionRegistry,
+    feeRouter: automationFeeRouter,
+    step1Executor,
+    oracleGuard,
+    mevGuard,
+    safetyController,
+    openServGate,
+    signers: governanceSigners,
+  });
+  await activateOfficialPoolViaTimelock(automation, timelockAddr, HARVEST_DEV_POOL_HASH);
+
   const step2AdaptersOverride = [
     {
       chainId: Number(network.chainId),
@@ -218,6 +237,7 @@ async function deployAutomationHarvestStack({
   return {
     automationExecutor: await automation.getAddress(),
     safetyController: await safetyController.getAddress(),
+    timelockAddr,
     step2AdaptersOverride,
     harvestDev: {
       poolCatalogueId: HARVEST_DEV_POOL_LABEL,
@@ -231,7 +251,8 @@ async function deployAutomationHarvestStack({
 }
 
 async function deployStableClubStack() {
-  const [deployer, testUser, feeRecipient] = await ethers.getSigners();
+  const signers = await ethers.getSigners();
+  const [deployer, testUser, feeRecipient] = signers;
   const network = await ethers.provider.getNetwork();
   const chainId = Number(network.chainId);
 
@@ -278,10 +299,12 @@ async function deployStableClubStack() {
   const automationStack = await deployAutomationHarvestStack({
     deployer,
     permissionRegistry,
+    step1Executor: executor,
     feeRecipient: feeRecipient.address,
     usdc,
     weth,
     testUser,
+    governanceSigners: signers.slice(0, 3),
   });
 
   return {
@@ -298,6 +321,7 @@ async function deployStableClubStack() {
     executor: executorAddress,
     automationExecutor: automationStack.automationExecutor,
     safetyController: automationStack.safetyController,
+    timelockAddr: automationStack.timelockAddr,
     testAdapter: testAdapterAddress,
     usdc: usdcAddress,
     weth: wethAddress,
@@ -391,6 +415,8 @@ module.exports = {
   POOL_ID,
   OUTPUT_PATH,
   approvePermit2Pull,
+  setupGovernanceActivationForAutomation,
+  activateOfficialPoolViaTimelock,
 };
 
 // Phase 2a/2b local CL stack (optional companion entrypoint)

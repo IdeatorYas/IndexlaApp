@@ -7,7 +7,12 @@ import {
 } from "@/lib/stable-club/abis";
 import type { StableClubLocalDeployments } from "@/lib/stable-club/deployments";
 import { isValidLocalDeployments } from "@/lib/stable-club/deployments";
-import { PRIVATE_BETA_LAUNCH_PARAMS } from "@/lib/stable-club/launch-params";
+import {
+  isLaunchAutomationEnabledForEnvironment,
+  launchAutomationDisabledCode,
+  launchAutomationDisabledReason,
+} from "@/lib/stable-club/local-automation-policy";
+import { assertRuntimeAutomationPolicy } from "@/lib/stable-club/runtime-deployments";
 import {
   buildHarvestProposal,
   OpenServMonitor,
@@ -116,6 +121,15 @@ export function validateHarvestEnvironment(
   if (!deployments || !isValidLocalDeployments(deployments)) {
     return { ok: false, code: "missing-deployments", reason: "Local deployments unavailable" };
   }
+  try {
+    assertRuntimeAutomationPolicy(deployments);
+  } catch (err) {
+    return {
+      ok: false,
+      code: "launch-harvest-disabled",
+      reason: err instanceof Error ? err.message : "Automation policy rejected",
+    };
+  }
   if (!deployments.automationExecutor || !isNonZero(deployments.automationExecutor)) {
     return {
       ok: false,
@@ -130,14 +144,11 @@ export function validateHarvestEnvironment(
       reason: "Permission registry not configured",
     };
   }
-  if (
-    deployments.network !== "hardhat-local" &&
-    PRIVATE_BETA_LAUNCH_PARAMS.automation.harvestEnabled !== true
-  ) {
+  if (!isLaunchAutomationEnabledForEnvironment("harvest", deployments)) {
     return {
       ok: false,
-      code: "launch-harvest-disabled",
-      reason: "Launch policy disables harvest automation",
+      code: launchAutomationDisabledCode("harvest") as HarvestValidationCode,
+      reason: launchAutomationDisabledReason("harvest"),
     };
   }
   return { ok: true };

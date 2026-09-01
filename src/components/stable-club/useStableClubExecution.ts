@@ -19,6 +19,7 @@ import {
   testPoolAdapterAbi,
 } from "@/lib/stable-club/abis";
 import type { StableClubLocalDeployments } from "@/lib/stable-club/deployments";
+import { hydrateLocalDeploymentsFromApi } from "@/lib/stable-club/runtime-deployments";
 import { computeStableClubPermissionId } from "@/lib/stable-club/permission-id";
 import {
   buildDefaultPermissionScope,
@@ -145,14 +146,19 @@ export function useStableClubExecution() {
       setDeploymentsError(null);
       try {
         const res = await fetch("/api/stable-club/deployments");
-        const json = (await res.json()) as DeploymentsResponse;
+        const json = await res.json();
         if (cancelled) return;
-        if (!json.configured) {
+        const hydrated = hydrateLocalDeploymentsFromApi(json);
+        if (!hydrated) {
           setDeployments(null);
-          setDeploymentsError(json.message);
+          setDeploymentsError(
+            typeof json === "object" && json != null && "message" in json
+              ? String((json as { message?: string }).message)
+              : "Local deployments unavailable",
+          );
           return;
         }
-        setDeployments(json.deployments);
+        setDeployments(hydrated);
       } catch {
         if (!cancelled) {
           setDeploymentsError("Unable to load local Stable Club deployments.");

@@ -5,6 +5,7 @@ const {
   deployStableClubStack,
   POOL_ID,
 } = require("../../scripts/stable-club/deploy-local.cjs");
+const { activateStep2PoolWithGovernance, impersonateTimelock } = require("../../scripts/stable-club/governance-activation-local.cjs");
 
 const AUTOMATION_ACTIONS =
   (1n << 8n) | // Harvest
@@ -63,9 +64,20 @@ async function deployStep2Stack() {
   await automation.setAdapterApproval(await clAdapter.getAddress(), true);
   await automation.registerPool(STEP2_POOL, await clAdapter.getAddress(), true);
   await automation.setOfficialPoolCatalogue(STEP2_POOL, true);
-  await automation.activateOfficialPool(STEP2_POOL);
   await automation.setTokenApproval(await usdc.getAddress(), true);
   await automation.setTokenApproval(await cbbtc.getAddress(), true);
+  const signers = await ethers.getSigners();
+  const { timelockAddr } = await activateStep2PoolWithGovernance({
+    automation,
+    permissionRegistry,
+    feeRouter,
+    oracleGuard,
+    mevGuard,
+    safetyController,
+    openServGate,
+    poolId: STEP2_POOL,
+    signers: signers.slice(0, 3),
+  });
 
   await usdc.mint(user.address, ethers.parseUnits("100000", 6));
   await cbbtc.mint(user.address, ethers.parseUnits("10", 8));
@@ -89,6 +101,7 @@ async function deployStep2Stack() {
     cbbtc,
     usdcFeed,
     btcFeed,
+    timelockAddr,
   };
 }
 
@@ -350,13 +363,14 @@ describe("Bugbot remediation — finding 4 Step1 pool binding", function () {
 
   it("rejects swap/removeLiquidity/withdrawAll/emergencyExit when perm.poolId mismatches adapter", async function () {
     const ctx = await deployStableClubStack();
+    const tlSigner = await impersonateTimelock(ctx.timelockAddr);
     const otherPool = ethers.id("OTHER_STEP1_POOL");
     const otherAdapter = await ethers.deployContract("ConfigurableTestPoolAdapter", [
       ctx.executor,
       otherPool,
     ]);
-    await ctx.executorContract.setAdapterApproval(await otherAdapter.getAddress(), true);
-    await ctx.executorContract.registerPool(otherPool, await otherAdapter.getAddress(), true);
+    await ctx.executorContract.connect(tlSigner).setAdapterApproval(await otherAdapter.getAddress(), true);
+    await ctx.executorContract.connect(tlSigner).registerPool(otherPool, await otherAdapter.getAddress(), true);
     await ctx.usdcContract.mint(await otherAdapter.getAddress(), ethers.parseUnits("100000", 6));
     await ctx.wethContract.mint(await otherAdapter.getAddress(), ethers.parseEther("100"));
 
@@ -605,7 +619,7 @@ describe("Bugbot remediation — finding 6 rebalance token allowlist", function 
       ethers.parseUnits("0.01", 8),
     );
 
-    await ctx.automation.setTokenApproval(await ctx.cbbtc.getAddress(), false);
+    await ctx.automation.connect(await impersonateTimelock(ctx.timelockAddr)).setTokenApproval(await ctx.cbbtc.getAddress(), false);
 
     await expect(
       ctx.automation.connect(ctx.user).rebalance(

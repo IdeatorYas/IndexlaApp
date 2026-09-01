@@ -2,6 +2,7 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 const { deployStableClubStack, POOL_ID: STEP1_POOL_ID, approvePermit2Pull } = require("../../scripts/stable-club/deploy-local.cjs");
+const { activateStep2PoolWithGovernance, impersonateTimelock } = require("../../scripts/stable-club/governance-activation-local.cjs");
 
 const POOL_ID = ethers.keccak256(
   ethers.toUtf8Bytes("INDEXLA_STABLE_CLUB_BASE_USDC_cbBTC_AERO_CL100"),
@@ -49,9 +50,20 @@ async function deployHarvestStack() {
   await automation.setAdapterApproval(await clAdapter.getAddress(), true);
   await automation.registerPool(POOL_ID, await clAdapter.getAddress(), true);
   await automation.setOfficialPoolCatalogue(POOL_ID, true);
-  await automation.activateOfficialPool(POOL_ID);
   await automation.setTokenApproval(await usdc.getAddress(), true);
   await automation.setTokenApproval(await cbbtc.getAddress(), true);
+  const signers = await ethers.getSigners();
+  const { timelockAddr } = await activateStep2PoolWithGovernance({
+    automation,
+    permissionRegistry,
+    feeRouter,
+    oracleGuard,
+    mevGuard,
+    safetyController,
+    openServGate: gate,
+    poolId: POOL_ID,
+    signers: signers.slice(0, 3),
+  });
 
   await usdc.mint(user.address, ethers.parseUnits("10000", 6));
   await cbbtc.mint(user.address, ethers.parseUnits("1", 8));
@@ -70,6 +82,7 @@ async function deployHarvestStack() {
     clAdapter,
     usdc,
     cbbtc,
+    timelockAddr,
   };
 }
 
@@ -223,7 +236,7 @@ describe("Stable Club keeper harvest (Phase 1)", function () {
       ctx.automation.connect(ctx.other).executeHarvestProposal(proposalId),
     ).to.be.revertedWithCustomError(ctx.automation, "KeeperNotAuthorized");
 
-    await ctx.automation.setAuthorizedKeeper(ctx.keeper.address, false);
+    await ctx.automation.connect(await impersonateTimelock(ctx.timelockAddr)).setAuthorizedKeeper(ctx.keeper.address, false);
     await expect(
       ctx.automation.connect(ctx.keeper).executeHarvestProposal(proposalId),
     ).to.be.revertedWithCustomError(ctx.automation, "KeeperNotAuthorized");

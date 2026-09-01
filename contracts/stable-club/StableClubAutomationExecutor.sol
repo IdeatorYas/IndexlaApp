@@ -15,6 +15,7 @@ import {IAllowanceTransfer} from "./interfaces/IAllowanceTransfer.sol";
 import {MevGuard} from "./MevGuard.sol";
 import {OpenServProposalGate} from "./OpenServProposalGate.sol";
 import {SafetyController} from "./SafetyController.sol";
+import {GovernanceActivationGuard} from "./libraries/GovernanceActivationGuard.sol";
 
 /// @title StableClubAutomationExecutor — Step 2 CL harvest / compound / rebalance operator.
 /// @notice Stateless; never retains user funds or position NFTs after execution.
@@ -31,6 +32,13 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     address public owner;
     IAllowanceTransfer public permit2;
     OpenServProposalGate public proposalGate;
+
+    /// @notice Wired once; required before `activateOfficialPool` (fail-closed governance).
+    address public governanceTimelock;
+    address public governanceSafe;
+    address public governanceStep1Executor;
+    address public governanceOpenServGate;
+    bool public governanceActivationWired;
 
     mapping(address => bool) public authorizedKeepers;
     mapping(address => bool) public approvedAdapters;
@@ -83,6 +91,12 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     event PoolRegistered(bytes32 indexed poolId, address indexed adapter, bool official);
     event OfficialPoolCatalogueUpdated(bytes32 indexed poolId, bool approved);
     event OfficialPoolActivated(bytes32 indexed poolId);
+    event GovernanceActivationWired(
+        address indexed timelock,
+        address indexed governanceSafe,
+        address indexed step1Executor,
+        address openServGate
+    );
     event TokenApproved(address indexed token, bool approved);
     event Permit2Updated(address indexed permit2);
     event OwnerTransferred(address indexed previous, address indexed next);
@@ -125,6 +139,8 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
     error NoOpCompound();
     error SameTokenSwap();
     error NoOpRebalance();
+    error GovernanceAlreadyWired();
+    error GovernanceActivationNotWired();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -169,7 +185,33 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
         emit OfficialPoolCatalogueUpdated(poolId, approved);
     }
 
+    /// @notice One-time governance wiring for on-chain activation preflight.
+    /// @dev Callable only by the Timelock after it owns this contract and the step1 executor.
+    function wireGovernanceActivation(
+        address timelock,
+        address governanceSafe_,
+        address step1Executor,
+        address openServGate
+    ) external {
+        if (governanceActivationWired) revert GovernanceAlreadyWired();
+        if (governanceSafe_ == address(0) || openServGate == address(0)) revert Unauthorized();
+        GovernanceActivationGuard.assertWireReady(timelock, owner, address(this), step1Executor);
+        if (governanceSafe_.code.length == 0) revert GovernanceActivationGuard.SafeHasNoCode();
+        governanceTimelock = timelock;
+        governanceSafe = governanceSafe_;
+        governanceStep1Executor = step1Executor;
+        governanceOpenServGate = openServGate;
+        governanceActivationWired = true;
+        emit GovernanceActivationWired(timelock, governanceSafe_, step1Executor, openServGate);
+    }
+
     function activateOfficialPool(bytes32 poolId) external onlyOwner {
+        if (!governanceActivationWired) revert GovernanceActivationNotWired();
+        GovernanceActivationGuard.assertActivationReady(
+            governanceTimelock,
+            governanceSafe,
+            _criticalOwnables()
+        );
         if (!approvedOfficialPoolIds[poolId]) revert OfficialPoolNotInCatalogue();
         if (poolAdapters[poolId] == address(0)) revert PoolNotApproved();
         officialPoolsActivated[poolId] = true;
@@ -868,5 +910,16 @@ contract StableClubAutomationExecutor is ReentrancyGuard {
 
     function _requireApprovedToken(address token) internal view {
         if (!approvedTokens[token]) revert TokenNotApproved();
+    }
+
+    function _criticalOwnables() internal view returns (address[8] memory critical) {
+        critical[0] = address(permissionRegistry);
+        critical[1] = address(feeRouter);
+        critical[2] = governanceStep1Executor;
+        critical[3] = address(oracleGuard);
+        critical[4] = address(mevGuard);
+        critical[5] = address(safetyController);
+        critical[6] = governanceOpenServGate;
+        critical[7] = address(this);
     }
 }

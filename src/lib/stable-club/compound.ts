@@ -8,7 +8,12 @@ import {
 } from "@/lib/stable-club/abis";
 import type { StableClubLocalDeployments } from "@/lib/stable-club/deployments";
 import { isValidLocalDeployments } from "@/lib/stable-club/deployments";
-import { PRIVATE_BETA_LAUNCH_PARAMS } from "@/lib/stable-club/launch-params";
+import {
+  isLaunchAutomationEnabledForEnvironment,
+  launchAutomationDisabledCode,
+  launchAutomationDisabledReason,
+} from "@/lib/stable-club/local-automation-policy";
+import { assertRuntimeAutomationPolicy } from "@/lib/stable-club/runtime-deployments";
 import { buildCompoundProposal } from "@/lib/stable-club/openserv";
 import { resolveVerifiedAdapterForPool, erc721PositionAbi } from "@/lib/stable-club/nft-approval";
 import type { VerifiedClAdapterDeployment } from "@/lib/stable-club/nft-approval";
@@ -125,18 +130,24 @@ export function validateCompoundEnvironment(
   if (!deployments) {
     return { ok: false, code: "missing-deployments", reason: "Local deployments unavailable" };
   }
-  if (
-    deployments.network !== "hardhat-local" &&
-    PRIVATE_BETA_LAUNCH_PARAMS.automation.compoundEnabled !== true
-  ) {
+  if (!isLaunchAutomationEnabledForEnvironment("compound", deployments)) {
     return {
       ok: false,
-      code: "launch-compound-disabled",
-      reason: "Launch policy disables compound automation",
+      code: launchAutomationDisabledCode("compound") as CompoundValidationCode,
+      reason: launchAutomationDisabledReason("compound"),
     };
   }
   if (!isValidLocalDeployments(deployments)) {
     return { ok: false, code: "missing-deployments", reason: "Local deployments unavailable" };
+  }
+  try {
+    assertRuntimeAutomationPolicy(deployments);
+  } catch (err) {
+    return {
+      ok: false,
+      code: "launch-compound-disabled",
+      reason: err instanceof Error ? err.message : "Automation policy rejected",
+    };
   }
   if (!deployments.automationExecutor || !isNonZero(deployments.automationExecutor)) {
     return {

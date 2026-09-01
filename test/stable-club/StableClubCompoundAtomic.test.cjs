@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
+const { activateStep2PoolWithGovernance, impersonateTimelock } = require("../../scripts/stable-club/governance-activation-local.cjs");
 
 const COMPOUND_ACTIONS = (1n << 8n) | (1n << 9n);
 const STEP2_POOL = ethers.keccak256(
@@ -26,6 +27,8 @@ async function deployCompoundStack() {
   await safetyController.wireExecutor(await automation.getAddress());
   await mevGuard.setOracle(await oracleGuard.getAddress());
 
+  const openServGate = await ethers.deployContract("OpenServProposalGate");
+
   const usdcFeed = await ethers.deployContract("MockAggregatorV3", [1_00000000n]);
   const btcFeed = await ethers.deployContract("MockAggregatorV3", [100_00000000n]);
   const usdc = await ethers.deployContract("MockERC20", ["USD Coin", "USDC", 6]);
@@ -41,9 +44,20 @@ async function deployCompoundStack() {
   await automation.setAdapterApproval(await clAdapter.getAddress(), true);
   await automation.registerPool(STEP2_POOL, await clAdapter.getAddress(), true);
   await automation.setOfficialPoolCatalogue(STEP2_POOL, true);
-  await automation.activateOfficialPool(STEP2_POOL);
   await automation.setTokenApproval(await usdc.getAddress(), true);
   await automation.setTokenApproval(await cbbtc.getAddress(), true);
+  const signers = await ethers.getSigners();
+  const { timelockAddr } = await activateStep2PoolWithGovernance({
+    automation,
+    permissionRegistry,
+    feeRouter,
+    oracleGuard,
+    mevGuard,
+    safetyController,
+    openServGate,
+    poolId: STEP2_POOL,
+    signers: signers.slice(0, 3),
+  });
 
   await usdc.mint(user.address, ethers.parseUnits("100000", 6));
   await cbbtc.mint(user.address, ethers.parseUnits("10", 8));
@@ -62,6 +76,7 @@ async function deployCompoundStack() {
     cbbtc,
     usdcFeed,
     btcFeed,
+    timelockAddr,
   };
 }
 
@@ -428,10 +443,11 @@ describe("Stable Club — atomic compound accounting (Phase 1)", function () {
   describe("rewardToken accounting", function () {
     async function deployWithAeroReward() {
       const ctx = await deployCompoundStack();
+      const tlSigner = await impersonateTimelock(ctx.timelockAddr);
       const aeroFeed = await ethers.deployContract("MockAggregatorV3", [1_00000000n]);
       const aero = await ethers.deployContract("MockERC20", ["Aero", "AERO", 6]);
-      await ctx.oracleGuard.configureFeed(await aero.getAddress(), await aeroFeed.getAddress(), 3600, 8);
-      await ctx.automation.setTokenApproval(await aero.getAddress(), true);
+      await ctx.oracleGuard.connect(tlSigner).configureFeed(await aero.getAddress(), await aeroFeed.getAddress(), 3600, 8);
+      await ctx.automation.connect(tlSigner).setTokenApproval(await aero.getAddress(), true);
       await aero.mint(await ctx.clAdapter.getAddress(), ethers.parseUnits("1000", 6));
       return { ...ctx, aero, aeroFeed };
     }

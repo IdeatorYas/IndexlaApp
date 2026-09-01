@@ -6,7 +6,12 @@ import {
 } from "@/lib/stable-club/abis";
 import type { StableClubLocalDeployments } from "@/lib/stable-club/deployments";
 import { isValidLocalDeployments } from "@/lib/stable-club/deployments";
-import { PRIVATE_BETA_LAUNCH_PARAMS } from "@/lib/stable-club/launch-params";
+import {
+  isLaunchAutomationEnabledForEnvironment,
+  launchAutomationDisabledCode,
+  launchAutomationDisabledReason,
+} from "@/lib/stable-club/local-automation-policy";
+import { assertRuntimeAutomationPolicy } from "@/lib/stable-club/runtime-deployments";
 import { buildRebalanceProposal } from "@/lib/stable-club/openserv";
 import { erc721PositionAbi, resolveVerifiedAdapterForPool } from "@/lib/stable-club/nft-approval";
 import type { VerifiedClAdapterDeployment } from "@/lib/stable-club/nft-approval";
@@ -109,18 +114,24 @@ export function validateRebalanceEnvironment(
   if (!deployments) {
     return { ok: false, code: "missing-deployments", reason: "Local deployments unavailable" };
   }
-  if (
-    deployments.network !== "hardhat-local" &&
-    PRIVATE_BETA_LAUNCH_PARAMS.automation.rebalanceEnabled !== true
-  ) {
+  if (!isLaunchAutomationEnabledForEnvironment("rebalance", deployments)) {
     return {
       ok: false,
-      code: "launch-rebalance-disabled",
-      reason: "Launch policy disables rebalance automation",
+      code: launchAutomationDisabledCode("rebalance") as RebalanceValidationCode,
+      reason: launchAutomationDisabledReason("rebalance"),
     };
   }
   if (!isValidLocalDeployments(deployments)) {
     return { ok: false, code: "missing-deployments", reason: "Local deployments unavailable" };
+  }
+  try {
+    assertRuntimeAutomationPolicy(deployments);
+  } catch (err) {
+    return {
+      ok: false,
+      code: "launch-rebalance-disabled",
+      reason: err instanceof Error ? err.message : "Automation policy rejected",
+    };
   }
   if (!isNonZero(deployments.automationExecutor)) {
     return {

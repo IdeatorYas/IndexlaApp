@@ -43,6 +43,7 @@ function baseDeployments(): StableClubLocalDeployments {
     chainId: 31337,
     network: "hardhat-local",
     isTestOnly: true,
+    localAutomationBypass: true,
     label: "test",
     deployedAt: new Date().toISOString(),
     deployer: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
@@ -121,6 +122,8 @@ describe("harvest validation", () => {
     expectRejected(validateHarvestEnvironment(baseDeployments(), false), "opt-in-disabled");
     const d = { ...baseDeployments(), automationExecutor: undefined };
     expectRejected(validateHarvestEnvironment(d, true), "missing-automation-executor");
+    const noBypass = { ...baseDeployments(), localAutomationBypass: false };
+    expectRejected(validateHarvestEnvironment(noBypass, true), "launch-harvest-disabled");
   });
 
   it("rejects revoked/expired/wrong-user permissions", () => {

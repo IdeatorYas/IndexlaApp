@@ -20,6 +20,7 @@ import {
   verifiedStep2Adapters,
   type StableClubLocalDeployments,
 } from "@/lib/stable-club/deployments";
+import { hydrateLocalDeploymentsFromApi } from "@/lib/stable-club/runtime-deployments";
 import {
   computeStableClubScopedPermissionId,
   PERMISSION_SCOPE_COMPOUND,
@@ -114,8 +115,8 @@ export function useStableClubCompound() {
     (async () => {
       try {
         const res = await fetch("/api/stable-club/deployments");
-        const json = (await res.json()) as DeploymentsResponse;
-        if (!cancelled && json.configured) setDeployments(json.deployments);
+        const json = await res.json();
+        if (!cancelled) setDeployments(hydrateLocalDeploymentsFromApi(json));
       } catch {
         if (!cancelled) setDeployments(null);
       }

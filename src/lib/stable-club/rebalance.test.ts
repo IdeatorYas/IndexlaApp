@@ -78,12 +78,22 @@ describe("rebalance app layer", () => {
     ]);
   });
 
-  it("keeps launch and OpenServ rebalance disabled", () => {
+  it("keeps launch and OpenServ rebalance disabled without explicit local opt-in", () => {
     expect(PRIVATE_BETA_LAUNCH_PARAMS.automation.rebalanceEnabled).toBe(false);
     expect(REBALANCE_OPENSERV_CONNECTED).toBe(false);
     expect(rebalanceAutomationStatusMessage()).toContain("unavailable");
     const result = validateRebalanceEnvironment(deployments("base"), true);
     expect(result).toMatchObject({ ok: false, code: "launch-rebalance-disabled" });
+    expect(validateRebalanceEnvironment(deployments("hardhat-local"), true)).toMatchObject({
+      ok: false,
+      code: "launch-rebalance-disabled",
+    });
+    expect(
+      validateRebalanceEnvironment(
+        { ...deployments("hardhat-local"), localAutomationBypass: true },
+        true,
+      ),
+    ).toEqual({ ok: true });
   });
 
   it("validates close/swap mins and tick order", () => {

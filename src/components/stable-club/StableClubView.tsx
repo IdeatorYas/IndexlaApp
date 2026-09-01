@@ -19,9 +19,7 @@ import {
 } from "@/lib/stable-club/constants";
 import {
   OFFICIAL_STABLE_CLUB_BASE_POOLS,
-  isPoolLaunchReady,
 } from "@/lib/stable-club/official-pools";
-import { STAGE1_PRIVATE_BETA_POOL_ID } from "@/lib/stable-club/stage1-launch";
 import { useStableClubHarvest } from "@/components/stable-club/useStableClubHarvest";
 import { useStableClubCompound } from "@/components/stable-club/useStableClubCompound";
 import { useStableClubRebalance } from "@/components/stable-club/useStableClubRebalance";
@@ -39,6 +37,9 @@ import {
   verifiedStep2Adapters,
   type StableClubLocalDeployments,
 } from "@/lib/stable-club/deployments";
+import { MVP_GOVERNANCE, MVP_GOVERNANCE_SAFE } from "@/lib/stable-club/mvp-governance";
+import { hydrateLocalDeploymentsFromApi } from "@/lib/stable-club/runtime-deployments";
+import { activateStage1OfficialPools } from "@/lib/stable-club/stage1-pool-activation";
 import {
   buildIllustrativePositions,
   type StableClubPosition,
@@ -55,7 +56,7 @@ import {
 
 type DeploymentsResponse =
   | { configured: false; message: string }
-  | { configured: true; deployments: StableClubLocalDeployments };
+  | { configured: true; deployments: StableClubLocalDeployments; automationDevBypass?: true };
 
 export function StableClubView({
   feeRecipientConfigured,
@@ -83,14 +84,17 @@ export function StableClubView({
   const [approvingPositionId, setApprovingPositionId] = useState<string | null>(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [lastApprovalTx, setLastApprovalTx] = useState<Hex | null>(null);
+  const [activationError, setActivationError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch("/api/stable-club/deployments");
-        const json = (await res.json()) as DeploymentsResponse;
-        if (!cancelled && json.configured) setDeployments(json.deployments);
+        const json = await res.json();
+        if (!cancelled) {
+          setDeployments(hydrateLocalDeploymentsFromApi(json));
+        }
       } catch {
         if (!cancelled) setDeployments(null);
       }
@@ -300,13 +304,31 @@ export function StableClubView({
     ],
   );
 
-  function activateReadyPools() {
+  async function activateReadyPools() {
     if (!testPoolValidated) return;
-    setActivatedPoolIds(
-      OFFICIAL_STABLE_CLUB_BASE_POOLS.filter(
-        (p) => p.id === STAGE1_PRIVATE_BETA_POOL_ID && isPoolLaunchReady(p),
-      ).map((p) => p.id),
-    );
+    setActivationError(null);
+    try {
+      const result = await activateStage1OfficialPools({
+        testPoolValidated,
+        environment: "mainnet",
+        governanceSafeAddress: MVP_GOVERNANCE_SAFE,
+        timelockAddress: MVP_GOVERNANCE.timelock.timelockAddress,
+        criticalContracts: {
+          permissionRegistry: deployments?.permissionRegistry,
+          feeRouter: deployments?.feeRouter,
+          executor: deployments?.executor,
+          automation: deployments?.automationExecutor,
+          oracleGuard: undefined,
+          mevGuard: undefined,
+          safetyController: deployments?.safetyController,
+          openServGate: undefined,
+        },
+        publicClient,
+      });
+      setActivatedPoolIds([...result.activatedPoolIds]);
+    } catch (err) {
+      setActivationError(err instanceof Error ? err.message : "Stage 1 activation blocked");
+    }
   }
 
   return (
@@ -518,6 +540,9 @@ export function StableClubView({
             Activate Stage 1 pool (UNI-005)
           </button>
         </div>
+        {activationError ? (
+          <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">{activationError}</p>
+        ) : null}
       </section>
 
       <StableClubPositionDashboard

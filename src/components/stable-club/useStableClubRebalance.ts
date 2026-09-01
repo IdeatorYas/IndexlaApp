@@ -16,6 +16,7 @@ import {
   verifiedStep2Adapters,
   type StableClubLocalDeployments,
 } from "@/lib/stable-club/deployments";
+import { hydrateLocalDeploymentsFromApi } from "@/lib/stable-club/runtime-deployments";
 import {
   computeStableClubScopedPermissionId,
   PERMISSION_SCOPE_REBALANCE,
@@ -98,9 +99,9 @@ export function useStableClubRebalance() {
   useEffect(() => {
     let cancelled = false;
     void fetch("/api/stable-club/deployments")
-      .then((res) => res.json() as Promise<DeploymentsResponse>)
+      .then((res) => res.json())
       .then((json) => {
-        if (!cancelled && json.configured) setDeployments(json.deployments);
+        if (!cancelled) setDeployments(hydrateLocalDeploymentsFromApi(json));
       })
       .catch(() => {
         if (!cancelled) setDeployments(null);
