@@ -6,6 +6,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 /// @title StableClubSwapRouter — governance-allowlisted single-hop USDC swap routes (Phase 2a).
 /// @notice Separates swap routing from CL liquidity adapters. No arbitrary calldata or targets.
+/// @dev End-of-call checks use pre/post balances so pre-existing donated dust neither blocks
+///      execution nor is transferred to the caller.
 contract StableClubSwapRouter {
     using SafeERC20 for IERC20;
 
@@ -41,6 +43,8 @@ contract StableClubSwapRouter {
     error InvalidTokenIn();
     error PoolMismatch();
     error DeadlineExpired();
+    error MinOutRequired();
+    error FundsRemaining();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -102,19 +106,30 @@ contract StableClubSwapRouter {
         if (!route.enabled) revert RouteDisabled();
         _verifyFactoryPool(route);
 
+        uint256 preIn = IERC20(route.tokenIn).balanceOf(address(this));
+        uint256 preOut = IERC20(route.tokenOut).balanceOf(address(this));
+
         IERC20(route.tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
         IERC20(route.tokenIn).forceApprove(route.router, amountIn);
 
         if (route.kind == RouteKind.UniswapV3) {
-            amountOut = _swapUni(route, amountIn, minAmountOut);
+            _swapUni(route, amountIn, minAmountOut);
         } else {
-            amountOut = _swapAero(route, amountIn, minAmountOut, deadline);
+            _swapAero(route, amountIn, minAmountOut, deadline);
         }
 
-        IERC20(route.tokenOut).safeTransfer(msg.sender, amountOut);
+        uint256 outDelta = IERC20(route.tokenOut).balanceOf(address(this)) - preOut;
+        if (outDelta < minAmountOut) revert MinOutRequired();
+        if (outDelta > 0) {
+            IERC20(route.tokenOut).safeTransfer(msg.sender, outDelta);
+        }
+
+        _refundExcess(msg.sender, route.tokenIn, preIn);
         _clearApproval(route.tokenIn, route.router);
-        if (IERC20(route.tokenIn).balanceOf(address(this)) != 0) revert InvalidRoute();
-        if (IERC20(route.tokenOut).balanceOf(address(this)) != 0) revert InvalidRoute();
+        _assertBalanceRestored(route.tokenIn, preIn);
+        _assertBalanceRestored(route.tokenOut, preOut);
+
+        amountOut = outDelta;
     }
 
     function getRoute(bytes32 routeId) external view returns (RouteConfig memory) {
@@ -174,6 +189,18 @@ contract StableClubSwapRouter {
         if (IERC20(token).allowance(address(this), spender) != 0) {
             IERC20(token).forceApprove(spender, 0);
         }
+    }
+
+    /// @dev Forward only the balance delta created by this call; leave pre-existing dust untouched.
+    function _refundExcess(address user, address token, uint256 preBalance) internal {
+        uint256 bal = IERC20(token).balanceOf(address(this));
+        if (bal > preBalance) {
+            IERC20(token).safeTransfer(user, bal - preBalance);
+        }
+    }
+
+    function _assertBalanceRestored(address token, uint256 preBalance) internal view {
+        if (IERC20(token).balanceOf(address(this)) != preBalance) revert FundsRemaining();
     }
 }
 
