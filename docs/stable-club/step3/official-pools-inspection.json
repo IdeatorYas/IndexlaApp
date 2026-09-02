@@ -39,8 +39,12 @@
       "tickSpacing": 100,
       "riskLevel": "medium",
       "pair": "USDC/cbBTC",
-      "poolAddress": null,
-      "exists": false
+      "infrastructure": "aerodrome-legacy",
+      "poolAddress": "0x4e962bb3889bf030368f56810a9c96b83cb3e778",
+      "exists": true,
+      "existsOnCurrentAeroFactory": false,
+      "stage1Policy": "excluded-cl100",
+      "factory": "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A"
     },
     {
       "id": "USDC-cbBTC-UNI-005",
@@ -92,8 +96,12 @@
       "tickSpacing": 100,
       "riskLevel": "high",
       "pair": "cbBTC/WETH",
-      "poolAddress": null,
-      "exists": false
+      "infrastructure": "aerodrome-legacy",
+      "poolAddress": "0x70acdf2ad0bf2402c957154f944c19ef4e1cbae1",
+      "exists": true,
+      "existsOnCurrentAeroFactory": false,
+      "stage1Policy": "excluded-cl100",
+      "factory": "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A"
     },
     {
       "id": "cbBTC-WETH-UNI-005",
@@ -119,9 +127,11 @@
   ],
   "notes": [
     "RLUSD/USDC and PYUSD/USDC are NOT in the official five-pool catalogue.",
-    "poolAddress values are factory-derived on Base mainnet fork.",
+    "poolAddress values are factory-derived on Base mainnet fork using each pool's bound infrastructure generation.",
+    "REAUDIT-F02 (2026-08-31): CL100 Aero pools resolve on legacy factory 0x5e7BB104… only — not on current-generation factory.",
+    "SUPERSEDED (2026-09): Stage 1 policy now activates all five catalogue pools as equal 20% legs in one atomic strategy — see stage1-launch.ts. Historical single-pool note below retained for audit traceability only.",
+    "Stage 1 activates USDC-cbBTC-UNI-005 only; CL100 catalogue IDs remain excluded from Stage 1 activation.",
     "No transactions were sent.",
-    "CRITICAL: USDC-cbBTC-AERO-CL100 and cbBTC-WETH-AERO-CL100 resolve to address(0) at tickSpacing 100. Aero USDC/cbBTC exists at tickSpacing 1/10/50; Aero cbBTC/WETH exists at 1/10/50. Catalogue must be corrected via onboarding before activation.",
     "ETH/USD Chainlink feed verified live; USDC/USD and BTC/USD candidate addresses need re-verification against current Chainlink Base documentation before launch."
   ]
 }

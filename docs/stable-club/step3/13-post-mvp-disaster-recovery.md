@@ -1,7 +1,7 @@
 # Stable Club — post-MVP disaster-recovery checklist
 
 **Audience:** Founder + Safe signers + on-call eng.  
-**Assumption:** Protocol live on Base; Safe 2-of-3; Timelock owns admin; Stage 1 UNI-005.
+**Assumption:** Protocol live on Base; Safe 2-of-3; Timelock owns admin; Stage 1 **five-pool atomic strategy** (all legs must be activated for live deposits).
 
 ## Severity triage
 
@@ -15,7 +15,7 @@
 ## Immediate controls (no Timelock delay)
 
 - Guardian: `setGlobalPause(true)`, pool/deposit/automation/swap pauses, depeg flags  
-- Users: revoke permissions / exit via allowed emergency paths if still available  
+- Users: revoke permissions / exit via documented paths only — executor emergency requires per-token NFT `approve(adapter, tokenId)` and is **not** unconditional; if that path is unavailable, use the user-held NFT **direct NPM** break-glass path (see [14-production-security-runbook.md](./14-production-security-runbook.md) SC-11)
 
 ## Delayed controls (Safe → Timelock ≥48h)
 

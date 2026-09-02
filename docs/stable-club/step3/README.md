@@ -22,6 +22,7 @@ Baseline: `6654dfa` · Governance scaffolding: `feature/stable-club-step3` @ `ab
 | [11-professional-audit-package.md](./11-professional-audit-package.md) | Audit package + candidate freeze SHA policy |
 | [12-deployment-runbook-rollback.md](./12-deployment-runbook-rollback.md) | Deploy runbook + rollback (not for execution yet) |
 | [13-post-mvp-disaster-recovery.md](./13-post-mvp-disaster-recovery.md) | Post-MVP DR checklist |
+| [14-production-security-runbook.md](./14-production-security-runbook.md) | Production security runbook (SC-06 / SC-07 / SC-09 / SC-11 / SC-12) |
 
 ## Explicit non-actions
 

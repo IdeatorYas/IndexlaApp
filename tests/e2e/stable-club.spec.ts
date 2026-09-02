@@ -33,8 +33,12 @@ test.describe("Stable Club Step 1 — frontend to contract", () => {
     await page.addInitScript(STABLE_CLUB_E2E_INJECT_WALLET_SCRIPT);
     await page.goto("/app/stable-club");
 
-    await expect(page.getByRole("heading", { name: /Base Foundation/i })).toBeVisible();
-    await expect(page.getByText(deployments.executor)).toBeVisible({ timeout: 30_000 });
+    await expect(
+      page.getByRole("heading", { name: /Base Pools \+ Dashboard \+ Automation/i }),
+    ).toBeVisible();
+    await expect(page.getByText(deployments.executor).first()).toBeVisible({
+      timeout: 30_000,
+    });
 
     await page.getByRole("button", { name: "Connect Wallet" }).click();
     await expect(page.getByText(E2E_USER)).toBeVisible();
@@ -114,16 +118,13 @@ test.describe("Stable Club Step 1 — frontend to contract", () => {
       timeout: 60_000,
     });
 
-    await page.getByRole("button", { name: "Register strategy permission" }).click();
-    await expect(page.getByText(/Register permission confirmed/i)).toBeVisible({
-      timeout: 60_000,
+    const lpBeforeEmergency = await publicClient.readContract({
+      address: deployments.testAdapter,
+      abi: testPoolAdapterAbi,
+      functionName: "balanceOf",
+      args: [E2E_USER],
     });
-
-    await page.getByLabel("Deposit USDC").fill("200");
-    await page.getByRole("button", { name: "Deposit & add liquidity" }).click();
-    await expect(page.getByText(/Deposit & add liquidity confirmed/i)).toBeVisible({
-      timeout: 60_000,
-    });
+    expect(lpBeforeEmergency).toBeGreaterThan(BigInt(0));
 
     await page.getByRole("button", { name: "Emergency exit" }).click();
     await expect(page.getByText(/Emergency exit confirmed/i)).toBeVisible({

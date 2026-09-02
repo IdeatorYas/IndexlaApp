@@ -8,6 +8,7 @@
  * Allowances are sized to each spender's need — never duplicate the gross total.
  */
 import type { Address } from "viem";
+import { LOCAL_HARDHAT_CHAIN_ID } from "@/lib/stable-club/chain-isolation";
 import {
   BASE_CHAIN_ID,
   BASE_PERMIT2,
@@ -77,17 +78,26 @@ export type DualSpenderDepositSplit = {
 
 /**
  * Resolve Permit2 address for a chain.
- * Base mainnet (8453): always canonical; reject zero / custom / non-canonical.
- * Local/test chains: mocks allowed when explicitly provided.
+ *
+ * SC-F02:
+ * - Base mainnet (8453): always canonical. No `localHardhat`, JSON, env, or caller input
+ *   may override Permit2 on chainId 8453.
+ * - Local Hardhat (31337): requires an explicit mock Permit2 address (never silent Base fallback).
+ * - Other non-Base chains: require an explicit non-zero Permit2 address.
+ *
+ * `localHardhat` is accepted for call-site compatibility but is ignored — it never weakens Base.
  */
 export function resolvePermit2Address(params: {
   chainId: number;
   permit2?: Address | null;
+  /** @deprecated Ignored. Cannot override Permit2 on Base 8453. */
+  localHardhat?: boolean;
 }): Address {
+  void params.localHardhat;
   const provided = params.permit2 ?? null;
   const zero = "0x0000000000000000000000000000000000000000";
+
   if (params.chainId === BASE_CHAIN_ID) {
-    // Omitted → use canonical. Explicit zero / custom / non-canonical → reject.
     if (provided == null) {
       return BASE_PERMIT2.address;
     }
@@ -98,10 +108,20 @@ export function resolvePermit2Address(params: {
     }
     return BASE_PERMIT2.address;
   }
-  // Non-Base (local Hardhat / test): allow explicit mock; default still canonical for safety.
+
   if (provided == null || provided.toLowerCase() === zero) {
-    return BASE_PERMIT2.address;
+    if (params.chainId === LOCAL_HARDHAT_CHAIN_ID) {
+      throw new Error("Permit2 address required on local Hardhat (mock)");
+    }
+    throw new Error(`Permit2 address required for chainId ${params.chainId}`);
   }
+
+  if (params.chainId === LOCAL_HARDHAT_CHAIN_ID && isCanonicalBasePermit2(provided)) {
+    throw new Error(
+      "Canonical Base Permit2 is not valid on local Hardhat — use the declared MockPermit2",
+    );
+  }
+
   return provided;
 }
 
@@ -161,9 +181,14 @@ export function buildBoundedPermit2ApproveTx(params: {
   amount: bigint;
   expiration: number;
   nowSec?: number;
+  localHardhat?: boolean;
 }) {
   const chainId = params.chainId ?? BASE_CHAIN_ID;
-  const permit2 = resolvePermit2Address({ chainId, permit2: params.permit2 });
+  const permit2 = resolvePermit2Address({
+    chainId,
+    permit2: params.permit2,
+    localHardhat: params.localHardhat,
+  });
   assertBoundedPermit2Amount(params.amount);
   assertFutureExpiration(params.expiration, params.nowSec);
   return {
@@ -180,9 +205,14 @@ export function buildBoundedErc20ApproveToPermit2(params: {
   amount: bigint;
   permit2?: Address;
   chainId?: number;
+  localHardhat?: boolean;
 }) {
   const chainId = params.chainId ?? BASE_CHAIN_ID;
-  const permit2 = resolvePermit2Address({ chainId, permit2: params.permit2 });
+  const permit2 = resolvePermit2Address({
+    chainId,
+    permit2: params.permit2,
+    localHardhat: params.localHardhat,
+  });
   assertBoundedErc20ApproveAmount(params.amount);
   return {
     address: params.token,

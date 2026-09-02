@@ -1,18 +1,26 @@
 import { base } from "viem/chains";
+import type { Chain } from "viem";
+import { LOCAL_HARDHAT_CHAIN_ID } from "@/lib/stable-club/chain-isolation";
 
 /** Base Mainnet — Step 1 target chain (chainId 8453). */
 export const STABLE_CLUB_CHAIN = base;
 
 export const STABLE_CLUB_CHAIN_ID = base.id;
 
-/** Local Hardhat node emulating Base chainId for Step 1 dev only. */
+/**
+ * Local Hardhat for browser / E2E — distinct chainId 31337 (never Base 8453).
+ * SC-F02: Base wallets must not share identity with local deployments.
+ */
 export const STABLE_CLUB_LOCAL_CHAIN = {
-  ...base,
-  name: "Base (Local Hardhat)",
+  id: LOCAL_HARDHAT_CHAIN_ID,
+  name: "Hardhat Local (Stable Club)",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: {
     default: { http: ["http://127.0.0.1:8545"] },
   },
-} as const;
+} as const satisfies Chain;
+
+export const STABLE_CLUB_LOCAL_CHAIN_ID = LOCAL_HARDHAT_CHAIN_ID;
 
 export const STABLE_CLUB_LOCAL_RPC_URL = "http://127.0.0.1:8545";
 

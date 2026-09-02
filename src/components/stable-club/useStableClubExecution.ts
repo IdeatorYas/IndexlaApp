@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createPublicClient,
   createWalletClient,
@@ -8,6 +8,7 @@ import {
   formatUnits,
   http,
   parseUnits,
+  type Address,
   type Hex,
 } from "viem";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
@@ -18,17 +19,43 @@ import {
   testPoolAdapterAbi,
 } from "@/lib/stable-club/abis";
 import type { StableClubLocalDeployments } from "@/lib/stable-club/deployments";
+import { hydrateLocalDeploymentsFromApi } from "@/lib/stable-club/runtime-deployments";
 import { computeStableClubPermissionId } from "@/lib/stable-club/permission-id";
 import {
   buildDefaultPermissionScope,
   toOnChainPermission,
 } from "@/lib/stable-club/permissions";
 import {
-  STABLE_CLUB_CHAIN_ID,
   STABLE_CLUB_LOCAL_CHAIN,
+  STABLE_CLUB_LOCAL_CHAIN_ID,
   STABLE_CLUB_LOCAL_RPC_URL,
   STABLE_CLUB_USDC_DECIMALS,
 } from "@/lib/stable-club/constants";
+import { assertChainEnvironmentMatch } from "@/lib/stable-club/chain-isolation";
+import {
+  buildDualSpenderDepositApprovalPlan,
+  permit2AllowanceAbi,
+} from "@/lib/stable-club/permit2";
+import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
+import {
+  createSyncSubmissionLock,
+  resolveNextPermissionExecutionNonce,
+  SUBMISSION_IN_PROGRESS_MESSAGE,
+} from "@/lib/stable-club/permission-execution-nonce";
+
+/** Defensive minOut for TestPoolAdapter 50/50 exit (1% slack below expected split). */
+function testPoolExitMins(lpAmount: bigint): { minA: bigint; minB: bigint } {
+  const two = BigInt(2);
+  const zero = BigInt(0);
+  const one = BigInt(1);
+  const pctNum = BigInt(99);
+  const pctDen = BigInt(100);
+  const half = lpAmount / two;
+  const rest = lpAmount - half;
+  const minA = half > zero ? (half * pctNum) / pctDen || one : one;
+  const minB = rest > zero ? (rest * pctNum) / pctDen || one : one;
+  return { minA, minB };
+}
 
 type DeploymentsResponse =
   | { configured: false; message: string }
@@ -42,7 +69,6 @@ export type StableClubExecutionState = {
   permissionRegistered: boolean;
   lpBalance: bigint;
   usdcBalance: bigint;
-  executionNonce: bigint;
   busyAction: string | null;
   lastTxHash: Hex | null;
   statusMessage: string | null;
@@ -51,6 +77,7 @@ export type StableClubExecutionState = {
 
 export function useStableClubExecution() {
   const wallet = useStableClubWallet();
+  const submissionLockRef = useRef(createSyncSubmissionLock());
   const [deployments, setDeployments] = useState<StableClubLocalDeployments | null>(
     null,
   );
@@ -60,7 +87,6 @@ export function useStableClubExecution() {
   const [permissionRegistered, setPermissionRegistered] = useState(false);
   const [lpBalance, setLpBalance] = useState(BigInt(0));
   const [usdcBalance, setUsdcBalance] = useState(BigInt(0));
-  const [executionNonce, setExecutionNonce] = useState(BigInt(1));
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [lastTxHash, setLastTxHash] = useState<Hex | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -124,14 +150,19 @@ export function useStableClubExecution() {
       setDeploymentsError(null);
       try {
         const res = await fetch("/api/stable-club/deployments");
-        const json = (await res.json()) as DeploymentsResponse;
+        const json = await res.json();
         if (cancelled) return;
-        if (!json.configured) {
+        const hydrated = hydrateLocalDeploymentsFromApi(json);
+        if (!hydrated) {
           setDeployments(null);
-          setDeploymentsError(json.message);
+          setDeploymentsError(
+            typeof json === "object" && json != null && "message" in json
+              ? String((json as { message?: string }).message)
+              : "Local deployments unavailable",
+          );
           return;
         }
-        setDeployments(json.deployments);
+        setDeployments(hydrated);
       } catch {
         if (!cancelled) {
           setDeploymentsError("Unable to load local Stable Club deployments.");
@@ -191,21 +222,38 @@ export function useStableClubExecution() {
     if (!deployments) throw new Error("Local deployments are not configured.");
     if (!wallet.address || !walletClient) throw new Error("Connect your wallet first.");
     if (wallet.chainId !== deployments.chainId) {
-      throw new Error("Switch wallet to the local Base Hardhat network (chainId 8453).");
+      throw new Error(
+        `Switch wallet to the local Hardhat network (chainId ${STABLE_CLUB_LOCAL_CHAIN_ID}).`,
+      );
     }
+    assertChainEnvironmentMatch({
+      walletChainId: wallet.chainId,
+      deploymentChainId: deployments.chainId,
+      network: deployments.network,
+    });
     return { d: deployments, account: wallet.address, client: walletClient };
   }, [deployments, wallet.address, wallet.chainId, walletClient]);
 
-  const runTx = useCallback(
+  /**
+   * SC-F08: sync lock acquired before any async work; busyAction is UI-only.
+   * SC-F01: successful-receipt enforcement preserved.
+   * Never advances a client nonce counter after success/failure.
+   */
+  const runGuarded = useCallback(
     async (action: string, fn: () => Promise<Hex>) => {
+      const lock = submissionLockRef.current;
+      if (!lock.tryAcquire()) {
+        const message = SUBMISSION_IN_PROGRESS_MESSAGE;
+        setError(message);
+        throw new Error(message);
+      }
       setBusyAction(action);
       setError(null);
       setStatusMessage(null);
       try {
         const hash = await fn();
         setLastTxHash(hash);
-        await publicClient.waitForTransactionReceipt({ hash });
-        setExecutionNonce((n) => n + BigInt(1));
+        await waitForSuccessfulTransactionReceipt(publicClient, hash);
         await refreshBalances();
         setStatusMessage(`${action} confirmed.`);
         return hash;
@@ -215,75 +263,144 @@ export function useStableClubExecution() {
         setError(message);
         throw err;
       } finally {
+        lock.release();
         setBusyAction(null);
       }
     },
     [publicClient, refreshBalances],
   );
 
+  /** ERC20 approve must succeed on-chain before a dependent executor call. */
+  const approveErc20OrThrow = useCallback(
+    async (
+      client: NonNullable<ReturnType<typeof createWalletClient>>,
+      account: Address,
+      token: Address,
+      spender: Address,
+      amount: bigint,
+    ) => {
+      const hash = await client.writeContract({
+        address: token,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [spender, amount],
+        chain,
+        account,
+      });
+      await waitForSuccessfulTransactionReceipt(publicClient, hash);
+      return hash;
+    },
+    [chain, publicClient],
+  );
+
+  const readNextExecutionNonce = useCallback(
+    async (permissionRegistry: Address, pid: Hex) => {
+      return resolveNextPermissionExecutionNonce(
+        publicClient,
+        permissionRegistry,
+        pid,
+      );
+    },
+    [publicClient],
+  );
+
   const registerPermission = useCallback(async () => {
-    const { d, account, client } = ensureReady();
-    if (!permissionId) throw new Error("Permission id unavailable.");
+    await runGuarded("Register permission", async () => {
+      const { d, account, client } = ensureReady();
+      if (!permissionId) throw new Error("Permission id unavailable.");
 
-    const scope = buildDefaultPermissionScope({
-      user: account,
-      chainId: d.chainId,
-      poolId: d.poolId,
-      tokenA: d.usdc,
-      tokenB: d.weth,
-    });
+      const scope = buildDefaultPermissionScope({
+        user: account,
+        chainId: d.chainId,
+        poolId: d.poolId,
+        tokenA: d.usdc,
+        tokenB: d.weth,
+      });
 
-    await runTx("Register permission", () =>
-      client.writeContract({
+      const hash = await client.writeContract({
         address: d.permissionRegistry,
         abi: permissionRegistryAbi,
         functionName: "registerPermission",
         args: [toOnChainPermission(scope)],
         chain,
         account,
-      }),
-    );
-    setPermissionRegistered(true);
-  }, [chain, ensureReady, permissionId, runTx]);
+      });
+      setPermissionRegistered(true);
+      return hash;
+    });
+  }, [chain, ensureReady, permissionId, runGuarded]);
 
   const depositAndAddLiquidity = useCallback(
     async (depositUsdc: string, swapUsdc: string) => {
-      const { d, account, client } = ensureReady();
-      if (!permissionId) throw new Error("Permission id unavailable.");
+      await runGuarded("Deposit & add liquidity", async () => {
+        const { d, account, client } = ensureReady();
+        if (!permissionId) throw new Error("Permission id unavailable.");
 
-      const depositAmount = parseUnits(depositUsdc || "0", STABLE_CLUB_USDC_DECIMALS);
-      const swapAmount = parseUnits(swapUsdc || "0", STABLE_CLUB_USDC_DECIMALS);
-      const nonce = executionNonce;
+        const depositAmount = parseUnits(depositUsdc || "0", STABLE_CLUB_USDC_DECIMALS);
+        const swapAmount = parseUnits(swapUsdc || "0", STABLE_CLUB_USDC_DECIMALS);
 
-      // Legacy local path (permit2 unset): approve only what each spender pulls.
-      // FeeRouter pulls swapAmount; executor pulls depositAmount - swapAmount.
-      if (swapAmount > depositAmount) {
-        throw new Error("swapAmount cannot exceed depositAmount");
-      }
-      const executorPull = depositAmount - swapAmount;
-      if (swapAmount > BigInt(0)) {
-        await client.writeContract({
-          address: d.usdc,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [d.feeRouter, swapAmount],
-          chain,
-          account,
+        if (swapAmount > depositAmount) {
+          throw new Error("swapAmount cannot exceed depositAmount");
+        }
+
+        const permit2Address = (await publicClient.readContract({
+          address: d.executor,
+          abi: [{ type: "function", name: "permit2", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const,
+          functionName: "permit2",
+        })) as Address;
+
+        const nowSec = Number((await publicClient.getBlock()).timestamp);
+        const expiration = nowSec + 3600;
+        const approvalPlan = buildDualSpenderDepositApprovalPlan({
+          chainId: d.chainId,
+          permit2: permit2Address,
+          token: d.usdc,
+          feeRouter: d.feeRouter,
+          executor: d.executor,
+          depositAmount,
+          swapAmount,
+          expiration,
+          nowSec,
         });
-      }
-      if (executorPull > BigInt(0)) {
-        await client.writeContract({
-          address: d.usdc,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [d.executor, executorPull],
-          chain,
-          account,
-        });
-      }
 
-      await runTx("Deposit & add liquidity", () =>
-        client.writeContract({
+        if (approvalPlan.erc20ApproveTx) {
+          const hash = await client.writeContract({
+            address: approvalPlan.erc20ApproveTx.address,
+            abi: erc20Abi,
+            functionName: approvalPlan.erc20ApproveTx.functionName,
+            args: [...approvalPlan.erc20ApproveTx.args],
+            chain,
+            account,
+          });
+          await waitForSuccessfulTransactionReceipt(publicClient, hash);
+        }
+        if (approvalPlan.feeRouterPermit2Tx) {
+          const hash = await client.writeContract({
+            address: approvalPlan.feeRouterPermit2Tx.address,
+            abi: permit2AllowanceAbi,
+            functionName: approvalPlan.feeRouterPermit2Tx.functionName,
+            args: [...approvalPlan.feeRouterPermit2Tx.args],
+            chain,
+            account,
+          });
+          await waitForSuccessfulTransactionReceipt(publicClient, hash);
+        }
+        if (approvalPlan.executorPermit2Tx) {
+          const hash = await client.writeContract({
+            address: approvalPlan.executorPermit2Tx.address,
+            abi: permit2AllowanceAbi,
+            functionName: approvalPlan.executorPermit2Tx.functionName,
+            args: [...approvalPlan.executorPermit2Tx.args],
+            chain,
+            account,
+          });
+          await waitForSuccessfulTransactionReceipt(publicClient, hash);
+        }
+
+        // SC-F08: chain nonce immediately before building the executable executor tx.
+        const nonce = await readNextExecutionNonce(d.permissionRegistry, permissionId);
+
+        return client.writeContract({
           address: d.executor,
           abi: stableClubExecutorAbi,
           functionName: "depositAndAddLiquidity",
@@ -296,36 +413,29 @@ export function useStableClubExecution() {
             d.weth,
             depositAmount,
             swapAmount,
-            // After 1% fee, TestPoolAdapter swaps 1:1 — enforce non-zero minOut when swapping (H5).
             swapAmount > BigInt(0) ? (swapAmount * BigInt(99)) / BigInt(100) : BigInt(0),
             BigInt(1),
             BigInt(500),
           ],
           chain,
           account,
-        }),
-      );
+        });
+      });
     },
-    [chain, ensureReady, executionNonce, permissionId, runTx],
+    [chain, ensureReady, permissionId, publicClient, readNextExecutionNonce, runGuarded],
   );
 
   const removeLiquidity = useCallback(
     async (lpAmount: bigint) => {
-      const { d, account, client } = ensureReady();
-      if (!permissionId) throw new Error("Permission id unavailable.");
-      const nonce = executionNonce;
+      await runGuarded("Remove liquidity", async () => {
+        const { d, account, client } = ensureReady();
+        if (!permissionId) throw new Error("Permission id unavailable.");
 
-      await client.writeContract({
-        address: d.testAdapter,
-        abi: erc20Abi,
-        functionName: "approve",
-        args: [d.executor, lpAmount],
-        chain,
-        account,
-      });
+        await approveErc20OrThrow(client, account, d.testAdapter, d.executor, lpAmount);
 
-      await runTx("Remove liquidity", () =>
-        client.writeContract({
+        const nonce = await readNextExecutionNonce(d.permissionRegistry, permissionId);
+        const { minA, minB } = testPoolExitMins(lpAmount);
+        return client.writeContract({
           address: d.executor,
           abi: stableClubExecutorAbi,
           functionName: "removeLiquidity",
@@ -336,35 +446,29 @@ export function useStableClubExecution() {
             d.usdc,
             d.weth,
             lpAmount,
-            BigInt(0),
-            BigInt(0),
+            minA,
+            minB,
             BigInt(500),
           ],
           chain,
           account,
-        }),
-      );
+        });
+      });
     },
-    [chain, ensureReady, executionNonce, permissionId, runTx],
+    [approveErc20OrThrow, chain, ensureReady, permissionId, readNextExecutionNonce, runGuarded],
   );
 
   const withdrawAll = useCallback(async () => {
-    const { d, account, client } = ensureReady();
-    if (!permissionId) throw new Error("Permission id unavailable.");
-    if (lpBalance === BigInt(0)) throw new Error("No LP balance to withdraw.");
-    const nonce = executionNonce;
+    await runGuarded("Withdraw all", async () => {
+      const { d, account, client } = ensureReady();
+      if (!permissionId) throw new Error("Permission id unavailable.");
+      if (lpBalance === BigInt(0)) throw new Error("No LP balance to withdraw.");
 
-    await client.writeContract({
-      address: d.testAdapter,
-      abi: erc20Abi,
-      functionName: "approve",
-      args: [d.executor, lpBalance],
-      chain,
-      account,
-    });
+      await approveErc20OrThrow(client, account, d.testAdapter, d.executor, lpBalance);
 
-    await runTx("Withdraw all", () =>
-      client.writeContract({
+      const nonce = await readNextExecutionNonce(d.permissionRegistry, permissionId);
+      const { minA, minB } = testPoolExitMins(lpBalance);
+      return client.writeContract({
         address: d.executor,
         abi: stableClubExecutorAbi,
         functionName: "withdrawAll",
@@ -375,66 +479,69 @@ export function useStableClubExecution() {
           d.usdc,
           d.weth,
           lpBalance,
-          BigInt(0),
-          BigInt(0),
+          minA,
+          minB,
           BigInt(500),
         ],
         chain,
         account,
-      }),
-    );
-  }, [chain, ensureReady, executionNonce, lpBalance, permissionId, runTx]);
+      });
+    });
+  }, [
+    approveErc20OrThrow,
+    chain,
+    ensureReady,
+    lpBalance,
+    permissionId,
+    readNextExecutionNonce,
+    runGuarded,
+  ]);
 
   const pauseAutomation = useCallback(async () => {
-    const { d, account, client } = ensureReady();
-    if (!permissionId) throw new Error("Permission id unavailable.");
+    await runGuarded("Pause automation", async () => {
+      const { d, account, client } = ensureReady();
+      if (!permissionId) throw new Error("Permission id unavailable.");
 
-    await runTx("Pause automation", () =>
-      client.writeContract({
+      return client.writeContract({
         address: d.executor,
         abi: stableClubExecutorAbi,
         functionName: "pauseAutomation",
         args: [permissionId],
         chain,
         account,
-      }),
-    );
-  }, [chain, ensureReady, permissionId, runTx]);
+      });
+    });
+  }, [chain, ensureReady, permissionId, runGuarded]);
 
   const revokePermissionDirect = useCallback(async () => {
-    const { d, account, client } = ensureReady();
-    if (!permissionId) throw new Error("Permission id unavailable.");
+    await runGuarded("Revoke permission", async () => {
+      const { d, account, client } = ensureReady();
+      if (!permissionId) throw new Error("Permission id unavailable.");
 
-    await runTx("Revoke permission", () =>
-      client.writeContract({
+      const hash = await client.writeContract({
         address: d.permissionRegistry,
         abi: permissionRegistryAbi,
         functionName: "revoke",
         args: [permissionId],
         chain,
         account,
-      }),
-    );
-    setPermissionRegistered(false);
-  }, [chain, ensureReady, permissionId, runTx]);
+      });
+      setPermissionRegistered(false);
+      return hash;
+    });
+  }, [chain, ensureReady, permissionId, runGuarded]);
 
   const emergencyExit = useCallback(async () => {
-    const { d, account, client } = ensureReady();
-    if (!permissionId) throw new Error("Permission id unavailable.");
-    if (lpBalance === BigInt(0)) throw new Error("No LP balance for emergency exit.");
-    const nonce = executionNonce;
+    await runGuarded("Emergency exit", async () => {
+      const { d, account, client } = ensureReady();
+      if (!permissionId) throw new Error("Permission id unavailable.");
+      if (lpBalance === BigInt(0)) throw new Error("No LP balance for emergency exit.");
 
-    await client.writeContract({
-      address: d.testAdapter,
-      abi: erc20Abi,
-      functionName: "approve",
-      args: [d.executor, lpBalance],
-      chain,
-      account,
-    });
+      await approveErc20OrThrow(client, account, d.testAdapter, d.executor, lpBalance);
 
-    await runTx("Emergency exit", () =>
-      client.writeContract({
+      const nonce = await readNextExecutionNonce(d.permissionRegistry, permissionId);
+      const { minA, minB } = testPoolExitMins(lpBalance);
+      return client.writeContract({
         address: d.executor,
         abi: stableClubExecutorAbi,
         functionName: "emergencyExit",
@@ -445,14 +552,22 @@ export function useStableClubExecution() {
           d.usdc,
           d.weth,
           lpBalance,
-          BigInt(0),
-          BigInt(0),
+          minA,
+          minB,
         ],
         chain,
         account,
-      }),
-    );
-  }, [chain, ensureReady, executionNonce, lpBalance, permissionId, runTx]);
+      });
+    });
+  }, [
+    approveErc20OrThrow,
+    chain,
+    ensureReady,
+    lpBalance,
+    permissionId,
+    readNextExecutionNonce,
+    runGuarded,
+  ]);
 
   return {
     deployments,
@@ -462,7 +577,6 @@ export function useStableClubExecution() {
     permissionRegistered,
     lpBalance,
     usdcBalance,
-    executionNonce,
     busyAction,
     lastTxHash,
     statusMessage,
@@ -478,6 +592,6 @@ export function useStableClubExecution() {
     emergencyExit,
     refreshBalances,
     localRpcUrl: deployments?.rpcUrl ?? STABLE_CLUB_LOCAL_RPC_URL,
-    expectedChainId: deployments?.chainId ?? STABLE_CLUB_CHAIN_ID,
+    expectedChainId: deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID,
   };
 }

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NavIcon } from "@/components/shell/NavIcons";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
-import { getClientFeatureFlags, isStableClubDevEnabled } from "@/lib/feature-flags";
+import { getClientFeatureFlags } from "@/lib/feature-flags";
 import { APP_ROUTES, NAV_ITEMS } from "@/lib/routes";
 import { formatUsd } from "@/lib/dashboard/data";
 import { getDexlaBalance } from "@/lib/data";
@@ -19,10 +19,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { wallet } = useDemoWallet();
   const flags = getClientFeatureFlags();
-  const stableClubDev = isStableClubDevEnabled();
-  const navItems = NAV_ITEMS.filter(
-    (item) => !("devOnly" in item && item.devOnly) || stableClubDev,
-  );
+  const navItems = NAV_ITEMS;
   const dexla = getDexlaBalance().data;
   const initials =
     wallet.state === "connected"
@@ -98,9 +95,9 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
               {item.label === "Stable Club" ? (
                 <span
                   aria-hidden
-                  className="ml-auto rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-300"
+                  className="ml-auto rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-300"
                 >
-                  Dev
+                  Beta
                 </span>
               ) : null}
             </Link>

@@ -123,6 +123,7 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
     error TokenMismatch();
     error AdapterNotApprovedForPosition();
     error InvalidPool();
+    error InvalidCloseRecipient();
 
     modifier onlyExecutor() {
         if (msg.sender != executor) revert OnlyExecutor();
@@ -185,6 +186,13 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         );
     }
 
+    function collectibleFees(uint256 tokenId) external view returns (uint256 amount0, uint256 amount1) {
+        _requirePoolIdentity(tokenId);
+        (, , , , , , , , , , uint128 tokensOwed0, uint128 tokensOwed1) = IUniswapV3NPM(npm).positions(tokenId);
+        amount0 = tokensOwed0;
+        amount1 = tokensOwed1;
+    }
+
     function mintPosition(
         address lpOwner,
         address tokenA,
@@ -198,6 +206,9 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
     ) external onlyExecutor returns (uint256 tokenId, uint128 liquidity) {
         (address token0, address token1, uint256 amount0, uint256 amount1, uint256 amount0Min, uint256 amount1Min) =
             _sort(tokenA, tokenB, amountA, amountB, amountAMin, amountBMin);
+
+        // SC-03: factory must resolve this adapter's configured pool before any approval/mint.
+        ClNpmPositionValue.requireUniPoolIdentity(factory, pool, token0, token1, fee, fee);
 
         if (amount0 > 0) IERC20(token0).safeTransferFrom(msg.sender, address(this), amount0);
         if (amount1 > 0) IERC20(token1).safeTransferFrom(msg.sender, address(this), amount1);
@@ -290,28 +301,30 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         (amountA, amountB) = _mapFrom01(tokenA, tokenB, token0, token1, amount0, amount1);
     }
 
-    function collectFees(address lpOwner, uint256 tokenId)
+    function collectFees(address lpOwner, uint256 tokenId, address recipient)
         external
         onlyExecutor
         returns (uint256 amountA, uint256 amountB)
     {
         _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
-        (amountA, amountB) = _collectTo(lpOwner, tokenId);
+        (amountA, amountB) = _collectTo(recipient, tokenId);
     }
 
-    function collectRewards(address, uint256) external pure returns (uint256) {
+    function collectRewards(address, uint256, address) external pure returns (uint256) {
         return 0;
     }
 
     function closePosition(
         address lpOwner,
         uint256 tokenId,
+        address recipient,
         address tokenA,
         address tokenB,
         uint256 amountAMin,
         uint256 amountBMin
     ) external onlyExecutor returns (uint256 amountA, uint256 amountB) {
+        if (recipient != lpOwner && recipient != msg.sender) revert InvalidCloseRecipient();
         _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
         (, , address token0, address token1, , , , uint128 liquidity, , , , ) =
@@ -319,10 +332,8 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         (, , uint256 amount0Min, uint256 amount1Min) =
             _mapTo01(tokenA, tokenB, token0, token1, 0, 0, amountAMin, amountBMin);
 
-        uint256 amount0;
-        uint256 amount1;
         if (liquidity > 0) {
-            (amount0, amount1) = IUniswapV3NPM(npm).decreaseLiquidity(
+            IUniswapV3NPM(npm).decreaseLiquidity(
                 IUniswapV3NPM.DecreaseLiquidityParams({
                     tokenId: tokenId,
                     liquidity: liquidity,
@@ -332,7 +343,7 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
                 })
             );
         }
-        _collectTo(lpOwner, tokenId);
+        (uint256 amount0, uint256 amount1) = _collectTo(recipient, tokenId);
         IUniswapV3NPM(npm).burn(tokenId);
         (amountA, amountB) = _mapFrom01(tokenA, tokenB, token0, token1, amount0, amount1);
     }

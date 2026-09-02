@@ -1,11 +1,15 @@
 "use client";
 
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
+import { resolvePoolLaunchStatus } from "@/lib/stable-club/pool-launch-status";
 import {
   automationRequiresNftApproval,
   type NpmApprovalStatus,
 } from "@/lib/stable-club/nft-approval";
 import type { StableClubPosition } from "@/lib/stable-club/positions";
+import type { HarvestUiStatus } from "@/lib/stable-club/harvest";
+import type { CompoundUiStatus } from "@/lib/stable-club/compound";
+import type { RebalanceUiStatus } from "@/lib/stable-club/rebalance";
 
 export function StableClubPoolCatalogue({
   activatedPoolIds,
@@ -18,15 +22,23 @@ export function StableClubPoolCatalogue({
     <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
       <h2 className="text-sm font-bold text-app-ink">Official Base pools (Step 2)</h2>
       <p className="mt-1 text-xs text-app-muted">
-        Five approved pools. Activation requires internal test-pool validation.
+        Five approved catalogue pools on Base (chainId 8453). All five pools are Stage 1
+        eligible for the five-pool Base beta. Factory-verified status is separate from
+        on-chain activation.
         {" "}
         Test pool validated: {testPoolValidated ? "yes" : "pending"}
       </p>
       <ul className="mt-3 space-y-2">
         {OFFICIAL_STABLE_CLUB_BASE_POOLS.map((pool) => {
-          const unavailable = pool.availability !== "available";
-          const active = activatedPoolIds.includes(pool.id);
-          const canActivate = testPoolValidated && !unavailable;
+          const status = resolvePoolLaunchStatus(pool, { activatedOnChainIds: activatedPoolIds });
+          const badgeClass =
+            status.publicBadge === "Live"
+              ? "rounded border border-app-success/30 bg-app-success/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-success"
+              : status.publicBadge === "Unverified"
+                ? "rounded border border-app-danger/30 bg-app-danger/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-danger"
+                : status.publicBadge === "Ready for activation"
+                  ? "rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600"
+                  : "rounded border border-app-line px-2 py-0.5 text-[10px] font-bold uppercase text-app-dim";
           return (
             <li
               key={pool.id}
@@ -39,31 +51,9 @@ export function StableClubPoolCatalogue({
                     {pool.protocol} · {pool.tokenA.symbol}/{pool.tokenB.symbol} · risk{" "}
                     {pool.riskLevel}
                   </p>
-                  {unavailable ? (
-                    <p className="mt-1 text-[10px] text-app-danger">
-                      Unavailable — factory missing. Not launch-ready. No silent remap.
-                    </p>
-                  ) : null}
+                  <p className="mt-1 text-[10px] text-app-muted">{status.publicDetail}</p>
                 </div>
-                <span
-                  className={
-                    unavailable
-                      ? "rounded border border-app-danger/30 bg-app-danger/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-danger"
-                      : active
-                        ? "rounded border border-app-success/30 bg-app-success/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-success"
-                        : canActivate
-                          ? "rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600"
-                          : "rounded border border-app-line px-2 py-0.5 text-[10px] font-bold uppercase text-app-dim"
-                  }
-                >
-                  {unavailable
-                    ? "Unavailable"
-                    : active
-                      ? "Activated"
-                      : canActivate
-                        ? "Ready"
-                        : "Locked"}
-                </span>
+                <span className={badgeClass}>{status.publicBadge}</span>
               </div>
             </li>
           );
@@ -101,12 +91,44 @@ export function StableClubPositionDashboard({
   circuitBroken,
   onApprovePosition,
   approvingPositionId,
+  harvestOptInEnabled = false,
+  harvestBusy = false,
+  harvestUiStatus,
+  onHarvestPosition,
+  compoundOptInEnabled = false,
+  compoundBusy = false,
+  compoundUiStatus,
+  compoundAutomationAvailable = false,
+  compoundAutomationMessage,
+  onCompoundPosition,
+  rebalanceOptInEnabled = false,
+  rebalanceBusy = false,
+  rebalanceUiStatus,
+  rebalanceAutomationAvailable = false,
+  rebalanceAutomationMessage,
+  onRebalancePosition,
 }: {
   positions: StableClubPosition[];
   pendingProposals: number;
   circuitBroken: boolean;
   onApprovePosition?: (position: StableClubPosition) => void;
   approvingPositionId?: string | null;
+  harvestOptInEnabled?: boolean;
+  harvestBusy?: boolean;
+  harvestUiStatus?: HarvestUiStatus;
+  onHarvestPosition?: (position: StableClubPosition) => void;
+  compoundOptInEnabled?: boolean;
+  compoundBusy?: boolean;
+  compoundUiStatus?: CompoundUiStatus;
+  compoundAutomationAvailable?: boolean;
+  compoundAutomationMessage?: string;
+  onCompoundPosition?: (position: StableClubPosition) => void;
+  rebalanceOptInEnabled?: boolean;
+  rebalanceBusy?: boolean;
+  rebalanceUiStatus?: RebalanceUiStatus;
+  rebalanceAutomationAvailable?: boolean;
+  rebalanceAutomationMessage?: string;
+  onRebalancePosition?: (position: StableClubPosition) => void;
 }) {
   return (
     <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
@@ -145,6 +167,30 @@ export function StableClubPositionDashboard({
               Boolean(pos.positionTokenId) &&
               /^\d+$/.test(pos.positionTokenId) &&
               needsApproval;
+            const canHarvest =
+              harvestOptInEnabled &&
+              pos.dataVerifiedOnChain &&
+              pos.npmApprovalStatus === "approved" &&
+              Boolean(onHarvestPosition) &&
+              Boolean(pos.adapterAddress) &&
+              /^\d+$/.test(pos.positionTokenId) &&
+              !pos.automation.paused;
+            const canCompound =
+              compoundOptInEnabled &&
+              pos.dataVerifiedOnChain &&
+              pos.npmApprovalStatus === "approved" &&
+              Boolean(onCompoundPosition) &&
+              Boolean(pos.adapterAddress) &&
+              /^\d+$/.test(pos.positionTokenId) &&
+              !pos.automation.paused;
+            const canRebalance =
+              rebalanceOptInEnabled &&
+              pos.dataVerifiedOnChain &&
+              pos.npmApprovalStatus === "approved" &&
+              Boolean(onRebalancePosition) &&
+              Boolean(pos.adapterAddress) &&
+              /^\d+$/.test(pos.positionTokenId) &&
+              !pos.automation.paused;
             return (
               <li
                 key={pos.id}
@@ -211,6 +257,75 @@ export function StableClubPositionDashboard({
                     <p className="text-[10px] text-app-dim">
                       Per-token only · spender = adapter · tokenId #{pos.positionTokenId}
                     </p>
+                  </div>
+                ) : null}
+                {canHarvest ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={harvestBusy || harvestUiStatus?.status === "pending-receipt"}
+                      onClick={() => onHarvestPosition?.(pos)}
+                      className="app-btn-primary h-8 px-3 text-[11px] font-bold disabled:opacity-50"
+                    >
+                      {harvestBusy ? "Harvesting…" : "Manual harvest"}
+                    </button>
+                    {harvestUiStatus?.status === "confirmed" ? (
+                      <span className="text-[10px] font-bold uppercase text-app-success">
+                        Harvest confirmed
+                      </span>
+                    ) : harvestUiStatus?.status === "failed" ? (
+                      <span className="text-[10px] text-app-danger">{harvestUiStatus.message}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {canCompound ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={compoundBusy || compoundUiStatus?.status === "pending-receipt"}
+                      onClick={() => onCompoundPosition?.(pos)}
+                      className="app-btn-primary h-8 px-3 text-[11px] font-bold disabled:opacity-50"
+                    >
+                      {compoundBusy ? "Compounding…" : "Manual compound"}
+                    </button>
+                    {compoundUiStatus?.status === "confirmed" ? (
+                      <span className="text-[10px] font-bold uppercase text-app-success">
+                        Compound confirmed
+                      </span>
+                    ) : compoundUiStatus?.status === "failed" ? (
+                      <span className="text-[10px] text-app-danger">{compoundUiStatus.message}</span>
+                    ) : null}
+                    {!compoundAutomationAvailable ? (
+                      <span className="text-[10px] text-app-dim">
+                        {compoundAutomationMessage ??
+                          "Automation unavailable until OpenServ publisher/keeper is connected"}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {canRebalance ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={rebalanceBusy || rebalanceUiStatus?.status === "pending-receipt"}
+                      onClick={() => onRebalancePosition?.(pos)}
+                      className="app-btn-primary h-8 px-3 text-[11px] font-bold disabled:opacity-50"
+                    >
+                      {rebalanceBusy ? "Rebalancing…" : "Manual rebalance"}
+                    </button>
+                    {rebalanceUiStatus?.status === "confirmed" ? (
+                      <span className="text-[10px] font-bold uppercase text-app-success">
+                        Rebalance confirmed
+                      </span>
+                    ) : rebalanceUiStatus?.status === "failed" ? (
+                      <span className="text-[10px] text-app-danger">{rebalanceUiStatus.message}</span>
+                    ) : null}
+                    {!rebalanceAutomationAvailable ? (
+                      <span className="text-[10px] text-app-dim">
+                        {rebalanceAutomationMessage ??
+                          "Automation unavailable until OpenServ publisher/keeper is connected"}
+                      </span>
+                    ) : null}
                   </div>
                 ) : null}
               </li>

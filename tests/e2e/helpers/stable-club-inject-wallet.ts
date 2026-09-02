@@ -19,7 +19,7 @@ export const STABLE_CLUB_E2E_INJECT_WALLET_SCRIPT = `
         return ACCOUNTS;
       }
       if (method === "eth_chainId") {
-        return "0x2105";
+        return "0x7a69";
       }
       if (method === "eth_sendTransaction") {
         const res = await fetch("/api/stable-club/e2e/send-tx", {

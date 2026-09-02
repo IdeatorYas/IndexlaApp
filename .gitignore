@@ -60,3 +60,4 @@ next-env.d.ts
 /artifacts/
 /typechain-types/
 /src/lib/stable-club/generated/local-deployments.json
+/src/lib/stable-club/generated/local-phase2a-deployments.json

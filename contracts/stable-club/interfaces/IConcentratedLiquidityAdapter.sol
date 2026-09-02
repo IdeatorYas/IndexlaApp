@@ -45,16 +45,21 @@ interface IConcentratedLiquidityAdapter {
         uint256 amountBMin
     ) external returns (uint256 amountA, uint256 amountB);
 
+    /// @param recipient NPM fee/reward recipient (user for harvest; executor for atomic compound).
     function collectFees(
         address lpOwner,
-        uint256 tokenId
+        uint256 tokenId,
+        address recipient
     ) external returns (uint256 amountA, uint256 amountB);
 
-    function collectRewards(address lpOwner, uint256 tokenId) external returns (uint256 amount);
+    function collectRewards(address lpOwner, uint256 tokenId, address recipient) external returns (uint256 amount);
 
+    /// @param recipient NPM close proceeds recipient (user for strategy exit; executor for atomic rebalance).
+    /// @dev Caller (executor-only adapters) may set recipient to `lpOwner` or `msg.sender` only.
     function closePosition(
         address lpOwner,
         uint256 tokenId,
+        address recipient,
         address tokenA,
         address tokenB,
         uint256 amountAMin,
@@ -68,6 +73,9 @@ interface IConcentratedLiquidityAdapter {
         uint256 amountIn,
         uint256 minAmountOut
     ) external returns (uint256 amountOut);
+
+    /// @notice Live uncollected fees owed to the position (token0/token1 order). View only.
+    function collectibleFees(uint256 tokenId) external view returns (uint256 amount0, uint256 amount1);
 
     function ownerOf(uint256 tokenId) external view returns (address);
 

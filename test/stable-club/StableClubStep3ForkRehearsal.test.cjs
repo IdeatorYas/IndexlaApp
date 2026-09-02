@@ -4,6 +4,7 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
 const {
   deployStableClubStack,
   POOL_ID,
+  approvePermit2Pull,
 } = require("../../scripts/stable-club/deploy-local.cjs");
 
 const MVP_SAFE = "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910";
@@ -225,7 +226,13 @@ describe("Step 3 — Base-fork deployment rehearsal (no mainnet)", function () {
     );
 
     const deposit = ethers.parseUnits("200", 6);
-    await stack.usdcContract.connect(stack.testUser).approve(stack.executor, deposit);
+    await approvePermit2Pull(
+      stack.usdcContract,
+      stack.testUser,
+      stack.permit2Contract,
+      stack.executor,
+      deposit,
+    );
     const depositTx = await stack.executorContract.connect(stack.testUser).depositAndAddLiquidity(
       permissionId,
       1n,
