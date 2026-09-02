@@ -1,6 +1,6 @@
 /**
  * Pure guards for Base mainnet Stable Club deployment.
- * No secrets, no RPC URLs, no private keys — safe to unit-test offline.
+ * No secrets, no RPC URLs printed — safe to unit-test offline.
  */
 const { ethers } = require("hardhat");
 const {
@@ -10,8 +10,13 @@ const {
   EXPECTED_POOL_COUNT,
   EXPECTED_ROUTE_COUNT,
 } = require("./phase2a-manifest.cjs");
+const {
+  assertProductionBaseRpcUrl,
+  assertNotLocalEthereumClient,
+} = require("./base-rpc-url-guards.cjs");
 
 const BASE_CHAIN_ID = 8453;
+const ARTIFACT_VERSION = 2;
 const MVP_SAFE = "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910";
 const MVP_FEE = "0x9d269f7A3d3f781740081D35F086D68a4a21442D";
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -93,6 +98,136 @@ function isNonEmptyBytecode(code) {
   return s !== "0x" && s !== "0x0" && s.length > 2;
 }
 
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableStringify(v)).join(",")}]`;
+  }
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(",")}}`;
+}
+
+function computeConfigurationHash(plan) {
+  return ethers.keccak256(ethers.toUtf8Bytes(stableStringify(plan)));
+}
+
+function buildRouteConfigs() {
+  const uni = CANONICAL_INFRA["uniswap-v3"];
+  const aeroL = CANONICAL_INFRA["aerodrome-legacy"];
+  const routeIds = EXPECTED_ROUTE_IDS;
+  return [
+    {
+      name: "USDC_CBBTC_AERO_L",
+      id: routeIds.USDC_CBBTC_AERO_L,
+      cfg: {
+        kind: 1,
+        router: aeroL.router,
+        factory: aeroL.factory,
+        pool: POOL_USDC_CBBTC_AERO_L,
+        tokenIn: USDC,
+        tokenOut: CBBTC,
+        feeOrTickSpacing: 100,
+        enabled: true,
+      },
+    },
+    {
+      name: "USDC_CBBTC_UNI",
+      id: routeIds.USDC_CBBTC_UNI,
+      cfg: {
+        kind: 0,
+        router: uni.router,
+        factory: uni.factory,
+        pool: POOL_USDC_CBBTC_UNI,
+        tokenIn: USDC,
+        tokenOut: CBBTC,
+        feeOrTickSpacing: 500,
+        enabled: true,
+      },
+    },
+    {
+      name: "USDC_WETH_UNI",
+      id: routeIds.USDC_WETH_UNI,
+      cfg: {
+        kind: 0,
+        router: uni.router,
+        factory: uni.factory,
+        pool: POOL_USDC_WETH_UNI,
+        tokenIn: USDC,
+        tokenOut: WETH,
+        feeOrTickSpacing: 500,
+        enabled: true,
+      },
+    },
+    {
+      name: "USDC_WETH_AERO_L",
+      id: routeIds.USDC_WETH_AERO_L,
+      cfg: {
+        kind: 1,
+        router: aeroL.router,
+        factory: aeroL.factory,
+        pool: POOL_USDC_WETH_AERO_L,
+        tokenIn: USDC,
+        tokenOut: WETH,
+        feeOrTickSpacing: 100,
+        enabled: true,
+      },
+    },
+  ];
+}
+
+function buildConfigurationPlan(guardian) {
+  return {
+    artifactVersion: ARTIFACT_VERSION,
+    chainId: BASE_CHAIN_ID,
+    network: "base",
+    strategyKind: STRATEGY_KIND_LABEL,
+    permit2: BASE_PERMIT2,
+    usdc: USDC,
+    cbbtc: CBBTC,
+    weth: WETH,
+    oracles: {
+      usdcUsd: USDC_USD,
+      cbbtcUsd: CBBTC_USD,
+      btcUsd: BTC_USD,
+      wethUsd: WETH_USD,
+      cbbtcPegMaxDeviationBps: 100,
+    },
+    gasCeilingWei: GAS_CEILING_WEI.toString(),
+    governanceSafe: MVP_SAFE,
+    feeRecipient: MVP_FEE,
+    guardian: guardian ? ethers.getAddress(guardian) : null,
+    automation: {
+      harvestEnabled: false,
+      compoundEnabled: false,
+      rebalanceEnabled: false,
+    },
+    poolsActivated: false,
+    forbiddenAutomationContracts: [...FORBIDDEN_AUTOMATION_CONTRACTS],
+    routes: buildRouteConfigs().map((r) => ({
+      name: r.name,
+      routeId: r.id,
+      kind: r.cfg.kind,
+      router: r.cfg.router,
+      factory: r.cfg.factory,
+      pool: r.cfg.pool,
+      tokenIn: r.cfg.tokenIn,
+      tokenOut: r.cfg.tokenOut,
+      feeOrTickSpacing: r.cfg.feeOrTickSpacing,
+      enabled: true,
+    })),
+    poolAddresses: [
+      POOL_USDC_CBBTC_AERO_L,
+      POOL_USDC_CBBTC_UNI,
+      POOL_CBBTC_WETH_AERO_C,
+      POOL_CBBTC_WETH_AERO_L,
+      POOL_CBBTC_WETH_UNI,
+    ],
+    ownableKeys: [...OWNABLE_KEYS],
+  };
+}
+
 function assertBaseChainId(chainId) {
   const n = Number(chainId);
   if (n !== BASE_CHAIN_ID) {
@@ -121,11 +256,7 @@ function assertDeployerPrivateKeyPresent(raw) {
 }
 
 function assertBaseRpcConfigured(raw) {
-  const value = typeof raw === "string" ? raw.trim() : "";
-  if (!value) {
-    throw new Error("BASE_RPC_URL required for Base mainnet broadcast");
-  }
-  return value;
+  return assertProductionBaseRpcUrl(raw);
 }
 
 function assertGuardianAddress(raw) {
@@ -192,53 +323,197 @@ function assertNoPoolActivation(state) {
   }
 }
 
-function assertResumeCodeHashesMatch(saved, liveHashes) {
-  if (!saved?.runtimeCodeHashes || typeof saved.runtimeCodeHashes !== "object") {
-    throw new Error("Saved deploy state missing runtimeCodeHashes");
+function assertUniqueContractAddresses(contracts) {
+  if (!contracts || typeof contracts !== "object") {
+    throw new Error("contracts map missing");
   }
-  if (!liveHashes || typeof liveHashes !== "object") {
-    throw new Error("Live runtimeCodeHashes missing");
-  }
-  const savedKeys = Object.keys(saved.runtimeCodeHashes).sort();
-  const liveKeys = Object.keys(liveHashes).sort();
-  for (const key of savedKeys) {
-    const expected = String(saved.runtimeCodeHashes[key]).toLowerCase();
-    const actual = liveHashes[key] != null ? String(liveHashes[key]).toLowerCase() : "";
-    if (!actual) {
-      throw new Error(`Resume mismatch: missing live code hash for ${key}`);
+  const seen = new Map();
+  for (const [key, addr] of Object.entries(contracts)) {
+    if (!addr) continue;
+    if (!ethers.isAddress(addr) || addr === ethers.ZeroAddress) {
+      throw new Error(`Invalid contract address for ${key}`);
     }
-    if (expected !== actual) {
-      throw new Error(`Resume mismatch: runtime code hash differs for ${key}`);
+    const lower = String(addr).toLowerCase();
+    if (seen.has(lower)) {
+      throw new Error(`Duplicate contract address: ${key} and ${seen.get(lower)}`);
     }
-  }
-  // If live has fewer completed keys than saved, fail closed.
-  for (const key of savedKeys) {
-    if (!liveKeys.includes(key)) {
-      throw new Error(`Resume mismatch: live set missing ${key}`);
-    }
+    seen.set(lower, key);
   }
 }
 
-function assertResumeAddressesMatch(saved, liveAddresses) {
-  if (!saved?.contracts || typeof saved.contracts !== "object") {
-    throw new Error("Saved deploy state missing contracts");
+/**
+ * Authenticate a single saved deployment against live Base evidence.
+ * Does not compare state-to-itself — all checks use independent live fields.
+ */
+function assertDeployedContractEvidence({
+  key,
+  saved,
+  expectedDeployer,
+  expectedCreationData,
+  liveTx,
+  liveReceipt,
+  liveBlock,
+  liveCodeHash,
+}) {
+  if (!saved || typeof saved !== "object") {
+    throw new Error(`Resume evidence missing for ${key}`);
   }
-  for (const [key, addr] of Object.entries(saved.contracts)) {
-    if (!addr) continue;
-    const live = liveAddresses?.[key];
-    if (!live || !addrEq(live, addr)) {
-      throw new Error(`Resume mismatch: address for ${key} does not match Base`);
+  if (!ethers.isAddress(saved.address) || saved.address === ethers.ZeroAddress) {
+    throw new Error(`Resume invalid address for ${key}`);
+  }
+  if (!saved.deployTxHash || !/^0x[a-fA-F0-9]{64}$/.test(saved.deployTxHash)) {
+    throw new Error(`Resume missing deploy tx hash for ${key}`);
+  }
+  if (saved.blockNumber == null || Number(saved.blockNumber) <= 0) {
+    throw new Error(`Resume missing block number for ${key}`);
+  }
+  if (!saved.blockHash || !/^0x[a-fA-F0-9]{64}$/.test(saved.blockHash)) {
+    throw new Error(`Resume missing block hash for ${key}`);
+  }
+  if (!saved.creationDataHash || !/^0x[a-fA-F0-9]{64}$/.test(saved.creationDataHash)) {
+    throw new Error(`Resume missing creation data hash for ${key}`);
+  }
+  if (!saved.runtimeCodeHash || !/^0x[a-fA-F0-9]{64}$/.test(saved.runtimeCodeHash)) {
+    throw new Error(`Resume missing runtime code hash for ${key}`);
+  }
+
+  if (!liveTx) throw new Error(`Resume: deployment transaction not found for ${key}`);
+  if (!liveReceipt) throw new Error(`Resume: deployment receipt not found for ${key}`);
+  if (!liveBlock) throw new Error(`Resume: deployment block not found for ${key}`);
+
+  assertReceiptSuccess(liveReceipt, `resume ${key}`);
+
+  if (!addrEq(liveTx.from, expectedDeployer)) {
+    throw new Error(`Resume deployer mismatch for ${key}`);
+  }
+  if (!addrEq(liveReceipt.contractAddress, saved.address)) {
+    throw new Error(`Resume receipt contractAddress mismatch for ${key}`);
+  }
+  if (Number(liveReceipt.blockNumber) !== Number(saved.blockNumber)) {
+    throw new Error(`Resume block number mismatch for ${key}`);
+  }
+  const receiptBlockHash = liveReceipt.blockHash || liveBlock.hash;
+  if (!addrEq(receiptBlockHash, saved.blockHash)) {
+    throw new Error(`Resume block hash mismatch for ${key}`);
+  }
+  if (Number(liveBlock.number) !== Number(saved.blockNumber)) {
+    throw new Error(`Resume block header number mismatch for ${key}`);
+  }
+
+  const liveCreationHash = ethers.keccak256(liveTx.data);
+  if (liveCreationHash.toLowerCase() !== String(saved.creationDataHash).toLowerCase()) {
+    throw new Error(`Resume creation data hash mismatch for ${key}`);
+  }
+  if (expectedCreationData) {
+    const expectedHash = ethers.keccak256(expectedCreationData);
+    if (expectedHash.toLowerCase() !== liveCreationHash.toLowerCase()) {
+      throw new Error(`Resume creation calldata does not match expected ${key} constructor`);
+    }
+  }
+
+  if (!liveCodeHash) {
+    throw new Error(`Resume missing live runtime code hash for ${key}`);
+  }
+  if (String(liveCodeHash).toLowerCase() !== String(saved.runtimeCodeHash).toLowerCase()) {
+    throw new Error(`Resume runtime code hash mismatch for ${key}`);
+  }
+}
+
+function assertResumeIdentityBinding(saved, expected) {
+  if (!saved || typeof saved !== "object") {
+    throw new Error("Saved deploy artifact missing");
+  }
+  if (Number(saved.version) !== ARTIFACT_VERSION) {
+    throw new Error(
+      `Legacy or unsupported deploy artifact version ${saved.version}; refusing resume`,
+    );
+  }
+  if (!saved.identity || typeof saved.identity !== "object") {
+    throw new Error("Deploy artifact missing identity binding — refusing resume");
+  }
+  const id = saved.identity;
+  const req = [
+    "chainId",
+    "releaseCommit",
+    "deployer",
+    "governanceSafe",
+    "guardian",
+    "feeRecipient",
+    "configurationHash",
+  ];
+  for (const k of req) {
+    if (id[k] == null || id[k] === "") {
+      throw new Error(`Deploy artifact identity missing ${k}`);
+    }
+  }
+  if (Number(id.chainId) !== BASE_CHAIN_ID || Number(saved.chainId) !== BASE_CHAIN_ID) {
+    throw new Error("Resume identity chainId is not Base 8453");
+  }
+  if (String(id.releaseCommit).toLowerCase() !== String(expected.releaseCommit).toLowerCase()) {
+    throw new Error("Resume identity releaseCommit mismatch");
+  }
+  if (!addrEq(id.deployer, expected.deployer)) {
+    throw new Error("Resume identity deployer mismatch");
+  }
+  if (!addrEq(id.governanceSafe, expected.governanceSafe)) {
+    throw new Error("Resume identity Safe mismatch");
+  }
+  if (!addrEq(id.guardian, expected.guardian)) {
+    throw new Error("Resume identity guardian mismatch");
+  }
+  if (!addrEq(id.feeRecipient, expected.feeRecipient)) {
+    throw new Error("Resume identity fee recipient mismatch");
+  }
+  if (String(id.configurationHash).toLowerCase() !== String(expected.configurationHash).toLowerCase()) {
+    throw new Error("Resume identity configurationHash mismatch");
+  }
+}
+
+function assertContractPlanGetters({ key, getters, expected }) {
+  if (!getters || typeof getters !== "object") {
+    throw new Error(`Resume getters missing for ${key}`);
+  }
+  for (const [field, want] of Object.entries(expected)) {
+    const got = getters[field];
+    if (typeof want === "boolean" || typeof want === "number") {
+      if (got !== want) {
+        throw new Error(`Resume plan getter mismatch for ${key}.${field}`);
+      }
+    } else if (typeof want === "bigint") {
+      if (BigInt(got) !== want) {
+        throw new Error(`Resume plan getter mismatch for ${key}.${field}`);
+      }
+    } else if (ethers.isAddress(String(want))) {
+      if (!addrEq(got, want)) {
+        throw new Error(`Resume plan getter mismatch for ${key}.${field}`);
+      }
+    } else if (String(got).toLowerCase() !== String(want).toLowerCase()) {
+      throw new Error(`Resume plan getter mismatch for ${key}.${field}`);
     }
   }
 }
 
 function buildEmptyDeployState(meta) {
+  const guardian = ethers.getAddress(meta.guardian);
+  const deployer = ethers.getAddress(meta.deployer);
+  const plan = buildConfigurationPlan(guardian);
+  const configurationHash = computeConfigurationHash(plan);
   return {
-    version: 1,
+    version: ARTIFACT_VERSION,
     chainId: BASE_CHAIN_ID,
     network: "base",
     isTestOnly: false,
     label: "INDEXLA Stable Club five-pool Base mainnet (deploy artifact)",
+    identity: {
+      chainId: BASE_CHAIN_ID,
+      releaseCommit: meta.releaseCommit,
+      deployer,
+      governanceSafe: MVP_SAFE,
+      guardian,
+      feeRecipient: MVP_FEE,
+      configurationHash,
+    },
+    configurationPlan: plan,
     automation: {
       harvestEnabled: false,
       compoundEnabled: false,
@@ -247,8 +522,8 @@ function buildEmptyDeployState(meta) {
     poolsActivated: false,
     activatedPoolIds: [],
     forbiddenAutomationContracts: [...FORBIDDEN_AUTOMATION_CONTRACTS],
-    deployer: meta.deployer,
-    guardian: meta.guardian,
+    deployer,
+    guardian,
     feeRecipient: MVP_FEE,
     governanceSafe: MVP_SAFE,
     permit2: BASE_PERMIT2,
@@ -259,6 +534,7 @@ function buildEmptyDeployState(meta) {
     confirmationPhraseRequired: BASE_DEPLOY_CONFIRMATION_PHRASE,
     steps: {},
     contracts: {},
+    deploymentRecords: {},
     adapters: [],
     routes: [],
     txHashes: [],
@@ -317,70 +593,6 @@ function poolIdHashes() {
 
 function strategyKind() {
   return ethers.id(STRATEGY_KIND_LABEL);
-}
-
-function buildRouteConfigs() {
-  const uni = CANONICAL_INFRA["uniswap-v3"];
-  const aeroL = CANONICAL_INFRA["aerodrome-legacy"];
-  const routeIds = EXPECTED_ROUTE_IDS;
-  return [
-    {
-      name: "USDC_CBBTC_AERO_L",
-      id: routeIds.USDC_CBBTC_AERO_L,
-      cfg: {
-        kind: 1,
-        router: aeroL.router,
-        factory: aeroL.factory,
-        pool: POOL_USDC_CBBTC_AERO_L,
-        tokenIn: USDC,
-        tokenOut: CBBTC,
-        feeOrTickSpacing: 100,
-        enabled: true,
-      },
-    },
-    {
-      name: "USDC_CBBTC_UNI",
-      id: routeIds.USDC_CBBTC_UNI,
-      cfg: {
-        kind: 0,
-        router: uni.router,
-        factory: uni.factory,
-        pool: POOL_USDC_CBBTC_UNI,
-        tokenIn: USDC,
-        tokenOut: CBBTC,
-        feeOrTickSpacing: 500,
-        enabled: true,
-      },
-    },
-    {
-      name: "USDC_WETH_UNI",
-      id: routeIds.USDC_WETH_UNI,
-      cfg: {
-        kind: 0,
-        router: uni.router,
-        factory: uni.factory,
-        pool: POOL_USDC_WETH_UNI,
-        tokenIn: USDC,
-        tokenOut: WETH,
-        feeOrTickSpacing: 500,
-        enabled: true,
-      },
-    },
-    {
-      name: "USDC_WETH_AERO_L",
-      id: routeIds.USDC_WETH_AERO_L,
-      cfg: {
-        kind: 1,
-        router: aeroL.router,
-        factory: aeroL.factory,
-        pool: POOL_USDC_WETH_AERO_L,
-        tokenIn: USDC,
-        tokenOut: WETH,
-        feeOrTickSpacing: 100,
-        enabled: true,
-      },
-    },
-  ];
 }
 
 function buildAdapterSpecs(clExecutorAddr) {
@@ -459,6 +671,7 @@ function buildAdapterSpecs(clExecutorAddr) {
 
 module.exports = {
   BASE_CHAIN_ID,
+  ARTIFACT_VERSION,
   MVP_SAFE,
   MVP_FEE,
   USDC,
@@ -479,17 +692,24 @@ module.exports = {
   CANONICAL_INFRA,
   addrEq,
   isNonEmptyBytecode,
+  stableStringify,
+  computeConfigurationHash,
+  buildConfigurationPlan,
   assertBaseChainId,
   assertConfirmationPhrase,
   assertDeployerPrivateKeyPresent,
   assertBaseRpcConfigured,
+  assertProductionBaseRpcUrl,
+  assertNotLocalEthereumClient,
   assertGuardianAddress,
   assertAutomationDisabled,
   assertContractNotForbidden,
   assertReceiptSuccess,
   assertNoPoolActivation,
-  assertResumeCodeHashesMatch,
-  assertResumeAddressesMatch,
+  assertUniqueContractAddresses,
+  assertDeployedContractEvidence,
+  assertResumeIdentityBinding,
+  assertContractPlanGetters,
   buildEmptyDeployState,
   redactSecretsFromObject,
   assertArtifactHasNoSecrets,

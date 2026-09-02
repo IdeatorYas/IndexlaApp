@@ -7,11 +7,13 @@
  *   - chainId === 8453
  *   - STABLE_CLUB_BASE_DEPLOY_CONFIRMATION matches the exact phrase
  *   - DEPLOYER_PRIVATE_KEY, BASE_RPC_URL, STABLE_CLUB_GUARDIAN_ADDRESS set
+ *   - RPC is HTTPS non-local and not Hardhat/Anvil
  *
- * Does NOT: activate pools, deploy automation, print secrets, or publish trusted manifest.
+ * Does NOT: activate pools, deploy automation, print secrets/RPC URLs, or publish trusted manifest.
  */
 const fs = require("fs");
 const path = require("path");
+const { execSync } = require("child_process");
 const { ethers, network } = require("hardhat");
 const {
   validatePhase2aManifest,
@@ -27,26 +29,32 @@ function ensureArtifactDir() {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
 }
 
+function atomicWriteJson(filePath, value) {
+  ensureArtifactDir();
+  const redacted = guards.redactSecretsFromObject(value);
+  guards.assertArtifactHasNoSecrets(redacted);
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(redacted, null, 2)}\n`, "utf8");
+  fs.renameSync(tmp, filePath);
+}
+
 function loadState() {
   if (!fs.existsSync(STATE_PATH)) return null;
   return JSON.parse(fs.readFileSync(STATE_PATH, "utf8"));
 }
 
 function saveState(state) {
-  ensureArtifactDir();
-  const redacted = guards.redactSecretsFromObject(state);
-  guards.assertArtifactHasNoSecrets(redacted);
-  fs.writeFileSync(STATE_PATH, `${JSON.stringify(redacted, null, 2)}\n`, "utf8");
+  atomicWriteJson(STATE_PATH, state);
 }
 
 function writeFinalArtifact(state) {
-  ensureArtifactDir();
   const artifact = {
     version: state.version,
     chainId: state.chainId,
     network: state.network,
     isTestOnly: false,
     label: state.label,
+    identity: state.identity,
     deployedAt: state.deployedAt,
     deployer: state.deployer,
     guardian: state.guardian,
@@ -72,6 +80,7 @@ function writeFinalArtifact(state) {
     discoveryStartBlock: state.discoveryStartBlock,
     txHashes: state.txHashes,
     runtimeCodeHashes: state.runtimeCodeHashes,
+    deploymentRecords: state.deploymentRecords,
     automation: state.automation,
     poolsActivated: false,
     activatedPoolIds: [],
@@ -79,15 +88,32 @@ function writeFinalArtifact(state) {
     note: "Non-secret deploy artifact for later trusted-manifest pin. Do not invent hashes — use runtimeCodeHashes as recorded.",
   };
   guards.assertNoPoolActivation(artifact);
-  guards.assertArtifactHasNoSecrets(artifact);
-  fs.writeFileSync(ARTIFACT_PATH, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+  atomicWriteJson(ARTIFACT_PATH, artifact);
   return artifact;
+}
+
+function resolveReleaseCommit(env = process.env) {
+  const fromEnv = env.STABLE_CLUB_DEPLOY_RELEASE_COMMIT?.trim();
+  if (fromEnv && /^[0-9a-fA-F]{40}$/.test(fromEnv)) return fromEnv.toLowerCase();
+  try {
+    const sha = execSync("git rev-parse HEAD", {
+      cwd: path.join(__dirname, "../.."),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (/^[0-9a-fA-F]{40}$/.test(sha)) return sha.toLowerCase();
+  } catch {
+    // fall through
+  }
+  throw new Error(
+    "STABLE_CLUB_DEPLOY_RELEASE_COMMIT (40-hex) required when git HEAD is unavailable",
+  );
 }
 
 async function requireLiveCode(provider, label, address) {
   const code = await provider.getCode(address);
   if (!guards.isNonEmptyBytecode(code)) {
-    throw new Error(`Canonical dependency missing runtime code: ${label} @ ${address}`);
+    throw new Error(`Canonical dependency missing runtime code: ${label}`);
   }
   return code;
 }
@@ -95,7 +121,7 @@ async function requireLiveCode(provider, label, address) {
 async function runtimeCodeHash(provider, address) {
   const code = await provider.getCode(address);
   if (!guards.isNonEmptyBytecode(code)) {
-    throw new Error(`No runtime bytecode at ${address}`);
+    throw new Error("No runtime bytecode at saved contract address");
   }
   return ethers.keccak256(code);
 }
@@ -107,33 +133,135 @@ async function waitReceipt(txOrResponse, label) {
   return receipt;
 }
 
-async function deployNamed(name, args, state, key) {
-  guards.assertContractNotForbidden(name);
-  if (state.contracts[key]) {
-    const liveHash = await runtimeCodeHash(ethers.provider, state.contracts[key]);
-    const saved = state.runtimeCodeHashes[key];
-    if (saved && saved.toLowerCase() !== liveHash.toLowerCase()) {
-      throw new Error(`Resume mismatch for ${key}: code hash differs on Base`);
-    }
-    state.runtimeCodeHashes[key] = liveHash;
-    return await ethers.getContractAt(name, state.contracts[key]);
+async function assertBaseRpcClientNotLocal(provider) {
+  let version;
+  try {
+    version = await provider.send("web3_clientVersion", []);
+  } catch {
+    throw new Error("Unable to read Ethereum client version from Base RPC");
+  }
+  guards.assertNotLocalEthereumClient(version);
+}
+
+async function authenticateSavedContract(provider, state, key, expectedCreationData) {
+  const saved = state.deploymentRecords?.[key];
+  if (!saved) {
+    throw new Error(`Resume missing deployment record for ${key} — refusing to continue`);
+  }
+  const liveTx = await provider.getTransaction(saved.deployTxHash);
+  const liveReceipt = await provider.getTransactionReceipt(saved.deployTxHash);
+  const liveBlock = await provider.getBlock(saved.blockNumber);
+  const liveCodeHash = await runtimeCodeHash(provider, saved.address);
+
+  guards.assertDeployedContractEvidence({
+    key,
+    saved,
+    expectedDeployer: state.deployer,
+    expectedCreationData,
+    liveTx,
+    liveReceipt,
+    liveBlock,
+    liveCodeHash,
+  });
+
+  // Keep maps consistent with authenticated record (from live evidence, not self-compare).
+  state.contracts[key] = ethers.getAddress(saved.address);
+  state.runtimeCodeHashes[key] = liveCodeHash;
+}
+
+async function authenticateResumeState(provider, state, expectedIdentity, creationDataByKey) {
+  guards.assertResumeIdentityBinding(state, expectedIdentity);
+  guards.assertAutomationDisabled(state.automation);
+  guards.assertNoPoolActivation(state);
+  guards.assertUniqueContractAddresses(state.contracts);
+
+  const keys = Object.keys(state.deploymentRecords || {});
+  if (keys.length === 0 && Object.keys(state.contracts || {}).length > 0) {
+    throw new Error("Incomplete deploy artifact: contracts without deploymentRecords");
   }
 
-  const factory = await ethers.getContractFactory(name);
-  const contract = await factory.deploy(...(args || []));
-  const deployTx = contract.deploymentTransaction();
-  const receipt = await waitReceipt(deployTx, `deploy ${name}`);
-  const addr = await contract.getAddress();
-  const codeHash = await runtimeCodeHash(ethers.provider, addr);
+  for (const key of keys) {
+    await authenticateSavedContract(provider, state, key, creationDataByKey[key]);
+  }
 
-  state.contracts[key] = addr;
-  state.runtimeCodeHashes[key] = codeHash;
+  // Fail closed if contracts map has keys without records.
+  for (const key of Object.keys(state.contracts || {})) {
+    if (!state.deploymentRecords?.[key]) {
+      throw new Error(`Tampered artifact: contract ${key} missing deployment record`);
+    }
+  }
+}
+
+function recordDeployment(state, key, { address, deployTx, receipt, block, runtimeHash, contractName, constructorArgs }) {
+  const creationDataHash = ethers.keccak256(deployTx.data);
+  state.contracts[key] = ethers.getAddress(address);
+  state.runtimeCodeHashes[key] = runtimeHash;
+  state.deploymentRecords[key] = {
+    key,
+    contractName,
+    address: ethers.getAddress(address),
+    deployTxHash: receipt.hash,
+    blockNumber: Number(receipt.blockNumber),
+    blockHash: receipt.blockHash || block.hash,
+    creationDataHash,
+    runtimeCodeHash: runtimeHash,
+    constructorArgs: constructorArgs ?? [],
+  };
   state.txHashes.push({
     step: `deploy:${key}`,
     hash: receipt.hash,
     blockNumber: Number(receipt.blockNumber),
   });
   state.steps[`deploy_${key}`] = true;
+}
+
+async function deployNamed(name, args, state, key) {
+  guards.assertContractNotForbidden(name);
+  const factory = await ethers.getContractFactory(name);
+  const deployTxRequest = await factory.getDeployTransaction(...(args || []));
+  const expectedCreationData = deployTxRequest.data;
+
+  if (state.contracts[key] || state.deploymentRecords?.[key]) {
+    await authenticateSavedContract(ethers.provider, state, key, expectedCreationData);
+    return await ethers.getContractAt(name, state.contracts[key]);
+  }
+
+  const contract = await factory.deploy(...(args || []));
+  const deployTx = contract.deploymentTransaction();
+  const receipt = await waitReceipt(deployTx, `deploy ${name}`);
+  const addr = await contract.getAddress();
+  const codeHash = await runtimeCodeHash(ethers.provider, addr);
+  const block = await ethers.provider.getBlock(receipt.blockNumber);
+  const fullTx = await ethers.provider.getTransaction(receipt.hash);
+
+  // Authenticate freshly mined evidence before saving.
+  guards.assertDeployedContractEvidence({
+    key,
+    saved: {
+      address: addr,
+      deployTxHash: receipt.hash,
+      blockNumber: Number(receipt.blockNumber),
+      blockHash: receipt.blockHash || block.hash,
+      creationDataHash: ethers.keccak256(fullTx.data),
+      runtimeCodeHash: codeHash,
+    },
+    expectedDeployer: state.deployer,
+    expectedCreationData,
+    liveTx: fullTx,
+    liveReceipt: receipt,
+    liveBlock: block,
+    liveCodeHash: codeHash,
+  });
+
+  recordDeployment(state, key, {
+    address: addr,
+    deployTx: fullTx,
+    receipt,
+    block,
+    runtimeHash: codeHash,
+    contractName: name,
+    constructorArgs: args || [],
+  });
   saveState(state);
   return contract;
 }
@@ -142,7 +270,6 @@ async function sendStep(state, stepKey, label, sendFn) {
   if (state.steps[stepKey]) return;
   const tx = await sendFn();
   if (tx == null) {
-    // Explicit skip (e.g. already applied on-chain during resume).
     state.steps[stepKey] = true;
     saveState(state);
     return;
@@ -163,18 +290,6 @@ async function validateCanonicalDependencies(provider) {
   }
 }
 
-async function collectLiveHashesForResume(state) {
-  const live = {};
-  for (const [key, addr] of Object.entries(state.contracts || {})) {
-    if (!addr) continue;
-    live[key] = await runtimeCodeHash(ethers.provider, addr);
-  }
-  return live;
-}
-
-/**
- * Preflight that never broadcasts — used by tests and main().
- */
 function collectBroadcastEnv(env = process.env) {
   return {
     confirmation: env.STABLE_CLUB_BASE_DEPLOY_CONFIRMATION,
@@ -192,7 +307,8 @@ function assertBroadcastAllowed(env = process.env, networkName, chainId) {
   const collected = collectBroadcastEnv(env);
   guards.assertConfirmationPhrase(collected.confirmation);
   guards.assertDeployerPrivateKeyPresent(collected.deployerKey);
-  guards.assertBaseRpcConfigured(collected.baseRpc);
+  // Validates HTTPS / non-local; never returns into logs.
+  guards.assertProductionBaseRpcUrl(collected.baseRpc);
   const guardian = guards.assertGuardianAddress(collected.guardian);
   guards.assertAutomationDisabled({
     harvestEnabled: false,
@@ -202,33 +318,159 @@ function assertBroadcastAllowed(env = process.env, networkName, chainId) {
   return { guardian };
 }
 
+function buildCreationDataMap(state) {
+  // Filled lazily during authenticate via getDeployTransaction in deployNamed;
+  // for initial resume gate we authenticate records that already include creationDataHash
+  // and re-check constructor match when deployNamed runs.
+  return {};
+}
+
+async function readPlanGetters(state, contracts) {
+  // Contract-specific dependency/config checks after core deploys exist.
+  if (contracts.feeRouter) {
+    const feeRouter = await ethers.getContractAt("FeeRouter", contracts.feeRouter);
+    guards.assertContractPlanGetters({
+      key: "feeRouter",
+      getters: { feeRecipient: await feeRouter.feeRecipient() },
+      expected: { feeRecipient: guards.MVP_FEE },
+    });
+  }
+  if (contracts.strategyRegistry) {
+    const strategyRegistry = await ethers.getContractAt(
+      "StrategyPermissionRegistry",
+      contracts.strategyRegistry,
+    );
+    guards.assertContractPlanGetters({
+      key: "strategyRegistry",
+      getters: {
+        permissionRegistry: await strategyRegistry.permissionRegistry(),
+        strategyKind: await strategyRegistry.strategyKind(),
+        usdc: await strategyRegistry.usdc(),
+      },
+      expected: {
+        permissionRegistry: contracts.permissionRegistry,
+        strategyKind: guards.strategyKind(),
+        usdc: guards.USDC,
+      },
+    });
+  }
+  if (contracts.clExecutor) {
+    const cl = await ethers.getContractAt(
+      "StableClubConcentratedLiquidityExecutor",
+      contracts.clExecutor,
+    );
+    guards.assertContractPlanGetters({
+      key: "clExecutor",
+      getters: {
+        permissionRegistry: await cl.permissionRegistry(),
+        strategyRegistry: await cl.strategyRegistry(),
+        feeRouter: await cl.feeRouter(),
+        swapRouter: await cl.swapRouter(),
+        usdc: await cl.usdc(),
+      },
+      expected: {
+        permissionRegistry: contracts.permissionRegistry,
+        strategyRegistry: contracts.strategyRegistry,
+        feeRouter: contracts.feeRouter,
+        swapRouter: contracts.swapRouter,
+        usdc: guards.USDC,
+      },
+    });
+  }
+  if (contracts.timelock) {
+    const timelock = await ethers.getContractAt("StableClubTimelock", contracts.timelock);
+    const proposerRole = await timelock.PROPOSER_ROLE();
+    const executorRole = await timelock.EXECUTOR_ROLE();
+    guards.assertContractPlanGetters({
+      key: "timelock",
+      getters: {
+        hasProposer: await timelock.hasRole(proposerRole, guards.MVP_SAFE),
+        hasExecutor: await timelock.hasRole(executorRole, guards.MVP_SAFE),
+        minDelayOk: (await timelock.getMinDelay()) >= 48n * 3600n,
+      },
+      expected: { hasProposer: true, hasExecutor: true, minDelayOk: true },
+    });
+  }
+  if (contracts.safetyController && state.steps.safety_guardian) {
+    const safety = await ethers.getContractAt("SafetyController", contracts.safetyController);
+    guards.assertContractPlanGetters({
+      key: "safetyController",
+      getters: {
+        guardian: await safety.guardian(),
+        maxGasPriceWei: await safety.maxGasPriceWei(),
+      },
+      expected: {
+        guardian: state.guardian,
+        maxGasPriceWei: guards.GAS_CEILING_WEI,
+      },
+    });
+  }
+
+  // Ownership: if transfer step recorded, owner must be timelock.
+  if (contracts.timelock) {
+    for (const key of guards.OWNABLE_KEYS) {
+      if (!contracts[key]) continue;
+      if (!state.steps[`own_${key}`]) continue;
+      const c = await ethers.getContractAt(
+        key === "clExecutor"
+          ? "StableClubConcentratedLiquidityExecutor"
+          : key === "swapRouter"
+            ? "StableClubSwapRouter"
+            : key === "strategyRegistry"
+              ? "StrategyPermissionRegistry"
+              : key === "permissionRegistry"
+                ? "PermissionRegistry"
+                : key === "feeRouter"
+                  ? "FeeRouter"
+                  : key === "oracleGuard"
+                    ? "OracleGuard"
+                    : key === "mevGuard"
+                      ? "MevGuard"
+                      : "SafetyController",
+        contracts[key],
+      );
+      guards.assertContractPlanGetters({
+        key: `owner_${key}`,
+        getters: { owner: await c.owner() },
+        expected: { owner: contracts.timelock },
+      });
+    }
+  }
+}
+
 async function deployBaseMainnetStack(options = {}) {
   const networkName = options.networkName ?? network.name;
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
-  const { guardian } = assertBroadcastAllowed(
-    options.env ?? process.env,
-    networkName,
-    chainId,
-  );
+  const env = options.env ?? process.env;
+  const { guardian } = assertBroadcastAllowed(env, networkName, chainId);
 
+  await assertBaseRpcClientNotLocal(ethers.provider);
   await validateCanonicalDependencies(ethers.provider);
 
   const [deployer] = await ethers.getSigners();
+  const releaseCommit = options.releaseCommit ?? resolveReleaseCommit(env);
+  const expectedIdentity = {
+    releaseCommit,
+    deployer: deployer.address,
+    governanceSafe: guards.MVP_SAFE,
+    guardian,
+    feeRecipient: guards.MVP_FEE,
+    configurationHash: guards.computeConfigurationHash(guards.buildConfigurationPlan(guardian)),
+  };
+
   let state = loadState();
   if (state) {
-    if (Number(state.chainId) !== guards.BASE_CHAIN_ID) {
-      throw new Error("Saved deploy state chainId is not Base 8453");
-    }
-    guards.assertResumeAddressesMatch(state, state.contracts);
-    const liveHashes = await collectLiveHashesForResume(state);
-    guards.assertResumeCodeHashesMatch(state, liveHashes);
-    if (!guards.addrEq(state.guardian, guardian)) {
-      throw new Error("Resume mismatch: guardian address differs from STABLE_CLUB_GUARDIAN_ADDRESS");
-    }
+    await authenticateResumeState(
+      ethers.provider,
+      state,
+      expectedIdentity,
+      buildCreationDataMap(state),
+    );
   } else {
     state = guards.buildEmptyDeployState({
       deployer: deployer.address,
       guardian,
+      releaseCommit,
     });
     state.poolIds = guards.poolIdHashes();
     state.strategyKind = guards.strategyKind();
@@ -240,7 +482,6 @@ async function deployBaseMainnetStack(options = {}) {
     guards.assertContractNotForbidden(name);
   }
 
-  // --- Core contracts ---
   const permissionRegistry = await deployNamed("PermissionRegistry", [], state, "permissionRegistry");
   const strategyRegistry = await deployNamed(
     "StrategyPermissionRegistry",
@@ -270,7 +511,6 @@ async function deployBaseMainnetStack(options = {}) {
   );
   const clAddr = await clExecutor.getAddress();
 
-  // --- Wiring ---
   await sendStep(state, "mev_setOracle", "mevGuard.setOracle", async () =>
     mevGuard.setOracle(await oracleGuard.getAddress()),
   );
@@ -312,22 +552,20 @@ async function deployBaseMainnetStack(options = {}) {
     feeRouter.setPermit2(guards.BASE_PERMIT2),
   );
   for (const [i, token] of [guards.USDC, guards.CBBTC, guards.WETH].entries()) {
-    await sendStep(state, `token_allow_${i}`, `clExecutor.setTokenApproval ${token}`, async () =>
+    await sendStep(state, `token_allow_${i}`, `clExecutor.setTokenApproval`, async () =>
       clExecutor.setTokenApproval(token, true),
     );
   }
 
-  // --- Routes ---
   const routeConfigs = guards.buildRouteConfigs();
   for (const r of routeConfigs) {
-    await sendStep(state, `route_${r.name}`, `swapRouter.configureRoute ${r.name}`, async () =>
+    await sendStep(state, `route_${r.name}`, `swapRouter.configureRoute`, async () =>
       swapRouter.configureRoute(r.id, r.cfg),
     );
   }
   state.routes = routeConfigs.map((r) => ({ name: r.name, routeId: r.id, enabled: true }));
   saveState(state);
 
-  // --- Adapters ---
   if (!Array.isArray(state.adapters) || state.adapters.length !== guards.EXPECTED_POOL_COUNT) {
     state.adapters = [];
   }
@@ -335,61 +573,70 @@ async function deployBaseMainnetStack(options = {}) {
   for (let i = 0; i < specs.length; i++) {
     const spec = specs[i];
     const key = `adapter_${i}`;
-    guards.assertContractNotForbidden(
-      spec.protocol === "uniswap-v3" ? "UniswapV3Adapter" : "AerodromeSlipstreamAdapter",
-    );
+    const contractName =
+      spec.protocol === "uniswap-v3" ? "UniswapV3Adapter" : "AerodromeSlipstreamAdapter";
+    guards.assertContractNotForbidden(contractName);
+
+    const factory = await ethers.getContractFactory(contractName);
+    const ctorArgs =
+      spec.protocol === "uniswap-v3"
+        ? [spec.executor, spec.poolId, spec.npm, spec.router, spec.poolAddress, spec.factory, spec.fee]
+        : [
+            spec.executor,
+            spec.poolId,
+            spec.npm,
+            spec.router,
+            spec.poolAddress,
+            spec.factory,
+            spec.tickSpacing,
+            ethers.ZeroAddress,
+          ];
+    const expectedCreationData = (await factory.getDeployTransaction(...ctorArgs)).data;
+
     let adapterAddr = state.contracts[key];
-    if (!adapterAddr) {
-      let adapter;
-      if (spec.protocol === "uniswap-v3") {
-        adapter = await (
-          await ethers.getContractFactory("UniswapV3Adapter")
-        ).deploy(
-          spec.executor,
-          spec.poolId,
-          spec.npm,
-          spec.router,
-          spec.poolAddress,
-          spec.factory,
-          spec.fee,
-        );
-      } else {
-        adapter = await (
-          await ethers.getContractFactory("AerodromeSlipstreamAdapter")
-        ).deploy(
-          spec.executor,
-          spec.poolId,
-          spec.npm,
-          spec.router,
-          spec.poolAddress,
-          spec.factory,
-          spec.tickSpacing,
-          ethers.ZeroAddress,
-        );
-      }
+    if (adapterAddr || state.deploymentRecords?.[key]) {
+      await authenticateSavedContract(ethers.provider, state, key, expectedCreationData);
+      adapterAddr = state.contracts[key];
+    } else {
+      const adapter = await factory.deploy(...ctorArgs);
       const receipt = await waitReceipt(adapter.deploymentTransaction(), `deploy adapter ${i}`);
       adapterAddr = await adapter.getAddress();
-      state.contracts[key] = adapterAddr;
-      state.runtimeCodeHashes[key] = await runtimeCodeHash(ethers.provider, adapterAddr);
-      state.txHashes.push({
-        step: `deploy:${key}`,
-        hash: receipt.hash,
-        blockNumber: Number(receipt.blockNumber),
+      const codeHash = await runtimeCodeHash(ethers.provider, adapterAddr);
+      const block = await ethers.provider.getBlock(receipt.blockNumber);
+      const fullTx = await ethers.provider.getTransaction(receipt.hash);
+      guards.assertDeployedContractEvidence({
+        key,
+        saved: {
+          address: adapterAddr,
+          deployTxHash: receipt.hash,
+          blockNumber: Number(receipt.blockNumber),
+          blockHash: receipt.blockHash || block.hash,
+          creationDataHash: ethers.keccak256(fullTx.data),
+          runtimeCodeHash: codeHash,
+        },
+        expectedDeployer: state.deployer,
+        expectedCreationData,
+        liveTx: fullTx,
+        liveReceipt: receipt,
+        liveBlock: block,
+        liveCodeHash: codeHash,
+      });
+      recordDeployment(state, key, {
+        address: adapterAddr,
+        deployTx: fullTx,
+        receipt,
+        block,
+        runtimeHash: codeHash,
+        contractName,
+        constructorArgs: ctorArgs,
       });
       saveState(state);
-    } else {
-      const liveHash = await runtimeCodeHash(ethers.provider, adapterAddr);
-      const saved = state.runtimeCodeHashes[key];
-      if (saved && saved.toLowerCase() !== liveHash.toLowerCase()) {
-        throw new Error(`Resume mismatch for ${key}`);
-      }
-      state.runtimeCodeHashes[key] = liveHash;
     }
 
-    await sendStep(state, `adapter_approve_${i}`, `setAdapterApproval ${i}`, async () =>
+    await sendStep(state, `adapter_approve_${i}`, `setAdapterApproval`, async () =>
       clExecutor.setAdapterApproval(adapterAddr, true),
     );
-    await sendStep(state, `adapter_register_${i}`, `registerPool ${i}`, async () =>
+    await sendStep(state, `adapter_register_${i}`, `registerPool`, async () =>
       clExecutor.registerPool(spec.poolId, adapterAddr),
     );
 
@@ -410,7 +657,6 @@ async function deployBaseMainnetStack(options = {}) {
     saveState(state);
   }
 
-  // --- Safety: guardian + gas ceiling (before ownership transfer) ---
   await sendStep(state, "safety_guardian", "safetyController.setGuardian", async () =>
     safetyController.setGuardian(guardian),
   );
@@ -418,7 +664,6 @@ async function deployBaseMainnetStack(options = {}) {
     safetyController.setMaxGasPriceWei(guards.GAS_CEILING_WEI),
   );
 
-  // --- Timelock ---
   const timelock = await deployNamed(
     "StableClubTimelock",
     [[guards.MVP_SAFE], [guards.MVP_SAFE], guards.MVP_SAFE],
@@ -426,7 +671,6 @@ async function deployBaseMainnetStack(options = {}) {
     "timelock",
   );
 
-  // --- Transfer ownership ---
   const ownables = [
     ["permissionRegistry", permissionRegistry],
     ["strategyRegistry", strategyRegistry],
@@ -439,34 +683,19 @@ async function deployBaseMainnetStack(options = {}) {
   ];
   const timelockAddr = await timelock.getAddress();
   for (const [key, contract] of ownables) {
-    await sendStep(state, `own_${key}`, `transferOwnership ${key}`, async () => {
+    await sendStep(state, `own_${key}`, `transferOwnership`, async () => {
       const current = await contract.owner();
-      if (guards.addrEq(current, timelockAddr)) {
-        return null;
-      }
+      if (guards.addrEq(current, timelockAddr)) return null;
       return contract.transferOwnership(timelockAddr);
     });
     const ownerNow = await contract.owner();
     if (!guards.addrEq(ownerNow, timelockAddr)) {
-      throw new Error(`Ownership transfer incomplete for ${key}: owner=${ownerNow}`);
+      throw new Error(`Ownership transfer incomplete for ${key}`);
     }
   }
 
-  // Verify Timelock roles: Safe is proposer/executor; delay floor is 48h.
-  const proposerRole = await timelock.PROPOSER_ROLE();
-  const executorRole = await timelock.EXECUTOR_ROLE();
-  if (!(await timelock.hasRole(proposerRole, guards.MVP_SAFE))) {
-    throw new Error("Timelock PROPOSER_ROLE missing for Safe");
-  }
-  if (!(await timelock.hasRole(executorRole, guards.MVP_SAFE))) {
-    throw new Error("Timelock EXECUTOR_ROLE missing for Safe");
-  }
-  const minDelay = await timelock.getMinDelay();
-  if (minDelay < 48n * 3600n) {
-    throw new Error(`Timelock minDelay below 48h: ${minDelay}`);
-  }
+  await readPlanGetters(state, state.contracts);
 
-  // Manifest-shaped validation (no activation).
   const manifest = {
     strategyRegistry: state.contracts.strategyRegistry,
     clExecutor: state.contracts.clExecutor,
@@ -491,6 +720,7 @@ async function deployBaseMainnetStack(options = {}) {
   state.poolsActivated = false;
   state.activatedPoolIds = [];
   guards.assertNoPoolActivation(state);
+  guards.assertUniqueContractAddresses(state.contracts);
   saveState(state);
 
   const artifact = writeFinalArtifact(state);
@@ -504,7 +734,6 @@ async function main() {
     );
   }
   const result = await deployBaseMainnetStack();
-  // Log non-secret summary only.
   console.log("Base mainnet deploy complete (pools NOT activated).");
   console.log(`artifact=${result.paths.artifact}`);
   console.log(`timelock=${result.state.contracts.timelock}`);
@@ -519,6 +748,10 @@ module.exports = {
   assertBroadcastAllowed,
   collectBroadcastEnv,
   validateCanonicalDependencies,
+  authenticateResumeState,
+  authenticateSavedContract,
+  resolveReleaseCommit,
+  atomicWriteJson,
   STATE_PATH,
   ARTIFACT_PATH,
   ARTIFACT_DIR,
