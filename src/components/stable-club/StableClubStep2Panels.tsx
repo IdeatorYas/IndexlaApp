@@ -22,8 +22,9 @@ export function StableClubPoolCatalogue({
     <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
       <h2 className="text-sm font-bold text-app-ink">Official Base pools (Step 2)</h2>
       <p className="mt-1 text-xs text-app-muted">
-        Five approved catalogue pools on Base (chainId 8453). Factory-verified status is separate
-        from Stage 1 activation policy. CL100 pools remain excluded from Stage 1.
+        Five approved catalogue pools on Base (chainId 8453). All five pools are Stage 1
+        eligible for the five-pool Base beta. Factory-verified status is separate from
+        on-chain activation.
         {" "}
         Test pool validated: {testPoolValidated ? "yes" : "pending"}
       </p>
@@ -31,17 +32,13 @@ export function StableClubPoolCatalogue({
         {OFFICIAL_STABLE_CLUB_BASE_POOLS.map((pool) => {
           const status = resolvePoolLaunchStatus(pool, { activatedOnChainIds: activatedPoolIds });
           const badgeClass =
-            status.publicBadge === "Activated"
+            status.publicBadge === "Live"
               ? "rounded border border-app-success/30 bg-app-success/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-success"
               : status.publicBadge === "Unverified"
                 ? "rounded border border-app-danger/30 bg-app-danger/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-danger"
-                : status.launchPolicy === "stage1-excluded-cl100"
-                  ? "rounded border border-app-danger/30 bg-app-danger/10 px-2 py-0.5 text-[10px] font-bold uppercase text-app-danger"
-                  : status.launchPolicy === "stage2-deferred"
-                    ? "rounded border border-app-line px-2 py-0.5 text-[10px] font-bold uppercase text-app-dim"
-                    : status.canAdvertiseAsReadyForStage1Activation && testPoolValidated
-                      ? "rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600"
-                      : "rounded border border-app-line px-2 py-0.5 text-[10px] font-bold uppercase text-app-dim";
+                : status.publicBadge === "Ready for activation"
+                  ? "rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600"
+                  : "rounded border border-app-line px-2 py-0.5 text-[10px] font-bold uppercase text-app-dim";
           return (
             <li
               key={pool.id}

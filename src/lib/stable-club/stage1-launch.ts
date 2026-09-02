@@ -1,10 +1,11 @@
 /**
- * Stage 1 private-beta launch configuration.
- * Single pool: USDC-cbBTC-UNI-005. Automation disabled. No signer addresses.
+ * Stage 1 private-beta launch configuration — five official Base pools.
+ * Automation disabled. No signer addresses.
  */
 import {
   getOfficialPoolById,
   isPoolLaunchReady,
+  OFFICIAL_STABLE_CLUB_BASE_POOLS,
   type OfficialStableClubPool,
 } from "@/lib/stable-club/official-pools";
 import {
@@ -14,18 +15,26 @@ import {
   type StableClubLaunchParams,
 } from "@/lib/stable-club/launch-params";
 
+/** All five factory-verified official Base catalogue pools approved for private beta. */
+export const STAGE1_FIVE_POOL_BETA_POOL_IDS = [
+  "USDC-cbBTC-AERO-CL100",
+  "USDC-cbBTC-UNI-005",
+  "cbBTC-WETH-AERO-CL10",
+  "cbBTC-WETH-AERO-CL100",
+  "cbBTC-WETH-UNI-005",
+] as const;
+
+export type Stage1FivePoolBetaPoolId = (typeof STAGE1_FIVE_POOL_BETA_POOL_IDS)[number];
+
+/** @deprecated Use {@link STAGE1_FIVE_POOL_BETA_POOL_IDS}. Kept for Step-2 automation dev fixtures. */
 export const STAGE1_PRIVATE_BETA_POOL_ID = "USDC-cbBTC-UNI-005" as const;
 
 export type Stage1LaunchConfiguration = {
   stage: "stage1-private-beta";
-  poolIds: readonly [typeof STAGE1_PRIVATE_BETA_POOL_ID];
+  poolIds: typeof STAGE1_FIVE_POOL_BETA_POOL_IDS;
   pools: OfficialStableClubPool[];
   params: StableClubLaunchParams;
   automationDisabled: true;
-  /** Explicitly excluded until Stage 2 onboarding + tighter caps + UNI beta evidence. */
-  deferredPoolIds: readonly ["cbBTC-WETH-AERO-CL10", "cbBTC-WETH-UNI-005"];
-  /** Stage 1 excludes CL100 legs; catalogue retains legacy factory-verified bindings for Phase 2a. */
-  unavailablePoolIds: readonly ["USDC-cbBTC-AERO-CL100", "cbBTC-WETH-AERO-CL100"];
 };
 
 export function buildStage1LaunchConfiguration(
@@ -39,26 +48,29 @@ export function buildStage1LaunchConfiguration(
     throw new Error("Stage 1 config requires stage1-private-beta params");
   }
 
-  const pool = getOfficialPoolById(STAGE1_PRIVATE_BETA_POOL_ID);
-  if (!pool) throw new Error("Stage 1 pool missing from catalogue");
-  if (!isPoolLaunchReady(pool)) {
-    throw new Error("Stage 1 pool is not launch-ready");
+  const pools: OfficialStableClubPool[] = [];
+  for (const id of STAGE1_FIVE_POOL_BETA_POOL_IDS) {
+    const pool = getOfficialPoolById(id);
+    if (!pool) throw new Error(`Stage 1 pool missing from catalogue: ${id}`);
+    if (!isPoolLaunchReady(pool)) {
+      throw new Error(`Stage 1 pool is not launch-ready: ${id}`);
+    }
+    pools.push(pool);
   }
-  if (pool.id !== STAGE1_PRIVATE_BETA_POOL_ID) {
-    throw new Error("Stage 1 must be exactly USDC-cbBTC-UNI-005");
+
+  if (pools.length !== OFFICIAL_STABLE_CLUB_BASE_POOLS.length) {
+    throw new Error("Stage 1 must include every official Base catalogue pool");
   }
 
   return {
     stage: "stage1-private-beta",
-    poolIds: [STAGE1_PRIVATE_BETA_POOL_ID],
-    pools: [pool],
+    poolIds: STAGE1_FIVE_POOL_BETA_POOL_IDS,
+    pools,
     params,
     automationDisabled: true,
-    deferredPoolIds: ["cbBTC-WETH-AERO-CL10", "cbBTC-WETH-UNI-005"],
-    unavailablePoolIds: ["USDC-cbBTC-AERO-CL100", "cbBTC-WETH-AERO-CL100"],
   };
 }
 
-export function isStage1AllowedPoolId(poolId: string): boolean {
-  return poolId === STAGE1_PRIVATE_BETA_POOL_ID;
+export function isStage1AllowedPoolId(poolId: string): poolId is Stage1FivePoolBetaPoolId {
+  return (STAGE1_FIVE_POOL_BETA_POOL_IDS as readonly string[]).includes(poolId);
 }

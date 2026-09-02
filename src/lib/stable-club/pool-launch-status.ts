@@ -1,7 +1,6 @@
 /**
- * Stage-aware pool launch status — separates catalogue verification from Stage 1 policy
- * and on-chain activation. UI/API must never promote configured/verified pools to "Active"
- * without authoritative activation state.
+ * Stage-aware pool launch status — separates catalogue verification from on-chain activation.
+ * UI/API must never promote configured/verified pools to "Live" without attestation + activation proof.
  */
 import {
   PRIVATE_BETA_LAUNCH_PARAMS,
@@ -14,17 +13,14 @@ import {
   type OfficialStableClubPool,
 } from "@/lib/stable-club/official-pools";
 import {
-  STAGE1_PRIVATE_BETA_POOL_ID,
   buildStage1LaunchConfiguration,
+  isStage1AllowedPoolId,
   type Stage1LaunchConfiguration,
 } from "@/lib/stable-club/stage1-launch";
 
 export type PoolCatalogueVerification = "factory-verified" | "factory-unverified";
 
-export type PoolLaunchPolicyBucket =
-  | "stage1-eligible"
-  | "stage1-excluded-cl100"
-  | "stage2-deferred";
+export type PoolLaunchPolicyBucket = "stage1-eligible" | "not-in-stage1";
 
 export type PoolOnChainActivation = "activated" | "not-activated";
 
@@ -33,18 +29,17 @@ export type ResolvedPoolLaunchStatus = {
   catalogueVerification: PoolCatalogueVerification;
   launchPolicy: PoolLaunchPolicyBucket;
   onChainActivation: PoolOnChainActivation;
-  /** User-facing badge — never "Active" unless on-chain activated for a Stage-1-eligible pool. */
+  /** User-facing badge — "Live" only when fully activated with trusted deployment proof. */
   publicBadge: string;
   publicDetail: string;
   canAdvertiseAsActive: boolean;
-  canAdvertiseAsReadyForStage1Activation: boolean;
+  canAdvertiseAsReadyForActivation: boolean;
 };
 
 export type AutomationPublicStatus = {
   kind: "harvest" | "compound" | "rebalance";
   configuredInLaunchParams: true;
   enabledByLaunchPolicy: boolean;
-  /** True only when launch flag is true — never true in Stage 1 private beta defaults. */
   canAdvertiseAsRunning: boolean;
   publicLabel: string;
 };
@@ -52,21 +47,18 @@ export type AutomationPublicStatus = {
 const STAGE1_CFG = buildStage1LaunchConfiguration();
 
 function launchPolicyForPoolId(poolId: string): PoolLaunchPolicyBucket {
-  if (poolId === STAGE1_PRIVATE_BETA_POOL_ID) return "stage1-eligible";
-  if ((STAGE1_CFG.unavailablePoolIds as readonly string[]).includes(poolId)) {
-    return "stage1-excluded-cl100";
-  }
-  if ((STAGE1_CFG.deferredPoolIds as readonly string[]).includes(poolId)) {
-    return "stage2-deferred";
-  }
-  throw new Error(`Unknown catalogue pool launch policy: ${poolId}`);
+  return isStage1AllowedPoolId(poolId) ? "stage1-eligible" : "not-in-stage1";
 }
 
 export function resolvePoolLaunchStatus(
   pool: OfficialStableClubPool,
-  opts: { activatedOnChainIds?: readonly string[] } = {},
+  opts: {
+    activatedOnChainIds?: readonly string[];
+    executionTrusted?: boolean;
+  } = {},
 ): ResolvedPoolLaunchStatus {
   const activatedOnChainIds = opts.activatedOnChainIds ?? [];
+  const executionTrusted = opts.executionTrusted ?? false;
   const catalogueVerification: PoolCatalogueVerification = isPoolResolvable(pool)
     ? "factory-verified"
     : "factory-unverified";
@@ -76,9 +68,12 @@ export function resolvePoolLaunchStatus(
     : "not-activated";
 
   const canAdvertiseAsActive =
-    onChainActivation === "activated" && launchPolicy === "stage1-eligible";
+    executionTrusted &&
+    onChainActivation === "activated" &&
+    launchPolicy === "stage1-eligible";
 
   const canAdvertiseAsReadyForStage1Activation =
+    executionTrusted &&
     launchPolicy === "stage1-eligible" &&
     catalogueVerification === "factory-verified" &&
     onChainActivation === "not-activated";
@@ -89,19 +84,19 @@ export function resolvePoolLaunchStatus(
   if (catalogueVerification === "factory-unverified") {
     publicBadge = "Unverified";
     publicDetail = "Factory binding missing — not launch-ready. No silent remap.";
-  } else if (launchPolicy === "stage1-excluded-cl100") {
-    publicBadge = "Excluded (Stage 1)";
-    publicDetail =
-      "Legacy Aerodrome CL100 factory-verified on Base catalogue only — must not activate in Stage 1.";
-  } else if (launchPolicy === "stage2-deferred") {
-    publicBadge = "Deferred (Stage 2)";
-    publicDetail = "Catalogue verified — Stage 2 onboarding required before activation.";
+  } else if (launchPolicy === "not-in-stage1") {
+    publicBadge = "Unavailable";
+    publicDetail = "Pool is not in the Stage 1 five-pool beta catalogue.";
   } else if (canAdvertiseAsActive) {
-    publicBadge = "Activated";
-    publicDetail = "On-chain official pool activation confirmed for Stage 1.";
+    publicBadge = "Live";
+    publicDetail = "Trusted Base deployment attested and on-chain pool activation confirmed.";
+  } else if (!executionTrusted) {
+    publicBadge = "Ready for activation";
+    publicDetail =
+      "Factory-verified — awaiting trusted Base manifest attestation and governance activation.";
   } else if (canAdvertiseAsReadyForStage1Activation) {
-    publicBadge = "Verified · Stage 1 eligible";
-    publicDetail = "Factory-verified — eligible for Stage 1 activation after governance preflight.";
+    publicBadge = "Ready for activation";
+    publicDetail = "Trusted deployment attested — awaiting on-chain pool activation.";
   } else {
     publicBadge = "Verified";
     publicDetail = "Factory-verified on catalogue infrastructure generation.";
@@ -115,38 +110,31 @@ export function resolvePoolLaunchStatus(
     publicBadge,
     publicDetail,
     canAdvertiseAsActive,
-    canAdvertiseAsReadyForStage1Activation,
+    canAdvertiseAsReadyForActivation: canAdvertiseAsReadyForStage1Activation,
   };
 }
 
 export function resolvePoolLaunchStatusById(
   poolId: string,
-  opts: { activatedOnChainIds?: readonly string[] } = {},
+  opts: {
+    activatedOnChainIds?: readonly string[];
+    executionTrusted?: boolean;
+  } = {},
 ): ResolvedPoolLaunchStatus {
   const pool = getOfficialPoolById(poolId);
   if (!pool) throw new Error(`Unknown catalogue pool: ${poolId}`);
   return resolvePoolLaunchStatus(pool, opts);
 }
 
-/** Fail closed if CL100 pools appear in a Stage-1 activation list. */
-export function assertCl100NotStage1Active(poolIds: readonly string[]): void {
-  for (const id of poolIds) {
-    const status = resolvePoolLaunchStatusById(id);
-    if (status.launchPolicy === "stage1-excluded-cl100") {
-      throw new Error(`Stage 1 must not activate CL100 catalogue pool: ${id}`);
-    }
-  }
-}
-
-/** Fail closed if any pool is advertised active without on-chain + policy proof. */
+/** Fail closed if any pool is advertised Live without on-chain + trust proof. */
 export function assertTruthfulActiveAdvertisement(
   poolId: string,
-  opts: { activatedOnChainIds?: readonly string[] },
+  opts: { activatedOnChainIds?: readonly string[]; executionTrusted?: boolean },
 ): void {
   const status = resolvePoolLaunchStatusById(poolId, opts);
   if (!status.canAdvertiseAsActive) {
     throw new Error(
-      `Pool ${poolId} cannot be advertised as Active (badge=${status.publicBadge})`,
+      `Pool ${poolId} cannot be advertised as Live (badge=${status.publicBadge})`,
     );
   }
 }

@@ -9,7 +9,6 @@ import {
   launchAutomationDisabledReason,
 } from "@/lib/stable-club/local-automation-policy";
 import {
-  assertCl100NotStage1Active,
   assertTruthfulActiveAdvertisement,
   describeLaunchAutomationPublicStatus,
   resolvePoolLaunchStatusById,
@@ -19,9 +18,10 @@ import {
   assertLocalHardhatManifestIsolation,
   assertManifestPoolIdsMatchCatalogue,
   assertPhase2aInfraBindingsMatchCatalogue,
-  assertStage1ExcludesCl100,
+  assertStage1IncludesAllFivePools,
   buildCanonicalPoolComparisonTable,
 } from "@/lib/stable-club/pool-catalogue-consistency";
+import { STAGE1_FIVE_POOL_BETA_POOL_IDS } from "@/lib/stable-club/stage1-launch";
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
 
 describe("pool catalogue identity consistency", () => {
@@ -32,13 +32,14 @@ describe("pool catalogue identity consistency", () => {
       expect(row.chainId).toBe(8453);
       expect(row.catalogueVerified).toBe(true);
       expect(row.poolAddress).toMatch(/^0x[a-fA-F0-9]{40}$/);
+      expect(row.stage1Policy).toBe("stage1-eligible");
     }
   });
 
-  it("asserts catalogue hashes, CL100 legacy bindings, and Stage 1 exclusions", () => {
+  it("asserts catalogue hashes, CL100 legacy bindings, and Stage 1 five-pool inclusion", () => {
     expect(() => assertCatalogueIdentityConsistency()).not.toThrow();
     expect(() => assertPhase2aInfraBindingsMatchCatalogue()).not.toThrow();
-    expect(() => assertStage1ExcludesCl100()).not.toThrow();
+    expect(() => assertStage1IncludesAllFivePools()).not.toThrow();
   });
 
   it("matches local phase2a manifest poolIds to catalogue (Hardhat isolated)", () => {
@@ -47,56 +48,53 @@ describe("pool catalogue identity consistency", () => {
     expect(localPhase2a.chainId).not.toBe(8453);
   });
 
-  it("maps Stage 1 policy buckets correctly", () => {
+  it("maps all five pools as stage1-eligible", () => {
     const rows = buildCanonicalPoolComparisonTable();
-    expect(rows.find((r) => r.id === "USDC-cbBTC-UNI-005")?.stage1Policy).toBe(
-      "activated-candidate",
-    );
-    expect(rows.filter((r) => r.stage1Policy === "excluded-cl100")).toHaveLength(2);
-    expect(rows.filter((r) => r.stage1Policy === "deferred-stage2")).toHaveLength(2);
+    expect(rows.filter((r) => r.stage1Policy === "stage1-eligible")).toHaveLength(5);
+    for (const id of STAGE1_FIVE_POOL_BETA_POOL_IDS) {
+      expect(rows.find((r) => r.id === id)?.stage1Policy).toBe("stage1-eligible");
+    }
   });
 });
 
 describe("pool launch status labels (truthful UI/API)", () => {
-  it("never advertises CL100 as Stage-1 active", () => {
-    for (const id of ["USDC-cbBTC-AERO-CL100", "cbBTC-WETH-AERO-CL100"] as const) {
+  it("allows Live for any Stage-1-eligible pool with trust + on-chain activation", () => {
+    for (const id of STAGE1_FIVE_POOL_BETA_POOL_IDS) {
       const status = resolvePoolLaunchStatusById(id, {
         activatedOnChainIds: [id],
+        executionTrusted: true,
       });
-      expect(status.canAdvertiseAsActive).toBe(false);
-      expect(status.publicBadge).toMatch(/Excluded/);
-      expect(() => assertCl100NotStage1Active([id])).toThrow(/CL100/);
+      expect(status.canAdvertiseAsActive).toBe(true);
+      expect(status.publicBadge).toBe("Live");
+      expect(() =>
+        assertTruthfulActiveAdvertisement(id, {
+          activatedOnChainIds: [id],
+          executionTrusted: true,
+        }),
+      ).not.toThrow();
     }
   });
 
-  it("does not promote configured pools to Active without on-chain activation", () => {
-    const status = resolvePoolLaunchStatusById("USDC-cbBTC-UNI-005");
-    expect(status.publicBadge).not.toBe("Activated");
+  it("does not promote configured pools to Live without on-chain activation", () => {
+    const status = resolvePoolLaunchStatusById("USDC-cbBTC-UNI-005", {
+      executionTrusted: true,
+    });
+    expect(status.publicBadge).not.toBe("Live");
     expect(status.canAdvertiseAsActive).toBe(false);
     expect(() =>
-      assertTruthfulActiveAdvertisement("USDC-cbBTC-UNI-005", { activatedOnChainIds: [] }),
-    ).toThrow(/cannot be advertised as Active/);
-  });
-
-  it("allows Active only for Stage-1-eligible pool with on-chain activation proof", () => {
-    const status = resolvePoolLaunchStatusById("USDC-cbBTC-UNI-005", {
-      activatedOnChainIds: ["USDC-cbBTC-UNI-005"],
-    });
-    expect(status.canAdvertiseAsActive).toBe(true);
-    expect(status.publicBadge).toBe("Activated");
-    expect(() =>
       assertTruthfulActiveAdvertisement("USDC-cbBTC-UNI-005", {
-        activatedOnChainIds: ["USDC-cbBTC-UNI-005"],
+        activatedOnChainIds: [],
+        executionTrusted: true,
       }),
-    ).not.toThrow();
+    ).toThrow(/cannot be advertised as Live/);
   });
 
-  it("marks deferred pools as Deferred (Stage 2), not Ready/Active", () => {
-    for (const id of ["cbBTC-WETH-AERO-CL10", "cbBTC-WETH-UNI-005"] as const) {
-      const status = resolvePoolLaunchStatusById(id);
-      expect(status.publicBadge).toMatch(/Deferred/);
-      expect(status.canAdvertiseAsActive).toBe(false);
-    }
+  it("shows Ready for activation before trusted attestation on Base", () => {
+    const status = resolvePoolLaunchStatusById("cbBTC-WETH-AERO-CL10", {
+      executionTrusted: false,
+    });
+    expect(status.publicBadge).toBe("Ready for activation");
+    expect(status.canAdvertiseAsActive).toBe(false);
   });
 });
 

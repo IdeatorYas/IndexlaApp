@@ -209,17 +209,17 @@ These are **not** closed by documentation alone:
 ## Base pool catalogue — configured vs verified vs activated
 
 **Canonical catalogue:** `src/lib/stable-club/official-pools.ts` (chainId **8453** only).
-**Stage 1 launch policy:** `src/lib/stable-club/stage1-launch.ts` — activates **`USDC-cbBTC-UNI-005` only**.
+**Stage 1 launch policy:** `src/lib/stable-club/stage1-launch.ts` — **`STAGE1_FIVE_POOL_BETA_POOL_IDS`** (all five verified catalogue pools; one atomic strategy, 20% each).
 
 | State | Meaning | Ops rule |
 |---|---|---|
 | **Configured** | Pool ID, tokens, protocol, and infrastructure generation exist in catalogue | Do not treat as user-facing "active" |
-| **Factory-verified** | Bound factory returns non-zero pool address on Base (CL100 uses **legacy** Aero factory `0x5e7BB104…`) | Catalogue-resolvable; still may be excluded from Stage 1 |
-| **Stage 1 eligible** | Listed as activation candidate in `stage1-launch.ts` | Currently UNI-005 only |
-| **Activated** | On-chain official pool activation + governance preflight (`activateStage1OfficialPools`) | Only state that may be called "active" in product copy |
+| **Factory-verified** | Bound factory returns non-zero pool address on Base (CL100 uses **legacy** Aero factory `0x5e7BB104…`) | Catalogue-resolvable; required but not sufficient for live |
+| **Stage 1 eligible** | Listed in `STAGE1_FIVE_POOL_BETA_POOL_IDS` | All five pools are beta activation candidates |
+| **Live (product)** | Trusted manifest + attestation + on-chain activation for **all five** legs | Required before user deposits on Base |
+| **Activated** | On-chain official pool activation + governance preflight per pool | Only state that may be called "active" in product copy |
 
-**Stage 1 exclusions (must not activate):** `USDC-cbBTC-AERO-CL100`, `cbBTC-WETH-AERO-CL100`.
-**Stage 2 deferred:** `cbBTC-WETH-AERO-CL10`, `cbBTC-WETH-UNI-005`.
+**Historical note (superseded):** Earlier runbooks activated `USDC-cbBTC-UNI-005` only and excluded or deferred other catalogue IDs. Current policy is the five-pool atomic strategy above.
 
 Local Hardhat manifests (`chainId 31337`, `isTestOnly: true`) are **isolated** from Base mainnet catalogue values. Never pair Base chainId 8453 with mock Permit2 or local deployment JSON.
 

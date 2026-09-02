@@ -29,11 +29,14 @@ test.describe("Five-pool positions & exits — runtime verification", () => {
 
     const deposit = page
       .locator("section")
-      .filter({ has: page.getByRole("heading", { name: "Five-pool deposit" }) });
+      .filter({ has: page.getByRole("heading", { name: "Five-pool deposit" }) })
+      .last();
     const positions = page
       .locator("section")
-      .filter({ has: page.getByRole("heading", { name: "Five-pool positions & exits" }) });
+      .filter({ has: page.getByRole("heading", { name: "Five-pool positions & exits" }) })
+      .last();
 
+    await deposit.scrollIntoViewIfNeeded();
     await expect(deposit.getByText("CL executor", { exact: true })).toBeVisible({
       timeout: 30_000,
     });
@@ -44,12 +47,12 @@ test.describe("Five-pool positions & exits — runtime verification", () => {
       await expect(registerBtn).toBeDisabled({ timeout: 90_000 });
     }
 
-    await deposit.getByLabel("Deposit USDC").fill("1000");
+    await deposit.getByLabel(/Total deposit \(USDC\)/i).fill("1000");
     await deposit.getByRole("button", { name: /^Prepare quotes$/i }).click();
     await expect(deposit.getByRole("heading", { name: "Deposit preview" })).toBeVisible({
       timeout: 60_000,
     });
-    await deposit.getByRole("button", { name: /Deposit \(Permit2 → CL\)/i }).click();
+    await deposit.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i }).click();
     await expect(deposit.getByText("4 · Confirmed")).toBeVisible({ timeout: 180_000 });
 
     const depositTx = await deposit.locator("p").filter({ hasText: /Tx:/i }).textContent();
@@ -109,7 +112,7 @@ test.describe("Five-pool positions & exits — runtime verification", () => {
     await expect(deposit.getByRole("heading", { name: "Deposit preview" })).toBeVisible({
       timeout: 60_000,
     });
-    await deposit.getByRole("button", { name: /Deposit \(Permit2 → CL\)/i }).click();
+    await deposit.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i }).click();
     await expect(deposit.getByText("4 · Confirmed")).toBeVisible({ timeout: 180_000 });
     await positions.getByRole("button", { name: /Refresh positions/i }).click();
     await expect(positions.getByText("5 / 5")).toBeVisible({ timeout: 60_000 });

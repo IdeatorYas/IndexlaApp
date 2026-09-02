@@ -62,10 +62,12 @@ export function StableClubView({
   feeRecipientConfigured,
   baseRpcConfigured,
   preferLocalHardhat: _preferLocalHardhat = true,
+  devPanelAllowed = false,
 }: {
   feeRecipientConfigured: boolean;
   baseRpcConfigured: boolean;
   preferLocalHardhat?: boolean;
+  devPanelAllowed?: boolean;
 }) {
   void _preferLocalHardhat;
   const wallet = useStableClubWallet();
@@ -607,7 +609,7 @@ export function StableClubView({
         feeRouterAddress={deployments?.feeRouter as Address | undefined}
         executorAddress={deployments?.executor as Address | undefined}
       />
-      <StableClubFivePoolDepositPanel />
+      <StableClubFivePoolDepositPanel variant="dev" devPanelAllowed={devPanelAllowed} />
       <StableClubFivePoolPositionsPanel />
       <StableClubExecutionPanel />
 

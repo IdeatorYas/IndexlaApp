@@ -1,7 +1,7 @@
 # Stable Club — post-MVP disaster-recovery checklist
 
 **Audience:** Founder + Safe signers + on-call eng.  
-**Assumption:** Protocol live on Base; Safe 2-of-3; Timelock owns admin; Stage 1 UNI-005.
+**Assumption:** Protocol live on Base; Safe 2-of-3; Timelock owns admin; Stage 1 **five-pool atomic strategy** (all legs must be activated for live deposits).
 
 ## Severity triage
 

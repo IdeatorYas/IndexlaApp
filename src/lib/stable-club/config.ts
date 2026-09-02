@@ -4,6 +4,8 @@ import { STABLE_CLUB_CHAIN_ID } from "@/lib/stable-club/constants";
 
 export type StableClubServerConfig = {
   devEnabled: boolean;
+  /** Product page visible in app shell (five-pool Base beta). */
+  productEnabled: boolean;
   baseRpcConfigured: boolean;
   chainId: number;
   feeRecipient: `0x${string}` | null;
@@ -21,8 +23,18 @@ export function getStableClubServerConfig(): StableClubServerConfig {
     process.env.STABLE_CLUB_DEV_ENABLED === "1" ||
     process.env.STABLE_CLUB_DEV_ENABLED?.toLowerCase() === "true";
 
+  const productEnabled =
+    devEnabled ||
+    process.env.STABLE_CLUB_PRODUCT_ENABLED === "1" ||
+    process.env.STABLE_CLUB_PRODUCT_ENABLED?.toLowerCase() === "true" ||
+    process.env.NEXT_PUBLIC_STABLE_CLUB_PRODUCT_ENABLED === "1" ||
+    process.env.NEXT_PUBLIC_STABLE_CLUB_PRODUCT_ENABLED?.toLowerCase() === "true" ||
+    (process.env.STABLE_CLUB_PRODUCT_ENABLED !== "false" &&
+      process.env.NEXT_PUBLIC_STABLE_CLUB_PRODUCT_ENABLED !== "false");
+
   return {
     devEnabled,
+    productEnabled,
     baseRpcConfigured: Boolean(process.env.BASE_RPC_URL?.trim()),
     chainId: STABLE_CLUB_CHAIN_ID,
     feeRecipient: readPublicAddress("STABLE_CLUB_FEE_RECIPIENT"),

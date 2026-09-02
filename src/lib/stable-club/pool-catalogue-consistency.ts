@@ -15,8 +15,9 @@ import {
 import { LOCAL_HARDHAT_CHAIN_ID } from "@/lib/stable-club/chain-isolation";
 import { BASE_CHAIN_ID } from "@/lib/stable-club/verified-base-addresses";
 import {
-  STAGE1_PRIVATE_BETA_POOL_ID,
+  STAGE1_FIVE_POOL_BETA_POOL_IDS,
   buildStage1LaunchConfiguration,
+  isStage1AllowedPoolId,
 } from "@/lib/stable-club/stage1-launch";
 
 export type CanonicalPoolRow = {
@@ -33,7 +34,7 @@ export type CanonicalPoolRow = {
   tokenBSymbol: string;
   feeOrTickLabel: string;
   catalogueVerified: boolean;
-  stage1Policy: "activated-candidate" | "excluded-cl100" | "deferred-stage2";
+  stage1Policy: "stage1-eligible";
 };
 
 const INDEXLA_POOL_PREFIX = "INDEXLA_STABLE_CLUB_BASE_";
@@ -44,11 +45,10 @@ function expectedPoolIdHash(catalogueId: string): Hex {
 }
 
 function stage1PolicyFor(id: string): CanonicalPoolRow["stage1Policy"] {
-  const cfg = buildStage1LaunchConfiguration();
-  if (id === STAGE1_PRIVATE_BETA_POOL_ID) return "activated-candidate";
-  if ((cfg.unavailablePoolIds as readonly string[]).includes(id)) return "excluded-cl100";
-  if ((cfg.deferredPoolIds as readonly string[]).includes(id)) return "deferred-stage2";
-  throw new Error(`Unknown pool id for stage1 policy: ${id}`);
+  if (!isStage1AllowedPoolId(id)) {
+    throw new Error(`Pool ${id} is not in Stage 1 five-pool beta catalogue`);
+  }
+  return "stage1-eligible";
 }
 
 function feeOrTickLabel(pool: OfficialStableClubPool): string {
@@ -128,19 +128,21 @@ export function assertLocalHardhatManifestIsolation(manifest: {
   }
 }
 
-export function assertStage1ExcludesCl100(): void {
+export function assertStage1IncludesAllFivePools(): void {
   const cfg = buildStage1LaunchConfiguration();
-  for (const id of cfg.unavailablePoolIds) {
-    if (!id.includes("CL100")) {
-      throw new Error(`Expected CL100 in unavailablePoolIds, got ${id}`);
-    }
-    if (cfg.poolIds.includes(id as typeof STAGE1_PRIVATE_BETA_POOL_ID)) {
-      throw new Error(`CL100 pool ${id} must not appear in Stage 1 poolIds`);
+  if (cfg.poolIds.length !== 5) {
+    throw new Error(`Stage 1 must include 5 pools, got ${cfg.poolIds.length}`);
+  }
+  for (const id of STAGE1_FIVE_POOL_BETA_POOL_IDS) {
+    if (!(cfg.poolIds as readonly string[]).includes(id)) {
+      throw new Error(`Stage 1 missing catalogue pool ${id}`);
     }
   }
-  if (cfg.poolIds.length !== 1 || cfg.poolIds[0] !== STAGE1_PRIVATE_BETA_POOL_ID) {
-    throw new Error("Stage 1 must activate exactly USDC-cbBTC-UNI-005");
-  }
+}
+
+/** @deprecated Use {@link assertStage1IncludesAllFivePools}. */
+export function assertStage1ExcludesCl100(): void {
+  assertStage1IncludesAllFivePools();
 }
 
 /** Infrastructure bindings used by phase2a-manifest.cjs / deploy-fork-phase2a.cjs — must match official-pools.ts. */

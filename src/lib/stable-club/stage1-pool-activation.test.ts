@@ -3,6 +3,7 @@ import { type Address, type Hex } from "viem";
 import { PRIVATE_BETA_LAUNCH_PARAMS } from "@/lib/stable-club/launch-params";
 import { MVP_GOVERNANCE_SAFE } from "@/lib/stable-club/mvp-governance";
 import { CRITICAL_OWNABLE_CONTRACT_KEYS } from "@/lib/stable-club/governance-activation";
+import { STAGE1_FIVE_POOL_BETA_POOL_IDS } from "@/lib/stable-club/stage1-launch";
 import { activateStage1OfficialPools } from "@/lib/stable-club/stage1-pool-activation";
 
 const TIMELOCK = "0x1111111111111111111111111111111111111111" as Address;
@@ -58,7 +59,7 @@ function mockPublicClient(overrides?: {
 }
 
 describe("Stage 1 pool activation (canonical path)", () => {
-  it("activates UNI-005 only after governance preflight passes on mainnet", async () => {
+  it("activates all five Stage-1 pools after governance preflight passes on mainnet", async () => {
     const result = await activateStage1OfficialPools({
       testPoolValidated: true,
       environment: "mainnet",
@@ -68,7 +69,7 @@ describe("Stage 1 pool activation (canonical path)", () => {
       publicClient: mockPublicClient(),
     });
     expect(result.stage).toBe("stage1-private-beta");
-    expect(result.activatedPoolIds).toEqual(["USDC-cbBTC-UNI-005"]);
+    expect(result.activatedPoolIds).toEqual([...STAGE1_FIVE_POOL_BETA_POOL_IDS]);
   });
 
   it("blocks local environment from activating production catalogue pools", async () => {

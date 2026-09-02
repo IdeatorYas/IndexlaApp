@@ -4,11 +4,24 @@ import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pool
 import { StableClubFivePoolDepositPanel } from "@/components/stable-club/StableClubFivePoolDepositPanel";
 import { readCurrentTicks } from "@/components/stable-club/useFivePoolDeposit";
 
-const prepareQuotes = vi.fn();
-const submitDeposit = vi.fn();
-const registerStrategy = vi.fn();
+const depositIntoFivePoolStrategy = vi.fn();
 
 let mockState: Record<string, unknown>;
+
+const useStableClubDevPanelAllowedMock = vi.fn((allowed: boolean) => allowed);
+
+vi.mock("@/components/stable-club/useStableClubDevPanelAllowed", () => ({
+  useStableClubDevPanelAllowed: (allowed: boolean) => useStableClubDevPanelAllowedMock(allowed),
+}));
+
+vi.mock("@/components/wallet/StableClubWalletProvider", () => ({
+  useStableClubWallet: () => ({
+    status: "connected",
+    chainId: 31337,
+    connect: vi.fn(),
+    switchToBase: vi.fn(),
+  }),
+}));
 
 vi.mock("@/components/stable-club/useFivePoolDeposit", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/stable-club/useFivePoolDeposit")>();
@@ -24,9 +37,8 @@ describe("StableClubFivePoolDepositPanel", () => {
   });
 
   beforeEach(() => {
-    prepareQuotes.mockReset();
-    submitDeposit.mockReset();
-    registerStrategy.mockReset();
+    depositIntoFivePoolStrategy.mockReset();
+    useStableClubDevPanelAllowedMock.mockImplementation((allowed: boolean) => allowed);
     mockState = {
       deploymentsLoading: false,
       deployments: {
@@ -132,16 +144,17 @@ describe("StableClubFivePoolDepositPanel", () => {
       onExpectedChain: true,
       expectedChainId: 31337,
       busy: false,
-      prepareQuotes,
-      submitDeposit,
-      registerStrategy,
+      depositIntoFivePoolStrategy,
+      prepareQuotes: vi.fn(),
+      submitDeposit: vi.fn(),
+      registerStrategy: vi.fn(),
       invalidatePlan: vi.fn(),
       wallet: { address: "0xuser" },
     };
   });
 
-  it("renders five pool preview rows and eight swaps", () => {
-    render(<StableClubFivePoolDepositPanel />);
+  it("renders five pool preview rows and eight swaps in dev variant", () => {
+    render(<StableClubFivePoolDepositPanel variant="dev" devPanelAllowed />);
     expect(screen.getByText("Five-pool deposit")).toBeInTheDocument();
     expect(screen.getByText("USDC-cbBTC-AERO-CL100")).toBeInTheDocument();
     expect(screen.getByText("cbBTC-WETH-UNI-005")).toBeInTheDocument();
@@ -150,12 +163,25 @@ describe("StableClubFivePoolDepositPanel", () => {
     expect(screen.getByText(/revocable/i)).toBeInTheDocument();
   });
 
-  it("wires prepare and deposit buttons", () => {
-    render(<StableClubFivePoolDepositPanel />);
+  it("wires dev prepare and deposit buttons", () => {
+    const prepareQuotes = vi.fn();
+    const submitDeposit = vi.fn();
+    mockState.prepareQuotes = prepareQuotes;
+    mockState.submitDeposit = submitDeposit;
+    render(<StableClubFivePoolDepositPanel variant="dev" devPanelAllowed />);
     fireEvent.click(screen.getByRole("button", { name: /^Prepare quotes$/i }));
     expect(prepareQuotes).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: /^Deposit \(Permit2 → CL\)$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i }));
     expect(submitDeposit).toHaveBeenCalledTimes(1);
+  });
+
+  it("product variant exposes single primary deposit button only", () => {
+    render(<StableClubFivePoolDepositPanel variant="product" />);
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i }));
+    expect(depositIntoFivePoolStrategy).toHaveBeenCalledTimes(1);
   });
 
   it("shows confirmed tx without Basescan on local chain", () => {
@@ -163,7 +189,7 @@ describe("StableClubFivePoolDepositPanel", () => {
     mockState.statusMessage = "Deposit confirmed";
     mockState.explorerUrl = null;
     mockState.expectedChainId = 31337;
-    render(<StableClubFivePoolDepositPanel />);
+    render(<StableClubFivePoolDepositPanel variant="dev" devPanelAllowed />);
     expect(screen.getByText(/4 · Confirmed/)).toBeInTheDocument();
     expect(screen.getByText(/Tx:\s*0xtxhash/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "0xtxhash" })).toBeNull();
@@ -174,28 +200,51 @@ describe("StableClubFivePoolDepositPanel", () => {
     mockState.statusMessage = "Deposit confirmed";
     mockState.expectedChainId = 8453;
     mockState.explorerUrl = "https://basescan.org/tx/0xtxhash";
-    render(<StableClubFivePoolDepositPanel />);
+    render(<StableClubFivePoolDepositPanel variant="dev" devPanelAllowed />);
     const link = screen.getByRole("link", { name: "0xtxhash" });
     expect(link).toHaveAttribute("href", "https://basescan.org/tx/0xtxhash");
   });
 
   it("prevents deposit click when not plan-ready", () => {
     mockState.planReady = false;
-    render(<StableClubFivePoolDepositPanel />);
-    expect(screen.getByRole("button", { name: /^Deposit \(Permit2 → CL\)$/i })).toBeDisabled();
+    render(<StableClubFivePoolDepositPanel variant="dev" devPanelAllowed />);
+    expect(screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i })).toBeDisabled();
   });
 
   it("shows wallet rejection / failure text when error set", () => {
     mockState.progress = "failed";
     mockState.error = "Wallet rejected the request";
-    render(<StableClubFivePoolDepositPanel />);
+    render(<StableClubFivePoolDepositPanel variant="dev" devPanelAllowed />);
     expect(screen.getByText(/Wallet rejected the request/)).toBeInTheDocument();
     expect(screen.getByText(/5 · Failed/)).toBeInTheDocument();
+  });
+
+  it("renders nothing for dev variant when devPanelAllowed is false", () => {
+    const { container } = render(
+      <StableClubFivePoolDepositPanel variant="dev" devPanelAllowed={false} />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("dev panel access — denied on production/Base", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("hides dev variant when wallet hook denies Base chain 8453", () => {
+    useStableClubDevPanelAllowedMock.mockReturnValue(false);
+    const { container } = render(<StableClubFivePoolDepositPanel variant="dev" devPanelAllowed />);
+    expect(container).toBeEmptyDOMElement();
   });
 });
 
 describe("SC-F03 — never substitute tick zero on RPC failure", () => {
   const poolsWithAddress = OFFICIAL_STABLE_CLUB_BASE_POOLS.filter((p) => p.poolAddress);
+
+  beforeEach(() => {
+    useStableClubDevPanelAllowedMock.mockImplementation((allowed: boolean) => allowed);
+  });
 
   function mockClient(readImpl: (address: string) => Promise<readonly unknown[]>) {
     return {
@@ -285,12 +334,12 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
     mockState.preview = null;
     mockState.error =
       "Failed to read current tick for pool USDC-cbBTC-UNI-005 (0xPool): RPC timeout";
-    render(<StableClubFivePoolDepositPanel />);
+    render(<StableClubFivePoolDepositPanel variant="dev" devPanelAllowed />);
     expect(screen.getByText(/5 · Failed/)).toBeInTheDocument();
     expect(
       screen.getByText(/Failed to read current tick for pool USDC-cbBTC-UNI-005/),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Deposit \(Permit2 → CL\)$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i })).toBeDisabled();
     expect(screen.queryByText(/Quotes ready/i)).toBeNull();
   });
 

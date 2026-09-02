@@ -195,6 +195,7 @@ export function useFivePoolDeposit() {
   const [usdcBalance, setUsdcBalance] = useState<bigint>(BigInt(0));
   const [strategyId, setStrategyId] = useState<Hex | null>(null);
   const [strategyRegistered, setStrategyRegistered] = useState(false);
+  const strategyIdRef = useRef<Hex | null>(null);
   const [executionNonce, setExecutionNonce] = useState<bigint>(BigInt(1));
 
   const [progress, setProgress] = useState<FivePoolDepositProgress>("idle");
@@ -205,6 +206,10 @@ export function useFivePoolDeposit() {
   const [error, setError] = useState<string | null>(null);
   const [lastTxHash, setLastTxHash] = useState<Hex | null>(null);
   const [approvalTxHashes, setApprovalTxHashes] = useState<Hex[]>([]);
+
+  const strategyRegisteredRef = useRef(false);
+  const planReadyRef = useRef(false);
+  const quoteBundleRef = useRef<FivePoolQuoteBundle | null>(null);
 
   const chain = useMemo(
     () =>
@@ -278,7 +283,9 @@ export function useFivePoolDeposit() {
     if (!deployments || !wallet.address) {
       setUsdcBalance(BigInt(0));
       setStrategyRegistered(false);
+      strategyRegisteredRef.current = false;
       setStrategyId(null);
+      strategyIdRef.current = null;
       return;
     }
     const bal = await publicClient.readContract({
@@ -296,6 +303,7 @@ export function useFivePoolDeposit() {
       args: [wallet.address, BigInt(expectedChainId), deployments.usdc],
     });
     setStrategyId(sid);
+    strategyIdRef.current = sid;
 
     const strategy = await publicClient.readContract({
       address: deployments.strategyRegistry,
@@ -308,6 +316,7 @@ export function useFivePoolDeposit() {
     const registered =
       strategyUser.toLowerCase() === wallet.address.toLowerCase() && !strategyRevoked;
     setStrategyRegistered(registered);
+    strategyRegisteredRef.current = registered;
 
     if (registered) {
       const nextNonce = await resolveNextDepositExecutionNonce(
@@ -333,6 +342,8 @@ export function useFivePoolDeposit() {
     setPreview(null);
     setQuoteBundle(null);
     setPlanReady(false);
+    planReadyRef.current = false;
+    quoteBundleRef.current = null;
     planRef.current = null;
   }, []);
 
@@ -427,6 +438,8 @@ export function useFivePoolDeposit() {
         quoteSource: bundle.source,
       });
       planRef.current = plan;
+      quoteBundleRef.current = bundle;
+      planReadyRef.current = true;
       setQuoteBundle(bundle);
       setPreview(nextPreview);
       setPlanReady(true);
@@ -601,11 +614,17 @@ export function useFivePoolDeposit() {
         network: attestedDeployments.network,
         permit2: attestedDeployments.permit2,
       });
-      if (!strategyRegistered || !strategyId) {
+      if (!strategyRegisteredRef.current && !strategyRegistered) {
         throw new Error("Register the five-pool strategy before depositing");
       }
-      if (!planReady || !quoteBundle || !planRef.current || !preview) {
+      const activeQuoteBundle = quoteBundleRef.current ?? quoteBundle;
+      if (!planRef.current || !activeQuoteBundle || !preview) {
         throw new Error("Prepare quotes first");
+      }
+
+      const activeStrategyId = strategyIdRef.current ?? strategyId;
+      if (!activeStrategyId) {
+        throw new Error("Register the five-pool strategy before depositing");
       }
 
       const nowSec = Math.floor(Date.now() / 1000);
@@ -613,16 +632,16 @@ export function useFivePoolDeposit() {
       const nextNonce = await resolveNextDepositExecutionNonce(
         publicClient,
         attestedDeployments.strategyRegistry,
-        strategyId,
+        activeStrategyId,
       );
       setExecutionNonce(nextNonce);
 
       const depositArgs = buildDepositFivePoolStrategyArgs({
         plan: planRef.current,
         adapters: attestedDeployments.adapters,
-        strategyId,
+        strategyId: activeStrategyId,
         executionNonce: nextNonce,
-        quoteBundle,
+        quoteBundle: activeQuoteBundle,
         nowSec,
         maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
         minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
@@ -675,7 +694,7 @@ export function useFivePoolDeposit() {
 
       const approvalHashes = await runFivePoolDepositApprovalSequence({
         nowSec: () => Math.floor(Date.now() / 1000),
-        quotes: quoteBundle.quotes,
+        quotes: activeQuoteBundle.quotes,
         deadline: planRef.current.deadline,
         maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
         minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
@@ -708,7 +727,7 @@ export function useFivePoolDeposit() {
       // SC-F10 — recheck remaining validity immediately before deposit write
       const depositNowSec = Math.floor(Date.now() / 1000);
       assertExecutableQuotePlanValidity({
-        quotes: quoteBundle.quotes,
+        quotes: activeQuoteBundle.quotes,
         deadline: planRef.current.deadline,
         nowSec: depositNowSec,
         maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
@@ -717,9 +736,9 @@ export function useFivePoolDeposit() {
       buildDepositFivePoolStrategyArgs({
         plan: planRef.current,
         adapters: attestedDeployments.adapters,
-        strategyId,
+        strategyId: activeStrategyId,
         executionNonce: nextNonce,
-        quoteBundle,
+        quoteBundle: activeQuoteBundle,
         nowSec: depositNowSec,
         maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
         minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
@@ -796,6 +815,36 @@ export function useFivePoolDeposit() {
     wallet.provider,
   ]);
 
+  const depositIntoFivePoolStrategy = useCallback(async () => {
+    if (!wallet.address) {
+      await wallet.connect();
+      return;
+    }
+    if (!onExpectedChain) {
+      await wallet.switchToBase();
+      return;
+    }
+    if (!strategyRegisteredRef.current && !strategyRegistered) {
+      await registerStrategy();
+      await refreshBalancesAndStrategy();
+    }
+    if (!planRef.current || !quoteBundleRef.current) {
+      await prepareQuotes();
+    }
+    if (!planRef.current || !quoteBundleRef.current) {
+      return;
+    }
+    await submitDeposit();
+  }, [
+    onExpectedChain,
+    prepareQuotes,
+    refreshBalancesAndStrategy,
+    registerStrategy,
+    strategyRegistered,
+    submitDeposit,
+    wallet,
+  ]);
+
   return {
     deployments,
     deploymentsLoading,
@@ -824,6 +873,7 @@ export function useFivePoolDeposit() {
     busy: progress === "preparing-quotes" || progress === "awaiting-approval" || progress === "awaiting-deposit",
     prepareQuotes,
     submitDeposit,
+    depositIntoFivePoolStrategy,
     registerStrategy,
     refreshBalancesAndStrategy,
     invalidatePlan: clearPlan,

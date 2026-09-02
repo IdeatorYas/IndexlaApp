@@ -22,13 +22,8 @@ export const APP_ROUTES = {
 export const NAV_ITEMS = [
   { href: APP_ROUTES.dashboard, label: "Dashboard", shortLabel: "Dashboard" },
   { href: APP_ROUTES.discover, label: "Discover", shortLabel: "Discover" },
+  { href: APP_ROUTES.stableClub, label: "Stable Club", shortLabel: "Stable" },
   { href: APP_ROUTES.degenClub, label: "Degen Club", shortLabel: "Degen" },
-  {
-    href: APP_ROUTES.stableClub,
-    label: "Stable Club",
-    shortLabel: "Stable",
-    devOnly: true,
-  },
   { href: APP_ROUTES.create, label: "Create Portfolio / Index", shortLabel: "Create" },
   { href: APP_ROUTES.portfolio, label: "My Portfolio", shortLabel: "Portfolio" },
   { href: APP_ROUTES.strategies, label: "Strategies", shortLabel: "Strategies" },

@@ -7,6 +7,7 @@ import {
   type StableClubPhase2aDeployments,
 } from "@/lib/stable-club/phase2a-deployments";
 import { getStableClubServerConfig } from "@/lib/stable-club/config";
+import { canExposeStableClubDevPanel } from "@/lib/stable-club/dev-panel-access";
 
 const DEPLOYMENTS_PATH = path.join(
   process.cwd(),
@@ -23,9 +24,16 @@ function readPhase2aDeployments(): StableClubPhase2aDeployments | null {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const config = getStableClubServerConfig();
-  if (!config.devEnabled) {
+  const host = request.headers.get("host");
+  if (
+    !canExposeStableClubDevPanel({
+      nodeEnv: process.env.NODE_ENV,
+      host,
+      devFlagEnabled: config.devEnabled,
+    })
+  ) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

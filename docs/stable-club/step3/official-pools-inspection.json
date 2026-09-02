@@ -129,6 +129,7 @@
     "RLUSD/USDC and PYUSD/USDC are NOT in the official five-pool catalogue.",
     "poolAddress values are factory-derived on Base mainnet fork using each pool's bound infrastructure generation.",
     "REAUDIT-F02 (2026-08-31): CL100 Aero pools resolve on legacy factory 0x5e7BB104… only — not on current-generation factory.",
+    "SUPERSEDED (2026-09): Stage 1 policy now activates all five catalogue pools as equal 20% legs in one atomic strategy — see stage1-launch.ts. Historical single-pool note below retained for audit traceability only.",
     "Stage 1 activates USDC-cbBTC-UNI-005 only; CL100 catalogue IDs remain excluded from Stage 1 activation.",
     "No transactions were sent.",
     "ETH/USD Chainlink feed verified live; USDC/USD and BTC/USD candidate addresses need re-verification against current Chainlink Base documentation before launch."

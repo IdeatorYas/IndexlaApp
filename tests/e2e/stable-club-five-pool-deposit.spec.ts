@@ -41,7 +41,9 @@ test.describe("Five-pool deposit — runtime verification", () => {
 
     const panel = page
       .locator("section")
-      .filter({ has: page.getByRole("heading", { name: "Five-pool deposit" }) });
+      .filter({ has: page.getByRole("heading", { name: "Five-pool deposit" }) })
+      .last();
+    await panel.scrollIntoViewIfNeeded();
     await expect(panel.getByText("CL executor", { exact: true })).toBeVisible({
       timeout: 30_000,
     });
@@ -74,7 +76,9 @@ test.describe("Five-pool deposit — runtime verification", () => {
 
     const panel = page
       .locator("section")
-      .filter({ has: page.getByRole("heading", { name: "Five-pool deposit" }) });
+      .filter({ has: page.getByRole("heading", { name: "Five-pool deposit" }) })
+      .last();
+    await panel.scrollIntoViewIfNeeded();
     await expect(panel.getByText("CL executor", { exact: true })).toBeVisible({
       timeout: 30_000,
     });
@@ -89,7 +93,7 @@ test.describe("Five-pool deposit — runtime verification", () => {
     // Clear any prior failed-status noise so deposit can proceed
     await expect(panel.getByRole("button", { name: /^Prepare quotes$/i })).toBeEnabled();
 
-    await panel.getByLabel("Deposit USDC").fill("1000");
+    await panel.getByLabel(/Total deposit \(USDC\)/i).fill("1000");
     // SC-F11: accessible names include the executable max (500 bps).
     const swapSlip = panel.getByLabel("Swap slippage (bps, max 500)");
     const lpSlip = panel.getByLabel("LP slippage (bps, max 500)");
@@ -134,7 +138,7 @@ test.describe("Five-pool deposit — runtime verification", () => {
     });
     await page.setViewportSize({ width: 1280, height: 800 });
 
-    const depositBtn = panel.getByRole("button", { name: /Deposit \(Permit2 → CL\)/i });
+    const depositBtn = panel.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i });
     await expect(depositBtn).toBeEnabled();
 
     // Prefer a free on-chain nonce (prior local runs may have consumed 1)
@@ -191,11 +195,11 @@ test.describe("Five-pool deposit — runtime verification", () => {
       timeout: 60_000,
     });
     await expect(panel.getByText(/Quotes ready — review preview/i)).toBeVisible();
-    await panel.getByLabel("Deposit USDC").fill("1000.000001");
+    await panel.getByLabel(/Total deposit \(USDC\)/i).fill("1000.000001");
     await expect(panel.getByText("Deposit preview")).toHaveCount(0);
     await expect(depositBtn).toBeDisabled();
 
-    await panel.getByLabel("Deposit USDC").fill("1000");
+    await panel.getByLabel(/Total deposit \(USDC\)/i).fill("1000");
     fs.writeFileSync(
       path.join(SHOT_DIR, "runtime-result.json"),
       JSON.stringify(
