@@ -1,1 +1,82 @@
-﻿# Stable Club — deployment runbook & rollback checklist**Status:** Pre-deployment only. **Do not execute on Base mainnet** until founder authorization.## Guarded Base mainnet path (tooling)Script: `scripts/stable-club/deploy-base-mainnet.cjs`Network: Hardhat `base` (`BASE_RPC_URL` + `DEPLOYER_PRIVATE_KEY` — missing secrets do **not** break local tests)### Required env (broadcast only)| Name | Purpose ||---|---|| `BASE_RPC_URL` | Base JSON-RPC (**HTTPS only**; no localhost/private/Hardhat/Anvil; never logged) || `DEPLOYER_PRIVATE_KEY` | Deployer EOA (never commit) || `STABLE_CLUB_GUARDIAN_ADDRESS` | Emergency pause guardian || `STABLE_CLUB_BASE_DEPLOY_CONFIRMATION` | Exact phrase: `I AUTHORIZE INDEXLA STABLE CLUB BASE MAINNET DEPLOY` || `STABLE_CLUB_DEPLOY_RELEASE_COMMIT` | Optional 40-hex release commit bind (defaults to `git rev-parse HEAD`) |### Command (founder-authorized only — do not run without confirmation)```bashnpx hardhat run scripts/stable-club/deploy-base-mainnet.cjs --network base```### What the script does1. Fail-closed preflight: chainId 8453, confirmation phrase, canonical Base bytecode checks2. Deploy five-pool core stack (registries → FeeRouter → SwapRouter → guards → CL executor → 5 adapters)3. Wire Permit2, allowlists, 4 USDC routes, oracle feeds + cbBTC peg monitor4. Set guardian + `maxGasPriceWei` (1 gwei)5. Deploy 48h `StableClubTimelock` (Safe proposer/executor/admin) and transfer all Ownables to Timelock6. Write non-secret resume state + deploy artifact under `deployments/base-mainnet/`7. **Stop** — harvest/compound/rebalance remain disabled; **no pool activation**; no automation contractsResumable: re-running validates saved addresses/runtime code hashes against Base and fails closed on mismatch.## Preconditions (all required)- [ ] Audit freeze SHA tagged and auditor engagement authorized (or explicit founder waiver)- [x] Founder-approved `gasCeilingWei` encoded (`1000000000`) — on-chain set via Timelock owner after deploy- [ ] MVP Safe 2-of-3 verified on Base- [ ] Fee recipient verified- [ ] Guardian address assigned- [ ] Fork rehearsal green (`StableClubStep3ForkRehearsal`)- [ ] Guard unit tests green (`StableClubBaseMainnetDeployGuards`)- [ ] Production site `indexla.tech` / app health unaffected by this ops path## Deploy order (mainnet — when authorized)1. Deploy `StableClubTimelock` with Safe as proposer/executor/admin2. Deploy protocol contracts (registry → fee router with fee recipient → guards → CL executor → adapters)3. Wire Permit2, operators, oracles, Stage 1 pool allowlist / routes4. Set `SafetyController` guardian + approved `maxGasPriceWei`5. Transfer **every** Ownable to Timelock6. Verify ownership map (no EOA owners) — **production remains blocked** until SC-12 gate in [14-production-security-runbook.md](./14-production-security-runbook.md) is complete7. Verify Safe Timelock roles8. **Stop** — do not activate pools / open deposits until separate go-live checklist9. Later (separate change): pin `getTrustedPhase2aBaseManifest()` from the deploy artifact## Rollback / abort| Failure | Action ||---|---|| Deploy tx reverts mid-stack | Do not transfer ownership of partial stack; document addresses; redeploy clean set || Wrong owner left as EOA | Immediately schedule Timelock transfer (if Timelock already owns others) or redeploy || Wrong fee recipient | Timelock `setFeeRecipient` after 48h — **or** abort go-live until fixed || Oracle misconfigured | Keep deposits paused; Timelock fix after delay || Need to halt after go-live | Guardian **pause** immediately; unpause only via Timelock 48h |## Never- Deploy from personal EOA retaining ownership- Activate pools in the same session as first deploy without ownership verification- Deploy automation contracts for private beta- Use real user funds for rehearsal- Skip the 48h delay for configuration unpause- Print or commit private keys / RPC URLs
+﻿# Stable Club — deployment runbook & rollback checklist
+
+**Status:** Pre-deployment only. **Do not execute on Base mainnet** until founder authorization.
+
+## Guarded Base mainnet path (tooling)
+
+Script: `scripts/stable-club/deploy-base-mainnet.cjs`
+
+Network: Hardhat `base` (`BASE_RPC_URL` + `DEPLOYER_PRIVATE_KEY` — missing secrets do **not** break local tests)
+
+### Required env (broadcast only)
+
+| Name | Purpose |
+|---|---|
+| `BASE_RPC_URL` | Base JSON-RPC (**HTTPS only**; no localhost/private/Hardhat/Anvil/hosted-fork; never logged) |
+| `DEPLOYER_PRIVATE_KEY` | Deployer EOA (never commit) |
+| `STABLE_CLUB_GUARDIAN_ADDRESS` | Emergency pause guardian |
+| `STABLE_CLUB_BASE_DEPLOY_CONFIRMATION` | Exact phrase: `I AUTHORIZE INDEXLA STABLE CLUB BASE MAINNET DEPLOY` |
+| `STABLE_CLUB_DEPLOY_RELEASE_COMMIT` | Optional 40-hex release commit bind (defaults to `git rev-parse HEAD`) |
+
+### Command (founder-authorized only — do not run without confirmation)
+
+```bash
+npx hardhat run scripts/stable-club/deploy-base-mainnet.cjs --network base
+```
+
+### What the script does
+
+1. Fail-closed preflight: chainId 8453, confirmation phrase, canonical Base bytecode checks
+2. Deploy five-pool core stack (registries → FeeRouter → SwapRouter → guards → CL executor → 5 adapters)
+3. Wire Permit2, allowlists, 4 USDC routes, oracle feeds + cbBTC peg monitor
+4. Set guardian + `maxGasPriceWei` (1 gwei)
+5. **Mandatory aggregate on-chain wiring verification** (oracles, peg, operators, Permit2, routes, adapter approvals/registerPool, guardian, gas ceiling)
+6. Deploy 48h `StableClubTimelock` (Safe proposer/executor/admin; exact 48h delay; deployer must not retain `DEFAULT_ADMIN_ROLE`) and transfer all Ownables to Timelock
+7. Write non-secret resume state + deploy artifact under `deployments/base-mainnet/`
+8. **Stop** — harvest/compound/rebalance remain disabled; **no pool activation**; no automation contracts
+
+Resumable: re-running never trusts local `state.steps[*]` alone. It re-reads live Base evidence (tx/receipt/code + constructor data + on-chain wiring getters) and fails closed on mismatch. Adapters are **not** Ownable; ownership is enforced via immutable `executor === clExecutor`.
+
+## Preconditions (all required)
+
+- [ ] Audit freeze SHA tagged and auditor engagement authorized (or explicit founder waiver)
+- [x] Founder-approved `gasCeilingWei` encoded (`1000000000`) — on-chain set via Timelock owner after deploy
+- [ ] MVP Safe 2-of-3 verified on Base
+- [ ] Fee recipient verified
+- [ ] Guardian address assigned
+- [ ] Fork rehearsal green (`StableClubStep3ForkRehearsal`)
+- [ ] Guard unit tests green (`StableClubBaseMainnetDeployGuards`)
+- [ ] Production site `indexla.tech` / app health unaffected by this ops path
+
+## Deploy order (mainnet — when authorized)
+
+1. Deploy `StableClubTimelock` with Safe as proposer/executor/admin
+2. Deploy protocol contracts (registry → fee router with fee recipient → guards → CL executor → adapters)
+3. Wire Permit2, operators, oracles, Stage 1 pool allowlist / routes
+4. Set `SafetyController` guardian + approved `maxGasPriceWei`
+5. Verify aggregate on-chain wiring **before** ownership transfer
+6. Transfer **every** Ownable to Timelock
+7. Verify ownership map (no EOA owners) — **production remains blocked** until SC-12 gate in [14-production-security-runbook.md](./14-production-security-runbook.md) is complete
+8. Verify Safe Timelock roles and exact 48h delay
+9. **Stop** — do not activate pools / open deposits until separate go-live checklist
+10. Later (separate change): pin `getTrustedPhase2aBaseManifest()` from the deploy artifact
+
+## Rollback / abort
+
+| Failure | Action |
+|---|---|
+| Deploy tx reverts mid-stack | Do not transfer ownership of partial stack; document addresses; redeploy clean set |
+| Wrong owner left as EOA | Immediately schedule Timelock transfer (if Timelock already owns others) or redeploy |
+| Wrong fee recipient | Timelock `setFeeRecipient` after 48h — **or** abort go-live until fixed |
+| Oracle misconfigured | Keep deposits paused; Timelock fix after delay |
+| Need to halt after go-live | Guardian **pause** immediately; unpause only via Timelock 48h |
+
+## Never
+
+- Deploy from personal EOA retaining ownership
+- Activate pools in the same session as first deploy without ownership verification
+- Deploy automation contracts for private beta
+- Use real user funds for rehearsal
+- Skip the 48h delay for configuration unpause
+- Print or commit private keys / RPC URLs
+- Trust forged local step flags without on-chain verification
