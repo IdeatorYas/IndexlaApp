@@ -3,6 +3,18 @@ require("dotenv").config({ path: ".env.local" });
 require("dotenv").config();
 
 const baseRpcUrl = process.env.BASE_RPC_URL?.trim();
+const deployerPrivateKey = process.env.DEPLOYER_PRIVATE_KEY?.trim();
+
+/**
+ * Base mainnet network is configured lazily:
+ * - Missing DEPLOYER_PRIVATE_KEY / BASE_RPC_URL must NOT break hardhat/local tests.
+ * - Broadcast requires running deploy-base-mainnet.cjs with --network base and full guards.
+ */
+const baseNetwork = {
+  url: baseRpcUrl || "http://127.0.0.1:8545",
+  chainId: 8453,
+  accounts: deployerPrivateKey ? [deployerPrivateKey] : [],
+};
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
@@ -33,5 +45,7 @@ module.exports = {
       url: baseRpcUrl ?? "http://127.0.0.1:8545",
       chainId: 8453,
     },
+    // Production Base — accounts empty unless DEPLOYER_PRIVATE_KEY is set (script still guards).
+    base: baseNetwork,
   },
 };
