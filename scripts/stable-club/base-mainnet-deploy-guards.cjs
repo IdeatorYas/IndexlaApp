@@ -37,6 +37,27 @@ const POOL_CBBTC_WETH_UNI = "0x7AeA2E8A3843516afa07293a10Ac8E49906dabD1";
 
 const GAS_CEILING_WEI = 1_000_000_000n;
 const STRATEGY_KIND_LABEL = "STABLE_CLUB_FIVE_POOL_V1";
+/** Exact TimelockController minDelay required on Base private-beta deploy. */
+const TIMELOCK_MIN_DELAY_SECONDS = 48 * 60 * 60;
+
+/**
+ * Ownable contracts transferred to Timelock.
+ * Adapters are NOT Ownable — they bind an immutable `executor` (verified separately).
+ */
+const OWNABLE_KEYS = Object.freeze([
+  "permissionRegistry",
+  "strategyRegistry",
+  "feeRouter",
+  "swapRouter",
+  "oracleGuard",
+  "mevGuard",
+  "safetyController",
+  "clExecutor",
+]);
+
+const ADAPTER_OWNERSHIP_NOTE =
+  "Adapters (UniswapV3Adapter / AerodromeSlipstreamAdapter) are not Ownable; " +
+  "ownership is enforced via immutable executor === clExecutor.";
 
 /** Exact phrase required in STABLE_CLUB_BASE_DEPLOY_CONFIRMATION before broadcast. */
 const BASE_DEPLOY_CONFIRMATION_PHRASE =
@@ -49,16 +70,6 @@ const FORBIDDEN_AUTOMATION_CONTRACTS = Object.freeze([
   "StableClubExecutor",
 ]);
 
-const OWNABLE_KEYS = Object.freeze([
-  "permissionRegistry",
-  "strategyRegistry",
-  "feeRouter",
-  "swapRouter",
-  "oracleGuard",
-  "mevGuard",
-  "safetyController",
-  "clExecutor",
-]);
 
 const CANONICAL_CODE_ADDRESSES = Object.freeze([
   { label: "Permit2", address: BASE_PERMIT2 },
@@ -546,19 +557,23 @@ function buildEmptyDeployState(meta) {
 }
 
 function redactSecretsFromObject(obj) {
-  const forbidden =
-    /private[_-]?key|mnemonic|seed|secret|rpc[_-]?url|api[_-]?key|password|token/i;
+  // Narrow key match: do not over-redact harmless fields like tokenA / tokenIn / poolTokens.
+  const forbiddenKey =
+    /^(private[_-]?key|mnemonic|seed([_-]?phrase)?|secret|rpc[_-]?url|api[_-]?key|password|authorization|bearer)$/i;
+  // Do not redact bare 0x hashes — deploy tx / code hashes must persist in artifacts.
+  const secretValue =
+    /sk-or-v1-|Bearer\s+\S+|https?:\/\/[^\s]*:[^\s]*@/i;
   const walk = (v) => {
     if (v == null) return v;
     if (typeof v === "string") {
-      if (forbidden.test(v)) return "[REDACTED]";
+      if (secretValue.test(v)) return "[REDACTED]";
       return v;
     }
     if (Array.isArray(v)) return v.map(walk);
     if (typeof v === "object") {
       const out = {};
       for (const [k, val] of Object.entries(v)) {
-        if (forbidden.test(k)) {
+        if (forbiddenKey.test(k)) {
           out[k] = "[REDACTED]";
         } else {
           out[k] = walk(val);
@@ -571,6 +586,132 @@ function redactSecretsFromObject(obj) {
   return walk(obj);
 }
 
+/**
+ * Sanitize error text before console logging — never leak RPC URLs or API keys.
+ */
+function sanitizeErrorMessage(error) {
+  let msg = error instanceof Error ? error.message : String(error ?? "");
+  msg = msg.replace(/https?:\/\/[^\s"'`]+/gi, "[REDACTED_URL]");
+  msg = msg.replace(/wss?:\/\/[^\s"'`]+/gi, "[REDACTED_URL]");
+  msg = msg.replace(/sk-or-v1-\S+/gi, "[REDACTED_KEY]");
+  msg = msg.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]");
+  msg = msg.replace(/api[_-]?key\s*[:=]\s*\S+/gi, "api_key=[REDACTED]");
+  msg = msg.replace(/private[_-]?key\s*[:=]\s*\S+/gi, "private_key=[REDACTED]");
+  return msg;
+}
+
+function assertExactTimelockDelay(minDelaySeconds) {
+  const got = BigInt(minDelaySeconds);
+  const want = BigInt(TIMELOCK_MIN_DELAY_SECONDS);
+  if (got !== want) {
+    throw new Error(
+      `Timelock minDelay must be exactly ${TIMELOCK_MIN_DELAY_SECONDS}s (48h), got ${got.toString()}`,
+    );
+  }
+}
+
+function assertDeployerLacksDefaultAdminRole(deployerHasAdmin) {
+  if (deployerHasAdmin === true) {
+    throw new Error("Deployer must not retain Timelock DEFAULT_ADMIN_ROLE");
+  }
+}
+
+/**
+ * Fail closed if local step flags claim completion but on-chain wiring differs.
+ * Pure: callers supply already-read on-chain snapshot values.
+ */
+function assertOnChainWiringSnapshot(snapshot, expected) {
+  if (!snapshot || typeof snapshot !== "object") {
+    throw new Error("On-chain wiring snapshot missing");
+  }
+  if (!expected || typeof expected !== "object") {
+    throw new Error("On-chain wiring expected config missing");
+  }
+
+  const checkAddr = (label, got, want) => {
+    if (!addrEq(got, want)) {
+      throw new Error(`On-chain wiring mismatch: ${label}`);
+    }
+  };
+  const checkBool = (label, got, want) => {
+    if (Boolean(got) !== Boolean(want)) {
+      throw new Error(`On-chain wiring mismatch: ${label}`);
+    }
+  };
+  const checkBig = (label, got, want) => {
+    if (BigInt(got) !== BigInt(want)) {
+      throw new Error(`On-chain wiring mismatch: ${label}`);
+    }
+  };
+
+  checkAddr("mevGuard.oracle", snapshot.mevOracle, expected.oracleGuard);
+  for (const [token, feed] of Object.entries(expected.feeds)) {
+    const live = snapshot.feeds?.[token];
+    if (!live) throw new Error(`On-chain wiring mismatch: missing feed ${token}`);
+    checkAddr(`feed[${token}].aggregator`, live.aggregator, feed.aggregator);
+    checkBig(`feed[${token}].maxStalenessSec`, live.maxStalenessSec, feed.maxStalenessSec);
+    checkBool(`feed[${token}].enabled`, live.enabled, true);
+  }
+  {
+    const peg = snapshot.pegMonitor;
+    if (!peg) throw new Error("On-chain wiring mismatch: missing peg monitor");
+    checkAddr("peg.referenceAggregator", peg.referenceAggregator, expected.peg.referenceAggregator);
+    checkBig("peg.maxDeviationBps", peg.maxDeviationBps, expected.peg.maxDeviationBps);
+    checkBool("peg.enabled", peg.enabled, true);
+  }
+
+  checkBool("perm.isOperator(cl)", snapshot.permOpCl, true);
+  checkBool("perm.isOperator(strategy)", snapshot.permOpStrat, true);
+  checkBool("perm.isStrategyRegistrar", snapshot.permRegistrar, true);
+  checkBool("strat.isOperator(cl)", snapshot.stratOpCl, true);
+  checkBool("fee.approvedExecutor(cl)", snapshot.feeExec, true);
+  checkBool("swap.approvedExecutor(cl)", snapshot.swapExec, true);
+  checkAddr("cl.permit2", snapshot.clPermit2, expected.permit2);
+  checkAddr("fee.permit2", snapshot.feePermit2, expected.permit2);
+
+  for (const token of expected.approvedTokens) {
+    checkBool(`cl.approvedToken[${token}]`, snapshot.approvedTokens?.[token], true);
+  }
+
+  for (const route of expected.routes) {
+    const live = snapshot.routes?.[route.id];
+    if (!live) throw new Error(`On-chain wiring mismatch: missing route ${route.name}`);
+    checkBool(`route[${route.name}].enabled`, live.enabled, true);
+    checkAddr(`route[${route.name}].router`, live.router, route.router);
+    checkAddr(`route[${route.name}].pool`, live.pool, route.pool);
+    checkAddr(`route[${route.name}].tokenIn`, live.tokenIn, route.tokenIn);
+    checkAddr(`route[${route.name}].tokenOut`, live.tokenOut, route.tokenOut);
+  }
+
+  for (const adapter of expected.adapters) {
+    checkBool(
+      `cl.approvedAdapter[${adapter.adapter}]`,
+      snapshot.approvedAdapters?.[adapter.adapter],
+      true,
+    );
+    checkAddr(
+      `cl.poolAdapters[${adapter.poolId}]`,
+      snapshot.poolAdapters?.[adapter.poolId],
+      adapter.adapter,
+    );
+    checkAddr(`adapter.executor[${adapter.adapter}]`, snapshot.adapterExecutors?.[adapter.adapter], expected.clExecutor);
+  }
+
+  checkAddr("safety.guardian", snapshot.guardian, expected.guardian);
+  checkBig("safety.maxGasPriceWei", snapshot.maxGasPriceWei, expected.gasCeilingWei);
+}
+
+/**
+ * Local step flags alone are never proof of completion.
+ */
+function assertStepFlagNotTrustedAlone(stepFlag, onChainOk) {
+  if (stepFlag === true && onChainOk !== true) {
+    throw new Error(
+      "Forged or stale local step flag cannot skip missing on-chain wiring",
+    );
+  }
+}
+
 function assertArtifactHasNoSecrets(artifact) {
   const json = JSON.stringify(artifact);
   if (/BASE_RPC_URL|DEPLOYER_PRIVATE_KEY|PRIVATE_KEY|mnemonic|seed[_-]?phrase/i.test(json)) {
@@ -580,6 +721,7 @@ function assertArtifactHasNoSecrets(artifact) {
     throw new Error("Artifact must not contain URLs/RPC endpoints");
   }
 }
+
 
 function poolIdHashes() {
   return [
@@ -682,9 +824,11 @@ module.exports = {
   BTC_USD,
   WETH_USD,
   GAS_CEILING_WEI,
+  TIMELOCK_MIN_DELAY_SECONDS,
   BASE_DEPLOY_CONFIRMATION_PHRASE,
   FORBIDDEN_AUTOMATION_CONTRACTS,
   OWNABLE_KEYS,
+  ADAPTER_OWNERSHIP_NOTE,
   CANONICAL_CODE_ADDRESSES,
   EXPECTED_POOL_COUNT,
   EXPECTED_ROUTE_COUNT,
@@ -710,8 +854,13 @@ module.exports = {
   assertDeployedContractEvidence,
   assertResumeIdentityBinding,
   assertContractPlanGetters,
+  assertExactTimelockDelay,
+  assertDeployerLacksDefaultAdminRole,
+  assertOnChainWiringSnapshot,
+  assertStepFlagNotTrustedAlone,
   buildEmptyDeployState,
   redactSecretsFromObject,
+  sanitizeErrorMessage,
   assertArtifactHasNoSecrets,
   poolIdHashes,
   strategyKind,
