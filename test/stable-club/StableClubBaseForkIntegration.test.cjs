@@ -139,7 +139,7 @@ describe("Stable Club — Base fork integration (Uni / Aerodrome)", function () 
     expect(a0 + a1).to.be.gt(0n);
 
     // Unauthorized without approve
-    await expect(uniAdapter.collectFees(user.address, tokenId)).to.be.revertedWithCustomError(
+    await expect(uniAdapter.collectFees(user.address, tokenId, user.address)).to.be.revertedWithCustomError(
       uniAdapter,
       "AdapterNotApprovedForPosition",
     );
@@ -162,7 +162,7 @@ describe("Stable Club — Base fork integration (Uni / Aerodrome)", function () 
     const [b0, b1] = await uniAdapter.positionAmounts(tokenId);
     expect(b0 + b1).to.be.gte(a0 + a1);
 
-    await uniAdapter.collectFees(user.address, tokenId);
+    await uniAdapter.collectFees(user.address, tokenId, user.address);
 
     // Aerodrome path when pool exists
     const aeroFactory = await ethers.getContractAt(
@@ -224,12 +224,12 @@ describe("Stable Club — Base fork integration (Uni / Aerodrome)", function () 
       const [c0, c1] = await aeroAdapter.positionAmounts(aeroTokenId);
       expect(c0 + c1).to.be.gt(0n);
 
-      await expect(aeroAdapter.collectFees(user.address, aeroTokenId)).to.be.revertedWithCustomError(
+      await expect(aeroAdapter.collectFees(user.address, aeroTokenId, user.address)).to.be.revertedWithCustomError(
         aeroAdapter,
         "AdapterNotApprovedForPosition",
       );
       await aeroNpm.connect(user).approve(await aeroAdapter.getAddress(), aeroTokenId);
-      await aeroAdapter.collectFees(user.address, aeroTokenId);
+      await aeroAdapter.collectFees(user.address, aeroTokenId, user.address);
     }
 
     // cbBTC/WETH pool ordering smoke

@@ -43,6 +43,7 @@ contract PermissionRegistry {
     event PermissionUnpaused(bytes32 indexed permissionId, address indexed user);
     event PermissionRegistered(bytes32 indexed permissionId, address indexed user, bytes32 poolId);
     event OperatorSet(address indexed operator, bool allowed);
+    event StrategyRegistrarSet(address indexed registrar, bool allowed);
     event OwnerTransferred(address indexed previous, address indexed next);
 
     mapping(bytes32 => Permission) public permissions;
@@ -51,9 +52,14 @@ contract PermissionRegistry {
     mapping(bytes32 => uint256) public dailyWindowStart;
     mapping(bytes32 => uint256) public lastExecutionAt;
     mapping(bytes32 => mapping(uint256 => bool)) public executionNonceUsed;
+    /// @dev SC-04: pause applied by StrategyPermissionRegistry cascade (independent of `Permission.paused`).
+    mapping(bytes32 => bool) public strategyCascadePaused;
+    /// @dev SC-04: each permission ID binds to at most one strategy ID.
+    mapping(bytes32 => bytes32) public permissionStrategyId;
 
     address public owner;
     mapping(address => bool) public isOperator;
+    mapping(address => bool) public isStrategyRegistrar;
     /// @dev Legacy single-operator getter for ABI compatibility with Step 1 tooling.
     address public operator;
 
@@ -73,6 +79,9 @@ contract PermissionRegistry {
     error InvalidSlippage();
     error Unauthorized();
     error InvalidOperator();
+    error InvalidPermissionParams();
+    error PermissionStrategyMismatch();
+    error PermissionAlreadyBoundToStrategy();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -116,6 +125,42 @@ contract PermissionRegistry {
         setOperator(operator_, true);
     }
 
+    /// @notice Allow StrategyPermissionRegistry to register leg permissions for users.
+    /// @dev Owner/governance only (Safe/Timelock-ready). Revoking a registrar immediately
+    ///      blocks `registerPermissionForStrategyRegistrar` — no residual ACL.
+    function setStrategyRegistrar(address registrar, bool allowed) external onlyOwner {
+        if (registrar == address(0)) revert InvalidOperator();
+        isStrategyRegistrar[registrar] = allowed;
+        emit StrategyRegistrarSet(registrar, allowed);
+    }
+
+    /// @dev Called by StrategyPermissionRegistry; `perm.user` is the wallet owner, not msg.sender.
+    /// @notice Registrar cannot invent permissions for a user outside a user-authenticated strategy registration.
+    /// @dev Hardened: non-zero user/tokens/poolId, distinct tokens, exact `block.chainid`, slippage/expiry.
+    function registerPermissionForStrategyRegistrar(Permission calldata perm)
+        external
+        returns (bytes32 permissionId)
+    {
+        if (!isStrategyRegistrar[msg.sender]) revert Unauthorized();
+        if (perm.user == address(0)) revert UnauthorizedUser();
+        if (perm.tokenA == address(0) || perm.tokenB == address(0) || perm.tokenA == perm.tokenB) {
+            revert InvalidPermissionParams();
+        }
+        if (perm.poolId == bytes32(0)) revert InvalidPermissionParams();
+        if (perm.chainId != block.chainid) revert InvalidPermissionParams();
+        if (perm.maxSlippageBps > MAX_SLIPPAGE_BPS) revert InvalidSlippage();
+        if (perm.expiresAt <= block.timestamp) revert PermissionExpired();
+
+        permissionId = permissionIdFor(perm.user, perm.chainId, perm.poolId, perm.tokenA, perm.tokenB);
+
+        Permission storage existing = permissions[permissionId];
+        // SC-05: any existing record (active or revoked) cannot be overwritten/reactivated.
+        if (existing.user != address(0)) revert PermissionAlreadyExists();
+
+        permissions[permissionId] = perm;
+        emit PermissionRegistered(permissionId, perm.user, perm.poolId);
+    }
+
     function permissionIdFor(
         address user,
         uint256 chainId,
@@ -126,6 +171,19 @@ contract PermissionRegistry {
         return keccak256(abi.encode(user, chainId, poolId, tokenA, tokenB));
     }
 
+    /// @notice Scoped permission id — never collides with legacy 5-field `permissionIdFor`.
+    /// @dev Extra `scope` word changes the ABI encoding arity, so even scope=0 is distinct from legacy.
+    function permissionIdForScoped(
+        address user,
+        uint256 chainId,
+        bytes32 poolId,
+        address tokenA,
+        address tokenB,
+        bytes32 scope
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode(user, chainId, poolId, tokenA, tokenB, scope));
+    }
+
     function registerPermission(Permission calldata perm) external returns (bytes32 permissionId) {
         if (perm.user != msg.sender) revert UnauthorizedUser();
         if (perm.maxSlippageBps > MAX_SLIPPAGE_BPS) revert InvalidSlippage();
@@ -134,7 +192,31 @@ contract PermissionRegistry {
         permissionId = permissionIdFor(perm.user, perm.chainId, perm.poolId, perm.tokenA, perm.tokenB);
 
         Permission storage existing = permissions[permissionId];
-        if (existing.user != address(0) && !existing.revoked) revert PermissionAlreadyExists();
+        // SC-05: any existing record (active or revoked) cannot be overwritten/reactivated.
+        if (existing.user != address(0)) revert PermissionAlreadyExists();
+
+        permissions[permissionId] = perm;
+
+        emit PermissionRegistered(permissionId, perm.user, perm.poolId);
+    }
+
+    /// @notice Register a scoped permission (e.g. compound) that coexists with legacy unscoped ids.
+    /// @dev Requires non-zero `scope`. Does not modify or weaken legacy `registerPermission`.
+    function registerScopedPermission(Permission calldata perm, bytes32 scope)
+        external
+        returns (bytes32 permissionId)
+    {
+        if (perm.user != msg.sender) revert UnauthorizedUser();
+        if (scope == bytes32(0)) revert InvalidPermissionParams();
+        if (perm.maxSlippageBps > MAX_SLIPPAGE_BPS) revert InvalidSlippage();
+        if (perm.expiresAt <= block.timestamp) revert PermissionExpired();
+
+        permissionId =
+            permissionIdForScoped(perm.user, perm.chainId, perm.poolId, perm.tokenA, perm.tokenB, scope);
+
+        Permission storage existing = permissions[permissionId];
+        // SC-05: any existing record (active or revoked) cannot be overwritten/reactivated.
+        if (existing.user != address(0)) revert PermissionAlreadyExists();
 
         permissions[permissionId] = perm;
 
@@ -168,6 +250,64 @@ contract PermissionRegistry {
         emit PermissionRevoked(permissionId, user);
     }
 
+    /// @notice SC-04: bind a freshly registered leg permission to exactly one strategy.
+    function bindPermissionToStrategy(bytes32 permissionId, bytes32 strategyId) external {
+        if (!isStrategyRegistrar[msg.sender]) revert Unauthorized();
+        if (permissionId == bytes32(0) || strategyId == bytes32(0)) revert InvalidPermissionParams();
+        Permission storage perm = permissions[permissionId];
+        if (perm.user == address(0)) revert PermissionNotFound();
+        if (permissionStrategyId[permissionId] != bytes32(0)) revert PermissionAlreadyBoundToStrategy();
+        permissionStrategyId[permissionId] = strategyId;
+    }
+
+    /// @notice SC-04: strategy kill-switch revoke for a bound leg (registrar only).
+    /// @dev Idempotent if already revoked. Does not allow permission-ID reuse (SC-05).
+    function revokeFromStrategyRegistrar(bytes32 permissionId, address user, bytes32 strategyId)
+        external
+    {
+        if (!isStrategyRegistrar[msg.sender]) revert Unauthorized();
+        Permission storage perm = permissions[permissionId];
+        if (perm.user == address(0)) revert PermissionNotFound();
+        if (perm.user != user) revert UnauthorizedUser();
+        if (permissionStrategyId[permissionId] != strategyId) revert PermissionStrategyMismatch();
+        if (perm.revoked) return;
+        perm.revoked = true;
+        emit PermissionRevoked(permissionId, user);
+    }
+
+    /// @notice SC-04: strategy-applied pause — distinct from user/operator `paused`.
+    function pauseFromStrategyRegistrar(bytes32 permissionId, address user, bytes32 strategyId)
+        external
+    {
+        if (!isStrategyRegistrar[msg.sender]) revert Unauthorized();
+        Permission storage perm = permissions[permissionId];
+        if (perm.user == address(0)) revert PermissionNotFound();
+        if (perm.user != user) revert UnauthorizedUser();
+        if (permissionStrategyId[permissionId] != strategyId) revert PermissionStrategyMismatch();
+        if (perm.revoked) revert RevokedPermission();
+        strategyCascadePaused[permissionId] = true;
+        emit PermissionPaused(permissionId, user);
+    }
+
+    /// @notice SC-04: clear only strategy-cascade pause; never clears user/operator `paused`.
+    function unpauseFromStrategyRegistrar(bytes32 permissionId, address user, bytes32 strategyId)
+        external
+    {
+        if (!isStrategyRegistrar[msg.sender]) revert Unauthorized();
+        Permission storage perm = permissions[permissionId];
+        if (perm.user == address(0)) revert PermissionNotFound();
+        if (perm.user != user) revert UnauthorizedUser();
+        if (permissionStrategyId[permissionId] != strategyId) revert PermissionStrategyMismatch();
+        if (perm.revoked) return;
+        if (!strategyCascadePaused[permissionId]) return;
+        strategyCascadePaused[permissionId] = false;
+        emit PermissionUnpaused(permissionId, user);
+    }
+
+    function isStrategyCascadePaused(bytes32 permissionId) external view returns (bool) {
+        return strategyCascadePaused[permissionId];
+    }
+
     function isActionAllowed(bytes32 permissionId, Action action) public view returns (bool) {
         Permission storage perm = permissions[permissionId];
         if (perm.user == address(0)) return false;
@@ -179,6 +319,10 @@ contract PermissionRegistry {
         return permissions[permissionId];
     }
 
+    /// @notice Authoritative on-chain permission validation for operator executors.
+    /// @dev `maxAmountPerTx` / `maxAmountPerDay` apply only when `amount > 0`.
+    ///      Harvest, exit and emergency pass `amount=0` — monetary caps non-applicable on those paths.
+    ///      Harvest passes `slippage=0` — `maxSlippageBps` non-applicable on harvest path.
     function validateExecution(
         bytes32 permissionId,
         Action action,
@@ -212,13 +356,13 @@ contract PermissionRegistry {
         lastExecutionAt[permissionId] = block.timestamp;
     }
 
+    /// @notice Emergency-exit nonce gate for the permission owner only (caller must be an operator executor).
+    /// @dev Intentionally ignores revoked, paused, and expiry so users can always recover LP via the executor.
+    ///      Normal automation/deposit paths remain blocked via validateExecution / _activePermission.
     function validateEmergencyExecution(bytes32 permissionId, uint256 executionNonce) external onlyOperator {
         Permission storage perm = permissions[permissionId];
         if (perm.user == address(0)) revert PermissionNotFound();
-        if (perm.revoked) revert RevokedPermission();
-        if (block.timestamp >= perm.expiresAt) revert PermissionExpired();
         if (perm.chainId != block.chainid) revert UnauthorizedUser();
-        if (!isActionAllowed(permissionId, Action.EmergencyExit)) revert ActionNotAllowed();
 
         _consumeExecutionNonce(permissionId, executionNonce);
     }
@@ -232,7 +376,7 @@ contract PermissionRegistry {
         perm = permissions[permissionId];
         if (perm.user == address(0)) revert PermissionNotFound();
         if (perm.revoked) revert RevokedPermission();
-        if (perm.paused) revert PausedPermission();
+        if (perm.paused || strategyCascadePaused[permissionId]) revert PausedPermission();
         if (block.timestamp >= perm.expiresAt) revert PermissionExpired();
         if (perm.chainId != block.chainid) revert UnauthorizedUser();
     }

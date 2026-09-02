@@ -197,6 +197,13 @@ describe("canonical Permit2 enforcement", () => {
       /Non-canonical/,
     );
     expect(() =>
+      resolvePermit2Address({
+        chainId: 8453,
+        permit2: MOCK_P2,
+        localHardhat: true,
+      }),
+    ).toThrow(/Non-canonical/);
+    expect(() =>
       buildBoundedPermit2ApproveTx({
         chainId: 8453,
         permit2: MOCK_P2,
@@ -211,6 +218,10 @@ describe("canonical Permit2 enforcement", () => {
 
   it("allows mock Permit2 only on non-Base (local/test) chains", () => {
     expect(resolvePermit2Address({ chainId: 31337, permit2: MOCK_P2 })).toBe(MOCK_P2);
+    expect(() => resolvePermit2Address({ chainId: 31337 })).toThrow(/required/);
+    expect(() =>
+      resolvePermit2Address({ chainId: 31337, permit2: BASE_PERMIT2.address }),
+    ).toThrow(/not valid on local Hardhat/);
     const tx = buildBoundedPermit2ApproveTx({
       chainId: 31337,
       permit2: MOCK_P2,

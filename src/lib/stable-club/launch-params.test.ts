@@ -6,8 +6,10 @@ import {
   isLaunchAutomationDisabled,
 } from "@/lib/stable-club/launch-params";
 import {
+  STAGE1_FIVE_POOL_BETA_POOL_IDS,
   STAGE1_PRIVATE_BETA_POOL_ID,
   buildStage1LaunchConfiguration,
+  isStage1AllowedPoolId,
 } from "@/lib/stable-club/stage1-launch";
 
 describe("private-beta launch params", () => {
@@ -31,9 +33,13 @@ describe("private-beta launch params", () => {
     });
   });
 
-  it("Stage 1 pool id is UNI-005 only", () => {
+  it("Stage 1 includes all five official Base pools", () => {
     expect(STAGE1_PRIVATE_BETA_POOL_ID).toBe("USDC-cbBTC-UNI-005");
-    expect(buildStage1LaunchConfiguration().poolIds).toEqual(["USDC-cbBTC-UNI-005"]);
+    expect(buildStage1LaunchConfiguration().poolIds).toEqual([...STAGE1_FIVE_POOL_BETA_POOL_IDS]);
+    for (const id of STAGE1_FIVE_POOL_BETA_POOL_IDS) {
+      expect(isStage1AllowedPoolId(id)).toBe(true);
+    }
+    expect(isStage1AllowedPoolId("unknown-pool")).toBe(false);
   });
 
   it("encodes 48h timelock and 2-of-3 MVP governance", () => {

@@ -1,5 +1,5 @@
 {
-  "chainId": 8453,
+  "chainId": 31337,
   "network": "hardhat-local",
   "isTestOnly": true,
   "label": "Run npm run deploy:stable-club:local against a local Hardhat node to generate this file.",

@@ -1,7 +1,9 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { time } = require("@nomicfoundation/hardhat-network-helpers");
 const {
   deployStableClubStack,
+  approvePermit2Pull,
 } = require("../../scripts/stable-club/deploy-local.cjs");
 
 describe("Step 3 prep — FeeRouter floor rounding", function () {
@@ -30,7 +32,7 @@ describe("Step 3 prep — FeeRouter floor rounding", function () {
 
       const expectedFee = (gross * 100n) / 10_000n;
       await usdc.mint(user.address, gross);
-      await usdc.connect(user).approve(await feeRouter.getAddress(), gross);
+      await approvePermit2Pull(usdc, user, stack.permit2Contract, feeRouter, gross);
 
       const beforeRecipient = await usdc.balanceOf(stack.feeRecipient);
       const beforeExec = await usdc.balanceOf(executor);

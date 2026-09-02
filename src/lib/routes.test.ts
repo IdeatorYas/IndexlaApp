@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import { APP_ROUTES, APP_SCREENS, NAV_ITEMS } from "@/lib/routes";
 
 describe("routes", () => {
-  it("defines 9 primary navigation destinations including Stable Club (dev-gated)", () => {
+  it("defines 9 primary navigation destinations with Stable Club above Degen Club", () => {
     expect(NAV_ITEMS).toHaveLength(9);
-    expect(NAV_ITEMS.some((item) => item.href === APP_ROUTES.stableClub)).toBe(true);
+    const stableIdx = NAV_ITEMS.findIndex((item) => item.href === APP_ROUTES.stableClub);
+    const degenIdx = NAV_ITEMS.findIndex((item) => item.href === APP_ROUTES.degenClub);
+    expect(stableIdx).toBeGreaterThanOrEqual(0);
+    expect(degenIdx).toBeGreaterThan(stableIdx);
   });
 
   it("defines 12 application screens", () => {

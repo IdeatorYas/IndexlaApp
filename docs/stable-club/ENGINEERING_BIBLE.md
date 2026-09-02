@@ -161,7 +161,7 @@ The wallet:
 - Owns the LP token or NFT.
 - Grants limited automation permissions.
 - Can revoke permissions.
-- Can initiate withdrawal or emergency exit.
+- Can initiate withdrawal or emergency exit (executor emergency requires per-token NFT approval to the adapter; user-held NFT / direct NPM remains the independent break-glass path).
 
 ### **Stable Club Frontend**
 
@@ -1087,7 +1087,7 @@ Incident actions:
 
 1. Pause the affected pool or adapter.
 2. Disable automation.
-3. Preserve user emergency exit.
+3. Preserve user exit paths: executor emergency only with NFT approve(adapter); otherwise user-held NFT / direct NPM break-glass.
 4. Revoke the affected relayer.
 5. Notify users.
 6. Publish the affected contracts and positions.

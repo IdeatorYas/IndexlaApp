@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StableClubExecutionPanel } from "@/components/stable-club/StableClubExecutionPanel";
+import { StableClubFivePoolDepositPanel } from "@/components/stable-club/StableClubFivePoolDepositPanel";
+import { StableClubFivePoolPositionsPanel } from "@/components/stable-club/StableClubFivePoolPositionsPanel";
 import { StableClubApprovalsPanel } from "@/components/stable-club/StableClubApprovalsPanel";
 import {
   StableClubPoolCatalogue,
@@ -10,17 +12,17 @@ import {
 } from "@/components/stable-club/StableClubStep2Panels";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
 import {
-  STABLE_CLUB_CHAIN_ID,
   STABLE_CLUB_EXECUTION_FEE_BPS,
   STABLE_CLUB_LOCAL_CHAIN,
+  STABLE_CLUB_LOCAL_CHAIN_ID,
   STABLE_CLUB_LOCAL_RPC_URL,
 } from "@/lib/stable-club/constants";
 import {
   OFFICIAL_STABLE_CLUB_BASE_POOLS,
-  isPoolLaunchReady,
 } from "@/lib/stable-club/official-pools";
-import { STAGE1_PRIVATE_BETA_POOL_ID } from "@/lib/stable-club/stage1-launch";
-import { OpenServMonitor, buildHarvestProposal } from "@/lib/stable-club/openserv";
+import { useStableClubHarvest } from "@/components/stable-club/useStableClubHarvest";
+import { useStableClubCompound } from "@/components/stable-club/useStableClubCompound";
+import { useStableClubRebalance } from "@/components/stable-club/useStableClubRebalance";
 import {
   buildPerTokenApproveTx,
   erc721PositionAbi,
@@ -30,10 +32,14 @@ import {
   resolveVerifiedAdapterForPool,
   type NpmApprovalStatus,
 } from "@/lib/stable-club/nft-approval";
+import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
   verifiedStep2Adapters,
   type StableClubLocalDeployments,
 } from "@/lib/stable-club/deployments";
+import { MVP_GOVERNANCE, MVP_GOVERNANCE_SAFE } from "@/lib/stable-club/mvp-governance";
+import { hydrateLocalDeploymentsFromApi } from "@/lib/stable-club/runtime-deployments";
+import { activateStage1OfficialPools } from "@/lib/stable-club/stage1-pool-activation";
 import {
   buildIllustrativePositions,
   type StableClubPosition,
@@ -44,50 +50,53 @@ import {
   createWalletClient,
   custom,
   http,
-  keccak256,
-  stringToHex,
   type Address,
   type Hex,
 } from "viem";
 
 type DeploymentsResponse =
   | { configured: false; message: string }
-  | { configured: true; deployments: StableClubLocalDeployments };
+  | { configured: true; deployments: StableClubLocalDeployments; automationDevBypass?: true };
 
 export function StableClubView({
   feeRecipientConfigured,
   baseRpcConfigured,
   preferLocalHardhat: _preferLocalHardhat = true,
+  devPanelAllowed = false,
 }: {
   feeRecipientConfigured: boolean;
   baseRpcConfigured: boolean;
   preferLocalHardhat?: boolean;
+  devPanelAllowed?: boolean;
 }) {
   void _preferLocalHardhat;
   const wallet = useStableClubWallet();
-  const expectedChainId = STABLE_CLUB_CHAIN_ID;
-  const onExpectedChain = wallet.chainId === expectedChainId;
 
   const [testPoolValidated, setTestPoolValidated] = useState(false);
   const [activatedPoolIds, setActivatedPoolIds] = useState<string[]>([]);
-  const monitor = useMemo(() => new OpenServMonitor(60, 10), []);
-  const [proposalCount, setProposalCount] = useState(0);
-  const [circuitBroken, setCircuitBroken] = useState(false);
+  const harvest = useStableClubHarvest();
+  const compound = useStableClubCompound();
+  const rebalance = useStableClubRebalance();
   const [deployments, setDeployments] = useState<StableClubLocalDeployments | null>(null);
+  const expectedChainId = deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID;
+  const onExpectedChain = wallet.chainId === expectedChainId;
   const [approvalByPositionId, setApprovalByPositionId] = useState<
     Record<string, NpmApprovalStatus>
   >({});
   const [approvingPositionId, setApprovingPositionId] = useState<string | null>(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [lastApprovalTx, setLastApprovalTx] = useState<Hex | null>(null);
+  const [activationError, setActivationError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch("/api/stable-club/deployments");
-        const json = (await res.json()) as DeploymentsResponse;
-        if (!cancelled && json.configured) setDeployments(json.deployments);
+        const json = await res.json();
+        if (!cancelled) {
+          setDeployments(hydrateLocalDeploymentsFromApi(json));
+        }
       } catch {
         if (!cancelled) setDeployments(null);
       }
@@ -120,7 +129,53 @@ export function StableClubView({
 
   const positions = useMemo((): StableClubPosition[] => {
     if (!wallet.address) return [];
-    return buildIllustrativePositions(wallet.address).map((pos) => {
+    const rows = buildIllustrativePositions(wallet.address);
+    const dev = harvest.deployments?.harvestDev;
+    if (
+      dev &&
+      wallet.address.toLowerCase() === dev.testUser.toLowerCase() &&
+      harvest.deployments?.network === "hardhat-local"
+    ) {
+      const verified = resolveVerifiedAdapterForPool({
+        deployments: verifiedAdapters,
+        chainId: harvest.deployments.chainId,
+        poolId: dev.poolCatalogueId,
+      });
+      return [
+        {
+          id: "local-harvest-dev-1",
+          poolId: dev.poolCatalogueId,
+          poolLabel: "USDC/cbBTC 0.05% — Uniswap V3 (local harvest dev)",
+          protocol: "uniswap-v3",
+          chainId: harvest.deployments.chainId,
+          owner: wallet.address,
+          positionTokenId: dev.positionTokenId,
+          npmAddress: verified?.npm ?? dev.npm,
+          adapterAddress: verified?.adapter ?? dev.adapter,
+          npmApprovalStatus:
+            approvalByPositionId["local-harvest-dev-1"] ??
+            resolvePerTokenApprovalStatus({
+              adapter: verified?.adapter ?? dev.adapter,
+              approvedSpender: verified?.adapter ?? dev.adapter,
+            }),
+          tokenASymbol: "USDC",
+          tokenBSymbol: "cbBTC",
+          liquidity: "100000000",
+          feesEarnedUsd: "25.00",
+          rewardsEarnedUsd: "0.00",
+          rangeStatus: "in-range",
+          lastUpdated: Math.floor(Date.now() / 1000),
+          automation: {
+            harvest: harvest.permissionRegistered,
+            compound: compound.permissionRegistered,
+            rebalance: false,
+            paused: false,
+          },
+          dataVerifiedOnChain: true,
+        },
+      ];
+    }
+    return rows.map((pos) => {
       const verified = resolveVerifiedAdapterForPool({
         deployments: verifiedAdapters,
         chainId: deployments?.chainId ?? wallet.chainId,
@@ -150,6 +205,9 @@ export function StableClubView({
     deployments?.chainId,
     verifiedAdapters,
     approvalByPositionId,
+    harvest.deployments,
+    harvest.permissionRegistered,
+    compound.permissionRegistered,
   ]);
 
   const approvePositionNft = useCallback(
@@ -213,7 +271,7 @@ export function StableClubView({
         const hash = await walletClient.writeContract(tx);
         setLastApprovalTx(hash);
 
-        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        await waitForSuccessfulTransactionReceipt(publicClient, hash);
         const approvedSpender = await publicClient.readContract({
           address: verified.npm,
           abi: erc721PositionAbi,
@@ -221,7 +279,7 @@ export function StableClubView({
           args: [BigInt(position.positionTokenId)],
         });
         const status = resolveStatusAfterApproveConfirmation({
-          receiptStatus: receipt.status === "success" ? "success" : "reverted",
+          receiptStatus: "success",
           adapter: verified.adapter,
           getApprovedSpender: approvedSpender as Address,
         });
@@ -248,35 +306,30 @@ export function StableClubView({
     ],
   );
 
-  function activateReadyPools() {
+  async function activateReadyPools() {
     if (!testPoolValidated) return;
-    // Dev UI only: Stage 1 allows UNI-005 when launch-ready. Never activate unavailable CL100 IDs.
-    // This does not deploy or enable mainnet pools.
-    setActivatedPoolIds(
-      OFFICIAL_STABLE_CLUB_BASE_POOLS.filter(
-        (p) => p.id === STAGE1_PRIVATE_BETA_POOL_ID && isPoolLaunchReady(p),
-      ).map((p) => p.id),
-    );
-  }
-
-  function simulateOpenServHarvest() {
-    if (!wallet.address) return;
-    const proposal = buildHarvestProposal({
-      user: wallet.address,
-      permissionId: keccak256(stringToHex("demo-permission")),
-      poolId:
-        OFFICIAL_STABLE_CLUB_BASE_POOLS.find((p) => p.id === STAGE1_PRIVATE_BETA_POOL_ID)
-          ?.poolIdHash ?? OFFICIAL_STABLE_CLUB_BASE_POOLS[1].poolIdHash,
-      positionTokenId: "0",
-      feesUsd: 25,
-      gasUsd: 4,
-      idempotencyKey: keccak256(stringToHex(`harvest-${Date.now()}`)),
-    });
-    if (!proposal) return;
-    const result = monitor.submit(proposal);
-    if (result.ok) {
-      setProposalCount(monitor.listProposals().length);
-      setCircuitBroken(monitor.circuitBroken);
+    setActivationError(null);
+    try {
+      const result = await activateStage1OfficialPools({
+        testPoolValidated,
+        environment: "mainnet",
+        governanceSafeAddress: MVP_GOVERNANCE_SAFE,
+        timelockAddress: MVP_GOVERNANCE.timelock.timelockAddress,
+        criticalContracts: {
+          permissionRegistry: deployments?.permissionRegistry,
+          feeRouter: deployments?.feeRouter,
+          executor: deployments?.executor,
+          automation: deployments?.automationExecutor,
+          oracleGuard: undefined,
+          mevGuard: undefined,
+          safetyController: deployments?.safetyController,
+          openServGate: undefined,
+        },
+        publicClient,
+      });
+      setActivatedPoolIds([...result.activatedPoolIds]);
+    } catch (err) {
+      setActivationError(err instanceof Error ? err.message : "Stage 1 activation blocked");
     }
   }
 
@@ -291,8 +344,10 @@ export function StableClubView({
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-app-muted">
           Uniswap V3 + Aerodrome Slipstream adapters, official Base catalogue, position
-          dashboard, OpenServ proposals, and auto harvest / compound / rebalance with
-          circuit breakers. Non-custodial — users own LP NFTs.
+          dashboard, and OpenServ proposals. Manual harvest / compound / rebalance paths exist;
+          keeper automation is disabled in Stage 1 private beta (harvestEnabled,
+          compoundEnabled, rebalanceEnabled = false). Concentrated liquidity carries IL,
+          oracle, MEV, and smart-contract risk — non-custodial; users own LP NFTs.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-300">
@@ -326,6 +381,9 @@ export function StableClubView({
               </span>
               {wallet.status === "wrong-network" ? (
                 <>
+                  <span className="rounded-md border border-app-danger/30 bg-app-danger/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-app-danger">
+                    Wrong network
+                  </span>
                   <button
                     type="button"
                     onClick={() => void wallet.switchToLocalHardhat()}
@@ -373,6 +431,98 @@ export function StableClubView({
       />
 
       <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
+        <h2 className="text-sm font-bold text-app-ink">Harvest permission (Step 2)</h2>
+        <p className="mt-1 text-xs text-app-muted">
+          On-chain harvest permission is the automation opt-in. Manual harvest is wallet-signed;
+          keeper execution requires a stored OpenServ proposal (not connected in this build).
+          Launch policy keeps harvestEnabled=false.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!wallet.address || harvest.busy || harvest.permissionRegistered}
+            onClick={() => void harvest.registerHarvestPermission()}
+            className="app-btn-secondary h-9 px-3 text-xs font-bold disabled:opacity-50"
+          >
+            Register harvest permission (automation opt-in)
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-app-dim">
+          Permission: {harvest.permissionRegistered ? "registered (opt-in)" : "not registered"}
+          {" · "}
+          Manual status: {harvest.uiStatus.status}
+          {harvest.uiStatus.message ? ` — ${harvest.uiStatus.message}` : ""}
+        </p>
+        {harvest.uiStatus.lastTxHash ? (
+          <p className="mt-1 font-mono text-[10px] text-app-dim">
+            Last harvest tx: {harvest.uiStatus.lastTxHash}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
+        <h2 className="text-sm font-bold text-app-ink">Compound permission (Step 2)</h2>
+        <p className="mt-1 text-xs text-app-muted">
+          Separate on-chain compound permission (compound bit, tokenA-denominated limits,
+          slippage cap). Manual compound is wallet-signed via the atomic compound() path.
+          Keeper automation stays unavailable until OpenServ publisher/keeper is connected.
+          Launch policy keeps compoundEnabled=false outside local development.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!wallet.address || compound.busy || compound.permissionRegistered}
+            onClick={() => void compound.registerCompoundPermission()}
+            className="app-btn-secondary h-9 px-3 text-xs font-bold disabled:opacity-50"
+          >
+            Enable compound permission
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-app-dim">
+          Permission: {compound.permissionRegistered ? "registered (opt-in)" : "not registered"}
+          {" · "}
+          Manual status: {compound.uiStatus.status}
+          {compound.uiStatus.message ? ` · ${compound.uiStatus.message}` : ""}
+        </p>
+        <p className="mt-1 text-[11px] text-app-dim">{compound.automationStatusMessage}</p>
+        {compound.uiStatus.lastTxHash ? (
+          <p className="mt-1 font-mono text-[10px] text-app-dim">
+            Last compound tx: {compound.uiStatus.lastTxHash}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
+        <h2 className="text-sm font-bold text-app-ink">Rebalance permission (Step 2)</h2>
+        <p className="mt-1 text-xs text-app-muted">
+          Separate on-chain rebalance permission with tokenA-denominated limits and a slippage cap.
+          Manual rebalance is wallet-signed via the atomic rebalance() path. Launch policy keeps
+          rebalanceEnabled=false outside local development, and keeper automation is unavailable.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!wallet.address || rebalance.busy || rebalance.permissionRegistered}
+            onClick={() => void rebalance.registerRebalancePermission()}
+            className="app-btn-secondary h-9 px-3 text-xs font-bold disabled:opacity-50"
+          >
+            Enable rebalance permission
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-app-dim">
+          Permission: {rebalance.permissionRegistered ? "registered (opt-in)" : "not registered"}
+          {" | "}
+          Manual status: {rebalance.uiStatus.status}
+          {rebalance.uiStatus.message ? ` | ${rebalance.uiStatus.message}` : ""}
+        </p>
+        <p className="mt-1 text-[11px] text-app-dim">{rebalance.automationStatusMessage}</p>
+        {rebalance.uiStatus.lastTxHash ? (
+          <p className="mt-1 font-mono text-[10px] text-app-dim">
+            Last rebalance tx: {rebalance.uiStatus.lastTxHash}
+          </p>
+        ) : null}
+      </section>
+      <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
         <h2 className="text-sm font-bold text-app-ink">Activation gate</h2>
         <p className="mt-1 text-xs text-app-muted">
           Official pools unlock only after the private internal test pool has been validated.
@@ -391,25 +541,61 @@ export function StableClubView({
             onClick={activateReadyPools}
             className="app-btn-primary h-9 px-3 text-xs font-bold disabled:opacity-50"
           >
-            Activate five official Base pools
-          </button>
-          <button
-            type="button"
-            disabled={!wallet.address || !testPoolValidated}
-            onClick={simulateOpenServHarvest}
-            className="app-btn-secondary h-9 px-3 text-xs font-bold disabled:opacity-50"
-          >
-            Simulate OpenServ harvest proposal
+            Activate Stage 1 pool (UNI-005)
           </button>
         </div>
+        {activationError ? (
+          <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">{activationError}</p>
+        ) : null}
       </section>
 
       <StableClubPositionDashboard
         positions={positions}
-        pendingProposals={proposalCount}
-        circuitBroken={circuitBroken}
+        pendingProposals={harvest.proposalCount}
+        circuitBroken={harvest.circuitBroken}
         onApprovePosition={(pos) => void approvePositionNft(pos)}
         approvingPositionId={approvingPositionId}
+        harvestOptInEnabled={harvest.permissionRegistered}
+        harvestBusy={harvest.busy}
+        harvestUiStatus={harvest.uiStatus}
+        onHarvestPosition={(pos) => {
+          if (!pos.adapterAddress) return;
+          void harvest.runHarvest({
+            positionTokenId: pos.positionTokenId,
+            adapter: pos.adapterAddress,
+            feesUsd: Number.parseFloat(pos.feesEarnedUsd) || 0,
+            gasUsd: 4,
+            manual: true,
+          });
+        }}
+        compoundOptInEnabled={compound.permissionRegistered}
+        compoundBusy={compound.busy}
+        compoundUiStatus={compound.uiStatus}
+        compoundAutomationAvailable={compound.automationAvailable}
+        compoundAutomationMessage={compound.automationStatusMessage}
+        onCompoundPosition={(pos) => {
+          if (!pos.adapterAddress) return;
+          void compound.runCompound({
+            positionTokenId: pos.positionTokenId,
+            adapter: pos.adapterAddress,
+            manual: true,
+          });
+        }}
+        rebalanceOptInEnabled={rebalance.permissionRegistered}
+        rebalanceBusy={rebalance.busy}
+        rebalanceUiStatus={rebalance.uiStatus}
+        rebalanceAutomationAvailable={rebalance.automationAvailable}
+        rebalanceAutomationMessage={rebalance.automationStatusMessage}
+        onRebalancePosition={(pos) => {
+          if (!pos.adapterAddress) return;
+          void rebalance.runRebalance({
+            positionTokenId: pos.positionTokenId,
+            adapter: pos.adapterAddress,
+            newTickLower: -90000,
+            newTickUpper: -80000,
+            manual: true,
+          });
+        }}
       />
       {approvalError ? (
         <p className="text-[11px] text-app-danger">{approvalError}</p>
@@ -423,6 +609,8 @@ export function StableClubView({
         feeRouterAddress={deployments?.feeRouter as Address | undefined}
         executorAddress={deployments?.executor as Address | undefined}
       />
+      <StableClubFivePoolDepositPanel variant="dev" devPanelAllowed={devPanelAllowed} />
+      <StableClubFivePoolPositionsPanel />
       <StableClubExecutionPanel />
 
       <section className="app-panel rounded-[14px] border border-app-line p-4 sm:p-5">
@@ -432,7 +620,8 @@ export function StableClubView({
           <li>Oracle Guard + MevGuard + SafetyController circuit breakers</li>
           <li>OpenServ typed proposals only — no keys, no arbitrary calldata</li>
           <li>
-            Auto-harvest / compound / rebalance via Automation Executor (1% fee on swaps only)
+            Keeper-gated harvest / compound / rebalance via Automation Executor (disabled in
+            Stage 1 launch policy; 1% fee on swaps only when enabled)
           </li>
           <li>
             Fee Router — {STABLE_CLUB_EXECUTION_FEE_BPS / 100}% charged on swaps only

@@ -72,10 +72,6 @@ export function StableClubExecutionPanel() {
             {exec.permissionId ?? "—"}
           </dd>
         </div>
-        <div>
-          <dt className="font-semibold text-app-dim">Next execution nonce</dt>
-          <dd className="mt-0.5 font-mono text-app-ink">{exec.executionNonce.toString()}</dd>
-        </div>
       </dl>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -168,7 +164,7 @@ export function StableClubExecutionPanel() {
         </button>
         <button
           type="button"
-          disabled={busy || !exec.permissionRegistered || exec.lpBalance === BigInt(0)}
+          disabled={busy || exec.lpBalance === BigInt(0) || !exec.permissionId}
           onClick={() => void exec.emergencyExit()}
           className="h-9 rounded-md border border-app-danger/40 bg-app-danger/10 px-3 text-xs font-bold text-app-danger disabled:opacity-50"
         >
@@ -191,7 +187,8 @@ export function StableClubExecutionPanel() {
 
       <p className="mt-3 text-[10px] text-app-dim">
         Strategy permissions are reusable. Each execution consumes a unique on-chain
-        execution nonce (next: {exec.executionNonce.toString()}).
+        execution nonce. Emergency exit remains available while you hold LP, including
+        after revoke, expiry, or pause.
       </p>
     </section>
   );

@@ -13,7 +13,8 @@ import {UserTokenPull} from "./libraries/UserTokenPull.sol";
 
 /// @title StableClubExecutor — stateless operator; never retains user funds after execution.
 /// @notice Step 1: approved pools, tokens, adapters and functions only.
-/// @dev Production ERC20 pulls use Permit2; address(0) Permit2 is local/test legacy path only.
+/// @dev ERC20 pulls require Permit2 (fail-closed). End-of-tx checks use pre/post balances so
+///      pre-existing donated dust neither blocks execution nor is transferred to the caller.
 contract StableClubExecutor is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -48,6 +49,9 @@ contract StableClubExecutor is ReentrancyGuard {
     error Unauthorized();
     error TokenNotBound();
     error MinOutRequired();
+    error InvalidPermit2();
+    /// @dev Same selector as UserTokenPull.Permit2Required — declared for ABI/test matching.
+    error Permit2Required();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -89,7 +93,9 @@ contract StableClubExecutor is ReentrancyGuard {
     }
 
     /// @notice Wire Permit2 for user ERC20 pulls. Production must use verified Base Permit2.
+    /// @dev Rejects address(0). Pulls fail closed until a non-zero Permit2 is wired.
     function setPermit2(address permit2_) external onlyOwner {
+        if (permit2_ == address(0)) revert InvalidPermit2();
         permit2 = IAllowanceTransfer(permit2_);
         emit Permit2Updated(permit2_);
     }
@@ -130,16 +136,21 @@ contract StableClubExecutor is ReentrancyGuard {
             executionNonce
         );
 
+        uint256 preStable = IERC20(stablecoin).balanceOf(address(this));
+        uint256 preA = IERC20(tokenA).balanceOf(address(this));
+        uint256 preB = IERC20(tokenB).balanceOf(address(this));
+
         address pairedToken = stablecoin == tokenA ? tokenB : tokenA;
         uint256 amountStable = depositAmount;
         uint256 amountPaired;
 
         if (swapAmount > 0) {
             amountStable = depositAmount - swapAmount;
+            uint256 prePaired = pairedToken == tokenA ? preA : preB;
             uint256 netSwap = feeRouter.applySwapFee(stablecoin, perm.user, swapAmount, permissionId);
             IERC20(stablecoin).forceApprove(adapter, netSwap);
             IStableClubAdapter(adapter).swap(perm.user, stablecoin, pairedToken, netSwap, minAmountOut);
-            amountPaired = IERC20(pairedToken).balanceOf(address(this));
+            amountPaired = IERC20(pairedToken).balanceOf(address(this)) - prePaired;
         }
 
         if (amountStable > 0) {
@@ -154,9 +165,12 @@ contract StableClubExecutor is ReentrancyGuard {
 
         IStableClubAdapter(adapter).addLiquidity(perm.user, tokenA, tokenB, amountA, amountB, minLpOut);
 
-        _assertZeroBalance(stablecoin);
-        _assertZeroBalance(tokenA);
-        _assertZeroBalance(tokenB);
+        _refundExcess(perm.user, stablecoin, preStable);
+        _refundExcess(perm.user, tokenA, preA);
+        if (tokenB != tokenA) _refundExcess(perm.user, tokenB, preB);
+        _assertBalanceRestored(stablecoin, preStable);
+        _assertBalanceRestored(tokenA, preA);
+        if (tokenB != tokenA) _assertBalanceRestored(tokenB, preB);
 
         emit Executed(
             permissionId,
@@ -192,12 +206,22 @@ contract StableClubExecutor is ReentrancyGuard {
             permissionId, PermissionRegistry.Action.Swap, grossAmount, slippageBps, executionNonce
         );
 
+        uint256 preIn = IERC20(tokenIn).balanceOf(address(this));
+        uint256 preOut = IERC20(tokenOut).balanceOf(address(this));
+
         uint256 netAmount = feeRouter.applySwapFee(tokenIn, perm.user, grossAmount, permissionId);
         IERC20(tokenIn).forceApprove(adapter, netAmount);
         IStableClubAdapter(adapter).swap(perm.user, tokenIn, tokenOut, netAmount, minAmountOut);
 
-        _assertZeroBalance(tokenIn);
-        _assertZeroBalance(tokenOut);
+        uint256 outDelta = IERC20(tokenOut).balanceOf(address(this)) - preOut;
+        if (outDelta < minAmountOut) revert MinOutRequired();
+        if (outDelta > 0) {
+            IERC20(tokenOut).safeTransfer(perm.user, outDelta);
+        }
+
+        _refundExcess(perm.user, tokenIn, preIn);
+        _assertBalanceRestored(tokenIn, preIn);
+        _assertBalanceRestored(tokenOut, preOut);
 
         emit Executed(permissionId, PermissionRegistry.Action.Swap, poolId, perm.user, executionNonce);
     }
@@ -226,13 +250,18 @@ contract StableClubExecutor is ReentrancyGuard {
             permissionId, PermissionRegistry.Action.RemoveLiquidity, lpAmount, slippageBps, executionNonce
         );
 
+        uint256 preA = IERC20(tokenA).balanceOf(address(this));
+        uint256 preB = IERC20(tokenB).balanceOf(address(this));
+
         _transferLpFromUser(perm.user, adapter, lpAmount);
         IStableClubAdapter(adapter).removeLiquidity(
             perm.user, tokenA, tokenB, lpAmount, minAmountA, minAmountB
         );
 
-        _assertZeroBalance(tokenA);
-        _assertZeroBalance(tokenB);
+        _refundExcess(perm.user, tokenA, preA);
+        if (tokenB != tokenA) _refundExcess(perm.user, tokenB, preB);
+        _assertBalanceRestored(tokenA, preA);
+        if (tokenB != tokenA) _assertBalanceRestored(tokenB, preB);
 
         emit Executed(
             permissionId,
@@ -267,13 +296,18 @@ contract StableClubExecutor is ReentrancyGuard {
             permissionId, PermissionRegistry.Action.WithdrawAll, lpAmount, slippageBps, executionNonce
         );
 
+        uint256 preA = IERC20(tokenA).balanceOf(address(this));
+        uint256 preB = IERC20(tokenB).balanceOf(address(this));
+
         _transferLpFromUser(perm.user, adapter, lpAmount);
         IStableClubAdapter(adapter).removeLiquidity(
             perm.user, tokenA, tokenB, lpAmount, minAmountA, minAmountB
         );
 
-        _assertZeroBalance(tokenA);
-        _assertZeroBalance(tokenB);
+        _refundExcess(perm.user, tokenA, preA);
+        if (tokenB != tokenA) _refundExcess(perm.user, tokenB, preB);
+        _assertBalanceRestored(tokenA, preA);
+        if (tokenB != tokenA) _assertBalanceRestored(tokenB, preB);
 
         emit Executed(
             permissionId,
@@ -301,16 +335,22 @@ contract StableClubExecutor is ReentrancyGuard {
         bytes32 poolId = IStableClubAdapter(adapter).poolId();
         if (poolAdapters[poolId] != adapter) revert PoolNotApproved();
         if (perm.poolId != poolId) revert PoolMismatch();
+        if (minAmountA == 0 || minAmountB == 0) revert MinOutRequired();
 
         permissionRegistry.validateEmergencyExecution(permissionId, executionNonce);
+
+        uint256 preA = IERC20(tokenA).balanceOf(address(this));
+        uint256 preB = IERC20(tokenB).balanceOf(address(this));
 
         _transferLpFromUser(perm.user, adapter, lpAmount);
         IStableClubAdapter(adapter).removeLiquidity(
             perm.user, tokenA, tokenB, lpAmount, minAmountA, minAmountB
         );
 
-        _assertZeroBalance(tokenA);
-        _assertZeroBalance(tokenB);
+        _refundExcess(perm.user, tokenA, preA);
+        if (tokenB != tokenA) _refundExcess(perm.user, tokenB, preB);
+        _assertBalanceRestored(tokenA, preA);
+        if (tokenB != tokenA) _assertBalanceRestored(tokenB, preB);
 
         emit Executed(
             permissionId,
@@ -371,7 +411,15 @@ contract StableClubExecutor is ReentrancyGuard {
         IERC20(adapter).safeTransferFrom(user, adapter, lpAmount);
     }
 
-    function _assertZeroBalance(address token) internal view {
-        if (IERC20(token).balanceOf(address(this)) != 0) revert FundsRemaining();
+    /// @dev Forward only the balance delta created by this call; leave pre-existing dust untouched.
+    function _refundExcess(address user, address token, uint256 preBalance) internal {
+        uint256 bal = IERC20(token).balanceOf(address(this));
+        if (bal > preBalance) {
+            IERC20(token).safeTransfer(user, bal - preBalance);
+        }
+    }
+
+    function _assertBalanceRestored(address token, uint256 preBalance) internal view {
+        if (IERC20(token).balanceOf(address(this)) != preBalance) revert FundsRemaining();
     }
 }

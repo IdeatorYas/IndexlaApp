@@ -6,7 +6,11 @@ import {
   STABLE_CLUB_TIMELOCK_SECONDS,
 } from "@/lib/stable-club/governance";
 import { MVP_GOVERNANCE_SAFE, MVP_SIGNERS } from "@/lib/stable-club/mvp-governance";
-import { buildStage1LaunchConfiguration, isStage1AllowedPoolId } from "@/lib/stable-club/stage1-launch";
+import {
+  STAGE1_FIVE_POOL_BETA_POOL_IDS,
+  buildStage1LaunchConfiguration,
+  isStage1AllowedPoolId,
+} from "@/lib/stable-club/stage1-launch";
 
 describe("governance scaffolding", () => {
   it("encodes 2-of-3 MVP Safe signers and 48h timelock", () => {
@@ -31,17 +35,14 @@ describe("governance scaffolding", () => {
 });
 
 describe("Stage 1 launch configuration", () => {
-  it("includes only USDC-cbBTC-UNI-005 with automation disabled", () => {
+  it("includes all five official pools with automation disabled", () => {
     const cfg = buildStage1LaunchConfiguration();
-    expect(cfg.poolIds).toEqual(["USDC-cbBTC-UNI-005"]);
+    expect(cfg.poolIds).toEqual([...STAGE1_FIVE_POOL_BETA_POOL_IDS]);
+    expect(cfg.pools).toHaveLength(5);
     expect(cfg.automationDisabled).toBe(true);
     expect(cfg.params.automation.harvestEnabled).toBe(false);
-    expect(cfg.deferredPoolIds).toContain("cbBTC-WETH-AERO-CL10");
-    expect(cfg.unavailablePoolIds).toEqual([
-      "USDC-cbBTC-AERO-CL100",
-      "cbBTC-WETH-AERO-CL100",
-    ]);
-    expect(isStage1AllowedPoolId("USDC-cbBTC-UNI-005")).toBe(true);
-    expect(isStage1AllowedPoolId("cbBTC-WETH-AERO-CL10")).toBe(false);
+    for (const id of STAGE1_FIVE_POOL_BETA_POOL_IDS) {
+      expect(isStage1AllowedPoolId(id)).toBe(true);
+    }
   });
 });

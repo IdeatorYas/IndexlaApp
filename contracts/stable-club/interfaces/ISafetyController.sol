@@ -9,6 +9,8 @@ interface ISafetyController {
 
     function assertSwapAllowed(bytes32 poolId) external view;
 
+    function assertTokenNotDepegged(address token) external view;
+
     function isPausedGlobally() external view returns (bool);
 
     function isPoolPaused(bytes32 poolId) external view returns (bool);

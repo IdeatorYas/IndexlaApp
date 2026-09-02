@@ -4,7 +4,12 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
 const {
   deployStableClubStack,
   POOL_ID,
+  approvePermit2Pull,
 } = require("../../scripts/stable-club/deploy-local.cjs");
+const {
+  activateStep2PoolWithGovernance,
+  impersonateTimelock,
+} = require("../../scripts/stable-club/governance-activation-local.cjs");
 
 const ALL_ACTIONS =
   (1n << 0n) |
@@ -63,9 +68,20 @@ async function deployStep2Stack() {
   await automation.setAdapterApproval(await clAdapter.getAddress(), true);
   await automation.registerPool(STEP2_POOL, await clAdapter.getAddress(), true);
   await automation.setOfficialPoolCatalogue(STEP2_POOL, true);
-  await automation.activateOfficialPool(STEP2_POOL);
   await automation.setTokenApproval(await usdc.getAddress(), true);
   await automation.setTokenApproval(await cbbtc.getAddress(), true);
+  const signers = await ethers.getSigners();
+  const { timelockAddr } = await activateStep2PoolWithGovernance({
+    automation,
+    permissionRegistry,
+    feeRouter,
+    oracleGuard,
+    mevGuard,
+    safetyController,
+    openServGate,
+    poolId: STEP2_POOL,
+    signers: signers.slice(0, 3),
+  });
 
   await usdc.mint(user.address, ethers.parseUnits("100000", 6));
   await cbbtc.mint(user.address, ethers.parseUnits("10", 8));
@@ -89,6 +105,7 @@ async function deployStep2Stack() {
     cbbtc,
     usdcFeed,
     btcFeed,
+    timelockAddr,
   };
 }
 
@@ -215,18 +232,18 @@ describe("PR1 security remediation — adversarial regressions", function () {
   describe("H3 — official catalogue gate", function () {
     it("cannot activate a pool that is not in the on-chain catalogue", async function () {
       const ctx = await deployStep2Stack();
+      const tlSigner = await impersonateTimelock(ctx.timelockAddr);
       const otherPool = ethers.keccak256(ethers.toUtf8Bytes("NOT_CATALOGUED"));
       const otherAdapter = await ethers.deployContract("MockConcentratedLiquidityAdapter", [
         await ctx.automation.getAddress(),
         otherPool,
         "uniswap-v3",
       ]);
-      await ctx.automation.setAdapterApproval(await otherAdapter.getAddress(), true);
-      await ctx.automation.registerPool(otherPool, await otherAdapter.getAddress(), true);
-      await expect(ctx.automation.activateOfficialPool(otherPool)).to.be.revertedWithCustomError(
-        ctx.automation,
-        "OfficialPoolNotInCatalogue",
-      );
+      await ctx.automation.connect(tlSigner).setAdapterApproval(await otherAdapter.getAddress(), true);
+      await ctx.automation.connect(tlSigner).registerPool(otherPool, await otherAdapter.getAddress(), true);
+      await expect(
+        ctx.automation.connect(tlSigner).activateOfficialPool(otherPool),
+      ).to.be.revertedWithCustomError(ctx.automation, "OfficialPoolNotInCatalogue");
     });
   });
 
@@ -260,8 +277,8 @@ describe("PR1 security remediation — adversarial regressions", function () {
 
       const deposit = ethers.parseUnits("1000", 6);
       const swapPart = ethers.parseUnits("400", 6);
-      await ctx.usdcContract.connect(ctx.testUser).approve(ctx.executor, deposit);
-      await ctx.usdcContract.connect(ctx.testUser).approve(ctx.feeRouter, swapPart);
+      await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.executor, deposit);
+      await approvePermit2Pull(ctx.usdcContract, ctx.testUser, ctx.permit2Contract, ctx.feeRouter, swapPart);
 
       await expect(
         ctx.executorContract.connect(ctx.testUser).depositAndAddLiquidity(
@@ -315,10 +332,9 @@ describe("PR1 security remediation — adversarial regressions", function () {
         ethers.parseUnits("0.2", 8),
       );
 
-      const amountA = ethers.parseUnits("10", 6);
-      const amountB = ethers.parseUnits("0.01", 8);
-      await ctx.usdc.connect(ctx.user).approve(await ctx.automation.getAddress(), amountA);
-      await ctx.cbbtc.connect(ctx.user).approve(await ctx.automation.getAddress(), amountB);
+      // Mock default collect fee: 1 USDC + 0.01 cbBTC (1e6 raw each).
+      const amountA = 1_000_000n;
+      const amountB = 1_000_000n;
 
       await expect(
         ctx.automation.connect(ctx.user).compound(
@@ -341,6 +357,9 @@ describe("PR1 security remediation — adversarial regressions", function () {
         ),
       ).to.be.revertedWithCustomError(ctx.automation, "SlippageMinRequired");
 
+      const preUsdc = await ctx.usdc.balanceOf(await ctx.automation.getAddress());
+      const preBtc = await ctx.cbbtc.balanceOf(await ctx.automation.getAddress());
+
       await ctx.automation.connect(ctx.user).compound(
         permissionId,
         2n,
@@ -360,8 +379,8 @@ describe("PR1 security remediation — adversarial regressions", function () {
         0n,
       );
 
-      expect(await ctx.usdc.balanceOf(await ctx.automation.getAddress())).to.equal(0n);
-      expect(await ctx.cbbtc.balanceOf(await ctx.automation.getAddress())).to.equal(0n);
+      expect(await ctx.usdc.balanceOf(await ctx.automation.getAddress())).to.equal(preUsdc);
+      expect(await ctx.cbbtc.balanceOf(await ctx.automation.getAddress())).to.equal(preBtc);
     });
 
     it("compound with swap routes output into LP and retains no balances", async function () {
@@ -398,7 +417,13 @@ describe("PR1 security remediation — adversarial regressions", function () {
       );
 
       const swapAmount = ethers.parseUnits("100", 6);
-      // Align oracle so expectedOut matches 1:1 mock (USDC 6 → cbBTC 8).
+      const usdcAddr = await ctx.usdc.getAddress();
+      const [t0] = await ctx.clAdapter.positionTokens(tokenId);
+      if (t0 === usdcAddr) {
+        await ctx.clAdapter.setCollectFeeAmounts(swapAmount, 0n);
+      } else {
+        await ctx.clAdapter.setCollectFeeAmounts(0n, swapAmount);
+      }
       await ctx.btcFeed.setAnswer(100_00000000n);
       const net = (swapAmount * 99n) / 100n;
       const expected = await ctx.oracleGuard.expectedAmountOut(
@@ -409,7 +434,10 @@ describe("PR1 security remediation — adversarial regressions", function () {
         8,
       );
       const minOut = (expected * 9850n) / 10000n;
-      await ctx.usdc.connect(ctx.user).approve(await ctx.feeRouter.getAddress(), swapAmount);
+
+      const preUsdc = await ctx.usdc.balanceOf(await ctx.automation.getAddress());
+      const preBtc = await ctx.cbbtc.balanceOf(await ctx.automation.getAddress());
+      const feeBefore = await ctx.usdc.balanceOf(ctx.feeRecipient.address);
 
       await ctx.automation.connect(ctx.user).compound(
         permissionId,
@@ -430,16 +458,20 @@ describe("PR1 security remediation — adversarial regressions", function () {
         expected,
       );
 
-      expect(await ctx.usdc.balanceOf(await ctx.automation.getAddress())).to.equal(0n);
-      expect(await ctx.cbbtc.balanceOf(await ctx.automation.getAddress())).to.equal(0n);
+      expect(await ctx.usdc.balanceOf(await ctx.automation.getAddress())).to.equal(preUsdc);
+      expect(await ctx.cbbtc.balanceOf(await ctx.automation.getAddress())).to.equal(preBtc);
+      expect(await ctx.usdc.balanceOf(ctx.feeRecipient.address)).to.equal(
+        feeBefore + (swapAmount * 1n) / 100n,
+      );
     });
   });
 
   describe("M1 — token binding", function () {
     it("rejects harvest/compound tokens not bound to permission", async function () {
       const ctx = await deployStep2Stack();
+      const tlSigner = await impersonateTimelock(ctx.timelockAddr);
       const rogue = await ethers.deployContract("MockERC20", ["Rogue", "RG", 18]);
-      await ctx.automation.setTokenApproval(await rogue.getAddress(), true);
+      await ctx.automation.connect(tlSigner).setTokenApproval(await rogue.getAddress(), true);
 
       const perm = {
         user: ctx.user.address,
@@ -538,19 +570,22 @@ describe("PR1 security remediation — adversarial regressions", function () {
   describe("M4 — OpenServ positionProposalCount", function () {
     it("decrements position proposal count on consume and reject", async function () {
       const ctx = await deployStep2Stack();
-      await ctx.openServGate.setLimits(10, 20, 10);
+      const tlSigner = await impersonateTimelock(ctx.timelockAddr);
+      await ctx.openServGate.connect(tlSigner).setLimits(10, 20, 10);
+      const network = await ethers.provider.getNetwork();
       const proposal = {
+        chainId: network.chainId,
         user: ctx.user.address,
         permissionId: ethers.ZeroHash,
         poolId: STEP2_POOL,
+        adapter: await ctx.clAdapter.getAddress(),
         positionTokenId: 7n,
         action: 0,
+        executionNonce: 1n,
+        deadline: BigInt((await time.latest()) + 600),
+        idempotencyKey: ethers.id("m4-a"),
         reasonCode: ethers.id("fees"),
         observedValue: 1n,
-        timestamp: 0n,
-        idempotencyKey: ethers.id("m4-a"),
-        consumed: false,
-        rejected: false,
       };
       const id = await ctx.openServGate.submitProposal.staticCall(proposal);
       await ctx.openServGate.submitProposal(proposal);
@@ -561,14 +596,15 @@ describe("PR1 security remediation — adversarial regressions", function () {
         ),
       );
       expect(await ctx.openServGate.positionProposalCount(posKey)).to.equal(1n);
-      await ctx.openServGate.markConsumed(id);
+      await ctx.openServGate.connect(tlSigner).markConsumed(id);
       expect(await ctx.openServGate.positionProposalCount(posKey)).to.equal(0n);
 
       proposal.idempotencyKey = ethers.id("m4-b");
+      proposal.executionNonce = 2n;
       const id2 = await ctx.openServGate.submitProposal.staticCall(proposal);
       await ctx.openServGate.submitProposal(proposal);
       expect(await ctx.openServGate.positionProposalCount(posKey)).to.equal(1n);
-      await ctx.openServGate.markRejected(id2, ethers.id("nope"));
+      await ctx.openServGate.connect(tlSigner).markRejected(id2, ethers.id("nope"));
       expect(await ctx.openServGate.positionProposalCount(posKey)).to.equal(0n);
     });
   });
@@ -647,6 +683,7 @@ describe("PR1 security remediation — adversarial regressions", function () {
   describe("M3 — oracle deviation separate from permission slippage", function () {
     it("uses oracle default deviation when maxDeviationBps is 0", async function () {
       const ctx = await deployStep2Stack();
+      const tlSigner = await impersonateTimelock(ctx.timelockAddr);
       expect(await ctx.oracleGuard.defaultMaxDeviationBps()).to.equal(100n);
       expect(
         await ctx.oracleGuard.validatePrices(
@@ -656,7 +693,7 @@ describe("PR1 security remediation — adversarial regressions", function () {
         ),
       ).to.equal(true);
 
-      await ctx.oracleGuard.setTwapRequired(true);
+      await ctx.oracleGuard.connect(tlSigner).setTwapRequired(true);
       await expect(
         ctx.oracleGuard.validatePrices(await ctx.usdc.getAddress(), await ctx.cbbtc.getAddress(), 0),
       ).to.be.revertedWithCustomError(ctx.oracleGuard, "TwapRequiredMissing");

@@ -18,7 +18,7 @@
 3. Wire Permit2, operators, oracles, Stage 1 pool allowlist  
 4. Set `SafetyController` guardian + approved `maxGasPriceWei`  
 5. Transfer **every** Ownable to Timelock  
-6. Verify ownership map (no EOA owners)  
+6. Verify ownership map (no EOA owners) — **production remains blocked** until SC-12 gate in [14-production-security-runbook.md](./14-production-security-runbook.md) is complete  
 7. Verify Safe Timelock roles  
 8. **Stop** — do not activate pools / open deposits until separate go-live checklist  
 

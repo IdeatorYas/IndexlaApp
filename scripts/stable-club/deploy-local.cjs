@@ -113,8 +113,146 @@ async function deployStep2Adapters(deployer, tokenA, tokenB, chainId) {
   return { step2Adapters };
 }
 
+const {
+  setupGovernanceActivationForAutomation,
+  activateOfficialPoolViaTimelock,
+} = require("./governance-activation-local.cjs");
+const HARVEST_DEV_POOL_LABEL = "USDC-cbBTC-UNI-005";
+const HARVEST_DEV_POOL_HASH = ethers.id("INDEXLA_STABLE_CLUB_BASE_USDC_cbBTC_UNI_005");
+const AUTOMATION_ACTIONS = (1n << 8n) | (1n << 5n) | (1n << 6n) | (1n << 7n);
+
+async function deployAutomationHarvestStack({
+  deployer,
+  permissionRegistry,
+  step1Executor,
+  feeRecipient,
+  usdc,
+  weth,
+  testUser,
+  governanceSigners,
+}) {
+  const automationFeeRouter = await ethers.deployContract("FeeRouter", [feeRecipient]);
+  const oracleGuard = await ethers.deployContract("OracleGuard");
+  const safetyController = await ethers.deployContract("SafetyController");
+  const mevGuard = await ethers.deployContract("MevGuard");
+  const openServGate = await ethers.deployContract("OpenServProposalGate");
+  const automation = await ethers.deployContract("StableClubAutomationExecutor", [
+    await permissionRegistry.getAddress(),
+    await automationFeeRouter.getAddress(),
+    await oracleGuard.getAddress(),
+    await safetyController.getAddress(),
+    await mevGuard.getAddress(),
+  ]);
+  await permissionRegistry.setOperator(await automation.getAddress(), true);
+  await automationFeeRouter.wireExecutor(await automation.getAddress());
+  await safetyController.wireExecutor(await automation.getAddress());
+  await mevGuard.setOracle(await oracleGuard.getAddress());
+
+  const usdcFeed = await ethers.deployContract("MockAggregatorV3", [1_00000000n]);
+  const btcFeed = await ethers.deployContract("MockAggregatorV3", [100_00000000n]);
+  await oracleGuard.configureFeed(await usdc.getAddress(), await usdcFeed.getAddress(), 3600, 8);
+  await oracleGuard.configureFeed(await weth.getAddress(), await btcFeed.getAddress(), 3600, 8);
+
+  const harvestAdapter = await ethers.deployContract("MockConcentratedLiquidityAdapter", [
+    await automation.getAddress(),
+    HARVEST_DEV_POOL_HASH,
+    "uniswap-v3",
+  ]);
+  await automation.setAdapterApproval(await harvestAdapter.getAddress(), true);
+  await automation.registerPool(HARVEST_DEV_POOL_HASH, await harvestAdapter.getAddress(), true);
+  await automation.setOfficialPoolCatalogue(HARVEST_DEV_POOL_HASH, true);
+  await automation.setTokenApproval(await usdc.getAddress(), true);
+  await automation.setTokenApproval(await weth.getAddress(), true);
+
+  await usdc.mint(await harvestAdapter.getAddress(), ethers.parseUnits("10000", 6));
+  await weth.mint(await harvestAdapter.getAddress(), ethers.parseEther("10"));
+
+  const automationAddr = await automation.getAddress();
+  await ethers.provider.send("hardhat_impersonateAccount", [automationAddr]);
+  await ethers.provider.send("hardhat_setBalance", [
+    automationAddr,
+    ethers.toQuantity(ethers.parseEther("1")),
+  ]);
+  const automationSigner = await ethers.getSigner(automationAddr);
+  await usdc.mint(automationAddr, ethers.parseUnits("100", 6));
+  await weth.mint(automationAddr, ethers.parseEther("0.01"));
+  await usdc.connect(automationSigner).approve(await harvestAdapter.getAddress(), ethers.parseUnits("100", 6));
+  await weth.connect(automationSigner).approve(await harvestAdapter.getAddress(), ethers.parseEther("0.01"));
+  const mintTx = await harvestAdapter.connect(automationSigner).mintPosition(
+    testUser.address,
+    await usdc.getAddress(),
+    await weth.getAddress(),
+    -100000,
+    -90000,
+    ethers.parseUnits("100", 6),
+    ethers.parseEther("0.01"),
+    0,
+    0,
+  );
+  await mintTx.wait();
+  const tokenId = 1n;
+  await harvestAdapter.connect(testUser).approve(await harvestAdapter.getAddress(), tokenId);
+
+  const network = await ethers.provider.getNetwork();
+  const perm = {
+    user: testUser.address,
+    chainId: network.chainId,
+    poolId: HARVEST_DEV_POOL_HASH,
+    tokenA: await usdc.getAddress(),
+    tokenB: await weth.getAddress(),
+    allowedActions: AUTOMATION_ACTIONS,
+    maxAmountPerTx: 0n,
+    maxAmountPerDay: 0n,
+    maxSlippageBps: 500n,
+    minTimeBetweenExecutions: 0n,
+    maxExecutionsPerDay: 50n,
+    expiresAt: BigInt(Math.floor(Date.now() / 1000) + 86400 * 30),
+    revoked: false,
+    paused: false,
+  };
+  await permissionRegistry.connect(testUser).registerPermission(perm);
+
+  const { timelockAddr } = await setupGovernanceActivationForAutomation({
+    automation,
+    permissionRegistry,
+    feeRouter: automationFeeRouter,
+    step1Executor,
+    oracleGuard,
+    mevGuard,
+    safetyController,
+    openServGate,
+    signers: governanceSigners,
+  });
+  await activateOfficialPoolViaTimelock(automation, timelockAddr, HARVEST_DEV_POOL_HASH);
+
+  const step2AdaptersOverride = [
+    {
+      chainId: Number(network.chainId),
+      poolId: HARVEST_DEV_POOL_LABEL,
+      adapter: await harvestAdapter.getAddress(),
+      npm: await harvestAdapter.getAddress(),
+    },
+  ];
+
+  return {
+    automationExecutor: await automation.getAddress(),
+    safetyController: await safetyController.getAddress(),
+    timelockAddr,
+    step2AdaptersOverride,
+    harvestDev: {
+      poolCatalogueId: HARVEST_DEV_POOL_LABEL,
+      poolIdHash: HARVEST_DEV_POOL_HASH,
+      adapter: await harvestAdapter.getAddress(),
+      npm: await harvestAdapter.getAddress(),
+      positionTokenId: "1",
+      testUser: testUser.address,
+    },
+  };
+}
+
 async function deployStableClubStack() {
-  const [deployer, testUser, feeRecipient] = await ethers.getSigners();
+  const signers = await ethers.getSigners();
+  const [deployer, testUser, feeRecipient] = signers;
   const network = await ethers.provider.getNetwork();
   const chainId = Number(network.chainId);
 
@@ -146,12 +284,28 @@ async function deployStableClubStack() {
   await executor.setTokenApproval(usdcAddress, true);
   await executor.setTokenApproval(wethAddress, true);
 
+  const permit2 = await ethers.deployContract("MockPermit2");
+  const permit2Address = await permit2.getAddress();
+  await feeRouter.setPermit2(permit2Address);
+  await executor.setPermit2(permit2Address);
+
   await usdc.mint(deployer.address, ethers.parseUnits("1000000", 6));
   await usdc.mint(testUser.address, ethers.parseUnits("1000000", 6));
   await weth.mint(testAdapterAddress, ethers.parseEther("100000"));
   await usdc.mint(testAdapterAddress, ethers.parseUnits("1000000", 6));
 
   const { step2Adapters } = await deployStep2Adapters(deployer, usdc, weth, chainId);
+
+  const automationStack = await deployAutomationHarvestStack({
+    deployer,
+    permissionRegistry,
+    step1Executor: executor,
+    feeRecipient: feeRecipient.address,
+    usdc,
+    weth,
+    testUser,
+    governanceSigners: signers.slice(0, 3),
+  });
 
   return {
     chainId,
@@ -165,18 +319,24 @@ async function deployStableClubStack() {
     permissionRegistry: permissionRegistryAddress,
     feeRouter: feeRouterAddress,
     executor: executorAddress,
+    automationExecutor: automationStack.automationExecutor,
+    safetyController: automationStack.safetyController,
+    timelockAddr: automationStack.timelockAddr,
     testAdapter: testAdapterAddress,
     usdc: usdcAddress,
     weth: wethAddress,
+    permit2: permit2Address,
     poolId: POOL_ID,
     rpcUrl: "http://127.0.0.1:8545",
-    step2Adapters,
+    step2Adapters: automationStack.step2AdaptersOverride ?? step2Adapters,
+    harvestDev: automationStack.harvestDev,
     permissionRegistryContract: permissionRegistry,
     feeRouterContract: feeRouter,
     executorContract: executor,
     testAdapterContract: testAdapter,
     usdcContract: usdc,
     wethContract: weth,
+    permit2Contract: permit2,
     testUser,
     feeRecipientSigner: feeRecipient,
   };
@@ -190,6 +350,7 @@ function toDeploymentJson(stack) {
     testAdapterContract,
     usdcContract,
     wethContract,
+    permit2Contract,
     testUser,
     feeRecipientSigner,
     ...json
@@ -212,11 +373,19 @@ function toDeploymentJson(stack) {
     poolId: stack.poolId,
     rpcUrl: stack.rpcUrl,
     step2Adapters: Array.isArray(stack.step2Adapters) ? stack.step2Adapters : [],
+    automationExecutor: stack.automationExecutor,
+    safetyController: stack.safetyController,
+    harvestDev: stack.harvestDev,
   };
 }
 
 async function main() {
   const stack = await deployStableClubStack();
+  if (stack.chainId !== 31337 || stack.network !== "hardhat-local") {
+    throw new Error(
+      `SC-F02: local deploy requires chainId 31337 / hardhat-local (got chainId=${stack.chainId} network=${stack.network})`,
+    );
+  }
   const deployments = toDeploymentJson(stack);
 
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
@@ -227,12 +396,34 @@ async function main() {
   console.log(JSON.stringify(deployments, null, 2));
 }
 
+/** ERC20 approve → Permit2 (max), then bounded Permit2 allowance to spender.
+ *  Uses MaxUint256 for the ERC20→Permit2 allowance so multiple spenders in one
+ *  tx (e.g. FeeRouter then Executor) do not overwrite each other's pull capacity.
+ */
+async function approvePermit2Pull(token, owner, permit2, spender, amount) {
+  const { time } = require("@nomicfoundation/hardhat-network-helpers");
+  const { ethers } = require("hardhat");
+  await token.connect(owner).approve(await permit2.getAddress(), ethers.MaxUint256);
+  await permit2
+    .connect(owner)
+    .approve(await token.getAddress(), spender, amount, BigInt((await time.latest()) + 3600));
+}
+
 module.exports = {
   deployStableClubStack,
   toDeploymentJson,
   POOL_ID,
   OUTPUT_PATH,
+  approvePermit2Pull,
+  setupGovernanceActivationForAutomation,
+  activateOfficialPoolViaTimelock,
 };
+
+// Phase 2a/2b local CL stack (optional companion entrypoint)
+module.exports.deployPhase2aLocalStack = (...args) =>
+  require("./deploy-phase2a-local.cjs").deployPhase2aLocalStack(...args);
+module.exports.validatePhase2aManifest = (...args) =>
+  require("./phase2a-manifest.cjs").validatePhase2aManifest(...args);
 
 if (require.main === module) {
   main().catch((error) => {

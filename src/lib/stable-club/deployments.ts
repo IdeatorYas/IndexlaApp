@@ -1,6 +1,7 @@
 import type { Address, Hex } from "viem";
 import type { VerifiedClAdapterDeployment } from "@/lib/stable-club/nft-approval";
 import { isNonZeroAddress, ZERO_ADDRESS } from "@/lib/stable-club/nft-approval";
+import { assertLocalHardhatDeploymentIdentity } from "@/lib/stable-club/chain-isolation";
 
 export type StableClubLocalDeployments = {
   chainId: number;
@@ -14,6 +15,10 @@ export type StableClubLocalDeployments = {
   permissionRegistry: Address;
   feeRouter: Address;
   executor: Address;
+  /** Step 2 automation executor — harvest (local dev / staged rollout). */
+  automationExecutor?: Address;
+  /** Safety policy reads for harvest preflight (optional). */
+  safetyController?: Address;
   testAdapter: Address;
   usdc: Address;
   weth: Address;
@@ -24,6 +29,20 @@ export type StableClubLocalDeployments = {
    * Never hardcode Base mainnet adapters outside this verified registry.
    */
   step2Adapters?: VerifiedClAdapterDeployment[];
+  /** Local-only seeded harvest position for dev E2E (optional). */
+  harvestDev?: {
+    poolCatalogueId: string;
+    poolIdHash: Hex;
+    adapter: Address;
+    npm: Address;
+    positionTokenId: string;
+    testUser: Address;
+  };
+  /**
+   * Test/audit-only explicit opt-in to bypass launch automation disable on hardhat-local.
+   * Default false. Ignored on production networks and Base mainnet chain id.
+   */
+  localAutomationBypass?: boolean;
 };
 
 const ZERO = ZERO_ADDRESS;
@@ -32,12 +51,24 @@ export function isValidLocalDeployments(
   value: StableClubLocalDeployments | null,
 ): value is StableClubLocalDeployments {
   if (!value?.isTestOnly) return false;
-  return (
-    value.executor !== ZERO &&
-    value.permissionRegistry !== ZERO &&
-    value.testAdapter !== ZERO &&
-    value.usdc !== ZERO
-  );
+  if (
+    value.executor === ZERO ||
+    value.permissionRegistry === ZERO ||
+    value.testAdapter === ZERO ||
+    value.usdc === ZERO
+  ) {
+    return false;
+  }
+  try {
+    assertLocalHardhatDeploymentIdentity({
+      chainId: value.chainId,
+      network: value.network,
+      isTestOnly: value.isTestOnly,
+    });
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -75,13 +106,21 @@ export function toPublicDeploymentsPayload(deployments: StableClubLocalDeploymen
   permissionRegistry: Address;
   feeRouter: Address;
   executor: Address;
+  automationExecutor?: Address;
+  safetyController?: Address;
   testAdapter: Address;
   usdc: Address;
   weth: Address;
   poolId: Hex;
   rpcUrl: string;
   step2Adapters: VerifiedClAdapterDeployment[];
+  harvestDev?: StableClubLocalDeployments["harvestDev"];
 } {
+  assertLocalHardhatDeploymentIdentity({
+    chainId: deployments.chainId,
+    network: deployments.network,
+    isTestOnly: deployments.isTestOnly,
+  });
   return {
     chainId: deployments.chainId,
     network: deployments.network,
@@ -91,11 +130,14 @@ export function toPublicDeploymentsPayload(deployments: StableClubLocalDeploymen
     permissionRegistry: deployments.permissionRegistry,
     feeRouter: deployments.feeRouter,
     executor: deployments.executor,
+    automationExecutor: deployments.automationExecutor,
+    safetyController: deployments.safetyController,
     testAdapter: deployments.testAdapter,
     usdc: deployments.usdc,
     weth: deployments.weth,
     poolId: deployments.poolId,
     rpcUrl: deployments.rpcUrl,
     step2Adapters: verifiedStep2Adapters(deployments),
+    harvestDev: deployments.harvestDev,
   };
 }

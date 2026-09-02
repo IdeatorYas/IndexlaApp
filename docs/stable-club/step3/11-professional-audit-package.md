@@ -3,6 +3,8 @@
 > **Not a professional audit.** Internal prep for an independent firm after **code freeze**.  
 > Do **not** begin paid audit or Bugbot until founder authorizes.
 
+> **Policy superseded (2026-09):** Product launch policy below reflects the **audit-freeze** Stage 1 snapshot (single-pool). Current Base beta targets **one atomic five-pool strategy** — see `stage1-launch.ts` and `00-official-pools-beta-recommendation.md`. **Do not rewrite** audit-frozen findings; use this banner for current ops context only.
+
 ## Candidate audit-freeze SHA
 
 | Field | Value |

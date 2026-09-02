@@ -77,7 +77,7 @@ describe("Step 3 — Permit2 FeeRouter migration (adversarial)", function () {
     ).to.be.revertedWithCustomError(permit2, "InsufficientAllowance");
   });
 
-  it("legacy path works only when permit2 unset (local/test)", async function () {
+  it("reverts when permit2 unset (fail-closed on local chainId 31337)", async function () {
     const [owner, executor, user, feeRecipient] = await ethers.getSigners();
     const token = await ethers.deployContract("MockERC20", ["USDC", "USDC", 6]);
     const feeRouter = await ethers.deployContract("FeeRouter", [feeRecipient.address]);
@@ -86,8 +86,9 @@ describe("Step 3 — Permit2 FeeRouter migration (adversarial)", function () {
     const gross = 1_000n;
     await token.mint(user.address, gross);
     await token.connect(user).approve(await feeRouter.getAddress(), gross);
-    await feeRouter.connect(executor).applySwapFee(await token.getAddress(), user.address, gross, ethers.id("l"));
-    expect(await token.balanceOf(feeRecipient.address)).to.equal(10n);
+    await expect(
+      feeRouter.connect(executor).applySwapFee(await token.getAddress(), user.address, gross, ethers.id("l")),
+    ).to.be.revertedWithCustomError(feeRouter, "Permit2Required");
   });
 });
 
@@ -97,13 +98,17 @@ describe("Step 3 — dual-spender Permit2 deposit (FeeRouter + Executor)", funct
       deployStableClubStack,
       POOL_ID,
     } = require("../../scripts/stable-club/deploy-local.cjs");
+    const { impersonateTimelock } = require("../../scripts/stable-club/governance-activation-local.cjs");
     const stack = await deployStableClubStack();
     const user = stack.testUser;
     const permit2 = await ethers.deployContract("MockPermit2");
     const p2 = await permit2.getAddress();
+    const [deployer] = await ethers.getSigners();
+    const tlSigner = await impersonateTimelock(stack.timelockAddr);
 
-    await stack.feeRouterContract.setPermit2(p2);
-    await stack.executorContract.setPermit2(p2);
+    // Step-1 FeeRouter remains deployer-owned; Step-1 Executor ownership transfers to Timelock.
+    await stack.feeRouterContract.connect(deployer).setPermit2(p2);
+    await stack.executorContract.connect(tlSigner).setPermit2(p2);
 
     const deposit = ethers.parseUnits("1000", 6);
     const swap = ethers.parseUnits("400", 6);

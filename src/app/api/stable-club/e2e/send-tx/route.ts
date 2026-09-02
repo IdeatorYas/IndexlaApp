@@ -11,6 +11,7 @@ import {
   STABLE_CLUB_LOCAL_CHAIN,
   STABLE_CLUB_LOCAL_RPC_URL,
 } from "@/lib/stable-club/constants";
+import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 
 /** Hardhat account #0 — local E2E only; never used in production. */
 const DEFAULT_E2E_PRIVATE_KEY =
@@ -24,12 +25,17 @@ function e2ePrivateKey(): Hex {
   return value as Hex;
 }
 
-/** M7: E2E signing only on local non-production hosts. */
+/** E2E signing only when both DEV + E2E flags are exact "true" on strict localhost. */
 function e2eAllowed(request: Request): boolean {
+  if (process.env.STABLE_CLUB_DEV_ENABLED !== "true") return false;
   if (process.env.STABLE_CLUB_E2E_SIGNING !== "true") return false;
-  if (process.env.NODE_ENV === "production") return false;
   const host = (request.headers.get("host") ?? "").toLowerCase();
-  return host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  return (
+    host === "localhost" ||
+    host.startsWith("localhost:") ||
+    host === "127.0.0.1" ||
+    host.startsWith("127.0.0.1:")
+  );
 }
 
 type SendTxBody = {
@@ -42,7 +48,7 @@ type SendTxBody = {
 
 export async function POST(request: Request) {
   if (!e2eAllowed(request)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   try {
@@ -68,7 +74,7 @@ export async function POST(request: Request) {
       gas: tx.gas ? BigInt(tx.gas) : undefined,
     });
 
-    await publicClient.waitForTransactionReceipt({ hash });
+    await waitForSuccessfulTransactionReceipt(publicClient, hash);
     return NextResponse.json({ hash });
   } catch (error) {
     const message = error instanceof Error ? error.message : "send-tx failed";
