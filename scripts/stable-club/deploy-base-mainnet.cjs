@@ -195,6 +195,22 @@ async function finalizeCreateFromReceipt(
     ),
   );
 
+  // === M1 FIX: Persist minimal unresolved evidence IMMEDIATELY after receipt ===
+  // Uses only receipt-derived data. Any later RPC failure leaves recoverable evidence.
+  state.unresolvedCreateEvidence = guards.buildUnresolvedCreateEvidence({
+    key,
+    contractName,
+    address: authoritative,
+    predictedAddress: predicted,
+    deployTxHash: receipt.hash,
+    blockNumber: Number(receipt.blockNumber),
+    blockHash: receipt.blockHash || null,
+    creationDataHash: null, // enriched after getTransaction
+    constructorArgs: constructorArgs || [],
+  });
+  save(state);
+
+  // Now safe to make additional RPC calls — evidence is already persisted.
   const block = await provider.getBlock(receipt.blockNumber);
   if (!block) {
     throw new Error(`Missing block for CREATE ${key}`);
@@ -204,17 +220,10 @@ async function finalizeCreateFromReceipt(
     throw new Error(`Missing transaction for CREATE ${key}`);
   }
 
-  state.unresolvedCreateEvidence = guards.buildUnresolvedCreateEvidence({
-    key,
-    contractName,
-    address: authoritative,
-    predictedAddress: predicted,
-    deployTxHash: receipt.hash,
-    blockNumber: Number(receipt.blockNumber),
-    blockHash: receipt.blockHash || block.hash,
-    creationDataHash: ethers.keccak256(fullTx.data),
-    constructorArgs: constructorArgs || [],
-  });
+  // Enrich evidence with data from getBlock/getTransaction.
+  state.unresolvedCreateEvidence.blockHash =
+    state.unresolvedCreateEvidence.blockHash || block.hash;
+  state.unresolvedCreateEvidence.creationDataHash = ethers.keccak256(fullTx.data);
   save(state);
 
   try {
@@ -228,6 +237,7 @@ async function finalizeCreateFromReceipt(
     const codeHash = guards.assertRuntimeBytecodeMatchesArtifact(
       liveCode,
       expectedDeployedBytecode,
+      deps.immutableReferences,
     );
 
     guards.assertDeployedContractEvidence({
@@ -248,6 +258,7 @@ async function finalizeCreateFromReceipt(
       liveCodeHash: codeHash,
     });
 
+    // Atomic promotion: record deployment and clear evidence in one save.
     recordDeployment(state, key, {
       address: authoritative,
       deployTx: fullTx,
@@ -371,14 +382,18 @@ async function deployNamed(name, args, state, key) {
 
   const pending = await factory.deploy(...(args || []));
   const deploymentTx = pending.deploymentTransaction();
-  const addr = await finalizeCreateFromReceipt(state, {
-    key,
-    contractName: name,
-    constructorArgs: args || [],
-    expectedCreationData,
-    expectedDeployedBytecode: artifact.deployedBytecode,
-    deploymentTx,
-  });
+  const addr = await finalizeCreateFromReceipt(
+    state,
+    {
+      key,
+      contractName: name,
+      constructorArgs: args || [],
+      expectedCreationData,
+      expectedDeployedBytecode: artifact.deployedBytecode,
+      deploymentTx,
+    },
+    { immutableReferences: artifact.immutableReferences },
+  );
   return await ethers.getContractAt(name, addr);
 }
 
@@ -1000,14 +1015,18 @@ async function deployBaseMainnetStack(options = {}) {
       guards.assertNoUnresolvedCreateEvidence(state);
       const artifact = await artifacts.readArtifact(contractName);
       const adapter = await factory.deploy(...ctorArgs);
-      adapterAddr = await finalizeCreateFromReceipt(state, {
-        key,
-        contractName,
-        constructorArgs: ctorArgs,
-        expectedCreationData,
-        expectedDeployedBytecode: artifact.deployedBytecode,
-        deploymentTx: adapter.deploymentTransaction(),
-      });
+      adapterAddr = await finalizeCreateFromReceipt(
+        state,
+        {
+          key,
+          contractName,
+          constructorArgs: ctorArgs,
+          expectedCreationData,
+          expectedDeployedBytecode: artifact.deployedBytecode,
+          deploymentTx: adapter.deploymentTransaction(),
+        },
+        { immutableReferences: artifact.immutableReferences },
+      );
     }
 
     await sendStep(
