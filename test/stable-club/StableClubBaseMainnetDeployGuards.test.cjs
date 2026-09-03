@@ -1,5 +1,5 @@
 const { expect } = require("chai");
-const { ethers } = require("hardhat");
+const { ethers, artifacts } = require("hardhat");
 const {
   BASE_CHAIN_ID,
   ARTIFACT_VERSION,
@@ -30,6 +30,14 @@ const {
   assertContractNotForbidden,
   assertPrivateBetaDeployPlan,
   assertReceiptSuccess,
+  POST_CREATE_CODE_RETRIES,
+  assertReceiptContractAddress,
+  selectAuthoritativeCreateAddress,
+  buildUnresolvedCreateEvidence,
+  assertNoUnresolvedCreateEvidence,
+  assertRuntimeBytecodeMatchesArtifact,
+  fetchRuntimeCodeWithRetries,
+  formatCreateAddressLog,
   assertNoPoolActivation,
   assertUniqueContractAddresses,
   assertDeployedContractEvidence,
@@ -58,7 +66,7 @@ const {
   isLocalhostHostname,
   isHostedForkHostname,
 } = require("../../scripts/stable-club/base-rpc-url-guards.cjs");
-const { assertBroadcastAllowed } = require("../../scripts/stable-club/deploy-base-mainnet.cjs");
+const { assertBroadcastAllowed, finalizeCreateFromReceipt } = require("../../scripts/stable-club/deploy-base-mainnet.cjs");
 
 
 const FAKE_KEY = `0x${"11".repeat(32)}`;
@@ -370,6 +378,7 @@ describe("Base mainnet deploy guards — M-01 / M-02", function () {
     });
     expect(state.poolsActivated).to.equal(false);
     expect(state.activatedPoolIds).to.deep.equal([]);
+    expect(state.unresolvedCreateEvidence).to.equal(null);
     expect(() => assertNoPoolActivation(state)).to.not.throw();
     expect(() => assertArtifactHasNoSecrets(state)).to.not.throw();
   });
@@ -510,5 +519,312 @@ describe("Base mainnet deploy guards — M-01 / M-02", function () {
   it("builds five adapter specs and four USDC routes", function () {
     expect(buildRouteConfigs()).to.have.length(EXPECTED_ROUTE_COUNT);
     expect(buildAdapterSpecs(GUARDIAN)).to.have.length(EXPECTED_POOL_COUNT);
+  });
+});
+
+describe("Base mainnet post-CREATE evidence hardening", function () {
+  const CREATION_DATA = "0xdeadbeef";
+  const CREATION_HASH = ethers.keccak256(CREATION_DATA);
+  const PREDICTED = "0x5555555555555555555555555555555555555555";
+
+  function baseState() {
+    return buildEmptyDeployState({
+      deployer: DEPLOYER,
+      guardian: GUARDIAN,
+      releaseCommit: "a".repeat(40),
+    });
+  }
+
+  function mockReceipt(overrides = {}) {
+    return {
+      status: 1,
+      hash: TX,
+      contractAddress: ADDR_A,
+      blockNumber: 100,
+      blockHash: BLOCK,
+      ...overrides,
+    };
+  }
+
+  it("uses receipt.contractAddress as authoritative address", function () {
+    const selected = selectAuthoritativeCreateAddress({
+      receiptAddress: ADDR_A,
+      predictedAddress: PREDICTED,
+    });
+    expect(selected.authoritative.toLowerCase()).to.equal(ADDR_A.toLowerCase());
+    expect(selected.predictedMismatch).to.equal(true);
+    expect(formatCreateAddressLog({
+      key: "permissionRegistry",
+      receiptAddress: selected.authoritative,
+      predictedAddress: selected.predicted,
+      predictedMismatch: selected.predictedMismatch,
+      deployTxHash: TX,
+      blockNumber: 100,
+    }).predictedMismatch).to.equal(true);
+  });
+
+  it("blocks resume while unresolved CREATE evidence exists", function () {
+    const state = baseState();
+    expect(() => assertNoUnresolvedCreateEvidence(state)).to.not.throw();
+    state.unresolvedCreateEvidence = buildUnresolvedCreateEvidence({
+      key: "permissionRegistry",
+      contractName: "PermissionRegistry",
+      address: ADDR_A,
+      predictedAddress: PREDICTED,
+      deployTxHash: TX,
+      blockNumber: 100,
+      blockHash: BLOCK,
+      creationDataHash: CREATION_HASH,
+      constructorArgs: [],
+    });
+    expect(() => assertNoUnresolvedCreateEvidence(state)).to.throw(/Resume blocked: unresolved CREATE/);
+    expect(state.unresolvedCreateEvidence.runtimeCodeHash).to.equal(undefined);
+  });
+
+  it("retries temporary empty eth_getCode then succeeds", async function () {
+    let calls = 0;
+    const code = `0x${"ab".repeat(32)}`;
+    const sleeps = [];
+    const got = await fetchRuntimeCodeWithRetries({
+      getCode: async () => {
+        calls += 1;
+        return calls < 3 ? "0x" : code;
+      },
+      address: ADDR_A,
+      blockTag: 100,
+      maxAttempts: 5,
+      delayMs: 1,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+    expect(got).to.equal(code);
+    expect(calls).to.equal(3);
+    expect(sleeps.length).to.equal(2);
+    expect(POST_CREATE_CODE_RETRIES.maxAttempts).to.be.at.least(3);
+  });
+
+  it("fails closed after permanent empty code", async function () {
+    let err = null;
+    try {
+      await fetchRuntimeCodeWithRetries({
+        getCode: async () => "0x",
+        address: ADDR_A,
+        blockTag: 100,
+        maxAttempts: 3,
+        delayMs: 1,
+        sleep: async () => {},
+      });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).to.not.equal(null);
+    expect(String(err.message)).to.match(/No runtime bytecode at CREATE address after 3 attempts/);
+  });
+
+  it("normal successful CREATE promotes record and clears unresolved evidence", async function () {
+    this.timeout(60_000);
+    const artifact = await artifacts.readArtifact("PermissionRegistry");
+    const deployed = artifact.deployedBytecode;
+    const codeHash = ethers.keccak256(deployed);
+    const state = baseState();
+    const saves = [];
+    const receipt = mockReceipt();
+    const deploymentTx = { from: DEPLOYER, nonce: 7, hash: TX, data: CREATION_DATA };
+
+    const addr = await finalizeCreateFromReceipt(
+      state,
+      {
+        key: "permissionRegistry",
+        contractName: "PermissionRegistry",
+        constructorArgs: [],
+        expectedCreationData: CREATION_DATA,
+        expectedDeployedBytecode: deployed,
+        deploymentTx,
+      },
+      {
+        saveState: (s) => {
+          saves.push(JSON.parse(JSON.stringify(s)));
+        },
+        waitReceipt: async () => receipt,
+        sleep: async () => {},
+        provider: {
+          getBlock: async () => ({ number: 100, hash: BLOCK }),
+          getTransaction: async () => ({
+            from: DEPLOYER,
+            data: CREATION_DATA,
+            hash: TX,
+            nonce: 7,
+          }),
+          getCode: async (address, blockTag) => {
+            expect(ethers.getAddress(address)).to.equal(ethers.getAddress(ADDR_A));
+            expect(Number(blockTag)).to.equal(100);
+            return deployed;
+          },
+        },
+        codeRetries: { maxAttempts: 2, delayMs: 1 },
+      },
+    );
+
+    expect(addr.toLowerCase()).to.equal(ADDR_A.toLowerCase());
+    expect(state.unresolvedCreateEvidence).to.equal(null);
+    expect(state.deploymentRecords.permissionRegistry.address.toLowerCase()).to.equal(
+      ADDR_A.toLowerCase(),
+    );
+    expect(state.deploymentRecords.permissionRegistry.runtimeCodeHash).to.equal(codeHash);
+    expect(state.contracts.permissionRegistry.toLowerCase()).to.equal(ADDR_A.toLowerCase());
+    // First save must preserve unresolved evidence before promotion.
+    expect(saves[0].unresolvedCreateEvidence.status).to.equal("unresolved");
+    expect(saves[0].deploymentRecords.permissionRegistry).to.equal(undefined);
+    expect(saves[saves.length - 1].unresolvedCreateEvidence).to.equal(null);
+  });
+
+  it("temporary empty code then success still promotes", async function () {
+    this.timeout(60_000);
+    const artifact = await artifacts.readArtifact("PermissionRegistry");
+    const deployed = artifact.deployedBytecode;
+    const state = baseState();
+    let calls = 0;
+    await finalizeCreateFromReceipt(
+      state,
+      {
+        key: "permissionRegistry",
+        contractName: "PermissionRegistry",
+        constructorArgs: [],
+        expectedCreationData: CREATION_DATA,
+        expectedDeployedBytecode: deployed,
+        deploymentTx: { from: DEPLOYER, nonce: 1, hash: TX, data: CREATION_DATA },
+      },
+      {
+        saveState: () => {},
+        waitReceipt: async () => mockReceipt(),
+        sleep: async () => {},
+        provider: {
+          getBlock: async () => ({ number: 100, hash: BLOCK }),
+          getTransaction: async () => ({
+            from: DEPLOYER,
+            data: CREATION_DATA,
+            hash: TX,
+            nonce: 1,
+          }),
+          getCode: async () => {
+            calls += 1;
+            return calls === 1 ? "0x" : deployed;
+          },
+        },
+        codeRetries: { maxAttempts: 4, delayMs: 1 },
+      },
+    );
+    expect(calls).to.be.at.least(2);
+    expect(state.unresolvedCreateEvidence).to.equal(null);
+    expect(state.deploymentRecords.permissionRegistry).to.exist;
+  });
+
+  it("permanent empty code preserves unresolved recovery evidence", async function () {
+    this.timeout(60_000);
+    const artifact = await artifacts.readArtifact("PermissionRegistry");
+    const state = baseState();
+    const saves = [];
+    let err = null;
+    try {
+      await finalizeCreateFromReceipt(
+        state,
+        {
+          key: "permissionRegistry",
+          contractName: "PermissionRegistry",
+          constructorArgs: [],
+          expectedCreationData: CREATION_DATA,
+          expectedDeployedBytecode: artifact.deployedBytecode,
+          deploymentTx: { from: DEPLOYER, nonce: 3, hash: TX, data: CREATION_DATA },
+        },
+        {
+          saveState: (s) => {
+            saves.push(JSON.parse(JSON.stringify(s)));
+          },
+          waitReceipt: async () => mockReceipt(),
+          sleep: async () => {},
+          provider: {
+            getBlock: async () => ({ number: 100, hash: BLOCK }),
+            getTransaction: async () => ({
+              from: DEPLOYER,
+              data: CREATION_DATA,
+              hash: TX,
+              nonce: 3,
+            }),
+            getCode: async () => "0x",
+          },
+          codeRetries: { maxAttempts: 3, delayMs: 1 },
+        },
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect(err).to.not.equal(null);
+    expect(String(err.message)).to.match(/No runtime bytecode/);
+    expect(state.unresolvedCreateEvidence).to.not.equal(null);
+    expect(state.unresolvedCreateEvidence.status).to.equal("unresolved");
+    expect(state.unresolvedCreateEvidence.address.toLowerCase()).to.equal(ADDR_A.toLowerCase());
+    expect(state.deploymentRecords.permissionRegistry).to.equal(undefined);
+    expect(saves.some((s) => s.unresolvedCreateEvidence?.status === "unresolved")).to.equal(true);
+    expect(() => assertNoUnresolvedCreateEvidence(state)).to.throw(/Resume blocked/);
+  });
+
+  it("receipt address wins on predicted mismatch and still verifies receipt address", async function () {
+    this.timeout(60_000);
+    const artifact = await artifacts.readArtifact("PermissionRegistry");
+    const deployed = artifact.deployedBytecode;
+    const state = baseState();
+    const queried = [];
+    // deploymentTx nonce predicts PREDICTED-like address; receipt returns ADDR_A
+    const deploymentTx = { from: DEPLOYER, nonce: 0, hash: TX, data: CREATION_DATA };
+    const predicted = ethers.getCreateAddress({ from: DEPLOYER, nonce: 0 });
+    expect(predicted.toLowerCase()).to.not.equal(ADDR_A.toLowerCase());
+
+    const addr = await finalizeCreateFromReceipt(
+      state,
+      {
+        key: "permissionRegistry",
+        contractName: "PermissionRegistry",
+        constructorArgs: [],
+        expectedCreationData: CREATION_DATA,
+        expectedDeployedBytecode: deployed,
+        deploymentTx,
+      },
+      {
+        saveState: () => {},
+        waitReceipt: async () => mockReceipt({ contractAddress: ADDR_A }),
+        sleep: async () => {},
+        provider: {
+          getBlock: async () => ({ number: 100, hash: BLOCK }),
+          getTransaction: async () => ({
+            from: DEPLOYER,
+            data: CREATION_DATA,
+            hash: TX,
+            nonce: 0,
+          }),
+          getCode: async (address) => {
+            queried.push(ethers.getAddress(address));
+            return deployed;
+          },
+        },
+        codeRetries: { maxAttempts: 2, delayMs: 1 },
+      },
+    );
+    expect(addr.toLowerCase()).to.equal(ADDR_A.toLowerCase());
+    expect(queried.every((a) => a.toLowerCase() === ADDR_A.toLowerCase())).to.equal(true);
+    expect(queried.some((a) => a.toLowerCase() === predicted.toLowerCase())).to.equal(false);
+  });
+
+  it("assertRuntimeBytecodeMatchesArtifact rejects mismatch", function () {
+    const a = `0x${"11".repeat(32)}`;
+    const b = `0x${"22".repeat(32)}`;
+    expect(() => assertRuntimeBytecodeMatchesArtifact(a, b)).to.throw(/does not match artifact/);
+    expect(assertRuntimeBytecodeMatchesArtifact(a, a)).to.equal(ethers.keccak256(a));
+  });
+
+  it("assertReceiptContractAddress rejects missing CREATE address", function () {
+    expect(() =>
+      assertReceiptContractAddress({ status: 1, blockNumber: 1, contractAddress: null }, "x"),
+    ).to.throw(/missing contractAddress/);
   });
 });
