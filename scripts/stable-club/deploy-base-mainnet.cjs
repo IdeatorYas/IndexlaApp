@@ -14,7 +14,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
-const { ethers, network } = require("hardhat");
+const { ethers, network, artifacts } = require("hardhat");
 const {
   validatePhase2aManifest,
   earliestDiscoveryStartBlock,
@@ -118,8 +118,8 @@ async function requireLiveCode(provider, label, address) {
   return code;
 }
 
-async function runtimeCodeHash(provider, address) {
-  const code = await provider.getCode(address);
+async function runtimeCodeHash(provider, address, blockTag) {
+  const code = await provider.getCode(address, blockTag);
   if (!guards.isNonEmptyBytecode(code)) {
     throw new Error("No runtime bytecode at saved contract address");
   }
@@ -131,6 +131,139 @@ async function waitReceipt(txOrResponse, label) {
   const receipt = await tx.wait();
   guards.assertReceiptSuccess(receipt, label);
   return receipt;
+}
+
+function safePredictedCreateAddress(deploymentTx) {
+  try {
+    if (!deploymentTx?.from || deploymentTx.nonce == null) return null;
+    return ethers.getCreateAddress({
+      from: deploymentTx.from,
+      nonce: deploymentTx.nonce,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * After a successful CREATE receipt:
+ * 1) persist unresolved recovery evidence (fail-closed)
+ * 2) verify runtime bytecode at receipt.blockNumber with bounded retries
+ * 3) promote to deploymentRecords only after artifact match
+ * Never uses contract.getAddress() as evidence.
+ *
+ * @param {object} [deps] optional test seams (provider/saveState/waitReceipt/sleep)
+ */
+async function finalizeCreateFromReceipt(
+  state,
+  {
+    key,
+    contractName,
+    constructorArgs,
+    expectedCreationData,
+    expectedDeployedBytecode,
+    deploymentTx,
+  },
+  deps = {},
+) {
+  guards.assertNoUnresolvedCreateEvidence(state);
+
+  const provider = deps.provider || ethers.provider;
+  const save = deps.saveState || saveState;
+  const wait = deps.waitReceipt || waitReceipt;
+  const sleep = deps.sleep;
+
+  const predictedAddress = safePredictedCreateAddress(deploymentTx);
+  const receipt = await wait(deploymentTx, `deploy ${contractName}`);
+  const receiptAddress = guards.assertReceiptContractAddress(receipt, key);
+  const { authoritative, predicted, predictedMismatch } =
+    guards.selectAuthoritativeCreateAddress({
+      receiptAddress,
+      predictedAddress,
+    });
+
+  console.log(
+    JSON.stringify(
+      guards.formatCreateAddressLog({
+        key,
+        receiptAddress: authoritative,
+        predictedAddress: predicted,
+        predictedMismatch,
+        deployTxHash: receipt.hash,
+        blockNumber: Number(receipt.blockNumber),
+      }),
+    ),
+  );
+
+  const block = await provider.getBlock(receipt.blockNumber);
+  if (!block) {
+    throw new Error(`Missing block for CREATE ${key}`);
+  }
+  const fullTx = await provider.getTransaction(receipt.hash);
+  if (!fullTx) {
+    throw new Error(`Missing transaction for CREATE ${key}`);
+  }
+
+  state.unresolvedCreateEvidence = guards.buildUnresolvedCreateEvidence({
+    key,
+    contractName,
+    address: authoritative,
+    predictedAddress: predicted,
+    deployTxHash: receipt.hash,
+    blockNumber: Number(receipt.blockNumber),
+    blockHash: receipt.blockHash || block.hash,
+    creationDataHash: ethers.keccak256(fullTx.data),
+    constructorArgs: constructorArgs || [],
+  });
+  save(state);
+
+  try {
+    const liveCode = await guards.fetchRuntimeCodeWithRetries({
+      getCode: (addr, tag) => provider.getCode(addr, tag),
+      address: authoritative,
+      blockTag: Number(receipt.blockNumber),
+      ...(sleep ? { sleep } : {}),
+      ...(deps.codeRetries || {}),
+    });
+    const codeHash = guards.assertRuntimeBytecodeMatchesArtifact(
+      liveCode,
+      expectedDeployedBytecode,
+    );
+
+    guards.assertDeployedContractEvidence({
+      key,
+      saved: {
+        address: authoritative,
+        deployTxHash: receipt.hash,
+        blockNumber: Number(receipt.blockNumber),
+        blockHash: receipt.blockHash || block.hash,
+        creationDataHash: ethers.keccak256(fullTx.data),
+        runtimeCodeHash: codeHash,
+      },
+      expectedDeployer: state.deployer,
+      expectedCreationData,
+      liveTx: fullTx,
+      liveReceipt: receipt,
+      liveBlock: block,
+      liveCodeHash: codeHash,
+    });
+
+    recordDeployment(state, key, {
+      address: authoritative,
+      deployTx: fullTx,
+      receipt,
+      block,
+      runtimeHash: codeHash,
+      contractName,
+      constructorArgs: constructorArgs || [],
+    });
+    state.unresolvedCreateEvidence = null;
+    save(state);
+    return authoritative;
+  } catch (error) {
+    // Leave unresolvedCreateEvidence persisted for fail-closed recovery / resume block.
+    throw error;
+  }
 }
 
 async function assertBaseRpcClientNotLocal(provider) {
@@ -151,7 +284,7 @@ async function authenticateSavedContract(provider, state, key, expectedCreationD
   const liveTx = await provider.getTransaction(saved.deployTxHash);
   const liveReceipt = await provider.getTransactionReceipt(saved.deployTxHash);
   const liveBlock = await provider.getBlock(saved.blockNumber);
-  const liveCodeHash = await runtimeCodeHash(provider, saved.address);
+  const liveCodeHash = await runtimeCodeHash(provider, saved.address, saved.blockNumber);
 
   guards.assertDeployedContractEvidence({
     key,
@@ -170,6 +303,7 @@ async function authenticateSavedContract(provider, state, key, expectedCreationD
 }
 
 async function authenticateResumeState(provider, state, expectedIdentity) {
+  guards.assertNoUnresolvedCreateEvidence(state);
   guards.assertResumeIdentityBinding(state, expectedIdentity);
   guards.assertAutomationDisabled(state.automation);
   guards.assertNoPoolActivation(state);
@@ -224,7 +358,9 @@ function recordDeployment(state, key, { address, deployTx, receipt, block, runti
 
 async function deployNamed(name, args, state, key) {
   guards.assertContractNotForbidden(name);
+  guards.assertNoUnresolvedCreateEvidence(state);
   const factory = await ethers.getContractFactory(name);
+  const artifact = await artifacts.readArtifact(name);
   const deployTxRequest = await factory.getDeployTransaction(...(args || []));
   const expectedCreationData = deployTxRequest.data;
 
@@ -233,43 +369,17 @@ async function deployNamed(name, args, state, key) {
     return await ethers.getContractAt(name, state.contracts[key]);
   }
 
-  const contract = await factory.deploy(...(args || []));
-  const deployTx = contract.deploymentTransaction();
-  const receipt = await waitReceipt(deployTx, `deploy ${name}`);
-  const addr = await contract.getAddress();
-  const codeHash = await runtimeCodeHash(ethers.provider, addr);
-  const block = await ethers.provider.getBlock(receipt.blockNumber);
-  const fullTx = await ethers.provider.getTransaction(receipt.hash);
-
-  guards.assertDeployedContractEvidence({
+  const pending = await factory.deploy(...(args || []));
+  const deploymentTx = pending.deploymentTransaction();
+  const addr = await finalizeCreateFromReceipt(state, {
     key,
-    saved: {
-      address: addr,
-      deployTxHash: receipt.hash,
-      blockNumber: Number(receipt.blockNumber),
-      blockHash: receipt.blockHash || block.hash,
-      creationDataHash: ethers.keccak256(fullTx.data),
-      runtimeCodeHash: codeHash,
-    },
-    expectedDeployer: state.deployer,
-    expectedCreationData,
-    liveTx: fullTx,
-    liveReceipt: receipt,
-    liveBlock: block,
-    liveCodeHash: codeHash,
-  });
-
-  recordDeployment(state, key, {
-    address: addr,
-    deployTx: fullTx,
-    receipt,
-    block,
-    runtimeHash: codeHash,
     contractName: name,
     constructorArgs: args || [],
+    expectedCreationData,
+    expectedDeployedBytecode: artifact.deployedBytecode,
+    deploymentTx,
   });
-  saveState(state);
-  return contract;
+  return await ethers.getContractAt(name, addr);
 }
 
 /**
@@ -625,6 +735,7 @@ async function deployBaseMainnetStack(options = {}) {
 
   let state = loadState();
   if (state) {
+    guards.assertNoUnresolvedCreateEvidence(state);
     await authenticateResumeState(ethers.provider, state, expectedIdentity);
   } else {
     state = guards.buildEmptyDeployState({
@@ -886,39 +997,17 @@ async function deployBaseMainnetStack(options = {}) {
       await authenticateSavedContract(ethers.provider, state, key, expectedCreationData);
       adapterAddr = state.contracts[key];
     } else {
+      guards.assertNoUnresolvedCreateEvidence(state);
+      const artifact = await artifacts.readArtifact(contractName);
       const adapter = await factory.deploy(...ctorArgs);
-      const receipt = await waitReceipt(adapter.deploymentTransaction(), `deploy adapter ${i}`);
-      adapterAddr = await adapter.getAddress();
-      const codeHash = await runtimeCodeHash(ethers.provider, adapterAddr);
-      const block = await ethers.provider.getBlock(receipt.blockNumber);
-      const fullTx = await ethers.provider.getTransaction(receipt.hash);
-      guards.assertDeployedContractEvidence({
+      adapterAddr = await finalizeCreateFromReceipt(state, {
         key,
-        saved: {
-          address: adapterAddr,
-          deployTxHash: receipt.hash,
-          blockNumber: Number(receipt.blockNumber),
-          blockHash: receipt.blockHash || block.hash,
-          creationDataHash: ethers.keccak256(fullTx.data),
-          runtimeCodeHash: codeHash,
-        },
-        expectedDeployer: state.deployer,
-        expectedCreationData,
-        liveTx: fullTx,
-        liveReceipt: receipt,
-        liveBlock: block,
-        liveCodeHash: codeHash,
-      });
-      recordDeployment(state, key, {
-        address: adapterAddr,
-        deployTx: fullTx,
-        receipt,
-        block,
-        runtimeHash: codeHash,
         contractName,
         constructorArgs: ctorArgs,
+        expectedCreationData,
+        expectedDeployedBytecode: artifact.deployedBytecode,
+        deploymentTx: adapter.deploymentTransaction(),
       });
-      saveState(state);
     }
 
     await sendStep(
@@ -1117,6 +1206,8 @@ module.exports = {
   authenticateSavedContract,
   verifyAggregateOnChainWiring,
   resolveReleaseCommit,
+  finalizeCreateFromReceipt,
+  safePredictedCreateAddress,
   atomicWriteJson,
   STATE_PATH,
   ARTIFACT_PATH,

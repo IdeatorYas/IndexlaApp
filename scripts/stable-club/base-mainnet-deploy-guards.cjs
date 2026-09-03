@@ -362,6 +362,146 @@ function assertReceiptSuccess(receipt, label) {
   }
 }
 
+/** Bounded eth_getCode retries after CREATE (transient empty responses). */
+const POST_CREATE_CODE_RETRIES = Object.freeze({
+  maxAttempts: 5,
+  delayMs: 300,
+});
+
+/**
+ * Authoritative CREATE address is always receipt.contractAddress.
+ * Predicted address is diagnostic only — never deployment evidence.
+ */
+function assertReceiptContractAddress(receipt, label) {
+  assertReceiptSuccess(receipt, label);
+  const raw = receipt.contractAddress;
+  if (!ethers.isAddress(raw) || raw === ethers.ZeroAddress) {
+    throw new Error(`CREATE receipt missing contractAddress for ${label}`);
+  }
+  return ethers.getAddress(raw);
+}
+
+function selectAuthoritativeCreateAddress({ receiptAddress, predictedAddress }) {
+  const authoritative = ethers.getAddress(receiptAddress);
+  let predicted = null;
+  let predictedMismatch = false;
+  if (predictedAddress && ethers.isAddress(predictedAddress) && predictedAddress !== ethers.ZeroAddress) {
+    predicted = ethers.getAddress(predictedAddress);
+    predictedMismatch = !addrEq(authoritative, predicted);
+  }
+  return { authoritative, predicted, predictedMismatch };
+}
+
+function buildUnresolvedCreateEvidence({
+  key,
+  contractName,
+  address,
+  predictedAddress,
+  deployTxHash,
+  blockNumber,
+  blockHash,
+  creationDataHash,
+  constructorArgs,
+}) {
+  if (!key || !contractName) {
+    throw new Error("Unresolved CREATE evidence requires key and contractName");
+  }
+  const addr = ethers.getAddress(address);
+  return {
+    status: "unresolved",
+    key,
+    contractName,
+    address: addr,
+    predictedAddress:
+      predictedAddress && ethers.isAddress(predictedAddress)
+        ? ethers.getAddress(predictedAddress)
+        : null,
+    deployTxHash,
+    blockNumber: Number(blockNumber),
+    blockHash,
+    creationDataHash,
+    constructorArgs: Array.isArray(constructorArgs) ? constructorArgs : [],
+    // Intentionally no runtimeCodeHash — not promoted until bytecode matches artifact.
+  };
+}
+
+function assertNoUnresolvedCreateEvidence(state) {
+  const pending = state?.unresolvedCreateEvidence;
+  if (pending == null) return;
+  if (pending.status === "unresolved") {
+    throw new Error(
+      `Resume blocked: unresolved CREATE evidence for ${pending.key} ` +
+        `(tx=${pending.deployTxHash}, address=${pending.address}). ` +
+        `Clear local state for a clean redeploy; do not adopt orphans into the official artifact.`,
+    );
+  }
+}
+
+function assertRuntimeBytecodeMatchesArtifact(liveCode, expectedDeployedBytecode) {
+  if (!isNonEmptyBytecode(liveCode)) {
+    throw new Error("No runtime bytecode at CREATE address");
+  }
+  if (!isNonEmptyBytecode(expectedDeployedBytecode)) {
+    throw new Error("Artifact deployedBytecode missing for CREATE verification");
+  }
+  const liveHash = ethers.keccak256(liveCode);
+  const expectedHash = ethers.keccak256(expectedDeployedBytecode);
+  if (liveHash.toLowerCase() !== expectedHash.toLowerCase()) {
+    throw new Error("Runtime bytecode does not match artifact deployedBytecode");
+  }
+  return liveHash;
+}
+
+/**
+ * Retry eth_getCode while empty. Injectable getCode/sleep for unit tests.
+ * @returns {Promise<string>} non-empty bytecode
+ */
+async function fetchRuntimeCodeWithRetries({
+  getCode,
+  address,
+  blockTag,
+  maxAttempts = POST_CREATE_CODE_RETRIES.maxAttempts,
+  delayMs = POST_CREATE_CODE_RETRIES.delayMs,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}) {
+  if (typeof getCode !== "function") {
+    throw new Error("fetchRuntimeCodeWithRetries requires getCode");
+  }
+  const addr = ethers.getAddress(address);
+  let last = "0x";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    last = await getCode(addr, blockTag);
+    if (isNonEmptyBytecode(last)) return last;
+    if (attempt < maxAttempts) {
+      await sleep(delayMs);
+    }
+  }
+  throw new Error(
+    `No runtime bytecode at CREATE address after ${maxAttempts} attempts ` +
+      `(address=${addr}, blockTag=${String(blockTag)})`,
+  );
+}
+
+/** Safe diagnostic log — addresses and hashes only, never secrets/RPC URLs. */
+function formatCreateAddressLog({
+  key,
+  receiptAddress,
+  predictedAddress,
+  predictedMismatch,
+  deployTxHash,
+  blockNumber,
+}) {
+  return {
+    event: "stable_club_create_receipt",
+    key,
+    receiptAddress,
+    predictedAddress: predictedAddress || null,
+    predictedMismatch: !!predictedMismatch,
+    deployTxHash,
+    blockNumber: Number(blockNumber),
+  };
+}
+
 function assertNoPoolActivation(state) {
   if (!state || typeof state !== "object") {
     throw new Error("Deploy state missing for pool-activation check");
@@ -589,6 +729,8 @@ function buildEmptyDeployState(meta) {
     steps: {},
     contracts: {},
     deploymentRecords: {},
+    /** Fail-closed CREATE receipt evidence awaiting bytecode promotion; blocks resume when set. */
+    unresolvedCreateEvidence: null,
     adapters: [],
     routes: [],
     txHashes: [],
@@ -894,6 +1036,14 @@ module.exports = {
   assertContractNotForbidden,
   assertPrivateBetaDeployPlan,
   assertReceiptSuccess,
+  POST_CREATE_CODE_RETRIES,
+  assertReceiptContractAddress,
+  selectAuthoritativeCreateAddress,
+  buildUnresolvedCreateEvidence,
+  assertNoUnresolvedCreateEvidence,
+  assertRuntimeBytecodeMatchesArtifact,
+  fetchRuntimeCodeWithRetries,
+  formatCreateAddressLog,
   assertNoPoolActivation,
   assertUniqueContractAddresses,
   assertDeployedContractEvidence,
