@@ -1,0 +1,152 @@
+/* Scoped STABLE CLUB hub — INDEXLA deep blue / navy (not black / gray-black). */
+.stable-club-hub {
+  --color-bg: #07111f;
+  --color-bg-elevated: #0d1b33;
+  --color-bg-soft: rgba(37, 99, 235, 0.14);
+  --color-panel: #122543;
+  --color-panel-border: rgba(96, 165, 250, 0.28);
+  --color-ink: #f8fafc;
+  --color-ink-muted: rgba(226, 232, 240, 0.82);
+  --color-ink-dim: rgba(148, 163, 184, 0.95);
+  --color-brand: #60a5fa;
+  --color-brand-soft: #93c5fd;
+  --color-brand-grad-from: #2563eb;
+  --color-brand-grad-to: #38bdf8;
+  --color-accent-blue: #60a5fa;
+  --color-accent-cyan: #22d3ee;
+  --color-line: rgba(96, 165, 250, 0.22);
+  --color-success: #34d399;
+  --color-danger: #fb7185;
+  --color-warning: #fbbf24;
+  --shadow-card: 0 1px 0 rgba(147, 197, 253, 0.08), 0 18px 40px rgba(2, 12, 32, 0.45);
+  --shadow-glow: 0 8px 28px rgba(37, 99, 235, 0.35);
+
+  position: relative;
+  margin: -0.5rem -0.75rem 0;
+  padding: 0.75rem 0.75rem 2rem;
+  min-height: calc(100vh - 4.5rem);
+  color: var(--color-ink);
+  background:
+    radial-gradient(ellipse 75% 45% at 50% -8%, rgba(37, 99, 235, 0.34), transparent 58%),
+    radial-gradient(ellipse 55% 40% at 100% 18%, rgba(56, 189, 248, 0.16), transparent 52%),
+    radial-gradient(ellipse 45% 35% at 0% 70%, rgba(59, 130, 246, 0.12), transparent 48%),
+    linear-gradient(180deg, #0a1830 0%, #07111f 55%, #06101c 100%);
+  overflow-x: clip;
+}
+
+.stable-club-hub::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(96, 165, 250, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(96, 165, 250, 0.045) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.45), transparent 80%);
+  opacity: 0.5;
+}
+
+.stable-club-hub > * {
+  position: relative;
+  z-index: 1;
+}
+
+.stable-club-strategy-box {
+  border-radius: 18px;
+  border: 1px solid rgba(96, 165, 250, 0.32);
+  background:
+    linear-gradient(165deg, rgba(19, 48, 92, 0.96) 0%, rgba(13, 33, 64, 0.98) 48%, rgba(10, 28, 54, 0.98) 100%);
+  box-shadow:
+    var(--shadow-card),
+    inset 0 1px 0 rgba(147, 197, 253, 0.14);
+  padding: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  .stable-club-strategy-box {
+    padding: 1.5rem;
+  }
+}
+
+.stable-club-strategy-box .sc-input {
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  background: rgba(7, 17, 31, 0.55);
+  color: var(--color-ink);
+}
+
+.stable-club-strategy-box .sc-input:focus {
+  outline: none;
+  border-color: rgba(96, 165, 250, 0.55);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22);
+}
+
+.stable-club-strategy-box .sc-pool-list {
+  border-radius: 12px;
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  background: rgba(7, 22, 42, 0.55);
+  overflow: hidden;
+}
+
+.stable-club-strategy-box .sc-pool-row {
+  border-top: 1px solid rgba(96, 165, 250, 0.14);
+}
+
+.stable-club-strategy-box .sc-pool-row:first-child {
+  border-top: none;
+}
+
+.stable-club-strategy-box .sc-status-banner {
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+[data-theme="light"] .stable-club-hub {
+  --color-bg: #eef3fb;
+  --color-bg-elevated: #ffffff;
+  --color-bg-soft: rgba(37, 99, 235, 0.08);
+  --color-panel: #f4f7fc;
+  --color-panel-border: rgba(37, 99, 235, 0.18);
+  --color-ink: #0a1220;
+  --color-ink-muted: #334155;
+  --color-ink-dim: #52627a;
+  --color-brand: #1d4ed8;
+  --color-brand-soft: #2563eb;
+  --color-brand-grad-from: #2563eb;
+  --color-brand-grad-to: #0ea5e9;
+  --color-line: rgba(37, 99, 235, 0.14);
+  --shadow-card: 0 8px 28px rgba(15, 23, 42, 0.08);
+
+  background:
+    radial-gradient(ellipse 70% 45% at 50% -5%, rgba(37, 99, 235, 0.16), transparent 58%),
+    radial-gradient(ellipse 50% 35% at 100% 20%, rgba(14, 165, 233, 0.1), transparent 50%),
+    linear-gradient(180deg, #f5f8fd 0%, #e8eef8 100%);
+}
+
+[data-theme="light"] .stable-club-hub::before {
+  background-image:
+    linear-gradient(rgba(37, 99, 235, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 99, 235, 0.05) 1px, transparent 1px);
+  opacity: 0.35;
+}
+
+[data-theme="light"] .stable-club-strategy-box {
+  border-color: rgba(37, 99, 235, 0.2);
+  background: linear-gradient(165deg, #ffffff 0%, #f3f7fd 100%);
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+[data-theme="light"] .stable-club-strategy-box .sc-input {
+  border-color: rgba(37, 99, 235, 0.18);
+  background: #eef3fb;
+  color: var(--color-ink);
+}
+
+[data-theme="light"] .stable-club-strategy-box .sc-pool-list {
+  border-color: rgba(37, 99, 235, 0.14);
+  background: rgba(238, 243, 251, 0.85);
+}
+
+[data-theme="light"] .stable-club-strategy-box .sc-pool-row {
+  border-top-color: rgba(37, 99, 235, 0.1);
+}

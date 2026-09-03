@@ -7,6 +7,13 @@ import { readCurrentTicks } from "@/components/stable-club/useFivePoolDeposit";
 const depositIntoFivePoolStrategy = vi.fn();
 
 let mockState: Record<string, unknown>;
+let mockWallet: {
+  status: string;
+  chainId: number | null;
+  address: string | null;
+  connect: ReturnType<typeof vi.fn>;
+  switchToBase: ReturnType<typeof vi.fn>;
+};
 
 const useStableClubDevPanelAllowedMock = vi.fn((allowed: boolean) => allowed);
 
@@ -15,12 +22,7 @@ vi.mock("@/components/stable-club/useStableClubDevPanelAllowed", () => ({
 }));
 
 vi.mock("@/components/wallet/StableClubWalletProvider", () => ({
-  useStableClubWallet: () => ({
-    status: "connected",
-    chainId: 31337,
-    connect: vi.fn(),
-    switchToBase: vi.fn(),
-  }),
+  useStableClubWallet: () => mockWallet,
 }));
 
 vi.mock("@/components/stable-club/useFivePoolDeposit", async (importOriginal) => {
@@ -38,6 +40,13 @@ describe("StableClubFivePoolDepositPanel", () => {
 
   beforeEach(() => {
     depositIntoFivePoolStrategy.mockReset();
+    mockWallet = {
+      status: "connected",
+      chainId: 31337,
+      address: "0xuser",
+      connect: vi.fn(),
+      switchToBase: vi.fn(),
+    };
     useStableClubDevPanelAllowedMock.mockImplementation((allowed: boolean) => allowed);
     mockState = {
       deploymentsLoading: false,
@@ -176,12 +185,54 @@ describe("StableClubFivePoolDepositPanel", () => {
   });
 
   it("product variant exposes single primary deposit button only", () => {
+    mockWallet.chainId = 8453;
+    mockState.expectedChainId = 8453;
+    mockState.onExpectedChain = true;
     render(<StableClubFivePoolDepositPanel variant="product" />);
     const buttons = screen.getAllByRole("button");
     expect(buttons).toHaveLength(1);
     expect(screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i }));
     expect(depositIntoFivePoolStrategy).toHaveBeenCalledTimes(1);
+  });
+
+  it("product variant shows Base network status, never a local chain id", () => {
+    render(<StableClubFivePoolDepositPanel variant="product" />);
+    expect(screen.getByText("Not on Base")).toBeInTheDocument();
+    expect(screen.getByText("Wrong network — switch wallet to Base.")).toBeInTheDocument();
+    expect(screen.queryByText(/Need chain 31337/)).toBeNull();
+    expect(screen.queryByText(/switch wallet to chain 31337/)).toBeNull();
+  });
+
+  it("product variant lists five canonical pool IDs at 20% with 100% total", () => {
+    render(<StableClubFivePoolDepositPanel variant="product" />);
+    for (const pool of OFFICIAL_STABLE_CLUB_BASE_POOLS) {
+      expect(screen.getByText(pool.id)).toBeInTheDocument();
+    }
+    expect(screen.getByText("USDC/cbBTC · Aerodrome Slipstream")).toBeInTheDocument();
+    expect(screen.getByText("USDC/cbBTC · Uniswap V3")).toBeInTheDocument();
+    expect(screen.getAllByText("cbBTC/WETH · Aerodrome Slipstream")).toHaveLength(2);
+    expect(screen.getByText("cbBTC/WETH · Uniswap V3")).toBeInTheDocument();
+    expect(screen.getAllByText("20%")).toHaveLength(5);
+    expect(screen.getByText("Total allocation")).toBeInTheDocument();
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /FAQ/i })).toBeNull();
+  });
+
+  it("product variant does not submit when deposits are disabled", () => {
+    render(
+      <StableClubFivePoolDepositPanel
+        variant="product"
+        depositsEnabled={false}
+        depositBlockers={["no trusted production manifest"]}
+      />,
+    );
+    const button = screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i });
+    expect(button).toBeDisabled();
+    expect(screen.getByText("Deposit unavailable")).toBeInTheDocument();
+    expect(screen.getByText("no trusted production manifest")).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(depositIntoFivePoolStrategy).not.toHaveBeenCalled();
   });
 
   it("shows confirmed tx without Basescan on local chain", () => {
