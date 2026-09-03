@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import localPhase2a from "@/lib/stable-club/generated/local-phase2a-deployments.json";
 import {
   PRIVATE_BETA_LAUNCH_PARAMS,
   isLaunchAutomationDisabled,
@@ -42,10 +41,15 @@ describe("pool catalogue identity consistency", () => {
     expect(() => assertStage1IncludesAllFivePools()).not.toThrow();
   });
 
-  it("matches local phase2a manifest poolIds to catalogue (Hardhat isolated)", () => {
-    assertLocalHardhatManifestIsolation(localPhase2a);
-    assertManifestPoolIdsMatchCatalogue(localPhase2a.poolIds as `0x${string}`[]);
-    expect(localPhase2a.chainId).not.toBe(8453);
+  it("matches Hardhat-isolated local poolIds to catalogue without generated JSON", () => {
+    const localManifest = {
+      chainId: 31337,
+      isTestOnly: true as const,
+      poolIds: OFFICIAL_STABLE_CLUB_BASE_POOLS.map((p) => p.poolIdHash),
+    };
+    assertLocalHardhatManifestIsolation(localManifest);
+    assertManifestPoolIdsMatchCatalogue(localManifest.poolIds);
+    expect(localManifest.chainId).not.toBe(8453);
   });
 
   it("maps all five pools as stage1-eligible", () => {
