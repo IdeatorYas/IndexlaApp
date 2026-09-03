@@ -427,17 +427,35 @@ function buildUnresolvedCreateEvidence({
 
 function assertNoUnresolvedCreateEvidence(state) {
   const pending = state?.unresolvedCreateEvidence;
-  if (pending == null) return;
-  if (pending.status === "unresolved") {
-    throw new Error(
-      `Resume blocked: unresolved CREATE evidence for ${pending.key} ` +
-        `(tx=${pending.deployTxHash}, address=${pending.address}). ` +
-        `Clear local state for a clean redeploy; do not adopt orphans into the official artifact.`,
-    );
-  }
+  if (pending == null || pending === undefined) return;
+  // Fail closed: ANY non-null value blocks resume — not just status==="unresolved".
+  // Only null/absent (set during successful verified promotion) permits continuation.
+  const key = pending?.key ?? "unknown";
+  const tx = pending?.deployTxHash ?? "unknown";
+  const addr = pending?.address ?? "unknown";
+  throw new Error(
+    `Resume blocked: unresolved CREATE evidence for ${key} ` +
+      `(tx=${tx}, address=${addr}, status=${String(pending?.status ?? "missing")}). ` +
+      `Clear local state for a clean redeploy; do not adopt orphans into the official artifact.`,
+  );
 }
 
-function assertRuntimeBytecodeMatchesArtifact(liveCode, expectedDeployedBytecode) {
+/**
+ * Compare runtime bytecode against artifact, accounting for immutable slots.
+ *
+ * When immutableReferences is empty/absent (all contracts in this repo with viaIR+optimizer),
+ * falls back to exact keccak256 equality — fastest and most restrictive.
+ *
+ * When immutableReferences is present, zeroes out immutable regions in both live and artifact
+ * bytecode before comparing the non-immutable skeleton. Immutable values themselves must be
+ * verified separately through constructor-bound getters (see verifyImmutableGetters).
+ *
+ * @param {string} liveCode  hex bytecode from eth_getCode
+ * @param {string} expectedDeployedBytecode  artifact.deployedBytecode
+ * @param {object} [immutableReferences]  artifact.immutableReferences (may be null/empty)
+ * @returns {string} keccak256 of liveCode
+ */
+function assertRuntimeBytecodeMatchesArtifact(liveCode, expectedDeployedBytecode, immutableReferences) {
   if (!isNonEmptyBytecode(liveCode)) {
     throw new Error("No runtime bytecode at CREATE address");
   }
@@ -445,11 +463,86 @@ function assertRuntimeBytecodeMatchesArtifact(liveCode, expectedDeployedBytecode
     throw new Error("Artifact deployedBytecode missing for CREATE verification");
   }
   const liveHash = ethers.keccak256(liveCode);
-  const expectedHash = ethers.keccak256(expectedDeployedBytecode);
-  if (liveHash.toLowerCase() !== expectedHash.toLowerCase()) {
-    throw new Error("Runtime bytecode does not match artifact deployedBytecode");
+
+  // Collect all immutable regions from the artifact metadata.
+  const regions = collectImmutableRegions(immutableReferences);
+
+  if (regions.length === 0) {
+    // No immutables — exact equality required.
+    const expectedHash = ethers.keccak256(expectedDeployedBytecode);
+    if (liveHash.toLowerCase() !== expectedHash.toLowerCase()) {
+      throw new Error("Runtime bytecode does not match artifact deployedBytecode");
+    }
+    return liveHash;
+  }
+
+  // Immutable-aware: zero out immutable regions in both, compare skeletons.
+  const liveBytes = ethers.getBytes(liveCode);
+  const artifactBytes = ethers.getBytes(expectedDeployedBytecode);
+  if (liveBytes.length !== artifactBytes.length) {
+    throw new Error(
+      `Runtime bytecode length mismatch: live=${liveBytes.length} artifact=${artifactBytes.length}`,
+    );
+  }
+  const liveMasked = new Uint8Array(liveBytes);
+  const artifactMasked = new Uint8Array(artifactBytes);
+  for (const { start, length } of regions) {
+    if (start + length > liveMasked.length) {
+      throw new Error(
+        `Immutable region [${start}..${start + length}] exceeds bytecode length ${liveMasked.length}`,
+      );
+    }
+    for (let i = start; i < start + length; i++) {
+      liveMasked[i] = 0;
+      artifactMasked[i] = 0;
+    }
+  }
+  const liveSkeleton = ethers.keccak256(liveMasked);
+  const artifactSkeleton = ethers.keccak256(artifactMasked);
+  if (liveSkeleton.toLowerCase() !== artifactSkeleton.toLowerCase()) {
+    throw new Error(
+      "Non-immutable bytecode skeleton does not match artifact (tampered code outside immutable regions)",
+    );
   }
   return liveHash;
+}
+
+/**
+ * Collect sorted, non-overlapping immutable byte regions from artifact.immutableReferences.
+ * Format: { [astId]: [{ start, length }, ...] }
+ */
+function collectImmutableRegions(immutableReferences) {
+  if (!immutableReferences || typeof immutableReferences !== "object") return [];
+  const regions = [];
+  for (const refs of Object.values(immutableReferences)) {
+    if (!Array.isArray(refs)) continue;
+    for (const ref of refs) {
+      if (typeof ref.start === "number" && typeof ref.length === "number" && ref.length > 0) {
+        regions.push({ start: ref.start, length: ref.length });
+      }
+    }
+  }
+  regions.sort((a, b) => a.start - b.start);
+  return regions;
+}
+
+/**
+ * Verify constructor-bound immutable values through on-chain getters.
+ * Each entry: { getter: async () => value, expected: value, label: string }
+ * Skipped when getterChecks is empty (contracts without immutables).
+ */
+async function verifyImmutableGetters(getterChecks) {
+  if (!Array.isArray(getterChecks) || getterChecks.length === 0) return;
+  for (const check of getterChecks) {
+    const actual = await check.getter();
+    const actualStr = typeof actual === "bigint" ? actual.toString() : String(actual).toLowerCase();
+    const expectedStr = typeof check.expected === "bigint" ? check.expected.toString() : String(check.expected).toLowerCase();
+    if (actualStr !== expectedStr) {
+      throw new Error(
+        `Immutable getter mismatch for ${check.label}: expected=${expectedStr}, actual=${actualStr}`,
+      );
+    }
+  }
 }
 
 /**
@@ -1042,6 +1135,8 @@ module.exports = {
   buildUnresolvedCreateEvidence,
   assertNoUnresolvedCreateEvidence,
   assertRuntimeBytecodeMatchesArtifact,
+  collectImmutableRegions,
+  verifyImmutableGetters,
   fetchRuntimeCodeWithRetries,
   formatCreateAddressLog,
   assertNoPoolActivation,

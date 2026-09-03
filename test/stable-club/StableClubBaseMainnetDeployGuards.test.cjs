@@ -36,6 +36,8 @@ const {
   buildUnresolvedCreateEvidence,
   assertNoUnresolvedCreateEvidence,
   assertRuntimeBytecodeMatchesArtifact,
+  collectImmutableRegions,
+  verifyImmutableGetters,
   fetchRuntimeCodeWithRetries,
   formatCreateAddressLog,
   assertNoPoolActivation,
@@ -815,16 +817,171 @@ describe("Base mainnet post-CREATE evidence hardening", function () {
     expect(queried.some((a) => a.toLowerCase() === predicted.toLowerCase())).to.equal(false);
   });
 
-  it("assertRuntimeBytecodeMatchesArtifact rejects mismatch", function () {
+  it("assertRuntimeBytecodeMatchesArtifact rejects mismatch (no immutables)", function () {
     const a = `0x${"11".repeat(32)}`;
     const b = `0x${"22".repeat(32)}`;
     expect(() => assertRuntimeBytecodeMatchesArtifact(a, b)).to.throw(/does not match artifact/);
     expect(assertRuntimeBytecodeMatchesArtifact(a, a)).to.equal(ethers.keccak256(a));
   });
 
+  it("assertRuntimeBytecodeMatchesArtifact passes with immutables and matching skeleton", function () {
+    // 64 bytes of bytecode, immutable region at bytes 16..32
+    const skeleton = "aa".repeat(16) + "00".repeat(16) + "bb".repeat(32);
+    const artifactCode = `0x${skeleton}`;
+    const liveCode = `0x${"aa".repeat(16) + "ff".repeat(16) + "bb".repeat(32)}`;
+    const immutableReferences = { "42": [{ start: 16, length: 16 }] };
+    // Should pass — non-immutable regions match
+    const hash = assertRuntimeBytecodeMatchesArtifact(liveCode, artifactCode, immutableReferences);
+    expect(hash).to.equal(ethers.keccak256(liveCode));
+  });
+
+  it("assertRuntimeBytecodeMatchesArtifact rejects tampered non-immutable bytecode", function () {
+    const artifactCode = `0x${"aa".repeat(16) + "00".repeat(16) + "bb".repeat(32)}`;
+    const tamperedCode = `0x${"cc".repeat(16) + "ff".repeat(16) + "bb".repeat(32)}`;
+    const immutableReferences = { "42": [{ start: 16, length: 16 }] };
+    expect(() =>
+      assertRuntimeBytecodeMatchesArtifact(tamperedCode, artifactCode, immutableReferences),
+    ).to.throw(/skeleton does not match/);
+  });
+
+  it("assertRuntimeBytecodeMatchesArtifact rejects length mismatch with immutables", function () {
+    const short = `0x${"aa".repeat(10)}`;
+    const long = `0x${"aa".repeat(20)}`;
+    const immutableReferences = { "1": [{ start: 0, length: 4 }] };
+    expect(() =>
+      assertRuntimeBytecodeMatchesArtifact(short, long, immutableReferences),
+    ).to.throw(/length mismatch/);
+  });
+
   it("assertReceiptContractAddress rejects missing CREATE address", function () {
     expect(() =>
       assertReceiptContractAddress({ status: 1, blockNumber: 1, contractAddress: null }, "x"),
     ).to.throw(/missing contractAddress/);
+  });
+
+  // === M1: RPC failure immediately after receipt leaves evidence ===
+  it("finalizeCreateFromReceipt persists evidence before getBlock and survives RPC failure", async function () {
+    const saved = [];
+    const dtx = { from: DEPLOYER, nonce: 10, hash: TX, data: CREATION_DATA };
+    const state = { deployer: DEPLOYER, contracts: {}, unresolvedCreateEvidence: null };
+    try {
+      await finalizeCreateFromReceipt(
+        state,
+        {
+          key: "test",
+          contractName: "Test",
+          constructorArgs: [],
+          expectedCreationData: CREATION_DATA,
+          expectedDeployedBytecode: `0x${"aa".repeat(32)}`,
+          deploymentTx: dtx,
+        },
+        {
+          saveState: (s) => saved.push(JSON.parse(JSON.stringify(s))),
+          waitReceipt: async () => mockReceipt({ contractAddress: ADDR_A }),
+          sleep: async () => {},
+          provider: {
+            getBlock: async () => { throw new Error("RPC down after receipt"); },
+            getTransaction: async () => null,
+            getCode: async () => "0x",
+          },
+          codeRetries: { maxAttempts: 1, delayMs: 1 },
+        },
+      );
+      expect.fail("should have thrown");
+    } catch (e) {
+      expect(e.message).to.include("RPC down after receipt");
+    }
+    // Evidence must have been saved BEFORE the RPC failure
+    expect(saved.length).to.be.at.least(1);
+    expect(saved[0].unresolvedCreateEvidence).to.not.equal(null);
+    expect(saved[0].unresolvedCreateEvidence.key).to.equal("test");
+    expect(saved[0].unresolvedCreateEvidence.address.toLowerCase()).to.equal(ADDR_A.toLowerCase());
+    expect(saved[0].unresolvedCreateEvidence.status).to.equal("unresolved");
+  });
+
+  // === M2: malformed and unexpected evidence status blocks resume ===
+  it("assertNoUnresolvedCreateEvidence blocks on status=resolved (malformed)", function () {
+    expect(() =>
+      assertNoUnresolvedCreateEvidence({ unresolvedCreateEvidence: { status: "resolved", key: "x" } }),
+    ).to.throw(/Resume blocked/);
+  });
+
+  it("assertNoUnresolvedCreateEvidence blocks on empty object", function () {
+    expect(() =>
+      assertNoUnresolvedCreateEvidence({ unresolvedCreateEvidence: {} }),
+    ).to.throw(/Resume blocked/);
+  });
+
+  it("assertNoUnresolvedCreateEvidence blocks on truthy non-object", function () {
+    expect(() =>
+      assertNoUnresolvedCreateEvidence({ unresolvedCreateEvidence: "stale" }),
+    ).to.throw(/Resume blocked/);
+  });
+
+  it("assertNoUnresolvedCreateEvidence allows null", function () {
+    expect(() => assertNoUnresolvedCreateEvidence({ unresolvedCreateEvidence: null })).to.not.throw();
+  });
+
+  it("assertNoUnresolvedCreateEvidence allows undefined/absent", function () {
+    expect(() => assertNoUnresolvedCreateEvidence({})).to.not.throw();
+  });
+
+  // === Atomic promotion clears evidence ===
+  it("finalizeCreateFromReceipt clears evidence atomically on success", async function () {
+    const saved = [];
+    const deployed = `0x${"aa".repeat(32)}`;
+    const dtx2 = { from: DEPLOYER, nonce: 11, hash: TX, data: CREATION_DATA };
+    const state = { deployer: DEPLOYER, contracts: {}, runtimeCodeHashes: {}, deploymentRecords: {}, txHashes: [], steps: {}, unresolvedCreateEvidence: null };
+    await finalizeCreateFromReceipt(
+      state,
+      {
+        key: "atomic",
+        contractName: "Test",
+        constructorArgs: [],
+        expectedCreationData: CREATION_DATA,
+        expectedDeployedBytecode: deployed,
+        deploymentTx: dtx2,
+      },
+      {
+        saveState: (s) => saved.push(JSON.parse(JSON.stringify(s))),
+        waitReceipt: async () => mockReceipt({ contractAddress: ADDR_A }),
+        sleep: async () => {},
+        provider: {
+          getBlock: async () => ({ number: 100, hash: BLOCK }),
+          getTransaction: async () => ({
+            from: DEPLOYER,
+            data: CREATION_DATA,
+            hash: TX,
+            nonce: 0,
+          }),
+          getCode: async () => deployed,
+        },
+        codeRetries: { maxAttempts: 1, delayMs: 1 },
+      },
+    );
+    // Final save must have null evidence (cleared atomically with deployment record)
+    const finalSave = saved[saved.length - 1];
+    expect(finalSave.unresolvedCreateEvidence).to.equal(null);
+    expect(finalSave.contracts.atomic).to.not.equal(undefined);
+  });
+
+  // === verifyImmutableGetters ===
+  it("verifyImmutableGetters passes when all getters match", async function () {
+    await verifyImmutableGetters([
+      { getter: async () => "0xabc", expected: "0xABC", label: "pool" },
+      { getter: async () => 42n, expected: 42n, label: "fee" },
+    ]);
+  });
+
+  it("verifyImmutableGetters rejects incorrect immutable value", async function () {
+    try {
+      await verifyImmutableGetters([
+        { getter: async () => "0xdead", expected: "0xbeef", label: "router" },
+      ]);
+      expect.fail("should have thrown");
+    } catch (e) {
+      expect(e.message).to.include("Immutable getter mismatch");
+      expect(e.message).to.include("router");
+    }
   });
 });
