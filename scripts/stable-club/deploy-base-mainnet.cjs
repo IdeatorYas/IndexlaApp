@@ -638,9 +638,9 @@ async function deployBaseMainnetStack(options = {}) {
   }
 
   guards.assertNoPoolActivation(state);
-  for (const name of guards.FORBIDDEN_AUTOMATION_CONTRACTS) {
-    guards.assertContractNotForbidden(name);
-  }
+  // Validate the actual CREATE plan (approved names pass; forbidden names must be absent).
+  // Per-CREATE refusal remains in deployNamed → assertContractNotForbidden.
+  guards.assertPrivateBetaDeployPlan(guards.BASE_MAINNET_PRIVATE_BETA_CONTRACT_PLAN);
 
   const permissionRegistry = await deployNamed("PermissionRegistry", [], state, "permissionRegistry");
   const strategyRegistry = await deployNamed(

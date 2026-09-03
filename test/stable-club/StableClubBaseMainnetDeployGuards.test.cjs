@@ -5,6 +5,7 @@ const {
   ARTIFACT_VERSION,
   BASE_DEPLOY_CONFIRMATION_PHRASE,
   FORBIDDEN_AUTOMATION_CONTRACTS,
+  BASE_MAINNET_PRIVATE_BETA_CONTRACT_PLAN,
   MVP_SAFE,
   MVP_FEE,
   USDC,
@@ -27,6 +28,7 @@ const {
   assertGuardianAddress,
   assertAutomationDisabled,
   assertContractNotForbidden,
+  assertPrivateBetaDeployPlan,
   assertReceiptSuccess,
   assertNoPoolActivation,
   assertUniqueContractAddresses,
@@ -176,6 +178,31 @@ describe("Base mainnet deploy guards — M-01 / M-02", function () {
     for (const name of FORBIDDEN_AUTOMATION_CONTRACTS) {
       expect(() => assertContractNotForbidden(name)).to.throw(/automation contract/);
     }
+  });
+
+  it("validates the private-beta CREATE plan — approved pass, forbidden fail before CREATE", function () {
+    expect(BASE_MAINNET_PRIVATE_BETA_CONTRACT_PLAN).to.include.members([
+      "PermissionRegistry",
+      "StableClubConcentratedLiquidityExecutor",
+      "UniswapV3Adapter",
+      "AerodromeSlipstreamAdapter",
+      "StableClubTimelock",
+    ]);
+    expect(() => assertPrivateBetaDeployPlan(BASE_MAINNET_PRIVATE_BETA_CONTRACT_PLAN)).to.not.throw();
+    for (const name of BASE_MAINNET_PRIVATE_BETA_CONTRACT_PLAN) {
+      expect(() => assertContractNotForbidden(name)).to.not.throw();
+    }
+    for (const forbidden of FORBIDDEN_AUTOMATION_CONTRACTS) {
+      expect(BASE_MAINNET_PRIVATE_BETA_CONTRACT_PLAN).to.not.include(forbidden);
+      expect(() => assertContractNotForbidden(forbidden)).to.throw(/automation contract/);
+      expect(() =>
+        assertPrivateBetaDeployPlan([...BASE_MAINNET_PRIVATE_BETA_CONTRACT_PLAN, forbidden]),
+      ).to.throw(/automation contract/);
+    }
+    expect(() => assertPrivateBetaDeployPlan([])).to.throw(/missing/);
+    expect(() => assertPrivateBetaDeployPlan(FORBIDDEN_AUTOMATION_CONTRACTS)).to.throw(
+      /automation contract/,
+    );
   });
 
   it("fails closed on failed receipts and enforces zero pool activation", function () {

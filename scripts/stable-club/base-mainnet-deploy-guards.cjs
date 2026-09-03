@@ -306,6 +306,49 @@ function assertContractNotForbidden(contractName) {
   }
 }
 
+/**
+ * Exact Hardhat contract names CREATE'd by the Base private-beta deploy path.
+ * Validate this plan — never call assertContractNotForbidden on the forbidden
+ * list itself (that inverted check always threw before any CREATE).
+ */
+const BASE_MAINNET_PRIVATE_BETA_CONTRACT_PLAN = Object.freeze([
+  "PermissionRegistry",
+  "StrategyPermissionRegistry",
+  "FeeRouter",
+  "StableClubSwapRouter",
+  "OracleGuard",
+  "MevGuard",
+  "SafetyController",
+  "StableClubConcentratedLiquidityExecutor",
+  "UniswapV3Adapter",
+  "AerodromeSlipstreamAdapter",
+  "StableClubTimelock",
+]);
+
+/**
+ * Fail closed if the planned CREATE set includes automation contracts.
+ * Approved plan names must pass; every forbidden name must be absent from the plan.
+ * Per-CREATE enforcement remains in deployNamed via assertContractNotForbidden.
+ */
+function assertPrivateBetaDeployPlan(plannedContractNames) {
+  if (!Array.isArray(plannedContractNames) || plannedContractNames.length === 0) {
+    throw new Error("Private beta deploy plan is missing");
+  }
+  for (const name of plannedContractNames) {
+    if (typeof name !== "string" || !name.trim()) {
+      throw new Error("Private beta deploy plan contains an invalid contract name");
+    }
+    assertContractNotForbidden(name);
+  }
+  for (const forbidden of FORBIDDEN_AUTOMATION_CONTRACTS) {
+    if (plannedContractNames.includes(forbidden)) {
+      throw new Error(
+        `Private beta deploy plan includes forbidden automation contract: ${forbidden}`,
+      );
+    }
+  }
+}
+
 function assertReceiptSuccess(receipt, label) {
   if (receipt == null) {
     throw new Error(`Missing receipt for ${label}`);
@@ -827,6 +870,7 @@ module.exports = {
   TIMELOCK_MIN_DELAY_SECONDS,
   BASE_DEPLOY_CONFIRMATION_PHRASE,
   FORBIDDEN_AUTOMATION_CONTRACTS,
+  BASE_MAINNET_PRIVATE_BETA_CONTRACT_PLAN,
   OWNABLE_KEYS,
   ADAPTER_OWNERSHIP_NOTE,
   CANONICAL_CODE_ADDRESSES,
@@ -848,6 +892,7 @@ module.exports = {
   assertGuardianAddress,
   assertAutomationDisabled,
   assertContractNotForbidden,
+  assertPrivateBetaDeployPlan,
   assertReceiptSuccess,
   assertNoPoolActivation,
   assertUniqueContractAddresses,
