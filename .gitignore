@@ -61,3 +61,8 @@ next-env.d.ts
 /typechain-types/
 /src/lib/stable-club/generated/local-deployments.json
 /src/lib/stable-club/generated/local-phase2a-deployments.json
+/src/lib/stable-club/generated/fork-phase2a-deployments.json
+
+# Base mainnet deploy state/artifacts (addresses + hashes only; never secrets — still local)
+/deployments/base-mainnet/*.json
+!/deployments/base-mainnet/README.md
