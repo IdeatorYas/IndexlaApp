@@ -126,7 +126,7 @@ export function StableClubFivePoolPositionsPanel() {
 
       {!p.positionsLoading && p.positions.length === 0 ? (
         <p className="mt-4 text-xs text-app-muted">
-          No open Stable Club NFTs for this wallet. Deposit 1,000 USDC in the five-pool panel to mint
+          No open Stable Club NFTs for this wallet. Deposit USDC in the five-pool panel to mint
           five positions.
         </p>
       ) : null}

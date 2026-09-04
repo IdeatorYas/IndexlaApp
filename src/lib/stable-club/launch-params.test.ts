@@ -29,7 +29,7 @@ describe("private-beta launch params", () => {
       perPool: 15_000,
       globalTvl: 25_000,
       dailyUserActionValue: 5_000,
-      minimumPosition: 250,
+      minimumPosition: 20,
     });
   });
 

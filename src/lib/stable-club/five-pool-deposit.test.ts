@@ -63,7 +63,9 @@ describe("parseUsdcDepositInput", () => {
     expect(parseUsdcDepositInput("").ok).toBe(false);
     expect(parseUsdcDepositInput("abc").ok).toBe(false);
     expect(parseUsdcDepositInput("0").ok).toBe(false);
-    expect(parseUsdcDepositInput("100").ok).toBe(false); // below 250 min
+    expect(parseUsdcDepositInput("20").ok).toBe(true);
+    expect(parseUsdcDepositInput("19.999999").ok).toBe(false); // below 20 min
+    expect(parseUsdcDepositInput("100").ok).toBe(true); // above new 20 min
     const bad = parseUsdcDepositInput("7");
     expect(bad.ok).toBe(false);
   });

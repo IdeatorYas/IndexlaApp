@@ -68,7 +68,7 @@ export const PRIVATE_BETA_LAUNCH_PARAMS: StableClubLaunchParams = {
     perPool: 15_000,
     globalTvl: 25_000,
     dailyUserActionValue: 5_000,
-    minimumPosition: 250,
+    minimumPosition: 20,
   },
   safety: {
     stablecoinDepegBps: 100,

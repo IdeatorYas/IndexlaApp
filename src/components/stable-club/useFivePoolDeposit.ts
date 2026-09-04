@@ -184,7 +184,7 @@ export function useFivePoolDeposit() {
   const [deploymentsLoading, setDeploymentsLoading] = useState(true);
   const [deploymentsError, setDeploymentsError] = useState<string | null>(null);
 
-  const [amountInput, setAmountInput] = useState("1000");
+  const [amountInput, setAmountInput] = useState("20");
   const [swapSlippageInput, setSwapSlippageInput] = useState(
     String(FIVE_POOL_DEFAULT_SWAP_SLIPPAGE_BPS),
   );

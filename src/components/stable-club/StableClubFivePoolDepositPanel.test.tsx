@@ -63,7 +63,7 @@ describe("StableClubFivePoolDepositPanel", () => {
         network: "hardhat-local",
       },
       deploymentsError: null,
-      amountInput: "1000",
+      amountInput: "20",
       setAmountInput: vi.fn(),
       swapSlippageInput: "100",
       setSwapSlippageInput: vi.fn(),
