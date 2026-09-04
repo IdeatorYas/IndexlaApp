@@ -15,8 +15,10 @@ import {
   type StableClubPhase2aPublicDeployments,
   type TrustedPhase2aBaseManifest,
 } from "@/lib/stable-club/phase2a-deployments";
+import { TRUSTED_PHASE2A_BASE_DEPLOYMENTS } from "@/lib/stable-club/trusted-phase2a-base-manifest";
 import { BASE_CHAIN_ID } from "@/lib/stable-club/verified-base-addresses";
 import { LOCAL_HARDHAT_CHAIN_ID, LOCAL_HARDHAT_NETWORK } from "@/lib/stable-club/chain-isolation";
+import { getAddress } from "viem";
 
 export const LOCAL_PHASE2A_DEPLOYMENTS_RELATIVE_PATH =
   "src/lib/stable-club/generated/local-phase2a-deployments.json";
@@ -95,6 +97,48 @@ export type ResolvePhase2aDeploymentsApiInput = {
 };
 
 /**
+ * Map trusted Base manifest → public deployments payload.
+ * Fail closed unless the pinned full deployments payload matches the trust root addresses.
+ */
+export function mapTrustedPhase2aBaseManifestToPublicDeployments(
+  trusted: TrustedPhase2aBaseManifest,
+  pinned: StableClubPhase2aDeployments = TRUSTED_PHASE2A_BASE_DEPLOYMENTS,
+): StableClubPhase2aPublicDeployments {
+  if (trusted.chainId !== BASE_CHAIN_ID || trusted.network !== "base" || trusted.isTestOnly !== false) {
+    throw new Error("Trusted Base manifest identity invalid for public mapping");
+  }
+  if (!isValidPhase2aDeployments(pinned)) {
+    throw new Error("Pinned Base Phase 2a deployments failed shape validation");
+  }
+  const same = (a: string, b: string) => getAddress(a as `0x${string}`) === getAddress(b as `0x${string}`);
+  const keys = [
+    "permissionRegistry",
+    "strategyRegistry",
+    "feeRouter",
+    "swapRouter",
+    "clExecutor",
+    "oracleGuard",
+    "mevGuard",
+    "safetyController",
+    "permit2",
+    "usdc",
+    "cbbtc",
+    "weth",
+  ] as const;
+  for (const key of keys) {
+    if (!same(pinned[key], trusted.contracts[key])) {
+      throw new Error(`Pinned Base deployments address mismatch for ${key}`);
+    }
+  }
+  for (let i = 0; i < 5; i++) {
+    if (!same(pinned.adapters[i]!.adapter, trusted.contracts.adapters[i]!)) {
+      throw new Error(`Pinned Base deployments address mismatch for adapter[${i}]`);
+    }
+  }
+  return toPublicPhase2aDeploymentsPayload(pinned);
+}
+
+/**
  * Resolve the Phase 2a deployments API response.
  * - Production: trusted manifest only; local JSON is never read.
  * - Dev/E2E (localhost + flag): optional local Hardhat JSON at runtime.
@@ -116,15 +160,24 @@ export function resolvePhase2aDeploymentsApiResponse(
         },
       };
     }
-    // Trusted root alone is not a full public deployments payload.
-    // Do not invent addresses — keep deposits disabled until an explicit mapper exists.
-    return {
-      status: 200,
-      body: {
-        configured: false,
-        message: PHASE2A_BASE_UNAVAILABLE_MESSAGE,
-      },
-    };
+    try {
+      const deployments = mapTrustedPhase2aBaseManifestToPublicDeployments(trusted);
+      return {
+        status: 200,
+        body: {
+          configured: true,
+          deployments,
+        },
+      };
+    } catch {
+      return {
+        status: 200,
+        body: {
+          configured: false,
+          message: PHASE2A_BASE_UNAVAILABLE_MESSAGE,
+        },
+      };
+    }
   }
 
   const access: StableClubDevPanelAccessInput = {

@@ -154,4 +154,27 @@ describe("resolvePhase2aDeploymentsApiResponse", () => {
     expect(loadLocal).not.toHaveBeenCalled();
     expect(result.body).toMatchObject({ configured: false });
   });
+
+  it("production with pinned trusted manifest serves configured Base deployments", () => {
+    const result = resolvePhase2aDeploymentsApiResponse({
+      nodeEnv: "production",
+      host: "app.indexla.tech",
+      devFlagEnabled: false,
+    });
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      configured: true,
+      deployments: {
+        chainId: 8453,
+        network: "base",
+        isTestOnly: false,
+        clExecutor: "0x1cdE442a760Ddda54087081aF9860471Dc099a9f",
+        discoveryStartBlock: 50881768,
+      },
+    });
+    if ("deployments" in result.body && result.body.configured) {
+      expect(result.body.deployments).not.toHaveProperty("deployer");
+      expect(result.body.deployments.adapters).toHaveLength(5);
+    }
+  });
 });

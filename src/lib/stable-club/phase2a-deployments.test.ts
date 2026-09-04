@@ -236,8 +236,7 @@ describe("SC-F09 — Phase 2a pin and verify deployments", () => {
     ).toBe(false);
   });
 
-  it("Base artifact without a trusted manifest fails closed", async () => {
-    expect(getTrustedPhase2aBaseManifest()).toBeNull();
+  it("Base artifact without an injected trusted manifest fails closed", async () => {
     const deployments = basePhase2aFixture();
     expect(isValidPhase2aDeployments(deployments)).toBe(true);
     await expect(
@@ -247,6 +246,15 @@ describe("SC-F09 — Phase 2a pin and verify deployments", () => {
         trustedBaseManifest: null,
       }),
     ).rejects.toThrow(/no source-controlled trusted Base manifest/);
+  });
+
+  it("pinned production trusted Base manifest is non-null and Base-shaped", () => {
+    const trusted = getTrustedPhase2aBaseManifest();
+    expect(trusted).not.toBeNull();
+    expect(trusted?.chainId).toBe(8453);
+    expect(trusted?.network).toBe("base");
+    expect(trusted?.isTestOnly).toBe(false);
+    expect(trusted?.contracts.adapters).toHaveLength(5);
   });
 
   it("Base address mismatch fails", async () => {

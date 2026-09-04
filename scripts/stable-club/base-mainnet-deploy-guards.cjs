@@ -654,7 +654,11 @@ function assertDeployedContractEvidence({
   if (saved.blockNumber == null || Number(saved.blockNumber) <= 0) {
     throw new Error(`Resume missing block number for ${key}`);
   }
-  if (!saved.blockHash || !/^0x[a-fA-F0-9]{64}$/.test(saved.blockHash)) {
+  if (
+    !saved.blockHash ||
+    !/^0x[a-fA-F0-9]{64}$/.test(saved.blockHash) ||
+    String(saved.blockHash).toLowerCase() === ethers.ZeroHash.toLowerCase()
+  ) {
     throw new Error(`Resume missing block hash for ${key}`);
   }
   if (!saved.creationDataHash || !/^0x[a-fA-F0-9]{64}$/.test(saved.creationDataHash)) {
@@ -679,12 +683,25 @@ function assertDeployedContractEvidence({
   if (Number(liveReceipt.blockNumber) !== Number(saved.blockNumber)) {
     throw new Error(`Resume block number mismatch for ${key}`);
   }
-  const receiptBlockHash = liveReceipt.blockHash || liveBlock.hash;
-  if (!addrEq(receiptBlockHash, saved.blockHash)) {
+  // Hardhat/Base can return a zero blockHash on wait() receipts; treat as missing.
+  const receiptHashRaw = liveReceipt.blockHash;
+  const receiptHashUsable =
+    typeof receiptHashRaw === "string" &&
+    /^0x[0-9a-fA-F]{64}$/.test(receiptHashRaw) &&
+    receiptHashRaw.toLowerCase() !== ethers.ZeroHash.toLowerCase();
+  const receiptBlockHash = receiptHashUsable ? receiptHashRaw : liveBlock.hash;
+  if (
+    String(receiptBlockHash).toLowerCase() !== String(saved.blockHash).toLowerCase()
+  ) {
     throw new Error(`Resume block hash mismatch for ${key}`);
   }
   if (Number(liveBlock.number) !== Number(saved.blockNumber)) {
     throw new Error(`Resume block header number mismatch for ${key}`);
+  }
+  if (
+    String(liveBlock.hash).toLowerCase() !== String(saved.blockHash).toLowerCase()
+  ) {
+    throw new Error(`Resume live block hash mismatch for ${key}`);
   }
 
   const liveCreationHash = ethers.keccak256(liveTx.data);

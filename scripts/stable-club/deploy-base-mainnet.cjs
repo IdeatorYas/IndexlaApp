@@ -33,9 +33,50 @@ function atomicWriteJson(filePath, value) {
   ensureArtifactDir();
   const redacted = guards.redactSecretsFromObject(value);
   guards.assertArtifactHasNoSecrets(redacted);
+  const payload = `${JSON.stringify(redacted, null, 2)}\n`;
   const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(redacted, null, 2)}\n`, "utf8");
-  fs.renameSync(tmp, filePath);
+  fs.writeFileSync(tmp, payload, "utf8");
+
+  // Windows can briefly lock the destination (AV/indexer). Retry replace; never leave secrets in plaintext tmp.
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 12; attempt++) {
+    try {
+      try {
+        fs.renameSync(tmp, filePath);
+      } catch (renameErr) {
+        const code = renameErr && renameErr.code;
+        if (code === "EPERM" || code === "EEXIST" || code === "EACCES") {
+          fs.copyFileSync(tmp, filePath);
+          try {
+            fs.unlinkSync(tmp);
+          } catch {
+            // best-effort cleanup
+          }
+        } else {
+          throw renameErr;
+        }
+      }
+      return;
+    } catch (e) {
+      lastErr = e;
+      try {
+        require("child_process").execSync(
+          process.platform === "win32"
+            ? `powershell -NoProfile -Command "Start-Sleep -Milliseconds ${150 * attempt}"`
+            : `sleep ${0.15 * attempt}`,
+          { stdio: "ignore" },
+        );
+      } catch {
+        // ignore sleep failures
+      }
+    }
+  }
+  try {
+    fs.unlinkSync(tmp);
+  } catch {
+    // ignore
+  }
+  throw lastErr || new Error(`atomicWriteJson failed for ${filePath}`);
 }
 
 function loadState() {
@@ -133,6 +174,54 @@ async function waitReceipt(txOrResponse, label) {
   return receipt;
 }
 
+function isUsableBlockHash(hash) {
+  return (
+    typeof hash === "string" &&
+    /^0x[0-9a-fA-F]{64}$/.test(hash) &&
+    hash.toLowerCase() !== ethers.ZeroHash.toLowerCase()
+  );
+}
+
+/**
+ * Base RPC / Hardhat provider can briefly return null for eth_getBlockByNumber
+ * right after receipt. Retry by hash (preferred) then by number. Fail closed.
+ */
+async function fetchBlockWithRetries(provider, { blockNumber, blockHash }, deps = {}) {
+  const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const maxAttempts = deps.maxAttempts ?? 8;
+  const delayMs = deps.delayMs ?? 750;
+  const n = Number(blockNumber);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`Invalid blockNumber for CREATE evidence: ${String(blockNumber)}`);
+  }
+
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      if (isUsableBlockHash(blockHash)) {
+        const byHash = await provider.getBlock(blockHash);
+        if (byHash) return byHash;
+      }
+      const byNum = await provider.getBlock(n);
+      if (byNum) return byNum;
+      lastErr = new Error(`getBlock returned null (attempt ${attempt}/${maxAttempts})`);
+    } catch (e) {
+      lastErr = e;
+      const msg = String(e && e.message ? e.message : e);
+      // Back off harder on provider rate limits.
+      if (msg.includes("request limit") || msg.includes("-32007") || msg.includes("429")) {
+        await sleep(delayMs * attempt * 2);
+        continue;
+      }
+    }
+    if (attempt < maxAttempts) await sleep(delayMs);
+  }
+  throw new Error(
+    `Missing block for CREATE evidence at ${n}` +
+      (lastErr ? `: ${String(lastErr.message || lastErr).slice(0, 120)}` : ""),
+  );
+}
+
 function safePredictedCreateAddress(deploymentTx) {
   try {
     if (!deploymentTx?.from || deploymentTx.nonce == null) return null;
@@ -143,6 +232,49 @@ function safePredictedCreateAddress(deploymentTx) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Hardhat artifacts often omit immutableReferences under viaIR.
+ * Load refs only from solc build-info whose deployedBytecode matches this artifact
+ * (stale build-info entries must not be used — wrong offsets fail closed or false-pass).
+ */
+function resolveImmutableReferences(contractName, artifact) {
+  const artifactRefs = artifact?.immutableReferences;
+  if (
+    artifactRefs &&
+    typeof artifactRefs === "object" &&
+    Object.keys(artifactRefs).length > 0
+  ) {
+    return artifactRefs;
+  }
+  const want = String(artifact?.deployedBytecode || "")
+    .replace(/^0x/i, "")
+    .toLowerCase();
+  if (!want) return {};
+
+  const buildInfoDir = path.join(__dirname, "../../artifacts/build-info");
+  if (!fs.existsSync(buildInfoDir)) return {};
+
+  for (const name of fs.readdirSync(buildInfoDir)) {
+    if (!name.endsWith(".json")) continue;
+    let info;
+    try {
+      info = JSON.parse(fs.readFileSync(path.join(buildInfoDir, name), "utf8"));
+    } catch {
+      continue;
+    }
+    const contracts = info?.output?.contracts;
+    if (!contracts) continue;
+    for (const fileContracts of Object.values(contracts)) {
+      const entry = fileContracts?.[contractName];
+      const obj = String(entry?.evm?.deployedBytecode?.object || "").toLowerCase();
+      if (!obj || obj !== want) continue;
+      const refs = entry.evm.deployedBytecode.immutableReferences;
+      return refs && typeof refs === "object" ? refs : {};
+    }
+  }
+  return {};
 }
 
 /**
@@ -211,10 +343,26 @@ async function finalizeCreateFromReceipt(
   save(state);
 
   // Now safe to make additional RPC calls — evidence is already persisted.
-  const block = await provider.getBlock(receipt.blockNumber);
-  if (!block) {
-    throw new Error(`Missing block for CREATE ${key}`);
+  // Prefer refreshed receipt (Hardhat occasionally yields a zero blockHash on wait()).
+  let liveReceipt = receipt;
+  try {
+    const refreshed = await provider.getTransactionReceipt(receipt.hash);
+    if (refreshed) liveReceipt = refreshed;
+  } catch {
+    // keep wait() receipt
   }
+  const block = await fetchBlockWithRetries(
+    provider,
+    {
+      blockNumber: liveReceipt.blockNumber ?? receipt.blockNumber,
+      blockHash: isUsableBlockHash(liveReceipt.blockHash)
+        ? liveReceipt.blockHash
+        : isUsableBlockHash(receipt.blockHash)
+          ? receipt.blockHash
+          : null,
+    },
+    sleep ? { sleep } : {},
+  );
   const fullTx = await provider.getTransaction(receipt.hash);
   if (!fullTx) {
     throw new Error(`Missing transaction for CREATE ${key}`);
@@ -222,7 +370,11 @@ async function finalizeCreateFromReceipt(
 
   // Enrich evidence with data from getBlock/getTransaction.
   state.unresolvedCreateEvidence.blockHash =
-    state.unresolvedCreateEvidence.blockHash || block.hash;
+    state.unresolvedCreateEvidence.blockHash &&
+    isUsableBlockHash(state.unresolvedCreateEvidence.blockHash)
+      ? state.unresolvedCreateEvidence.blockHash
+      : block.hash;
+  state.unresolvedCreateEvidence.blockNumber = Number(block.number);
   state.unresolvedCreateEvidence.creationDataHash = ethers.keccak256(fullTx.data);
   save(state);
 
@@ -246,14 +398,18 @@ async function finalizeCreateFromReceipt(
         address: authoritative,
         deployTxHash: receipt.hash,
         blockNumber: Number(receipt.blockNumber),
-        blockHash: receipt.blockHash || block.hash,
+        blockHash: isUsableBlockHash(liveReceipt.blockHash)
+          ? liveReceipt.blockHash
+          : isUsableBlockHash(receipt.blockHash)
+            ? receipt.blockHash
+            : block.hash,
         creationDataHash: ethers.keccak256(fullTx.data),
         runtimeCodeHash: codeHash,
       },
       expectedDeployer: state.deployer,
       expectedCreationData,
       liveTx: fullTx,
-      liveReceipt: receipt,
+      liveReceipt,
       liveBlock: block,
       liveCodeHash: codeHash,
     });
@@ -262,7 +418,7 @@ async function finalizeCreateFromReceipt(
     recordDeployment(state, key, {
       address: authoritative,
       deployTx: fullTx,
-      receipt,
+      receipt: liveReceipt,
       block,
       runtimeHash: codeHash,
       contractName,
@@ -275,6 +431,106 @@ async function finalizeCreateFromReceipt(
     // Leave unresolvedCreateEvidence persisted for fail-closed recovery / resume block.
     throw error;
   }
+}
+
+/**
+ * Complete verification for a CREATE that landed on-chain but failed mid-finalize.
+ * Same evidence gates as finalizeCreateFromReceipt — never invents hashes/addresses.
+ */
+async function promoteUnresolvedCreateEvidence(provider, state, deps = {}) {
+  const pending = state?.unresolvedCreateEvidence;
+  if (pending == null) return false;
+  if (!pending.key || !pending.contractName || !pending.deployTxHash || !pending.address) {
+    throw new Error("Unresolved CREATE evidence incomplete — refusing promotion");
+  }
+
+  const sleep = deps.sleep;
+  const liveReceipt = await provider.getTransactionReceipt(pending.deployTxHash);
+  if (!liveReceipt) {
+    throw new Error(`Missing receipt for unresolved CREATE ${pending.key}`);
+  }
+  guards.assertReceiptSuccess(liveReceipt, `promote ${pending.key}`);
+  const receiptAddress = guards.assertReceiptContractAddress(liveReceipt, pending.key);
+  if (!guards.addrEq(receiptAddress, pending.address)) {
+    throw new Error(
+      `Unresolved CREATE address mismatch for ${pending.key}: evidence=${pending.address} receipt=${receiptAddress}`,
+    );
+  }
+
+  const fullTx = await provider.getTransaction(pending.deployTxHash);
+  if (!fullTx) {
+    throw new Error(`Missing transaction for unresolved CREATE ${pending.key}`);
+  }
+  const block = await fetchBlockWithRetries(
+    provider,
+    {
+      blockNumber: liveReceipt.blockNumber,
+      blockHash: isUsableBlockHash(liveReceipt.blockHash)
+        ? liveReceipt.blockHash
+        : isUsableBlockHash(pending.blockHash)
+          ? pending.blockHash
+          : null,
+    },
+    sleep ? { sleep } : {},
+  );
+
+  const artifact = await artifacts.readArtifact(pending.contractName);
+  const factory = await ethers.getContractFactory(pending.contractName);
+  const ctorArgs = Array.isArray(pending.constructorArgs) ? pending.constructorArgs : [];
+  const expectedCreationData = (await factory.getDeployTransaction(...ctorArgs)).data;
+
+  const liveCode = await guards.fetchRuntimeCodeWithRetries({
+    getCode: (addr, tag) => provider.getCode(addr, tag),
+    address: receiptAddress,
+    blockTag: Number(liveReceipt.blockNumber),
+    ...(sleep ? { sleep } : {}),
+    ...(deps.codeRetries || {}),
+  });
+  const codeHash = guards.assertRuntimeBytecodeMatchesArtifact(
+    liveCode,
+    artifact.deployedBytecode,
+    resolveImmutableReferences(pending.contractName, artifact),
+  );
+
+  guards.assertDeployedContractEvidence({
+    key: pending.key,
+    saved: {
+      address: receiptAddress,
+      deployTxHash: liveReceipt.hash,
+      blockNumber: Number(liveReceipt.blockNumber),
+      blockHash: isUsableBlockHash(liveReceipt.blockHash) ? liveReceipt.blockHash : block.hash,
+      creationDataHash: ethers.keccak256(fullTx.data),
+      runtimeCodeHash: codeHash,
+    },
+    expectedDeployer: state.deployer,
+    expectedCreationData,
+    liveTx: fullTx,
+    liveReceipt,
+    liveBlock: block,
+    liveCodeHash: codeHash,
+  });
+
+  recordDeployment(state, pending.key, {
+    address: receiptAddress,
+    deployTx: fullTx,
+    receipt: liveReceipt,
+    block,
+    runtimeHash: codeHash,
+    contractName: pending.contractName,
+    constructorArgs: ctorArgs,
+  });
+  state.unresolvedCreateEvidence = null;
+  saveState(state);
+  console.log(
+    JSON.stringify({
+      event: "stable_club_create_promoted",
+      key: pending.key,
+      address: receiptAddress,
+      deployTxHash: liveReceipt.hash,
+      blockNumber: Number(liveReceipt.blockNumber),
+    }),
+  );
+  return true;
 }
 
 async function assertBaseRpcClientNotLocal(provider) {
@@ -294,7 +550,20 @@ async function authenticateSavedContract(provider, state, key, expectedCreationD
   }
   const liveTx = await provider.getTransaction(saved.deployTxHash);
   const liveReceipt = await provider.getTransactionReceipt(saved.deployTxHash);
-  const liveBlock = await provider.getBlock(saved.blockNumber);
+  if (!liveReceipt) {
+    throw new Error(`Resume: deployment receipt not found for ${key}`);
+  }
+  // Heal legacy records that stored Hardhat's zero blockHash (truthy but unusable).
+  if (!isUsableBlockHash(saved.blockHash) && isUsableBlockHash(liveReceipt.blockHash)) {
+    saved.blockHash = liveReceipt.blockHash;
+  }
+  const liveBlock = await fetchBlockWithRetries(provider, {
+    blockNumber: saved.blockNumber,
+    blockHash: isUsableBlockHash(saved.blockHash) ? saved.blockHash : liveReceipt.blockHash,
+  });
+  if (!isUsableBlockHash(saved.blockHash)) {
+    saved.blockHash = liveBlock.hash;
+  }
   const liveCodeHash = await runtimeCodeHash(provider, saved.address, saved.blockNumber);
 
   guards.assertDeployedContractEvidence({
@@ -311,6 +580,7 @@ async function authenticateSavedContract(provider, state, key, expectedCreationD
   // Keep maps consistent with authenticated record (from live evidence, not self-compare).
   state.contracts[key] = ethers.getAddress(saved.address);
   state.runtimeCodeHashes[key] = liveCodeHash;
+  saveState(state);
 }
 
 async function authenticateResumeState(provider, state, expectedIdentity) {
@@ -335,6 +605,8 @@ async function authenticateResumeState(provider, state, expectedIdentity) {
     const ctorArgs = Array.isArray(saved.constructorArgs) ? saved.constructorArgs : [];
     const expectedCreationData = (await factory.getDeployTransaction(...ctorArgs)).data;
     await authenticateSavedContract(provider, state, key, expectedCreationData);
+    // Stay under shared-RPC rate limits (e.g. QuickNode 15 rps).
+    await new Promise((r) => setTimeout(r, 200));
   }
 
   for (const key of Object.keys(state.contracts || {})) {
@@ -346,6 +618,14 @@ async function authenticateResumeState(provider, state, expectedIdentity) {
 
 function recordDeployment(state, key, { address, deployTx, receipt, block, runtimeHash, contractName, constructorArgs }) {
   const creationDataHash = ethers.keccak256(deployTx.data);
+  const blockHash = isUsableBlockHash(receipt.blockHash)
+    ? receipt.blockHash
+    : isUsableBlockHash(block?.hash)
+      ? block.hash
+      : null;
+  if (!blockHash) {
+    throw new Error(`Refusing to record CREATE ${key} without a usable block hash`);
+  }
   state.contracts[key] = ethers.getAddress(address);
   state.runtimeCodeHashes[key] = runtimeHash;
   state.deploymentRecords[key] = {
@@ -354,10 +634,10 @@ function recordDeployment(state, key, { address, deployTx, receipt, block, runti
     address: ethers.getAddress(address),
     deployTxHash: receipt.hash,
     blockNumber: Number(receipt.blockNumber),
-    blockHash: receipt.blockHash || block.hash,
+    blockHash,
     creationDataHash,
     runtimeCodeHash: runtimeHash,
-    constructorArgs: constructorArgs ?? [],
+    constructorArgs: constructorArgs || [],
   };
   state.txHashes.push({
     step: `deploy:${key}`,
@@ -392,7 +672,7 @@ async function deployNamed(name, args, state, key) {
       expectedDeployedBytecode: artifact.deployedBytecode,
       deploymentTx,
     },
-    { immutableReferences: artifact.immutableReferences },
+    { immutableReferences: resolveImmutableReferences(name, artifact) },
   );
   return await ethers.getContractAt(name, addr);
 }
@@ -406,9 +686,25 @@ async function sendStep(state, stepKey, label, sendFn, verifyFn) {
     throw new Error(`Wiring step ${stepKey} requires an on-chain verifier`);
   }
 
+  const runVerifyWithRetries = async () => {
+    let lastErr;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        await verifyFn();
+        return;
+      } catch (error) {
+        lastErr = error;
+        if (attempt < 5) {
+          await new Promise((r) => setTimeout(r, 400 * attempt));
+        }
+      }
+    }
+    throw lastErr;
+  };
+
   if (state.steps[stepKey]) {
     try {
-      await verifyFn();
+      await runVerifyWithRetries();
     } catch (error) {
       const detail = guards.sanitizeErrorMessage(error);
       throw new Error(
@@ -423,20 +719,72 @@ async function sendStep(state, stepKey, label, sendFn, verifyFn) {
     return;
   }
 
-  const tx = await sendFn();
-  if (tx == null) {
-    await verifyFn();
+  // Resume-safe: if on-chain already matches (prior broadcast succeeded before local flag save),
+  // do not rebroadcast (avoids nonce collisions).
+  try {
+    await runVerifyWithRetries();
     state.steps[stepKey] = true;
     saveState(state);
     return;
+  } catch {
+    // Not yet wired — proceed to broadcast.
   }
-  const receipt = await waitReceipt(tx, label);
+
+  let receipt = null;
+  let lastSendErr = null;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const tx = await sendFn();
+      if (tx == null) {
+        await runVerifyWithRetries();
+        state.steps[stepKey] = true;
+        saveState(state);
+        return;
+      }
+      receipt = await waitReceipt(tx, label);
+      lastSendErr = null;
+      break;
+    } catch (error) {
+      lastSendErr = error;
+      const msg = String(error && error.message ? error.message : error).toLowerCase();
+      const nonceRace =
+        msg.includes("nonce too low") ||
+        msg.includes("nonce_expired") ||
+        msg.includes("replacement transaction underpriced") ||
+        msg.includes("already known");
+      if (!nonceRace || attempt === 4) {
+        // If a prior attempt actually landed, prefer on-chain truth over send error.
+        try {
+          await runVerifyWithRetries();
+          state.steps[stepKey] = true;
+          saveState(state);
+          return;
+        } catch {
+          throw error;
+        }
+      }
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+      try {
+        await runVerifyWithRetries();
+        state.steps[stepKey] = true;
+        saveState(state);
+        return;
+      } catch {
+        // still not wired — retry send with a fresher nonce from the provider
+      }
+    }
+  }
+  if (!receipt) {
+    throw lastSendErr || new Error(`Wiring step ${stepKey} failed to broadcast`);
+  }
   state.txHashes.push({
     step: stepKey,
     hash: receipt.hash,
     blockNumber: Number(receipt.blockNumber),
   });
-  await verifyFn();
+  // Persist receipt hash before verify so a later RPC lag failure can resume safely.
+  saveState(state);
+  await runVerifyWithRetries();
   state.steps[stepKey] = true;
   saveState(state);
 }
@@ -738,6 +1086,19 @@ async function deployBaseMainnetStack(options = {}) {
   await validateCanonicalDependencies(ethers.provider);
 
   const [deployer] = await ethers.getSigners();
+  // Always take nonce from the chain — Hardhat's local nonce cache can lag after
+  // interrupted resumes / partial wiring broadcasts on shared RPCs.
+  const originalGetNonce = deployer.getNonce.bind(deployer);
+  deployer.getNonce = async (blockTag) => {
+    try {
+      return await ethers.provider.getTransactionCount(
+        deployer.address,
+        blockTag === undefined ? "pending" : blockTag,
+      );
+    } catch {
+      return originalGetNonce(blockTag);
+    }
+  };
   const releaseCommit = options.releaseCommit ?? resolveReleaseCommit(env);
   const expectedIdentity = {
     releaseCommit,
@@ -750,6 +1111,9 @@ async function deployBaseMainnetStack(options = {}) {
 
   let state = loadState();
   if (state) {
+    if (state.unresolvedCreateEvidence) {
+      await promoteUnresolvedCreateEvidence(ethers.provider, state);
+    }
     guards.assertNoUnresolvedCreateEvidence(state);
     await authenticateResumeState(ethers.provider, state, expectedIdentity);
   } else {
@@ -1025,7 +1389,7 @@ async function deployBaseMainnetStack(options = {}) {
           expectedDeployedBytecode: artifact.deployedBytecode,
           deploymentTx: adapter.deploymentTransaction(),
         },
-        { immutableReferences: artifact.immutableReferences },
+        { immutableReferences: resolveImmutableReferences(contractName, artifact) },
       );
     }
 
@@ -1226,6 +1590,8 @@ module.exports = {
   verifyAggregateOnChainWiring,
   resolveReleaseCommit,
   finalizeCreateFromReceipt,
+  promoteUnresolvedCreateEvidence,
+  fetchBlockWithRetries,
   safePredictedCreateAddress,
   atomicWriteJson,
   STATE_PATH,

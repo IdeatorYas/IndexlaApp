@@ -11,12 +11,8 @@ import {
   LOCAL_HARDHAT_NETWORK,
 } from "@/lib/stable-club/chain-isolation";
 import { isNonZeroAddress, ZERO_ADDRESS } from "@/lib/stable-club/nft-approval";
-import {
-  BASE_CHAIN_ID,
-  BASE_PERMIT2,
-  BASE_TOKENS,
-  isCanonicalBasePermit2,
-} from "@/lib/stable-club/verified-base-addresses";
+import { BASE_CHAIN_ID, BASE_PERMIT2, BASE_TOKENS, isCanonicalBasePermit2 } from "@/lib/stable-club/verified-base-addresses";
+import { TRUSTED_PHASE2A_BASE_MANIFEST } from "@/lib/stable-club/trusted-phase2a-base-manifest";
 
 export const PHASE2A_BASE_NETWORK = "base" as const;
 
@@ -116,11 +112,11 @@ export type TrustedPhase2aBaseManifest = {
 };
 
 /**
- * Trust root accessor — no Base Phase 2a INDEXLA manifest is pinned in-repo yet.
+ * Trust root accessor — pinned from verified Base mainnet deploy artifact.
  * Do not invent addresses or hashes here.
  */
 export function getTrustedPhase2aBaseManifest(): TrustedPhase2aBaseManifest | null {
-  return null;
+  return TRUSTED_PHASE2A_BASE_MANIFEST;
 }
 
 function sameAddr(a: Address | string, b: Address | string): boolean {
