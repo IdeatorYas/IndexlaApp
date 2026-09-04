@@ -24,6 +24,7 @@ const eslintConfig = [
       "hardhat.config.cjs",
       "test/stable-club/**",
       "scripts/stable-club/**",
+      "scripts/ensure-wagmi2-connectors.cjs",
       "tests/e2e/stable-club-global-setup.cjs",
       "tests/e2e/stable-club-global-teardown.cjs",
       "tmp/**",

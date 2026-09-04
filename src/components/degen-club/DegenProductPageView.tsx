@@ -26,7 +26,7 @@ import { APP_ROUTES } from "@/lib/routes";
 export function DegenProductPageView({ product }: { product: DegenProduct }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { wallet, connectDemo } = useDemoWallet();
+  const { wallet, connect } = useDemoWallet();
   const { prices } = useDegenPrices();
   const enriched = useMemo(
     () => enrichDegenProduct(product, prices),
@@ -209,7 +209,7 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
             type="button"
             className="degen-btn-primary h-9 flex-1 text-[12px] uppercase tracking-wide"
             onClick={() => {
-              if (wallet.state !== "connected") connectDemo();
+              if (wallet.state !== "connected") connect();
               setTradeAck(false);
               setTradeOpen(true);
             }}
@@ -251,7 +251,7 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
               });
             }
           }}
-          onConnect={connectDemo}
+          onConnect={connect}
           onConfirm={() => {
             setTradeOpen(false);
             preview(`Trade preview · ${enriched.name}`);

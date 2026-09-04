@@ -194,7 +194,7 @@ export function StepReviewConfirm({
   onFeeModalOpenChange: (open: boolean) => void;
   onCanConfirmChange?: (can: boolean) => void;
 }) {
-  const { wallet, connectDemo } = useDemoWallet();
+  const { wallet, connect } = useDemoWallet();
   const dexla = getDexlaBalance().data;
   const [message, setMessage] = useState<string | null>(null);
   const [riskAcknowledged, setRiskAcknowledged] = useState(false);
@@ -256,7 +256,7 @@ export function StepReviewConfirm({
   }, [canOpenModal, onCanConfirmChange]);
 
   function handleApprove() {
-    if (wallet.state !== "connected") connectDemo();
+    if (wallet.state !== "connected") connect();
     onFeeModalOpenChange(false);
     onChange({ previewConfirmed: true });
     setMessage(

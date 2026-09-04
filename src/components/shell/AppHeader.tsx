@@ -9,7 +9,8 @@ import { getDexlaBalance } from "@/lib/data";
 
 export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const { theme, toggleTheme } = useTheme();
-  const { wallet, connectDemo, disconnect } = useDemoWallet();
+  const { wallet, connect, disconnect, switchToBase, ethBalanceFormatted } =
+    useDemoWallet();
   const flags = getClientFeatureFlags();
   const dexla = getDexlaBalance().data;
 
@@ -94,14 +95,30 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         {theme === "dark" ? "☀" : "☾"}
       </button>
 
+      {wallet.state === "connected" && ethBalanceFormatted ? (
+        <span className="hidden h-9 items-center rounded-full border border-app-line px-2.5 text-[11px] font-semibold text-app-dim lg:flex">
+          {ethBalanceFormatted}
+        </span>
+      ) : null}
+
       <button
         type="button"
-        onClick={wallet.state === "connected" ? disconnect : connectDemo}
+        onClick={
+          wallet.state === "connected"
+            ? disconnect
+            : wallet.state === "wrong-network"
+              ? () => {
+                  void switchToBase();
+                }
+              : connect
+        }
         className="app-interactive ml-0.5 h-9 shrink-0 truncate rounded-full border border-app-brand/35 bg-gradient-to-r from-app-brand/15 to-[color:var(--color-accent-violet)]/12 px-3.5 text-[12px] font-bold text-app-ink hover:border-app-brand/55 hover:shadow-[0_4px_14px_-4px_rgba(37,99,235,0.35)] sm:max-w-none sm:px-4"
       >
         {wallet.state === "connected"
           ? wallet.shortenedAddress
-          : "Connect Wallet"}
+          : wallet.state === "wrong-network"
+            ? "Switch to Base"
+            : "Connect Wallet"}
       </button>
     </header>
   );

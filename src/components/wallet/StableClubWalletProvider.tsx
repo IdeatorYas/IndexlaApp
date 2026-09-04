@@ -8,19 +8,20 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useAppKit } from "@reown/appkit/react";
 import {
-  createPublicClient,
-  custom,
-  type Address,
-  type Chain,
-  type EIP1193Provider,
-} from "viem";
+  useAccount,
+  useChainId,
+  useDisconnect,
+  useSwitchChain,
+} from "wagmi";
+import type { Address, Chain, EIP1193Provider } from "viem";
 import {
   STABLE_CLUB_CHAIN,
   STABLE_CLUB_CHAIN_ID,
   STABLE_CLUB_LOCAL_CHAIN,
-  STABLE_CLUB_LOCAL_RPC_URL,
 } from "@/lib/stable-club/constants";
+import { hasWalletConnectProjectId } from "@/lib/wallet/wagmi-config";
 
 type StableClubWalletState = {
   status: "disconnected" | "connecting" | "connected" | "wrong-network";
@@ -42,11 +43,6 @@ const StableClubWalletContext = createContext<StableClubWalletContextValue | nul
   null,
 );
 
-function ethereumProvider(): EIP1193Provider | undefined {
-  if (typeof window === "undefined") return undefined;
-  return (window as Window & { ethereum?: EIP1193Provider }).ethereum;
-}
-
 export function StableClubWalletProvider({
   children,
   preferLocalHardhat = false,
@@ -54,170 +50,121 @@ export function StableClubWalletProvider({
   children: React.ReactNode;
   preferLocalHardhat?: boolean;
 }) {
-  const [state, setState] = useState<StableClubWalletState>({
-    status: "disconnected",
-    address: null,
-    chainId: null,
-    error: null,
-  });
+  const { open } = useAppKit();
+  const { address, isConnected, isConnecting, connector } = useAccount();
+  const chainId = useChainId();
+  const { disconnectAsync } = useDisconnect();
+  const { switchChainAsync } = useSwitchChain();
   const [provider, setProvider] = useState<EIP1193Provider | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const expectedChainId = preferLocalHardhat
     ? STABLE_CLUB_LOCAL_CHAIN.id
     : STABLE_CLUB_CHAIN_ID;
-
   const chain = preferLocalHardhat ? STABLE_CLUB_LOCAL_CHAIN : STABLE_CLUB_CHAIN;
 
-  const refresh = useCallback(async () => {
-    const eth = ethereumProvider();
-    if (!eth) {
-      setProvider(null);
-      return;
-    }
-
-    setProvider(eth);
-
-    try {
-      const client = createPublicClient({
-        chain,
-        transport: custom(eth),
-      });
-      const accounts = (await eth.request({
-        method: "eth_accounts",
-      })) as Address[];
-      const chainId = await client.getChainId();
-
-      if (!accounts.length) {
-        setState({
-          status: "disconnected",
-          address: null,
-          chainId: null,
-          error: null,
-        });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!connector) {
+        if (!cancelled) setProvider(null);
         return;
       }
-
-      setState({
-        status: chainId === expectedChainId ? "connected" : "wrong-network",
-        address: accounts[0] ?? null,
-        chainId,
-        error: null,
-      });
-    } catch {
-      setState({
-        status: "disconnected",
-        address: null,
-        chainId: null,
-        error: null,
-      });
-    }
-  }, [chain, expectedChainId]);
-
-  useEffect(() => {
-    const eth = ethereumProvider();
-    if (!eth?.on) return;
-
-    const onAccounts = () => {
-      void refresh();
-    };
-    const onChain = () => {
-      void refresh();
-    };
-
-    eth.on("accountsChanged", onAccounts);
-    eth.on("chainChanged", onChain);
-    void refresh();
-
+      try {
+        const p = (await connector.getProvider()) as EIP1193Provider;
+        if (!cancelled) setProvider(p);
+      } catch {
+        if (!cancelled) setProvider(null);
+      }
+    })();
     return () => {
-      eth.removeListener?.("accountsChanged", onAccounts);
-      eth.removeListener?.("chainChanged", onChain);
+      cancelled = true;
     };
-  }, [refresh]);
+  }, [connector]);
+
+  const status: StableClubWalletState["status"] = !isConnected
+    ? isConnecting
+      ? "connecting"
+      : "disconnected"
+    : chainId === expectedChainId
+      ? "connected"
+      : "wrong-network";
 
   const connect = useCallback(async () => {
-    const eth = ethereumProvider();
-    if (!eth) {
-      setState((prev) => ({
-        ...prev,
-        error: "No EVM wallet detected in this browser.",
-      }));
+    setLocalError(null);
+    if (!hasWalletConnectProjectId()) {
+      setLocalError("Wallet connection is unavailable.");
       return;
     }
-
-    setState((prev) => ({ ...prev, status: "connecting", error: null }));
     try {
-      await eth.request({ method: "eth_requestAccounts" });
-      setProvider(eth);
-      await refresh();
-    } catch {
-      setState({
-        status: "disconnected",
-        address: null,
-        chainId: null,
-        error: "Wallet connection was rejected.",
-      });
+      await open({ view: "Connect" });
+    } catch (err) {
+      const message =
+        err instanceof Error && /reject|denied|cancel/i.test(err.message)
+          ? "Connection rejected."
+          : "Unable to open wallet modal.";
+      setLocalError(message);
     }
-  }, [refresh]);
+  }, [open]);
 
   const disconnect = useCallback(() => {
-    setProvider(null);
-    setState({
-      status: "disconnected",
-      address: null,
-      chainId: null,
-      error: null,
-    });
-  }, []);
-
-  const switchChain = useCallback(
-    async (targetChain: Chain) => {
-      const eth = ethereumProvider();
-      if (!eth) return;
-
-      const chainIdHex = `0x${targetChain.id.toString(16)}`;
-      try {
-        await eth.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: chainIdHex }],
-        });
-        await refresh();
-      } catch (error) {
-        const code = (error as { code?: number }).code;
-        if (code === 4902) {
-          await eth.request({
-            method: "wallet_addEthereumChain",
-            params: [
-              {
-                chainId: chainIdHex,
-                chainName: targetChain.name,
-                nativeCurrency: targetChain.nativeCurrency,
-                rpcUrls: targetChain.rpcUrls.default.http,
-              },
-            ],
-          });
-          await refresh();
-          return;
-        }
-        setState((prev) => ({
-          ...prev,
-          error: `Unable to switch wallet to ${targetChain.name}.`,
-        }));
-      }
-    },
-    [refresh],
-  );
+    setLocalError(null);
+    void disconnectAsync().catch(() => undefined);
+  }, [disconnectAsync]);
 
   const switchToBase = useCallback(async () => {
-    await switchChain(STABLE_CLUB_CHAIN);
-  }, [switchChain]);
+    setLocalError(null);
+    try {
+      await switchChainAsync({ chainId: STABLE_CLUB_CHAIN_ID });
+    } catch (err) {
+      const message =
+        err instanceof Error && /reject|denied|cancel/i.test(err.message)
+          ? "Network switch rejected."
+          : "Unable to switch to Base.";
+      setLocalError(message);
+    }
+  }, [switchChainAsync]);
 
   const switchToLocalHardhat = useCallback(async () => {
-    await switchChain(STABLE_CLUB_LOCAL_CHAIN);
-  }, [switchChain]);
+    setLocalError(null);
+    if (!provider?.request) {
+      setLocalError("No wallet provider for local Hardhat switch.");
+      return;
+    }
+    try {
+      await provider.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: `0x${STABLE_CLUB_LOCAL_CHAIN.id.toString(16)}` }],
+      });
+    } catch {
+      try {
+        await provider.request({
+          method: "wallet_addEthereumChain",
+          params: [
+            {
+              chainId: `0x${STABLE_CLUB_LOCAL_CHAIN.id.toString(16)}`,
+              chainName: STABLE_CLUB_LOCAL_CHAIN.name,
+              nativeCurrency: STABLE_CLUB_LOCAL_CHAIN.nativeCurrency,
+              rpcUrls: [...STABLE_CLUB_LOCAL_CHAIN.rpcUrls.default.http],
+            },
+          ],
+        });
+      } catch (err) {
+        const message =
+          err instanceof Error && /reject|denied|cancel/i.test(err.message)
+            ? "Network switch rejected."
+            : "Unable to switch to local Hardhat.";
+        setLocalError(message);
+      }
+    }
+  }, [provider]);
 
-  const value = useMemo(
+  const value = useMemo<StableClubWalletContextValue>(
     () => ({
-      ...state,
+      status,
+      address: (address as Address | undefined) ?? null,
+      chainId: chainId ?? null,
+      error: localError,
       provider,
       chain,
       connect,
@@ -226,7 +173,10 @@ export function StableClubWalletProvider({
       switchToLocalHardhat,
     }),
     [
-      state,
+      status,
+      address,
+      chainId,
+      localError,
       provider,
       chain,
       connect,
@@ -237,24 +187,14 @@ export function StableClubWalletProvider({
   );
 
   return (
-    <StableClubWalletContext.Provider value={value}>
-      {children}
-    </StableClubWalletContext.Provider>
+    <StableClubWalletContext.Provider value={value}>{children}</StableClubWalletContext.Provider>
   );
 }
 
-export function useStableClubWallet() {
+export function useStableClubWallet(): StableClubWalletContextValue {
   const ctx = useContext(StableClubWalletContext);
   if (!ctx) {
     throw new Error("useStableClubWallet must be used within StableClubWalletProvider");
   }
   return ctx;
 }
-
-/** Test-only injected wallet for Playwright E2E (Hardhat account). */
-export function injectStableClubTestWallet(testProvider: EIP1193Provider) {
-  if (typeof window === "undefined") return;
-  (window as Window & { ethereum?: EIP1193Provider }).ethereum = testProvider;
-}
-
-export { STABLE_CLUB_LOCAL_RPC_URL };

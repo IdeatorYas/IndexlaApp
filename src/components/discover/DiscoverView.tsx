@@ -67,7 +67,7 @@ export function DiscoverView({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { wallet, connectDemo } = useDemoWallet();
+  const { wallet, connect } = useDemoWallet();
 
   const selectedId = searchParams.get("id");
 
@@ -170,7 +170,7 @@ export function DiscoverView({
           </div>
           <button
             type="button"
-            onClick={connectDemo}
+            onClick={connect}
             className="app-gradient-btn h-9 shrink-0 rounded-[10px] px-4 text-[12px] font-bold"
           >
             Connect Wallet

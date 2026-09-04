@@ -29,7 +29,7 @@ export function CreatorLeaderboardView({
   illustrative: boolean;
   initialError?: boolean;
 }) {
-  const { wallet, connectDemo } = useDemoWallet();
+  const { wallet, connect } = useDemoWallet();
   const [viewState, setViewState] = useState<ViewState>(
     initialError ? "error" : "loading",
   );
@@ -128,7 +128,7 @@ export function CreatorLeaderboardView({
           </div>
           <button
             type="button"
-            onClick={connectDemo}
+            onClick={connect}
             className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet

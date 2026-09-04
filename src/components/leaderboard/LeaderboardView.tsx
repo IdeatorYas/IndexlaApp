@@ -51,7 +51,7 @@ export function LeaderboardView({
   illustrative: boolean;
   initialError?: boolean;
 }) {
-  const { wallet, connectDemo } = useDemoWallet();
+  const { wallet, connect } = useDemoWallet();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -199,7 +199,7 @@ export function LeaderboardView({
           </div>
           <button
             type="button"
-            onClick={connectDemo}
+            onClick={connect}
             className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet
@@ -340,7 +340,7 @@ export function LeaderboardView({
           rewardDetailsId={rewardDetailsId}
           setRewardDetailsId={setRewardDetailsId}
           onPreview={preview}
-          onConnect={connectDemo}
+          onConnect={connect}
         />
       ) : (
         <section className="app-panel p-4 sm:p-5">

@@ -69,7 +69,7 @@ export function CreatorsHubView({
   illustrative: boolean;
   initialError?: boolean;
 }) {
-  const { wallet, connectDemo } = useDemoWallet();
+  const { wallet, connect } = useDemoWallet();
   const [viewState, setViewState] = useState<ViewState>(
     initialError ? "error" : "loading",
   );
@@ -222,7 +222,7 @@ export function CreatorsHubView({
           </div>
           <button
             type="button"
-            onClick={connectDemo}
+            onClick={connect}
             className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet
@@ -383,7 +383,7 @@ export function CreatorsHubView({
                     notifying={Boolean(notify[creator.handle])}
                     onFollow={() => {
                       if (wallet.state !== "connected") {
-                        connectDemo();
+                        connect();
                         preview("Follow");
                         return;
                       }
@@ -395,7 +395,7 @@ export function CreatorsHubView({
                     }}
                     onNotify={() => {
                       if (wallet.state !== "connected") {
-                        connectDemo();
+                        connect();
                         preview("Notify");
                         return;
                       }
@@ -432,7 +432,7 @@ export function CreatorsHubView({
                   notifying={Boolean(notify[creator.handle])}
                   onFollow={() => {
                     if (wallet.state !== "connected") {
-                      connectDemo();
+                      connect();
                       preview("Follow");
                       return;
                     }
@@ -448,7 +448,7 @@ export function CreatorsHubView({
                   }}
                   onNotify={() => {
                     if (wallet.state !== "connected") {
-                      connectDemo();
+                      connect();
                       preview("Notify");
                       return;
                     }

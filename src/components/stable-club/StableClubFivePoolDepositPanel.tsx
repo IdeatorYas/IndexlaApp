@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useStableClubDevPanelAllowed } from "@/components/stable-club/useStableClubDevPanelAllowed";
 import { useFivePoolDeposit } from "@/components/stable-club/useFivePoolDeposit";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
@@ -16,6 +16,14 @@ import {
 import { QUOTE_PLAN_MAX_SLIPPAGE_BPS } from "@/lib/stable-club/quote-plan";
 import { STABLE_CLUB_CHAIN_ID } from "@/lib/stable-club/constants";
 import { STABLE_CLUB_MIN_DEPOSIT_USD } from "@/lib/stable-club/pool-product-meta";
+import {
+  formatApyDisplay,
+  formatOfficialPoolFee,
+  protocolDisplayName,
+  useStableClubPoolApyMap,
+} from "@/components/stable-club/useStableClubPoolApy";
+import { AssetIcon } from "@/components/ui/AssetIcons";
+import { PRIVATE_BETA_LAUNCH_PARAMS } from "@/lib/stable-club/launch-params";
 
 const PROGRESS_LABEL: Record<string, string> = {
   idle: "Ready",
@@ -30,8 +38,7 @@ const ALLOCATION_PERCENT = FIVE_POOL_ALLOCATION_BPS_PER_LEG / 100;
 const TOTAL_ALLOCATION_PERCENT = FIVE_POOL_TOTAL_ALLOCATION_BPS / 100;
 
 function protocolLabel(pool: OfficialStableClubPool): string {
-  if (pool.protocol === "uniswap-v3") return "Uniswap V3";
-  return "Aerodrome Slipstream";
+  return protocolDisplayName(pool.protocol);
 }
 
 function walletStatusLabel(status: string, address: string | null | undefined): string {
@@ -41,6 +48,17 @@ function walletStatusLabel(status: string, address: string | null | undefined): 
   if (status === "connecting") return "Connecting…";
   if (status === "wrong-network") return "Connected · wrong network";
   return "Not connected";
+}
+
+function logDepositBlockers(blockers: readonly string[], deploymentsError: string | null) {
+  if (typeof window === "undefined") return;
+  if (process.env.NODE_ENV === "production") return;
+  const payload = {
+    depositBlockers: blockers,
+    deploymentsError,
+  };
+  // Internal diagnostics only — never shown in customer UI.
+  console.info("[Stable Club] deposit fail-closed diagnostics", payload);
 }
 
 export function StableClubFivePoolDepositPanel({
@@ -57,6 +75,7 @@ export function StableClubFivePoolDepositPanel({
   const walletDevOk = useStableClubDevPanelAllowed(devPanelAllowed);
   const d = useFivePoolDeposit();
   const wallet = useStableClubWallet();
+  const { byPoolId: apyByPoolId, loading: apyLoading } = useStableClubPoolApyMap();
   const hideDevPanel = variant === "dev" && (!devPanelAllowed || !walletDevOk);
   const isProduct = variant === "product";
   const fieldIdSuffix = isProduct ? "product" : "dev";
@@ -78,6 +97,12 @@ export function StableClubFivePoolDepositPanel({
   }, [d.amountInput]);
 
   const failClosed = !d.deploymentsLoading && (!depositsEnabled || !d.deployments);
+
+  useEffect(() => {
+    if (isProduct && failClosed) {
+      logDepositBlockers(depositBlockers, d.deploymentsError);
+    }
+  }, [depositBlockers, d.deploymentsError, failClosed, isProduct]);
 
   const primaryDisabled =
     d.deploymentsLoading ||
@@ -112,49 +137,51 @@ export function StableClubFivePoolDepositPanel({
       ? `Chain ${d.expectedChainId}`
       : `Need chain ${d.expectedChainId}`;
 
+  const automationCopy = [
+    PRIVATE_BETA_LAUNCH_PARAMS.automation.harvestEnabled ? "Auto-Harvest active" : "Auto-Harvest",
+    PRIVATE_BETA_LAUNCH_PARAMS.automation.compoundEnabled ? "Auto-Compound active" : "Auto-Compound",
+  ].join(" · ");
+
   if (hideDevPanel) {
     return null;
   }
 
   if (isProduct) {
     return (
-      <section className="stable-club-strategy-box">
-        {d.deploymentsLoading ? (
-          <p className="mb-3 text-xs text-app-muted">Loading strategy…</p>
-        ) : null}
-
-        <dl className="grid gap-2 text-[11px] sm:grid-cols-2">
+      <section
+        id="base-strategy"
+        className="stable-club-strategy-box"
+        data-strategy="base-five-pool"
+        data-status="live-beta"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <dt className="font-semibold text-app-dim">Wallet</dt>
-            <dd className="mt-0.5 text-app-ink">
-              {walletStatusLabel(wallet.status, wallet.address ?? d.wallet.address)}
-            </dd>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">
+              LIVE BETA · BASE
+            </p>
+            <h2 className="app-display mt-2 text-xl font-bold text-app-ink sm:text-2xl">
+              Base Five-Pool Strategy
+            </h2>
+            <p className="mt-1 text-sm text-app-muted">
+              One USDC deposit · {ALLOCATION_PERCENT}% into each official Base pool · {automationCopy} ·
+              Non-Custodial
+            </p>
           </div>
-          <div>
-            <dt className="font-semibold text-app-dim">Network</dt>
-            <dd className="mt-0.5 text-app-ink">{networkStatus}</dd>
-          </div>
-        </dl>
+          <dl className="grid min-w-[200px] gap-2 rounded-[12px] border border-sky-400/20 bg-[rgba(7,22,42,0.45)] px-3 py-2 text-[11px] sm:grid-cols-2">
+            <div>
+              <dt className="font-semibold text-app-dim">Wallet</dt>
+              <dd className="mt-0.5 text-app-ink">
+                {walletStatusLabel(wallet.status, wallet.address ?? d.wallet.address)}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-semibold text-app-dim">Network</dt>
+              <dd className="mt-0.5 text-app-ink">{networkStatus}</dd>
+            </div>
+          </dl>
+        </div>
 
         {wrongNetwork ? wrongNetworkMessage : null}
-
-        {failClosed ? (
-          <div className="sc-status-banner mt-4 rounded-[12px] p-3 text-[11px] text-app-muted">
-            <p className="font-semibold text-app-ink">Deposit unavailable</p>
-            {depositBlockers.length > 0 ? (
-              <ul className="mt-2 list-disc space-y-1 pl-4">
-                {depositBlockers.map((blocker) => (
-                  <li key={blocker}>{blocker}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-1">
-                {d.deploymentsError ??
-                  "Atomic deposit is disabled until the trusted Base manifest is available and attested."}
-              </p>
-            )}
-          </div>
-        ) : null}
 
         <label className="mt-5 block text-xs" htmlFor={`five-pool-deposit-usdc-${fieldIdSuffix}`}>
           <span className="font-semibold text-app-dim">USDC amount</span>
@@ -169,51 +196,79 @@ export function StableClubFivePoolDepositPanel({
             }}
             disabled={d.busy}
             placeholder="0.00"
-            className="sc-input mt-1 w-full rounded-md px-3 py-2.5 font-mono text-sm"
+            className="sc-input mt-1 w-full rounded-md px-3 py-3 font-mono text-base"
           />
         </label>
 
-        <div className="mt-5">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-app-dim">
-            Strategy components
-          </h2>
-          <ul className="sc-pool-list mt-2">
-            {OFFICIAL_STABLE_CLUB_BASE_POOLS.map((pool) => {
-              const preview = allocationPreview?.find((row) => row.poolId === pool.id);
-              return (
-                <li
-                  key={pool.id}
-                  className="sc-pool-row flex items-baseline justify-between gap-3 px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-mono text-[11px] text-app-ink">{pool.id}</p>
-                    <p className="text-[11px] text-app-muted">
-                      {pool.tokenA.symbol}/{pool.tokenB.symbol} · {protocolLabel(pool)}
-                    </p>
-                  </div>
-                  <p className="shrink-0 text-right text-[11px] font-semibold text-app-ink">
-                    {ALLOCATION_PERCENT}%
-                    {preview ? (
-                      <span className="block font-mono font-normal text-app-dim">
-                        {formatUsdcUnits(preview.usdc)} USDC
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wide text-app-dim">
+                <th className="pb-2 pr-3 font-semibold">Asset pair</th>
+                <th className="pb-2 pr-3 font-semibold">Platform</th>
+                <th className="pb-2 pr-3 font-semibold">Chain</th>
+                <th className="pb-2 pr-3 font-semibold">Allocation</th>
+                <th className="pb-2 pr-3 font-semibold">Pool fee</th>
+                <th className="pb-2 font-semibold">APY</th>
+              </tr>
+            </thead>
+            <tbody>
+              {OFFICIAL_STABLE_CLUB_BASE_POOLS.map((pool) => {
+                const preview = allocationPreview?.find((row) => row.poolId === pool.id);
+                const apy = formatApyDisplay(apyByPoolId[pool.id], apyLoading);
+                return (
+                  <tr key={pool.id} className="sc-pool-row align-middle" data-pool-id={pool.id}>
+                    <td className="py-3.5 pr-3">
+                      <div className="flex items-center gap-3">
+                        <span className="flex items-center">
+                          <AssetIcon assetId={pool.tokenA.symbol} size={36} />
+                          <span className="-ml-2">
+                            <AssetIcon assetId={pool.tokenB.symbol} size={36} />
+                          </span>
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[16px] font-bold leading-tight text-app-ink sm:text-[17px]">
+                            {pool.tokenA.symbol}/{pool.tokenB.symbol}
+                          </p>
+                          <p className="mt-0.5 font-mono text-[10px] text-app-dim">{pool.id}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3.5 pr-3">
+                      <p className="text-sm font-semibold text-app-ink">{protocolLabel(pool)}</p>
+                    </td>
+                    <td className="py-3.5 pr-3">
+                      <span className="rounded-full bg-sky-500/15 px-2.5 py-1 text-[11px] font-bold text-sky-200">
+                        Base
                       </span>
-                    ) : null}
-                  </p>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="mt-2 flex justify-between text-[11px] font-semibold text-app-ink">
-            <span>Total allocation</span>
-            <span>{TOTAL_ALLOCATION_PERCENT}%</span>
-          </p>
+                    </td>
+                    <td className="py-3.5 pr-3">
+                      <p className="text-sm font-bold text-app-ink">{ALLOCATION_PERCENT}%</p>
+                      {preview ? (
+                        <p className="font-mono text-[11px] text-app-dim">
+                          {formatUsdcUnits(preview.usdc)} USDC
+                        </p>
+                      ) : null}
+                    </td>
+                    <td className="py-3.5 pr-3 text-sm text-app-muted">{formatOfficialPoolFee(pool)}</td>
+                    <td className="py-3.5 text-sm font-semibold text-emerald-300">{apy}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
+
+        <p className="mt-3 flex justify-between text-sm font-bold text-app-ink">
+          <span>Total allocation</span>
+          <span>{TOTAL_ALLOCATION_PERCENT}%</span>
+        </p>
 
         <button
           type="button"
           disabled={primaryDisabled}
           onClick={onPrimaryClick}
-          className="app-gradient-btn mt-5 h-11 w-full px-4 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"
+          className="app-gradient-btn mt-5 h-12 w-full px-4 text-sm font-bold shadow-[0_10px_28px_-12px_rgba(37,99,235,0.85)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           Deposit Into 5-Pool Strategy
         </button>

@@ -33,6 +33,14 @@ vi.mock("@/components/stable-club/useFivePoolDeposit", async (importOriginal) =>
   };
 });
 
+vi.mock("@/components/stable-club/useStableClubPoolApy", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/stable-club/useStableClubPoolApy")>();
+  return {
+    ...actual,
+    useStableClubPoolApyMap: () => ({ byPoolId: {}, loading: false }),
+  };
+});
+
 describe("StableClubFivePoolDepositPanel", () => {
   afterEach(() => {
     cleanup();
@@ -205,21 +213,44 @@ describe("StableClubFivePoolDepositPanel", () => {
   });
 
   it("product variant lists five canonical pool IDs at 20% with 100% total", () => {
+    mockWallet.chainId = 8453;
+    mockState.expectedChainId = 8453;
+    mockState.onExpectedChain = true;
     render(<StableClubFivePoolDepositPanel variant="product" />);
     for (const pool of OFFICIAL_STABLE_CLUB_BASE_POOLS) {
       expect(screen.getByText(pool.id)).toBeInTheDocument();
     }
-    expect(screen.getByText("USDC/cbBTC · Aerodrome Slipstream")).toBeInTheDocument();
-    expect(screen.getByText("USDC/cbBTC · Uniswap V3")).toBeInTheDocument();
-    expect(screen.getAllByText("cbBTC/WETH · Aerodrome Slipstream")).toHaveLength(2);
-    expect(screen.getByText("cbBTC/WETH · Uniswap V3")).toBeInTheDocument();
+    expect(screen.getByText("LIVE BETA · BASE")).toBeInTheDocument();
+    expect(screen.getByText("Asset pair")).toBeInTheDocument();
+    expect(screen.getByText("Platform")).toBeInTheDocument();
     expect(screen.getAllByText("20%")).toHaveLength(5);
     expect(screen.getByText("Total allocation")).toBeInTheDocument();
     expect(screen.getByText("100%")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /FAQ/i })).toBeNull();
   });
 
+  it("product variant does not show technical attestation diagnostics to users", () => {
+    render(
+      <StableClubFivePoolDepositPanel
+        variant="product"
+        depositsEnabled={false}
+        depositBlockers={[
+          "Deployment attestation has not passed",
+          "Pool not governance-activated on-chain: USDC-cbBTC-AERO-CL100",
+        ]}
+      />,
+    );
+    const button = screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i });
+    expect(button).toBeDisabled();
+    expect(screen.queryByText("Deposit unavailable")).toBeNull();
+    expect(screen.queryByText(/Deployment attestation has not passed/i)).toBeNull();
+    expect(screen.queryByText(/Pool not governance-activated on-chain/i)).toBeNull();
+  });
+
   it("product variant does not submit when deposits are disabled", () => {
+    mockWallet.chainId = 8453;
+    mockState.expectedChainId = 8453;
+    mockState.onExpectedChain = true;
     render(
       <StableClubFivePoolDepositPanel
         variant="product"
@@ -229,8 +260,6 @@ describe("StableClubFivePoolDepositPanel", () => {
     );
     const button = screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i });
     expect(button).toBeDisabled();
-    expect(screen.getByText("Deposit unavailable")).toBeInTheDocument();
-    expect(screen.getByText("no trusted production manifest")).toBeInTheDocument();
     fireEvent.click(button);
     expect(depositIntoFivePoolStrategy).not.toHaveBeenCalled();
   });

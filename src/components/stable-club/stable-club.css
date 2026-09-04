@@ -65,7 +65,7 @@
 
 @media (min-width: 640px) {
   .stable-club-strategy-box {
-    padding: 1.5rem;
+    padding: 1.75rem;
   }
 }
 
@@ -88,12 +88,9 @@
   overflow: hidden;
 }
 
-.stable-club-strategy-box .sc-pool-row {
+.stable-club-strategy-box .sc-pool-row + .sc-pool-row td,
+.stable-club-strategy-box tbody .sc-pool-row td {
   border-top: 1px solid rgba(96, 165, 250, 0.14);
-}
-
-.stable-club-strategy-box .sc-pool-row:first-child {
-  border-top: none;
 }
 
 .stable-club-strategy-box .sc-status-banner {

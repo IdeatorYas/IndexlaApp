@@ -15,12 +15,22 @@
     "test:contracts": "hardhat test",
     "node:local": "hardhat node --port 8545",
     "deploy:stable-club:local": "hardhat run scripts/stable-club/deploy-local.cjs --network localhost",
-    "test:e2e:stable-club": "playwright test --config playwright.stable-club.config.ts"
+    "test:e2e:stable-club": "playwright test --config playwright.stable-club.config.ts",
+    "postinstall": "node scripts/ensure-wagmi2-connectors.cjs"
   },
   "dependencies": {
-    "next": "15.5.22",
+    "@reown/appkit": "^1.8.23",
+    "@reown/appkit-adapter-wagmi": "^1.8.23",
+    "@tanstack/react-query": "^5.102.8",
+    "@x402/core": "^2.25.0",
+    "@x402/evm": "^2.25.0",
+    "@x402/extensions": "^2.25.0",
+    "@x402/svm": "^2.25.0",
+    "next": "15.5.25",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "viem": "^2.56.3",
+    "wagmi": "^2.19.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -36,12 +46,24 @@
     "@vitejs/plugin-react": "^5.0.2",
     "dotenv": "^16.6.1",
     "eslint": "^9",
-    "eslint-config-next": "15.5.22",
+    "eslint-config-next": "15.5.25",
     "hardhat": "^2.26.3",
     "jsdom": "^26.1.0",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "viem": "^2.36.0",
     "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "@wagmi/core": "2.22.1",
+    "@wagmi/connectors": "6.2.0",
+    "@reown/appkit-adapter-wagmi": {
+      "@wagmi/connectors": "6.2.0",
+      "@wagmi/core": "2.22.1"
+    },
+    "axios": "1.20.0",
+    "lodash": "4.18.1",
+    "ws": "8.21.3",
+    "postcss": "8.5.28",
+    "sharp": "0.35.4"
   }
 }

@@ -49,7 +49,7 @@ export function DegenClubView({
   initialError?: boolean;
 }) {
   const router = useRouter();
-  const { wallet, connectDemo } = useDemoWallet();
+  const { wallet, connect } = useDemoWallet();
   const { prices } = useDegenPrices();
 
   const [viewState, setViewState] = useState<ViewState>(
@@ -237,7 +237,7 @@ export function DegenClubView({
                 key={product.id}
                 product={product}
                 onTrade={() => {
-                  if (wallet.state !== "connected") connectDemo();
+                  if (wallet.state !== "connected") connect();
                   setTradeAck(false);
                   setTradeProduct(product);
                 }}
@@ -269,7 +269,7 @@ export function DegenClubView({
           walletConnected={wallet.state === "connected"}
           onAckChange={setTradeAck}
           onCancel={() => setTradeProduct(null)}
-          onConnect={connectDemo}
+          onConnect={connect}
           onConfirm={() => {
             setTradeProduct(null);
             preview(`Trade preview · ${tradeProduct.name}`);

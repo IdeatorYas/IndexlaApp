@@ -39,7 +39,7 @@ export function CreatorDashboardView({
   dexlaDemoMode: boolean;
   initialError?: boolean;
 }) {
-  const { wallet, connectDemo } = useDemoWallet();
+  const { wallet, connect } = useDemoWallet();
   const [viewState, setViewState] = useState<ViewState>(
     initialError ? "error" : "loading",
   );
@@ -83,7 +83,7 @@ export function CreatorDashboardView({
 
   function requireWallet(action: string): boolean {
     if (wallet.state === "connected") return true;
-    connectDemo();
+    connect();
     preview(action);
     return false;
   }
@@ -181,7 +181,7 @@ export function CreatorDashboardView({
           </div>
           <button
             type="button"
-            onClick={connectDemo}
+            onClick={connect}
             className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet

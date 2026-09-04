@@ -1,14 +1,21 @@
-import { DemoWalletProvider } from "@/components/wallet/DemoWalletProvider";
+import { cookies } from "next/headers";
+import { AppKitProvider } from "@/components/wallet/AppKitProvider";
+import { AppWalletProvider } from "@/components/wallet/DemoWalletProvider";
 import { AppShell } from "@/components/shell/AppShell";
 
-export default function AppLayout({
+export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const cookieStore = await cookies();
+  const cookieHeader = cookieStore.toString();
+
   return (
-    <DemoWalletProvider>
-      <AppShell>{children}</AppShell>
-    </DemoWalletProvider>
+    <AppKitProvider cookies={cookieHeader}>
+      <AppWalletProvider>
+        <AppShell>{children}</AppShell>
+      </AppWalletProvider>
+    </AppKitProvider>
   );
 }

@@ -60,7 +60,7 @@ export function StrategiesView({
   illustrative: boolean;
   initialError?: boolean;
 }) {
-  const { wallet, connectDemo } = useDemoWallet();
+  const { wallet, connect } = useDemoWallet();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -242,7 +242,7 @@ export function StrategiesView({
           </div>
           <button
             type="button"
-            onClick={connectDemo}
+            onClick={connect}
             className="h-9 app-gradient-btn rounded-[10px] px-4 text-[12px] font-bold text-white"
           >
             Connect Wallet

@@ -23,7 +23,7 @@ import {
 export function ProductPageView({ product }: { product: MarketplaceProduct }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { wallet, connectDemo } = useDemoWallet();
+  const { wallet, connect } = useDemoWallet();
   const [investOpen, setInvestOpen] = useState(false);
   const [entered, setEntered] = useState(false);
 
@@ -237,7 +237,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
             type="button"
             className="app-btn-invest h-11 flex-1 rounded-[12px] text-[14px]"
             onClick={() => {
-              if (wallet.state !== "connected") connectDemo();
+              if (wallet.state !== "connected") connect();
               openInvest();
             }}
           >
@@ -249,7 +249,7 @@ export function ProductPageView({ product }: { product: MarketplaceProduct }) {
             onClick={(e) => {
               if (wallet.state !== "connected") {
                 e.preventDefault();
-                connectDemo();
+                connect();
               }
             }}
           >

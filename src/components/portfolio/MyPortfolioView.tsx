@@ -68,7 +68,7 @@ export function MyPortfolioView({
   illustrative: boolean;
   initialError?: boolean;
 }) {
-  const { wallet, connectDemo } = useDemoWallet();
+  const { wallet, connect } = useDemoWallet();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -173,7 +173,7 @@ export function MyPortfolioView({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={connectDemo}
+              onClick={connect}
               className="app-gradient-btn h-10 rounded-[10px] px-4 text-sm font-bold"
             >
               Connect Wallet
