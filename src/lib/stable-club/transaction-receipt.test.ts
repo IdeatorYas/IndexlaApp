@@ -48,9 +48,27 @@ describe("transaction-receipt (SC-F01)", () => {
     );
   });
 
+  it("waitForSuccessfulTransactionReceipt surfaces OOG when gasUsed == gasLimit", async () => {
+    const publicClient = {
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: "reverted",
+        transactionHash: HASH,
+        gasUsed: BigInt(6_588_409),
+      }),
+    };
+    await expect(
+      waitForSuccessfulTransactionReceipt(publicClient, HASH, {
+        gasLimit: BigInt(6_588_409),
+      }),
+    ).rejects.toThrow(/out of gas/i);
+  });
+
   it("waitForSuccessfulTransactionReceipt throws on reverted mined tx", async () => {
     const publicClient = {
-      waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "reverted", transactionHash: HASH }),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: "reverted",
+        transactionHash: HASH,
+      }),
     };
     await expect(waitForSuccessfulTransactionReceipt(publicClient, HASH)).rejects.toBeInstanceOf(
       TransactionRevertedError,

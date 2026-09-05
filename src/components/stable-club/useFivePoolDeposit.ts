@@ -56,6 +56,9 @@ import {
   type ClFivePoolPermit2LiveAllowances,
 } from "@/lib/stable-club/five-pool-permit2";
 import { readClFivePoolPermit2AllowancesWithRpcGuard } from "@/lib/stable-club/permit2-allowance-rpc";
+import {
+  applyFivePoolDepositGasBuffer,
+} from "@/lib/stable-club/five-pool-deposit-gas";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
   createOracleGuardQuoteAdapter,
@@ -791,36 +794,54 @@ export function useFivePoolDeposit() {
       });
 
       setProgress("awaiting-deposit");
+      setStatusMessage("Estimating deposit gas…");
+
+      const depositWriteArgs = [
+        depositArgs.strategyId,
+        nextNonce,
+        depositArgs.grossUsdc,
+        depositArgs.poolIds,
+        depositArgs.deadline,
+        depositArgs.legs.map((leg) => ({
+          legIndex: leg.legIndex,
+          adapter: leg.adapter,
+          tokenA: leg.tokenA,
+          tokenB: leg.tokenB,
+          tickLower: leg.tickLower,
+          tickUpper: leg.tickUpper,
+          retainUsdc: leg.retainUsdc,
+          swaps: leg.swaps,
+          swapCount: leg.swapCount,
+          amountAMin: leg.amountAMin,
+          amountBMin: leg.amountBMin,
+          slippageBps: leg.slippageBps,
+        })) as never,
+      ] as const;
+
+      // HTTP estimate + buffer — wallet eth_estimateGas alone OOGed at ~6.59M
+      // (tx 0x1e76759c…); same calldata succeeds with higher gas.
+      const gasEstimate = await allowanceReadClient.estimateContractGas({
+        address: attestedDeployments.clExecutor,
+        abi: concentratedLiquidityExecutorAbi,
+        functionName: "depositFivePoolStrategy",
+        args: depositWriteArgs as never,
+        account: ownerAddress,
+      });
+      const depositGas = applyFivePoolDepositGasBuffer(gasEstimate);
+
       setStatusMessage("Confirm depositFivePoolStrategy…");
 
       const depositHash = await walletClient.writeContract({
         address: attestedDeployments.clExecutor,
         abi: concentratedLiquidityExecutorAbi,
         functionName: "depositFivePoolStrategy",
-        args: [
-          depositArgs.strategyId,
-          nextNonce,
-          depositArgs.grossUsdc,
-          depositArgs.poolIds,
-          depositArgs.deadline,
-          depositArgs.legs.map((leg) => ({
-            legIndex: leg.legIndex,
-            adapter: leg.adapter,
-            tokenA: leg.tokenA,
-            tokenB: leg.tokenB,
-            tickLower: leg.tickLower,
-            tickUpper: leg.tickUpper,
-            retainUsdc: leg.retainUsdc,
-            swaps: leg.swaps,
-            swapCount: leg.swapCount,
-            amountAMin: leg.amountAMin,
-            amountBMin: leg.amountBMin,
-            slippageBps: leg.slippageBps,
-          })) as never,
-        ],
+        args: depositWriteArgs as never,
+        gas: depositGas,
       });
       setLastTxHash(depositHash);
-      await waitForSuccessfulTransactionReceipt(publicClient, depositHash);
+      await waitForSuccessfulTransactionReceipt(publicClient, depositHash, {
+        gasLimit: depositGas,
+      });
       setExecutionNonce(nextNonce + BigInt(1));
       setProgress("confirmed");
       setStatusMessage("Deposit confirmed");

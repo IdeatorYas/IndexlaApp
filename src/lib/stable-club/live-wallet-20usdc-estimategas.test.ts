@@ -43,6 +43,10 @@ import { permit2AllowanceAbi } from "@/lib/stable-club/permit2";
 import { readPoolSlot0States } from "@/lib/stable-club/pool-slot0";
 import { buildFivePoolQuotePlan } from "@/lib/stable-club/quote-plan";
 import { TRUSTED_PHASE2A_BASE_DEPLOYMENTS } from "@/lib/stable-club/trusted-phase2a-base-manifest";
+import {
+  FIVE_POOL_DEPOSIT_GAS_FLOOR,
+  applyFivePoolDepositGasBuffer,
+} from "@/lib/stable-club/five-pool-deposit-gas";
 
 function loadEnvLocal() {
   const p = resolve(process.cwd(), ".env.local");
@@ -270,6 +274,7 @@ describe.runIf(hasRpc)("live wallet 20 USDC estimateGas (PSC gate)", () => {
           wallet: WALLET,
           grossUsdc: formatUnits(GROSS, 6),
           estimateGas: gas.toString(),
+          bufferedGas: applyFivePoolDepositGasBuffer(gas).toString(),
           strategyId: STRATEGY_ID,
           usedPermit2ExpiryOverride,
           permit2LiveReady: readiness.ready,
@@ -280,6 +285,18 @@ describe.runIf(hasRpc)("live wallet 20 USDC estimateGas (PSC gate)", () => {
         2,
       ),
     );
-    expect(gas).toBeGreaterThan(0n);
+    expect(gas).toBeGreaterThan(BigInt(0));
+    const buffered = applyFivePoolDepositGasBuffer(gas);
+    expect(buffered).toBeGreaterThanOrEqual(FIVE_POOL_DEPOSIT_GAS_FLOOR);
+    // Regression: failed live deposit OOG'd at gasLimit 6588409 (tx 0x1e76759c…).
+    expect(buffered).toBeGreaterThan(BigInt(6_588_409));
+
+    await client.call({
+      account: WALLET,
+      to: d.clExecutor,
+      data,
+      gas: buffered,
+      ...(stateOverride ? { stateOverride } : {}),
+    });
   }, 180_000);
 });

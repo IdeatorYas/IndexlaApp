@@ -3,23 +3,29 @@
  * Viem `waitForTransactionReceipt` resolves on mined reverts; callers must assert status.
  */
 import type { Hex } from "viem";
+import {
+  FIVE_POOL_DEPOSIT_OOG_USER_MESSAGE,
+  isOutOfGasReceipt,
+} from "@/lib/stable-club/five-pool-deposit-gas";
 
 export type TransactionReceiptStatus = "success" | "reverted" | string;
 
 export type TransactionReceiptLike = {
   status?: TransactionReceiptStatus | null;
   transactionHash?: Hex;
+  gasUsed?: bigint | null;
 };
 
 export class TransactionRevertedError extends Error {
   readonly hash: Hex | undefined;
   readonly receiptStatus: string;
 
-  constructor(receiptStatus: string, hash?: Hex) {
+  constructor(receiptStatus: string, hash?: Hex, message?: string) {
     super(
-      receiptStatus === "unknown" || receiptStatus === ""
-        ? "Transaction receipt missing or unknown status — treating as failure"
-        : `Transaction failed on-chain (receipt.status=${receiptStatus})`,
+      message ??
+        (receiptStatus === "unknown" || receiptStatus === ""
+          ? "Transaction receipt missing or unknown status — treating as failure"
+          : `Transaction failed on-chain (receipt.status=${receiptStatus})`),
     );
     this.name = "TransactionRevertedError";
     this.hash = hash;
@@ -40,26 +46,48 @@ export function isSuccessfulTransactionReceipt(
 export function assertSuccessfulTransactionReceipt(
   receipt: TransactionReceiptLike | null | undefined,
   hash?: Hex,
+  opts?: { gasLimit?: bigint },
 ): asserts receipt is TransactionReceiptLike & { status: "success" } {
   if (receipt == null || receipt.status == null || receipt.status === "") {
     throw new TransactionRevertedError("unknown", hash ?? receipt?.transactionHash);
   }
   if (receipt.status !== "success") {
-    throw new TransactionRevertedError(String(receipt.status), hash ?? receipt.transactionHash);
+    if (
+      opts?.gasLimit !== undefined &&
+      receipt.gasUsed != null &&
+      isOutOfGasReceipt({
+        status: receipt.status,
+        gasLimit: opts.gasLimit,
+        gasUsed: receipt.gasUsed,
+      })
+    ) {
+      throw new TransactionRevertedError(
+        String(receipt.status),
+        hash ?? receipt.transactionHash,
+        FIVE_POOL_DEPOSIT_OOG_USER_MESSAGE,
+      );
+    }
+    throw new TransactionRevertedError(
+      String(receipt.status),
+      hash ?? receipt.transactionHash,
+    );
   }
 }
 
 type PublicClientWithReceipt = {
-  waitForTransactionReceipt: (args: { hash: Hex }) => Promise<TransactionReceiptLike>;
+  waitForTransactionReceipt: (args: {
+    hash: Hex;
+  }) => Promise<TransactionReceiptLike>;
 };
 
 /** Wait for mining, then require success before dependent steps continue. */
 export async function waitForSuccessfulTransactionReceipt(
   publicClient: PublicClientWithReceipt,
   hash: Hex,
+  opts?: { gasLimit?: bigint },
 ): Promise<TransactionReceiptLike & { status: "success" }> {
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
-  assertSuccessfulTransactionReceipt(receipt, hash);
+  assertSuccessfulTransactionReceipt(receipt, hash, opts);
   return receipt as TransactionReceiptLike & { status: "success" };
 }
 

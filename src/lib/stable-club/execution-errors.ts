@@ -103,6 +103,11 @@ export function formatStableClubExecutionError(err: unknown): string | null {
   }
 
   const text = err instanceof Error ? err.message : String(err);
+  if (/out of gas|ran out of gas/i.test(text)) {
+    return (
+      "Deposit ran out of gas. Retry the deposit — the app buffers gas above eth_estimateGas for five-pool deposits."
+    );
+  }
   if (/\bPSC\b/.test(text) || /Price slippage check/i.test(text)) {
     return formatPscMessage();
   }
