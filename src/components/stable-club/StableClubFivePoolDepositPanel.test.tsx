@@ -241,7 +241,8 @@ describe("StableClubFivePoolDepositPanel", () => {
       />,
     );
     const button = screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i });
-    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(screen.getByRole("alert")).toHaveTextContent(/temporarily unavailable/i);
     expect(screen.queryByText("Deposit unavailable")).toBeNull();
     expect(screen.queryByText(/Deployment attestation has not passed/i)).toBeNull();
     expect(screen.queryByText(/Pool not governance-activated on-chain/i)).toBeNull();
@@ -259,9 +260,24 @@ describe("StableClubFivePoolDepositPanel", () => {
       />,
     );
     const button = screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i });
-    expect(button).toBeDisabled();
     fireEvent.click(button);
     expect(depositIntoFivePoolStrategy).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/temporarily unavailable/i);
+  });
+
+  it("product deposit click invokes depositIntoFivePoolStrategy when enabled", () => {
+    mockWallet.status = "connected";
+    mockWallet.chainId = 8453;
+    mockWallet.address = "0xab4e242C5b489e8301408C93003903364214559F";
+    mockState.wallet = mockWallet;
+    mockState.expectedChainId = 8453;
+    mockState.onExpectedChain = true;
+    mockState.deploymentsLoading = false;
+    mockState.deployments = { chainId: 8453 };
+    mockState.busy = false;
+    render(<StableClubFivePoolDepositPanel variant="product" depositsEnabled />);
+    fireEvent.click(screen.getByRole("button", { name: /Deposit Into 5-Pool Strategy/i }));
+    expect(depositIntoFivePoolStrategy).toHaveBeenCalledTimes(1);
   });
 
   it("shows confirmed tx without Basescan on local chain", () => {

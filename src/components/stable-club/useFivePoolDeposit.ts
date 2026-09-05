@@ -586,7 +586,7 @@ export function useFivePoolDeposit() {
         throw new Error("Register the five-pool strategy before depositing");
       }
       const activeQuoteBundle = quoteBundleRef.current ?? quoteBundle;
-      if (!planRef.current || !activeQuoteBundle || !preview) {
+      if (!planRef.current || !activeQuoteBundle) {
         throw new Error("Prepare quotes first");
       }
 
@@ -829,25 +829,57 @@ export function useFivePoolDeposit() {
   ]);
 
   const depositIntoFivePoolStrategy = useCallback(async () => {
-    if (!wallet.address) {
-      await wallet.connect();
-      return;
+    try {
+      setError(null);
+      if (!wallet.address) {
+        setStatusMessage("Connect wallet to continue…");
+        setProgress("awaiting-approval");
+        await wallet.connect();
+        // Wallet connect is async / modal — user re-clicks Deposit after connecting.
+        setProgress("idle");
+        setStatusMessage("Wallet connected — click Deposit again to continue");
+        return;
+      }
+      if (!onExpectedChain) {
+        setStatusMessage("Switch wallet to Base…");
+        setProgress("awaiting-approval");
+        await wallet.switchToBase();
+        setProgress("idle");
+        setStatusMessage("Switched network — click Deposit again to continue");
+        return;
+      }
+      if (!strategyRegisteredRef.current && !strategyRegistered) {
+        setStatusMessage("Registering five-pool strategy…");
+        await registerStrategy();
+        await refreshBalancesAndStrategy();
+        if (!strategyRegisteredRef.current) {
+          throw new Error(
+            "Strategy registration did not complete. Confirm the wallet prompt, then try Deposit again.",
+          );
+        }
+      }
+      if (!planRef.current || !quoteBundleRef.current) {
+        setStatusMessage("Preparing quotes…");
+        await prepareQuotes();
+      }
+      if (!planRef.current || !quoteBundleRef.current) {
+        // prepareQuotes already set a user-visible error when it failed.
+        return;
+      }
+      await submitDeposit();
+    } catch (err) {
+      setProgress("failed");
+      const reject = userRejectMessage(err);
+      const permit2Msg = formatPermit2UserError(err);
+      const execMsg = formatStableClubExecutionError(err);
+      setError(
+        reject ??
+          permit2Msg ??
+          execMsg ??
+          (err instanceof Error ? err.message : "Deposit failed"),
+      );
+      setStatusMessage(null);
     }
-    if (!onExpectedChain) {
-      await wallet.switchToBase();
-      return;
-    }
-    if (!strategyRegisteredRef.current && !strategyRegistered) {
-      await registerStrategy();
-      await refreshBalancesAndStrategy();
-    }
-    if (!planRef.current || !quoteBundleRef.current) {
-      await prepareQuotes();
-    }
-    if (!planRef.current || !quoteBundleRef.current) {
-      return;
-    }
-    await submitDeposit();
   }, [
     onExpectedChain,
     prepareQuotes,

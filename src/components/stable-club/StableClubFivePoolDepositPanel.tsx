@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStableClubDevPanelAllowed } from "@/components/stable-club/useStableClubDevPanelAllowed";
 import { useFivePoolDeposit } from "@/components/stable-club/useFivePoolDeposit";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
@@ -76,6 +76,7 @@ export function StableClubFivePoolDepositPanel({
   const d = useFivePoolDeposit();
   const wallet = useStableClubWallet();
   const { byPoolId: apyByPoolId, loading: apyLoading } = useStableClubPoolApyMap();
+  const [panelError, setPanelError] = useState<string | null>(null);
   const hideDevPanel = variant === "dev" && (!devPanelAllowed || !walletDevOk);
   const isProduct = variant === "product";
   const fieldIdSuffix = isProduct ? "product" : "dev";
@@ -104,18 +105,20 @@ export function StableClubFivePoolDepositPanel({
     }
   }, [depositBlockers, d.deploymentsError, failClosed, isProduct]);
 
-  const primaryDisabled =
-    d.deploymentsLoading ||
-    failClosed ||
-    d.busy ||
-    wallet.status !== "connected" ||
-    wrongNetwork ||
-    !d.wallet.address ||
-    (!isProduct && !d.planReady);
+  // Keep the button clickable whenever a wallet prompt or actionable next step is possible.
+  // Only block while loading/busy — failClosed still receives a click so we can show feedback.
+  const primaryDisabled = d.deploymentsLoading || d.busy;
 
   const onPrimaryClick = () => {
     if (!isProduct) return;
-    if (failClosed || wrongNetwork || wallet.status !== "connected") return;
+    if (d.deploymentsLoading || d.busy) return;
+    setPanelError(null);
+    if (failClosed) {
+      setPanelError(
+        "Deposits are temporarily unavailable. Confirm you are on Base and try again shortly.",
+      );
+      return;
+    }
     void d.depositIntoFivePoolStrategy();
   };
 
@@ -277,9 +280,15 @@ export function StableClubFivePoolDepositPanel({
           <p className="mt-3 text-[11px] text-app-dim">{PROGRESS_LABEL[d.progress] ?? d.progress}</p>
         ) : null}
         {d.statusMessage ? (
-          <p className="mt-2 text-[11px] text-app-success">{d.statusMessage}</p>
+          <p className="mt-2 text-[11px] text-app-success" role="status">
+            {d.statusMessage}
+          </p>
         ) : null}
-        {d.error ? <p className="mt-2 text-[11px] text-app-danger">{d.error}</p> : null}
+        {panelError || d.error ? (
+          <p className="mt-2 text-[11px] text-app-danger" role="alert">
+            {panelError ?? d.error}
+          </p>
+        ) : null}
         {d.lastTxHash ? (
           <p className="mt-2 font-mono text-[10px] text-app-dim">
             Tx:{" "}

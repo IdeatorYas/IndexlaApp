@@ -165,8 +165,9 @@ describe("StableClubBetaView", () => {
     expect(screen.getByRole("button", { name: /Opt in Auto-Compound/i })).toBeDisabled();
 
     const depositButtons = screen.getAllByRole("button", { name: "Deposit Into 5-Pool Strategy" });
-    // Strategy box CTA is a button; hero CTA is an anchor.
-    expect(depositButtons.some((b) => (b as HTMLButtonElement).disabled)).toBe(true);
+    // Strategy box CTA stays clickable so users get feedback; hero CTA is an anchor.
+    expect(depositButtons.length).toBeGreaterThanOrEqual(1);
+    expect(depositButtons.every((b) => !(b as HTMLButtonElement).disabled)).toBe(true);
   });
 
   it("keeps auto-harvest and auto-compound in Base product messaging", () => {
