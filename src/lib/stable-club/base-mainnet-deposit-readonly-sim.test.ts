@@ -33,6 +33,7 @@ import {
   buildFivePoolSwapQuoteRequests,
 } from "@/lib/stable-club/quote-plan";
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
+import { readCurrentTicks } from "@/lib/stable-club/pool-slot0";
 import { STAGE1_FIVE_POOL_BETA_POOL_IDS } from "@/lib/stable-club/stage1-launch";
 import {
   evaluateStableClubBetaReadiness,
@@ -499,19 +500,12 @@ describe("Base mainnet read-only deposit simulation", () => {
       expect(bundle.source).toBe("oracle-guard");
       expect(Object.keys(bundle.quotes)).toHaveLength(8);
 
-      // Read live ticks for each pool
-      const currentTicks: number[] = [];
-      for (const pool of OFFICIAL_STABLE_CLUB_BASE_POOLS) {
-        await pace();
-        const slot0 = await client.call({
-          to: pool.poolAddress as Address,
-          data: "0x3850c7bd",
-        });
-        const hex = slot0.data ?? "0x";
-        const tickWord = BigInt(`0x${hex.slice(66, 130)}`);
-        const tick =
-          tickWord >= 1n << 255n ? Number(tickWord - (1n << 256n)) : Number(tickWord);
-        currentTicks.push(tick);
+      // Protocol-specific slot0 ABI (Uni V3 = 7 outs, Slipstream = 6 outs)
+      await pace();
+      const currentTicks = await readCurrentTicks(client, "base", 8453);
+      expect(currentTicks).toHaveLength(OFFICIAL_STABLE_CLUB_BASE_POOLS.length);
+      for (let i = 0; i < currentTicks.length; i++) {
+        expect(Number.isInteger(currentTicks[i])).toBe(true);
       }
 
       const adapters = TRUSTED_PHASE2A_BASE_MANIFEST.contracts.adapters.map(

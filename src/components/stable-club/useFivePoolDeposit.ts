@@ -6,15 +6,12 @@ import {
   createWalletClient,
   custom,
   formatUnits,
-  getAddress,
   http,
-  isAddress,
   type Address,
   type Hex,
 } from "viem";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
 import {
-  clPoolSlot0Abi,
   concentratedLiquidityExecutorAbi,
   erc20Abi,
   strategyPermissionRegistryAbi,
@@ -28,7 +25,7 @@ import {
 import {
   assertChainEnvironmentMatch,
 } from "@/lib/stable-club/chain-isolation";
-import { ZERO_ADDRESS } from "@/lib/stable-club/nft-approval";
+import { readCurrentTicks } from "@/lib/stable-club/pool-slot0";
 import {
   FIVE_POOL_DEFAULT_DEADLINE_SEC,
   FIVE_POOL_DEFAULT_LP_SLIPPAGE_BPS,
@@ -53,7 +50,6 @@ import {
   type FivePoolQuoteBundle,
 } from "@/lib/stable-club/five-pool-quotes";
 import { FIVE_POOL_ALLOCATION_BPS_PER_LEG } from "@/lib/stable-club/five-pool-strategy";
-import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
 import { encodeAllowedActions } from "@/lib/stable-club/permissions";
 import { computeStableClubPermissionId } from "@/lib/stable-club/permission-id";
 import { permit2AllowanceAbi } from "@/lib/stable-club/permit2";
@@ -65,6 +61,8 @@ import {
 } from "@/lib/stable-club/phase2a-deployments";
 import { base } from "viem/chains";
 import { buildFivePoolQuotePlan, QuotePlanError } from "@/lib/stable-club/quote-plan";
+
+export { readCurrentTicks } from "@/lib/stable-club/pool-slot0";
 
 /** Matches fork five-pool ALL_ACTIONS (bits 0–4, 6–7). */
 const FIVE_POOL_ALLOWED_ACTIONS = BigInt(
@@ -89,64 +87,6 @@ function userRejectMessage(err: unknown): string | null {
     return "Wallet rejected the request";
   }
   return null;
-}
-
-/**
- * Read live pool ticks for quote/range planning.
- * SC-F03: RPC/slot0 failures fail closed — never substitute tick 0.
- * Legitimate on-chain tick 0 is still returned when slot0 succeeds.
- * Only verified local Hardhat (network hardhat-local + chainId 31337) may use
- * intentional tick 0 without an RPC read.
- */
-export async function readCurrentTicks(
-  publicClient: {
-    readContract: (args: {
-      address: Address;
-      abi: typeof clPoolSlot0Abi;
-      functionName: "slot0";
-    }) => Promise<readonly unknown[]>;
-  },
-  network: string,
-  chainId: number,
-  pools: readonly { id: string; poolAddress: Address | null }[] = OFFICIAL_STABLE_CLUB_BASE_POOLS,
-): Promise<number[]> {
-  const allowNoRpcTickZero =
-    network === "hardhat-local" && chainId === STABLE_CLUB_LOCAL_CHAIN_ID;
-  const ticks: number[] = [];
-
-  for (const pool of pools) {
-    if (allowNoRpcTickZero) {
-      ticks.push(0);
-      continue;
-    }
-
-    const poolAddress = pool.poolAddress;
-    if (
-      !poolAddress ||
-      !isAddress(poolAddress) ||
-      getAddress(poolAddress) === getAddress(ZERO_ADDRESS)
-    ) {
-      throw new Error(
-        `Missing or invalid poolAddress for live tick read on pool ${pool.id}` +
-          (poolAddress ? ` (${poolAddress})` : ""),
-      );
-    }
-
-    try {
-      const slot0 = await publicClient.readContract({
-        address: poolAddress,
-        abi: clPoolSlot0Abi,
-        functionName: "slot0",
-      });
-      ticks.push(Number(slot0[1]));
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `Failed to read current tick for pool ${pool.id} (${poolAddress}): ${detail}`,
-      );
-    }
-  }
-  return ticks;
 }
 
 /** First unused strategy deposit nonce (mapping is sparse; scan from 1). */

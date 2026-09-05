@@ -326,9 +326,14 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
     useStableClubDevPanelAllowedMock.mockImplementation((allowed: boolean) => allowed);
   });
 
-  function mockClient(readImpl: (address: string) => Promise<readonly unknown[]>) {
+  function mockClient(readImpl: (args: {
+    address: string;
+    abi: readonly unknown[];
+  }) => Promise<readonly unknown[]>) {
     return {
-      readContract: vi.fn(async (args: { address: string }) => readImpl(args.address)),
+      readContract: vi.fn(async (args: { address: string; abi: readonly unknown[] }) =>
+        readImpl(args),
+      ),
     };
   }
 
@@ -340,6 +345,28 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
     expect(client.readContract).toHaveBeenCalledTimes(poolsWithAddress.length);
   });
 
+  it("routes Uniswap V3 vs Aerodrome Slipstream slot0 ABIs by protocol", async () => {
+    const client = mockClient(async ({ address, abi }) => {
+      const pool = poolsWithAddress.find(
+        (p) => p.poolAddress!.toLowerCase() === address.toLowerCase(),
+      )!;
+      const outputs = (abi[0] as { outputs: { name: string }[] }).outputs;
+      if (pool.protocol === "uniswap-v3") {
+        expect(outputs).toHaveLength(7);
+        expect(outputs.some((o) => o.name === "feeProtocol")).toBe(true);
+        return [BigInt(0), 111, 0, 1, 1, 0, true] as const;
+      }
+      expect(pool.protocol).toBe("aerodrome-slipstream");
+      expect(outputs).toHaveLength(6);
+      expect(outputs.some((o) => o.name === "feeProtocol")).toBe(false);
+      return [BigInt(0), 222, 0, 1, 1, true] as const;
+    });
+    const ticks = await readCurrentTicks(client, "base", 8453);
+    expect(ticks).toEqual(
+      poolsWithAddress.map((p) => (p.protocol === "uniswap-v3" ? 111 : 222)),
+    );
+  });
+
   it("successful tick exactly 0 is accepted", async () => {
     const client = mockClient(async () => [BigInt(0), 0, 0, 1, 1, false] as const);
     const ticks = await readCurrentTicks(client, "base", 8453);
@@ -348,7 +375,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
 
   it("one pool RPC rejection makes readCurrentTicks fail", async () => {
     const failing = poolsWithAddress[2]!;
-    const client = mockClient(async (address) => {
+    const client = mockClient(async ({ address }) => {
       if (address.toLowerCase() === failing.poolAddress!.toLowerCase()) {
         throw new Error("RPC timeout");
       }
@@ -363,7 +390,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
   it("failure does not return other pools’ partial ticks", async () => {
     const failing = poolsWithAddress[1]!;
     let calls = 0;
-    const client = mockClient(async (address) => {
+    const client = mockClient(async ({ address }) => {
       calls += 1;
       if (address.toLowerCase() === failing.poolAddress!.toLowerCase()) {
         throw new Error("slot0 reverted");
@@ -428,7 +455,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
       throw new Error("should not RPC on verified local");
     });
     const ticks = await readCurrentTicks(client, "hardhat-local", 31337, [
-      { id: "LOCAL-MISSING-ADDR", poolAddress: null },
+      { id: "LOCAL-MISSING-ADDR", protocol: "uniswap-v3", poolAddress: null },
     ]);
     expect(ticks).toEqual([0]);
     expect(client.readContract).not.toHaveBeenCalled();
@@ -437,7 +464,9 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
   it("Base 8453 + missing poolAddress → fail closed", async () => {
     const client = mockClient(async () => [BigInt(0), 1, 0, 1, 1, false] as const);
     await expect(
-      readCurrentTicks(client, "base", 8453, [{ id: "BASE-MISSING-ADDR", poolAddress: null }]),
+      readCurrentTicks(client, "base", 8453, [
+        { id: "BASE-MISSING-ADDR", protocol: "uniswap-v3", poolAddress: null },
+      ]),
     ).rejects.toThrow(/Missing or invalid poolAddress for live tick read on pool BASE-MISSING-ADDR/);
     expect(client.readContract).not.toHaveBeenCalled();
   });
@@ -448,6 +477,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
       readCurrentTicks(client, "base", 8453, [
         {
           id: "BASE-ZERO-ADDR",
+          protocol: "aerodrome-slipstream",
           poolAddress: "0x0000000000000000000000000000000000000000",
         },
       ]),
@@ -463,7 +493,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
     let planReady = false;
     try {
       const ticks = await readCurrentTicks(client, "base", 8453, [
-        { id: "BASE-MISSING-ADDR", poolAddress: null },
+        { id: "BASE-MISSING-ADDR", protocol: "uniswap-v3", poolAddress: null },
       ]);
       buildPlan(ticks);
       planReady = true;

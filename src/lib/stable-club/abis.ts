@@ -785,8 +785,11 @@ export const oracleGuardAbi = [
   },
 ] as const;
 
-/** Uniswap V3 / Slipstream pool slot0 — tick at word index 1. */
-export const clPoolSlot0Abi = [
+/**
+ * Uniswap V3 pool `slot0()` — 7 outputs including packed `feeProtocol`.
+ * Do not use for Aerodrome Slipstream (6 outputs, no `feeProtocol`).
+ */
+export const uniswapV3PoolSlot0Abi = [
   {
     type: "function",
     name: "slot0",
@@ -803,6 +806,30 @@ export const clPoolSlot0Abi = [
     ],
   },
 ] as const;
+
+/**
+ * Aerodrome Slipstream CL pool `slot0()` — 6 outputs, no packed `feeProtocol`.
+ * Do not use for Uniswap V3 (7 outputs).
+ */
+export const aerodromeSlipstreamPoolSlot0Abi = [
+  {
+    type: "function",
+    name: "slot0",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "sqrtPriceX96", type: "uint160" },
+      { name: "tick", type: "int24" },
+      { name: "observationIndex", type: "uint16" },
+      { name: "observationCardinality", type: "uint16" },
+      { name: "observationCardinalityNext", type: "uint16" },
+      { name: "unlocked", type: "bool" },
+    ],
+  },
+] as const;
+
+/** @deprecated Use uniswapV3PoolSlot0Abi or aerodromeSlipstreamPoolSlot0Abi via protocol routing. */
+export const clPoolSlot0Abi = uniswapV3PoolSlot0Abi;
 
 export const testPoolAdapterAbi = [
   ...erc20Abi,
