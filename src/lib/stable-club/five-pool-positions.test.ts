@@ -10,6 +10,7 @@ import {
   buildFullExitLegParams,
   buildPositionDiscoveryBlockRanges,
   buildSkippedExitLeg,
+  collectOwnedNftTokenIds,
   collectTokenIdsFromTransferLogs,
   exactPoolBindingExpectations,
   interpretLiveExitAmounts,
@@ -870,6 +871,15 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
     expect(() => buildPositionDiscoveryBlockRanges(BigInt(0), BigInt(10))).toThrow(
       /fromBlock must be greater than 0/,
     );
+  });
+
+  it("collectOwnedNftTokenIds enumerates balanceOf indices", async () => {
+    const ids = await collectOwnedNftTokenIds({
+      owner: USER,
+      balanceOf: async () => BigInt(3),
+      tokenOfOwnerByIndex: async (_o, i) => BigInt(100) + i,
+    });
+    expect(ids).toEqual([BigInt(100), BigInt(101), BigInt(102)]);
   });
 
   it("correct Uni tokenId binds to its exact pool", async () => {

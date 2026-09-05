@@ -50,6 +50,8 @@ describe("StableClubFivePoolPositionsPanel", () => {
           amountA: BigInt(10),
           amountB: BigInt(20),
           liquidity: BigInt(30),
+          tokenASymbol: "USDC",
+          tokenBSymbol: "cbBTC",
           nftContract: "0xadapter",
           explorerNftUrl: null,
           protocolExplorerHint: "Local mock NFT",
@@ -79,11 +81,11 @@ describe("StableClubFivePoolPositionsPanel", () => {
 
   it("renders discovered position and exit controls", () => {
     render(<StableClubFivePoolPositionsPanel />);
-    expect(screen.getByText(/Five-pool positions & exits/i)).toBeTruthy();
+    expect(screen.getByText(/Your five-pool positions/i)).toBeTruthy();
     expect(screen.getByText(/USDC-cbBTC-AERO-CL100/)).toBeTruthy();
     expect(screen.getByText(/Open positions/)).toBeTruthy();
     expect(screen.getByText("1 / 5")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /^Exit position$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw \/ Exit/i }));
     expect(exitIndividual).toHaveBeenCalledWith(0);
   });
 
@@ -96,7 +98,7 @@ describe("StableClubFivePoolPositionsPanel", () => {
   it("disables atomic Exit All when revoked", () => {
     mockState.strategyRevoked = true;
     render(<StableClubFivePoolPositionsPanel />);
-    expect(screen.getByRole("button", { name: /Exit All \(atomic\)/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Withdraw all \(atomic exit\)/i })).toBeDisabled();
     expect(screen.getByText(/Revoked — use emergency/i)).toBeTruthy();
   });
 });

@@ -59,6 +59,7 @@ import { readClFivePoolPermit2AllowancesWithRpcGuard } from "@/lib/stable-club/p
 import {
   applyFivePoolDepositGasBuffer,
 } from "@/lib/stable-club/five-pool-deposit-gas";
+import { requestFivePoolPositionsRefresh } from "@/lib/stable-club/positions-refresh";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
   createOracleGuardQuoteAdapter,
@@ -844,10 +845,14 @@ export function useFivePoolDeposit() {
       });
       setExecutionNonce(nextNonce + BigInt(1));
       setProgress("confirmed");
-      setStatusMessage("Deposit confirmed");
+      setStatusMessage("Deposit confirmed — loading positions…");
       clearPlan();
       planRef.current = null;
       await refreshBalancesAndStrategy();
+      requestFivePoolPositionsRefresh({
+        reason: "deposit-confirmed",
+        txHash: depositHash,
+      });
     } catch (err) {
       setProgress("failed");
       const reject = userRejectMessage(err);

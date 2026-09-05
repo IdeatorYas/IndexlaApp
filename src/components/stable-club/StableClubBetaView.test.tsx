@@ -92,6 +92,40 @@ vi.mock("@/components/stable-club/useStableClubCompound", () => ({
   }),
 }));
 
+vi.mock("@/components/stable-club/useFivePoolPositions", () => ({
+  useFivePoolPositions: () => ({
+    deploymentsLoading: false,
+    deployments: { network: "base", chainId: 8453 },
+    deploymentsError: null,
+    onExpectedChain: true,
+    expectedChainId: 8453,
+    strategyId: null,
+    strategyRegistered: false,
+    strategyRevoked: false,
+    strategyExpired: false,
+    positions: [],
+    positionsLoading: false,
+    positionsError: null,
+    stale: false,
+    progress: "idle",
+    statusMessage: null,
+    error: null,
+    lastTxHash: null,
+    explorerUrl: null,
+    approvalTxHashes: [],
+    legResults: [],
+    directPlan: null,
+    busy: false,
+    refreshPositions: vi.fn(),
+    exitIndividual: vi.fn(),
+    exitAll: vi.fn(),
+    emergencyExitLeg: vi.fn(),
+    emergencyExitAllSequential: vi.fn(),
+    revokeStrategy: vi.fn(),
+    showDirectExitPlan: vi.fn(),
+  }),
+}));
+
 describe("StableClubBetaView", () => {
   afterEach(() => cleanup());
 
@@ -107,6 +141,7 @@ describe("StableClubBetaView", () => {
     expect(strategyBoxes[0]).toHaveAttribute("data-strategy", "base-five-pool");
     expect(strategyBoxes[0]).toHaveAttribute("data-status", "live-beta");
     expect(screen.getByText("LIVE BETA · BASE")).toBeInTheDocument();
+    expect(screen.getByText(/Your five-pool positions/i)).toBeInTheDocument();
 
     for (const pool of OFFICIAL_STABLE_CLUB_BASE_POOLS) {
       expect(screen.getByText(pool.id)).toBeInTheDocument();

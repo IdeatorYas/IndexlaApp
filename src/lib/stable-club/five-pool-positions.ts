@@ -616,21 +616,70 @@ export function buildPositionDiscoveryBlockRanges(
   chunkSize: bigint = POSITION_DISCOVERY_LOG_CHUNK_SIZE,
 ): { fromBlock: bigint; toBlock: bigint }[] {
   if (fromBlock <= BigInt(0)) {
-    throw new Error("Position discovery fromBlock must be greater than 0");
+    throw new Error("fromBlock must be greater than 0");
+  }
+  if (toBlock < fromBlock) {
+    throw new Error("toBlock must be >= fromBlock");
   }
   if (chunkSize <= BigInt(0)) {
-    throw new Error("Position discovery chunk size must be greater than 0");
+    throw new Error("chunkSize must be > 0");
   }
-  if (fromBlock > toBlock) return [];
   const ranges: { fromBlock: bigint; toBlock: bigint }[] = [];
   let cursor = fromBlock;
   while (cursor <= toBlock) {
-    const end =
-      cursor + chunkSize - BigInt(1) > toBlock ? toBlock : cursor + chunkSize - BigInt(1);
-    ranges.push({ fromBlock: cursor, toBlock: end });
-    cursor = end + BigInt(1);
+    const end = cursor + chunkSize - BigInt(1);
+    const capped = end > toBlock ? toBlock : end;
+    ranges.push({ fromBlock: cursor, toBlock: capped });
+    cursor = capped + BigInt(1);
   }
   return ranges;
+}
+
+/** Uni V3 / Aerodrome NPM ERC-721 enumerable surface (preferred over eth_getLogs). */
+export const erc721EnumerableAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "tokenOfOwnerByIndex",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "index", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
+/**
+ * List NFT tokenIds owned by `owner` via ERC721Enumerable.
+ * Avoids eth_getLogs — required when the Base RPC plan caps log block ranges.
+ */
+export async function collectOwnedNftTokenIds(params: {
+  owner: Address;
+  balanceOf: (owner: Address) => Promise<bigint>;
+  tokenOfOwnerByIndex: (owner: Address, index: bigint) => Promise<bigint>;
+  /** Soft cap to avoid runaway loops on unexpected balances. */
+  maxIds?: number;
+}): Promise<bigint[]> {
+  const balance = await params.balanceOf(params.owner);
+  if (balance <= BigInt(0)) return [];
+  const max = params.maxIds ?? 256;
+  if (balance > BigInt(max)) {
+    throw new Error(
+      `NFT balance ${balance.toString()} exceeds discovery cap ${max} — refusing unbounded enumeration`,
+    );
+  }
+  const ids: bigint[] = [];
+  for (let i = BigInt(0); i < balance; i++) {
+    ids.push(await params.tokenOfOwnerByIndex(params.owner, i));
+  }
+  return ids;
 }
 
 /** Catalogue feeBps (e.g. 5) → Uniswap V3 fee tier (500). */

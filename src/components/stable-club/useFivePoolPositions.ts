@@ -22,6 +22,8 @@ import {
   STABLE_CLUB_LOCAL_CHAIN_ID,
   STABLE_CLUB_LOCAL_RPC_URL,
 } from "@/lib/stable-club/constants";
+import { STABLE_CLUB_BASE_RPC_PROXY_PATH } from "@/lib/stable-club/base-rpc-client";
+import { createStableClubBaseReadTransport } from "@/lib/stable-club/base-rpc-transport";
 import { assertChainEnvironmentMatch } from "@/lib/stable-club/chain-isolation";
 import { explorerTxUrl } from "@/lib/stable-club/five-pool-deposit";
 import {
@@ -33,7 +35,9 @@ import {
   buildExitAllLegs,
   buildFullExitLegParams,
   buildPositionDiscoveryBlockRanges,
+  collectOwnedNftTokenIds,
   collectTokenIdsFromTransferLogs,
+  erc721EnumerableAbi,
   exactPoolBindingExpectations,
   interpretLiveExitAmounts,
   matchExactPoolMintTokenId,
@@ -51,6 +55,9 @@ import {
 } from "@/lib/stable-club/five-pool-positions";
 import { FIVE_POOL_LEG_COUNT } from "@/lib/stable-club/five-pool-strategy";
 import { erc721PositionAbi } from "@/lib/stable-club/nft-approval";
+import {
+  FIVE_POOL_POSITIONS_REFRESH_EVENT,
+} from "@/lib/stable-club/positions-refresh";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
   attestPhase2aDeployments,
@@ -245,13 +252,39 @@ export function useFivePoolPositions() {
     [deployments?.network, wallet.chain],
   );
 
+  /**
+   * Position discovery (eth_getLogs over large block ranges) must use HTTP Base RPC —
+   * never the wallet EIP-1193 provider, which often truncates/fails long log queries.
+   */
+  const discoveryClient = useMemo(() => {
+    const readChain =
+      deployments?.network === "hardhat-local" ? STABLE_CLUB_LOCAL_CHAIN : base;
+    if (deployments?.network === "hardhat-local") {
+      return createPublicClient({
+        chain: readChain,
+        transport: http(deployments.rpcUrl ?? STABLE_CLUB_LOCAL_RPC_URL),
+      });
+    }
+    return createPublicClient({
+      chain: readChain,
+      transport: createStableClubBaseReadTransport(),
+    });
+  }, [deployments?.network, deployments?.rpcUrl]);
+
+  /** Wallet transport for writes / receipt waits when connected. */
   const publicClient = useMemo(() => {
     const rpc = deployments?.rpcUrl ?? STABLE_CLUB_LOCAL_RPC_URL;
     if (wallet.provider) {
       return createPublicClient({ chain, transport: custom(wallet.provider) });
     }
-    return createPublicClient({ chain, transport: http(rpc) });
-  }, [chain, deployments?.rpcUrl, wallet.provider]);
+    if (deployments?.network === "hardhat-local") {
+      return createPublicClient({ chain, transport: http(rpc) });
+    }
+    return createPublicClient({
+      chain,
+      transport: createStableClubBaseReadTransport(),
+    });
+  }, [chain, deployments?.network, deployments?.rpcUrl, wallet.provider]);
 
   const expectedChainId = deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID;
   const onExpectedChain = wallet.chainId === expectedChainId;
@@ -269,9 +302,17 @@ export function useFivePoolPositions() {
           const candidate = json.deployments;
           const attestChain =
             candidate.network === "hardhat-local" ? STABLE_CLUB_LOCAL_CHAIN : base;
+          const attestTransport =
+            candidate.network === "hardhat-local"
+              ? http(candidate.rpcUrl)
+              : candidate.network === "base" ||
+                  candidate.rpcUrl === STABLE_CLUB_BASE_RPC_PROXY_PATH ||
+                  candidate.chainId === 8453
+                ? createStableClubBaseReadTransport()
+                : http(candidate.rpcUrl);
           const attestClient = createPublicClient({
             chain: attestChain,
-            transport: http(candidate.rpcUrl),
+            transport: attestTransport,
           });
           await attestPhase2aDeployments({
             client: {
@@ -317,7 +358,8 @@ export function useFivePoolPositions() {
     setPositionsError(null);
     setStale(false);
     try {
-      const sid = await publicClient.readContract({
+      const client = discoveryClient;
+      const sid = await client.readContract({
         address: deployments.strategyRegistry,
         abi: strategyPermissionRegistryAbi,
         functionName: "strategyIdFor",
@@ -325,7 +367,7 @@ export function useFivePoolPositions() {
       });
       setStrategyId(sid);
 
-      const strategy = await publicClient.readContract({
+      const strategy = await client.readContract({
         address: deployments.strategyRegistry,
         abi: strategyPermissionRegistryAbi,
         functionName: "getStrategy",
@@ -347,19 +389,24 @@ export function useFivePoolPositions() {
       }
 
       const discovered: FivePoolPosition[] = [];
-      const fromBlock = resolvePositionDiscoveryFromBlock({
-        network: deployments.network,
-        chainId: deployments.chainId,
-        discoveryStartBlock: deployments.discoveryStartBlock,
-      });
-      const latestBlock = await publicClient.getBlockNumber();
-      const logRanges = buildPositionDiscoveryBlockRanges(fromBlock, latestBlock);
       const isVerifiedLocal =
         deployments.network === "hardhat-local" && deployments.chainId === 31337;
       const claimedTokenIds = new Set<string>();
 
+      // Local Hardhat may lack ERC721Enumerable — keep Transfer log discovery there.
+      let logRanges: { fromBlock: bigint; toBlock: bigint }[] | null = null;
+      if (isVerifiedLocal) {
+        const fromBlock = resolvePositionDiscoveryFromBlock({
+          network: deployments.network,
+          chainId: deployments.chainId,
+          discoveryStartBlock: deployments.discoveryStartBlock,
+        });
+        const latestBlock = await client.getBlockNumber();
+        logRanges = buildPositionDiscoveryBlockRanges(fromBlock, latestBlock);
+      }
+
       for (let legIndex = 0; legIndex < FIVE_POOL_LEG_COUNT; legIndex++) {
-        const legRaw = await publicClient.readContract({
+        const legRaw = await client.readContract({
           address: deployments.strategyRegistry,
           abi: strategyPermissionRegistryAbi,
           functionName: "getLeg",
@@ -388,24 +435,46 @@ export function useFivePoolPositions() {
         const nftContract =
           deployments.network === "hardhat-local" ? adapterMeta.adapter : adapterMeta.npm;
 
-        const transferEvent = parseAbiItem(
-          "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
-        );
-        const logs: { args?: { tokenId?: bigint } | null }[] = [];
-        for (const range of logRanges) {
-          const chunk = await publicClient.getLogs({
-            address: nftContract,
-            event: transferEvent,
-            args: {
-              from: "0x0000000000000000000000000000000000000000",
-              to: wallet.address,
-            },
-            fromBlock: range.fromBlock,
-            toBlock: range.toBlock,
+        let candidates: bigint[];
+        if (isVerifiedLocal && logRanges) {
+          const transferEvent = parseAbiItem(
+            "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
+          );
+          const logs: { args?: { tokenId?: bigint } | null }[] = [];
+          for (const range of logRanges) {
+            const chunk = await client.getLogs({
+              address: nftContract,
+              event: transferEvent,
+              args: {
+                from: "0x0000000000000000000000000000000000000000",
+                to: wallet.address,
+              },
+              fromBlock: range.fromBlock,
+              toBlock: range.toBlock,
+            });
+            logs.push(...chunk);
+          }
+          candidates = collectTokenIdsFromTransferLogs(logs);
+        } else {
+          // Base / production: ERC721Enumerable — avoids eth_getLogs plan caps.
+          candidates = await collectOwnedNftTokenIds({
+            owner: wallet.address,
+            balanceOf: (owner) =>
+              client.readContract({
+                address: nftContract,
+                abi: erc721EnumerableAbi,
+                functionName: "balanceOf",
+                args: [owner],
+              }),
+            tokenOfOwnerByIndex: (owner, index) =>
+              client.readContract({
+                address: nftContract,
+                abi: erc721EnumerableAbi,
+                functionName: "tokenOfOwnerByIndex",
+                args: [owner, index],
+              }),
           });
-          logs.push(...chunk);
         }
-        const candidates = collectTokenIdsFromTransferLogs(logs);
 
         const isUni =
           binding.protocol === "uniswap-v3" || binding.protocol === "uniswap";
@@ -425,7 +494,7 @@ export function useFivePoolPositions() {
           expectedTickSpacing: binding.expectedTickSpacing,
           claimedTokenIds,
           readOwner: (id) =>
-            publicClient.readContract({
+            client.readContract({
               address: adapterMeta.adapter,
               abi: concentratedLiquidityAdapterAbi,
               functionName: "ownerOf",
@@ -435,7 +504,7 @@ export function useFivePoolPositions() {
             if (isVerifiedLocal) {
               // Local mock NFT has no Uni/Aero positions(); synthesize fee/tickSpacing
               // from catalogue after token reads. Factory proof is short-circuited below.
-              const [token0, token1] = await publicClient.readContract({
+              const [token0, token1] = await client.readContract({
                 address: adapterMeta.adapter,
                 abi: concentratedLiquidityAdapterAbi,
                 functionName: "positionTokens",
@@ -443,7 +512,7 @@ export function useFivePoolPositions() {
               });
               let liquidity = BigInt(0);
               try {
-                liquidity = await publicClient.readContract({
+                liquidity = await client.readContract({
                   address: adapterMeta.adapter,
                   abi: concentratedLiquidityAdapterAbi,
                   functionName: "liquidityOf",
@@ -468,7 +537,7 @@ export function useFivePoolPositions() {
               };
             }
             if (isUni) {
-              const pos = await publicClient.readContract({
+              const pos = await client.readContract({
                 address: adapterMeta.npm,
                 abi: uniV3NpmPositionsAbi,
                 functionName: "positions",
@@ -482,7 +551,7 @@ export function useFivePoolPositions() {
               };
             }
             if (isAero) {
-              const pos = await publicClient.readContract({
+              const pos = await client.readContract({
                 address: adapterMeta.npm,
                 abi: aeroNpmPositionsAbi,
                 functionName: "positions",
@@ -503,7 +572,7 @@ export function useFivePoolPositions() {
               return binding.expectedPool;
             }
             if (isUni && fee != null) {
-              return publicClient.readContract({
+              return client.readContract({
                 address: binding.factory,
                 abi: uniV3FactoryGetPoolAbi,
                 functionName: "getPool",
@@ -511,7 +580,7 @@ export function useFivePoolPositions() {
               });
             }
             if (isAero && tickSpacing != null) {
-              return publicClient.readContract({
+              return client.readContract({
                 address: binding.factory,
                 abi: aeroFactoryGetPoolAbi,
                 functionName: "getPool",
@@ -521,7 +590,7 @@ export function useFivePoolPositions() {
             throw new Error("Factory pool resolution requires fee or tickSpacing");
           },
           readAmounts: (id) =>
-            publicClient.readContract({
+            client.readContract({
               address: adapterMeta.adapter,
               abi: concentratedLiquidityAdapterAbi,
               functionName: "positionAmounts",
@@ -532,7 +601,7 @@ export function useFivePoolPositions() {
         if (tokenId == null) continue;
         claimedTokenIds.add(positionNftClaimKey(nftContract, tokenId));
 
-        const owner = await publicClient.readContract({
+        const owner = await client.readContract({
           address: adapterMeta.adapter,
           abi: concentratedLiquidityAdapterAbi,
           functionName: "ownerOf",
@@ -540,7 +609,7 @@ export function useFivePoolPositions() {
         });
         if (owner.toLowerCase() !== wallet.address.toLowerCase()) continue;
 
-        const [amount0, amount1] = await publicClient.readContract({
+        const [amount0, amount1] = await client.readContract({
           address: adapterMeta.adapter,
           abi: concentratedLiquidityAdapterAbi,
           functionName: "positionAmounts",
@@ -549,7 +618,7 @@ export function useFivePoolPositions() {
 
         let liquidity = BigInt(0);
         try {
-          liquidity = await publicClient.readContract({
+          liquidity = await client.readContract({
             address: adapterMeta.adapter,
             abi: concentratedLiquidityAdapterAbi,
             functionName: "liquidityOf",
@@ -559,7 +628,7 @@ export function useFivePoolPositions() {
           liquidity = amount0 + amount1;
         }
 
-        const approved = await publicClient.readContract({
+        const approved = await client.readContract({
           address: nftContract,
           abi: erc721PositionAbi,
           functionName: "getApproved",
@@ -592,10 +661,20 @@ export function useFivePoolPositions() {
     } finally {
       setPositionsLoading(false);
     }
-  }, [deployments, expectedChainId, publicClient, wallet.address]);
+  }, [deployments, discoveryClient, expectedChainId, wallet.address]);
 
   useEffect(() => {
     void refreshPositions();
+  }, [refreshPositions]);
+
+  useEffect(() => {
+    const onRefresh = () => {
+      void refreshPositions();
+    };
+    window.addEventListener(FIVE_POOL_POSITIONS_REFRESH_EVENT, onRefresh);
+    return () => {
+      window.removeEventListener(FIVE_POOL_POSITIONS_REFRESH_EVENT, onRefresh);
+    };
   }, [refreshPositions]);
 
   const ensureReady = useCallback(() => {

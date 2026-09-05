@@ -4,6 +4,7 @@ import { StableClubAutomationPanel } from "@/components/stable-club/StableClubAu
 import { StableClubCategoryExplain } from "@/components/stable-club/StableClubCategoryExplain";
 import { StableClubDemoStrategyCard } from "@/components/stable-club/StableClubDemoStrategyCard";
 import { StableClubFivePoolDepositPanel } from "@/components/stable-club/StableClubFivePoolDepositPanel";
+import { StableClubFivePoolPositionsPanel } from "@/components/stable-club/StableClubFivePoolPositionsPanel";
 import { useStableClubBetaReadiness } from "@/components/stable-club/useStableClubBetaReadiness";
 import { STABLE_CLUB_DEMO_PRODUCTS } from "@/lib/stable-club/demo-strategies";
 
@@ -85,6 +86,8 @@ export function StableClubBetaView({
           depositBlockers={depositBlockers}
           variant="product"
         />
+
+        <StableClubFivePoolPositionsPanel />
 
         <StableClubAutomationPanel />
 
