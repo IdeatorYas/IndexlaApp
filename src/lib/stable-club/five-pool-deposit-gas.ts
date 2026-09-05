@@ -39,12 +39,16 @@ export function applyFivePoolDepositGasBuffer(estimateGas: bigint): bigint {
  * True when a mined tx exhausted its gas limit (classic OOG fingerprint).
  */
 export function isOutOfGasReceipt(params: {
-  status: "success" | "reverted" | number | null | undefined;
+  status: "success" | "reverted" | number | string | null | undefined;
   gasLimit: bigint;
   gasUsed: bigint;
 }): boolean {
+  const status = params.status;
   const reverted =
-    params.status === "reverted" || params.status === 0 || params.status === "0x0";
+    status === "reverted" ||
+    status === 0 ||
+    status === "0" ||
+    status === "0x0";
   if (!reverted) return false;
   if (params.gasLimit <= BigInt(0) || params.gasUsed <= BigInt(0)) return false;
   // Exact match or within 1% (some clients report slight differences)
