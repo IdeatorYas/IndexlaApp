@@ -17,6 +17,7 @@ import {
   FIVE_POOL_PERMIT2_ALLOWANCE_TTL_SEC,
   needsPermit2AllowanceToClExecutor,
   needsUsdcAllowanceToPermit2,
+  refetchClFivePoolPermit2AllowancesUntilReady,
 } from "@/lib/stable-club/five-pool-permit2";
 import {
   formatPermit2UserError,
@@ -208,6 +209,85 @@ describe("five-pool Permit2 dual-allowance readiness", () => {
       expect(err instanceof Error ? err.message : "").toMatch(/AllowanceExpired\(0\)/);
     }
     expect(depositCalled).toBe(false);
+  });
+
+  it("polls past stale wallet eth_call until HTTP RPC shows fresh Permit2 expiry", async () => {
+    // Exact production failure: receipt mined, but first refresh still returns expired.
+    const expired = {
+      erc20AllowanceToPermit2: GROSS,
+      permit2AmountToExecutor: GROSS,
+      permit2ExpirationToExecutor: NOW - 60,
+    };
+    const fresh = {
+      erc20AllowanceToPermit2: GROSS,
+      permit2AmountToExecutor: GROSS,
+      permit2ExpirationToExecutor: NOW + FIVE_POOL_PERMIT2_ALLOWANCE_TTL_SEC,
+    };
+    let reads = 0;
+    const sleeps: number[] = [];
+    const ready = await refetchClFivePoolPermit2AllowancesUntilReady({
+      readAllowances: async () => {
+        reads += 1;
+        return reads < 3 ? expired : fresh;
+      },
+      requiredGrossUsdc: GROSS,
+      nowSec: () => NOW,
+      permit2: BASE_PERMIT2.address,
+      clExecutor: CL_EXEC,
+      maxAttempts: 5,
+      delayMs: 10,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+    expect(reads).toBeGreaterThanOrEqual(3);
+    expect(sleeps.length).toBeGreaterThanOrEqual(2);
+    expect(ready.permit2ExpirationToExecutor).toBe(fresh.permit2ExpirationToExecutor);
+    expect(
+      evaluateClFivePoolPermit2Readiness({
+        requiredGrossUsdc: GROSS,
+        nowSec: NOW,
+        allowances: ready,
+      }).ready,
+    ).toBe(true);
+  });
+
+  it("still fails closed when refreshes remain expired after polling", async () => {
+    const staleExpired = {
+      erc20AllowanceToPermit2: GROSS,
+      permit2AmountToExecutor: GROSS,
+      permit2ExpirationToExecutor: NOW - 1,
+    };
+    await expect(
+      refetchClFivePoolPermit2AllowancesUntilReady({
+        readAllowances: async () => staleExpired,
+        requiredGrossUsdc: GROSS,
+        nowSec: () => NOW,
+        permit2: BASE_PERMIT2.address,
+        clExecutor: CL_EXEC,
+        maxAttempts: 3,
+        delayMs: 1,
+        sleep: async () => undefined,
+      }),
+    ).rejects.toThrow(/AllowanceExpired/);
+  });
+
+  it("builds Permit2 → CL Executor approve with exact 20 USDC and 30m expiry", () => {
+    const expiration = computeClFivePoolPermit2Expiration(NOW);
+    const plan = buildClFivePoolPermit2Plan({
+      chainId: 8453,
+      token: USDC,
+      clExecutor: CL_EXEC,
+      grossUsdc: GROSS,
+      expiration,
+      nowSec: NOW,
+    });
+    expect(plan.permit2).toBe(BASE_PERMIT2.address);
+    expect(plan.permit2ApproveTx.args[0]).toBe(USDC);
+    expect(plan.permit2ApproveTx.args[1]).toBe(CL_EXEC);
+    expect(plan.permit2ApproveTx.args[2]).toBe(GROSS);
+    expect(plan.permit2ApproveTx.args[3]).toBe(NOW + FIVE_POOL_PERMIT2_ALLOWANCE_TTL_SEC);
+    expect(plan.permit2ApproveTx.args[3]).toBeGreaterThan(NOW);
   });
 });
 

@@ -156,6 +156,79 @@ export function assertClFivePoolPermit2Ready(params: {
   }
 }
 
+/** Decode Permit2.allowance tuple into the live allowance shape used by readiness checks. */
+export function decodeClFivePoolPermit2AllowanceTuple(
+  amount: bigint,
+  expiration: number | bigint,
+): Pick<
+  ClFivePoolPermit2LiveAllowances,
+  "permit2AmountToExecutor" | "permit2ExpirationToExecutor"
+> {
+  return {
+    permit2AmountToExecutor: amount,
+    permit2ExpirationToExecutor: Number(expiration),
+  };
+}
+
+/**
+ * After a confirmed Permit2/ERC20 approval receipt, poll Base RPC until allowances
+ * are ready. Wallet EIP-1193 providers often return stale eth_call right after mining.
+ */
+export async function refetchClFivePoolPermit2AllowancesUntilReady(params: {
+  readAllowances: () => Promise<ClFivePoolPermit2LiveAllowances>;
+  requiredGrossUsdc: bigint;
+  nowSec: () => number;
+  permit2: Address;
+  clExecutor: Address;
+  /** Default 12 attempts (~6s with 500ms delay). */
+  maxAttempts?: number;
+  delayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<ClFivePoolPermit2LiveAllowances> {
+  const maxAttempts = params.maxAttempts ?? 12;
+  const delayMs = params.delayMs ?? 500;
+  const sleep =
+    params.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+    throw new Error("maxAttempts must be a positive integer");
+  }
+
+  let last = await params.readAllowances();
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const nowSec = params.nowSec();
+    const status = evaluateClFivePoolPermit2Readiness({
+      requiredGrossUsdc: params.requiredGrossUsdc,
+      nowSec,
+      allowances: last,
+    });
+    if (status.ready) {
+      assertClFivePoolPermit2Ready({
+        requiredGrossUsdc: params.requiredGrossUsdc,
+        nowSec,
+        allowances: last,
+        permit2: params.permit2,
+        clExecutor: params.clExecutor,
+      });
+      return last;
+    }
+    if (attempt < maxAttempts) {
+      await sleep(delayMs);
+      last = await params.readAllowances();
+    }
+  }
+
+  assertClFivePoolPermit2Ready({
+    requiredGrossUsdc: params.requiredGrossUsdc,
+    nowSec: params.nowSec(),
+    allowances: last,
+    permit2: params.permit2,
+    clExecutor: params.clExecutor,
+  });
+  return last;
+}
+
 /**
  * Bounded USDC → Permit2, then Permit2 → ConcentratedLiquidityExecutor for full grossUsdc.
  * FeeRouter is intentionally NOT a Permit2 spender on this path.

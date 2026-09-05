@@ -44,10 +44,12 @@ import {
   type FivePoolDepositProgress,
 } from "@/lib/stable-club/five-pool-deposit";
 import {
-  assertClFivePoolPermit2Ready,
   buildClFivePoolPermit2Plan,
   computeClFivePoolPermit2Expiration,
+  decodeClFivePoolPermit2AllowanceTuple,
   evaluateClFivePoolPermit2Readiness,
+  refetchClFivePoolPermit2AllowancesUntilReady,
+  type ClFivePoolPermit2LiveAllowances,
 } from "@/lib/stable-club/five-pool-permit2";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
@@ -172,6 +174,21 @@ export function useFivePoolDeposit() {
     }
     return createPublicClient({ chain, transport: http(rpc) });
   }, [chain, deployments?.rpcUrl, wallet.provider]);
+
+  /**
+   * Allowance / readiness reads must use HTTP Base RPC — never the wallet EIP-1193
+   * provider. Wallet eth_call is often stale right after a confirmed Permit2 approve,
+   * which falsely surfaces AllowanceExpired after "Refreshing allowances…".
+   */
+  const allowanceReadClient = useMemo(() => {
+    const rpc = deployments?.rpcUrl ?? STABLE_CLUB_LOCAL_RPC_URL;
+    const readChain =
+      deployments?.network === "hardhat-local" ? STABLE_CLUB_LOCAL_CHAIN : base;
+    return createPublicClient({
+      chain: readChain,
+      transport: http(rpc),
+    });
+  }, [deployments?.network, deployments?.rpcUrl]);
 
   const expectedChainId = deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID;
   const onExpectedChain = wallet.chainId === expectedChainId;
@@ -608,34 +625,27 @@ export function useFivePoolDeposit() {
       setProgress("awaiting-approval");
       setStatusMessage("Checking USDC + Permit2 allowances…");
 
-      const permitExpiration = computeClFivePoolPermit2Expiration(nowSec);
-      const permitPlan = buildClFivePoolPermit2Plan({
-        chainId: expectedChainId,
-        permit2: attestedDeployments.permit2,
-        token: attestedDeployments.usdc,
-        clExecutor: attestedDeployments.clExecutor,
-        grossUsdc: depositArgs.grossUsdc,
-        expiration: permitExpiration,
-        nowSec,
-      });
-
-      const readDepositAllowances = async () => {
-        const erc20AllowanceToPermit2 = await publicClient.readContract({
+      const readDepositAllowances = async (): Promise<ClFivePoolPermit2LiveAllowances> => {
+        // Explicit latest block via HTTP RPC — never wallet-provider eth_call cache.
+        const erc20AllowanceToPermit2 = await allowanceReadClient.readContract({
           address: attestedDeployments.usdc,
           abi: erc20Abi,
           functionName: "allowance",
-          args: [ownerAddress, permitPlan.permit2],
+          args: [ownerAddress, attestedDeployments.permit2],
+          blockTag: "latest",
         });
-        const p2 = await publicClient.readContract({
-          address: permitPlan.permit2,
+        const p2 = await allowanceReadClient.readContract({
+          address: attestedDeployments.permit2,
           abi: permit2AllowanceAbi,
           functionName: "allowance",
           args: [ownerAddress, attestedDeployments.usdc, attestedDeployments.clExecutor],
+          blockTag: "latest",
         });
+        const decoded = decodeClFivePoolPermit2AllowanceTuple(p2[0], p2[1]);
         return {
           erc20AllowanceToPermit2,
-          permit2AmountToExecutor: p2[0],
-          permit2ExpirationToExecutor: Number(p2[1]),
+          permit2AmountToExecutor: decoded.permit2AmountToExecutor,
+          permit2ExpirationToExecutor: decoded.permit2ExpirationToExecutor,
         };
       };
 
@@ -664,38 +674,58 @@ export function useFivePoolDeposit() {
         erc20Approve: readiness.needsErc20Approve
           ? async () => {
               setStatusMessage("Approve USDC → Permit2 (exact deposit amount)…");
+              const approveNow = Math.floor(Date.now() / 1000);
+              const plan = buildClFivePoolPermit2Plan({
+                chainId: expectedChainId,
+                permit2: attestedDeployments.permit2,
+                token: attestedDeployments.usdc,
+                clExecutor: attestedDeployments.clExecutor,
+                grossUsdc: depositArgs.grossUsdc,
+                expiration: computeClFivePoolPermit2Expiration(approveNow),
+                nowSec: approveNow,
+              });
               return walletClient.writeContract({
-                address: permitPlan.erc20ApproveTx.address,
-                abi: permitPlan.erc20ApproveTx.abi,
-                functionName: permitPlan.erc20ApproveTx.functionName,
-                args: permitPlan.erc20ApproveTx.args,
+                address: plan.erc20ApproveTx.address,
+                abi: plan.erc20ApproveTx.abi,
+                functionName: plan.erc20ApproveTx.functionName,
+                args: plan.erc20ApproveTx.args,
               });
             }
           : null,
         permit2Approve: readiness.needsPermit2Approve
           ? async () => {
               setStatusMessage("Approve Permit2 → CL executor (exact amount, short expiry)…");
+              // Fresh 30-minute expiry at wallet-prompt time (not deposit-start clock).
+              const approveNow = Math.floor(Date.now() / 1000);
+              const plan = buildClFivePoolPermit2Plan({
+                chainId: expectedChainId,
+                permit2: attestedDeployments.permit2,
+                token: attestedDeployments.usdc,
+                clExecutor: attestedDeployments.clExecutor,
+                grossUsdc: depositArgs.grossUsdc,
+                expiration: computeClFivePoolPermit2Expiration(approveNow),
+                nowSec: approveNow,
+              });
               return walletClient.writeContract({
-                address: permitPlan.permit2ApproveTx.address,
-                abi: permitPlan.permit2ApproveTx.abi,
-                functionName: permitPlan.permit2ApproveTx.functionName,
-                args: permitPlan.permit2ApproveTx.args,
+                address: plan.permit2ApproveTx.address,
+                abi: plan.permit2ApproveTx.abi,
+                functionName: plan.permit2ApproveTx.functionName,
+                args: plan.permit2ApproveTx.args,
               });
             }
           : null,
-        waitForSuccess: (hash) => waitForSuccessfulTransactionReceipt(publicClient, hash),
+        waitForSuccess: (hash) =>
+          waitForSuccessfulTransactionReceipt(allowanceReadClient, hash),
       });
       setApprovalTxHashes(approvalHashes);
 
-      // Refresh both allowances after successful receipts — never deposit on stale reads.
+      // Poll HTTP Base RPC until allowances match — wallet eth_call is often stale here.
       setStatusMessage("Refreshing allowances…");
-      allowances = await readDepositAllowances();
-      const postApproveNow = Math.floor(Date.now() / 1000);
-      assertClFivePoolPermit2Ready({
+      allowances = await refetchClFivePoolPermit2AllowancesUntilReady({
+        readAllowances: readDepositAllowances,
         requiredGrossUsdc: depositArgs.grossUsdc,
-        nowSec: postApproveNow,
-        allowances,
-        permit2: permitPlan.permit2,
+        nowSec: () => Math.floor(Date.now() / 1000),
+        permit2: attestedDeployments.permit2,
         clExecutor: attestedDeployments.clExecutor,
       });
 
@@ -781,6 +811,7 @@ export function useFivePoolDeposit() {
       submittingRef.current = false;
     }
   }, [
+    allowanceReadClient,
     chain,
     clearPlan,
     deployments,

@@ -537,6 +537,10 @@ export function formatPermit2UserError(err: unknown): string | null {
   }
 
   const msg = err instanceof Error ? err.message : String(err);
+  // Preserve assertClFivePoolPermit2Ready messages (already actionable + include expiry).
+  if (/^Permit2 AllowanceExpired\(/i.test(msg) || /^USDC allowance to Permit2/i.test(msg)) {
+    return msg;
+  }
   if (/AllowanceExpired/i.test(msg)) {
     return (
       "Permit2 AllowanceExpired: the CL Executor allowance is missing or expired" +
