@@ -550,6 +550,8 @@ export function useFivePoolDeposit() {
       if (!wallet.address || !wallet.provider) {
         throw new Error("Wallet and deployments required");
       }
+      const ownerAddress = wallet.address;
+      const walletProvider = wallet.provider;
       if (!onExpectedChain) {
         throw new Error(`Wrong network — switch to chain ${expectedChainId}`);
       }
@@ -594,9 +596,9 @@ export function useFivePoolDeposit() {
       });
 
       const walletClient = createWalletClient({
-        account: wallet.address,
+        account: ownerAddress,
         chain,
-        transport: custom(wallet.provider),
+        transport: custom(walletProvider),
       });
 
       setProgress("awaiting-approval");
@@ -618,13 +620,13 @@ export function useFivePoolDeposit() {
           address: attestedDeployments.usdc,
           abi: erc20Abi,
           functionName: "allowance",
-          args: [wallet.address, permitPlan.permit2],
+          args: [ownerAddress, permitPlan.permit2],
         });
         const p2 = await publicClient.readContract({
           address: permitPlan.permit2,
           abi: permit2AllowanceAbi,
           functionName: "allowance",
-          args: [wallet.address, attestedDeployments.usdc, attestedDeployments.clExecutor],
+          args: [ownerAddress, attestedDeployments.usdc, attestedDeployments.clExecutor],
         });
         return {
           erc20AllowanceToPermit2,
