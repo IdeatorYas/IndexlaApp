@@ -25,7 +25,7 @@ import {
 import {
   assertChainEnvironmentMatch,
 } from "@/lib/stable-club/chain-isolation";
-import { readCurrentTicks, readPoolSlot0States } from "@/lib/stable-club/pool-slot0";
+import { readPoolSlot0States } from "@/lib/stable-club/pool-slot0";
 import {
   FIVE_POOL_DEFAULT_DEADLINE_SEC,
   FIVE_POOL_DEFAULT_LP_SLIPPAGE_BPS,

@@ -74,7 +74,7 @@ export function sqrtPriceX96FromSlot0Result(slot0: readonly unknown[]): bigint {
     throw new Error(`Invalid slot0 sqrtPriceX96 type at index 0: ${typeof raw}`);
   }
   const sqrtPriceX96 = typeof raw === "bigint" ? raw : BigInt(raw);
-  if (sqrtPriceX96 <= 0n) {
+  if (sqrtPriceX96 <= BigInt(0)) {
     throw new Error(`Invalid slot0 sqrtPriceX96: ${sqrtPriceX96.toString()}`);
   }
   return sqrtPriceX96;
@@ -105,7 +105,7 @@ export async function readPoolSlot0States(
   for (const pool of pools) {
     if (allowNoRpcTickZero) {
       // Local mock path — tick 0 with corresponding sqrt ratio.
-      states.push({ tick: 0, sqrtPriceX96: 2n ** 96n });
+      states.push({ tick: 0, sqrtPriceX96: BigInt(1) << BigInt(96) });
       continue;
     }
 
