@@ -33,7 +33,7 @@ import {
   buildFivePoolSwapQuoteRequests,
 } from "@/lib/stable-club/quote-plan";
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
-import { readCurrentTicks } from "@/lib/stable-club/pool-slot0";
+import { readPoolSlot0States } from "@/lib/stable-club/pool-slot0";
 import { STAGE1_FIVE_POOL_BETA_POOL_IDS } from "@/lib/stable-club/stage1-launch";
 import {
   evaluateStableClubBetaReadiness,
@@ -502,10 +502,12 @@ describe("Base mainnet read-only deposit simulation", () => {
 
       // Protocol-specific slot0 ABI (Uni V3 = 7 outs, Slipstream = 6 outs)
       await pace();
-      const currentTicks = await readCurrentTicks(client, "base", 8453);
+      const slot0States = await readPoolSlot0States(client, "base", 8453);
+      const currentTicks = slot0States.map((s) => s.tick);
       expect(currentTicks).toHaveLength(OFFICIAL_STABLE_CLUB_BASE_POOLS.length);
       for (let i = 0; i < currentTicks.length; i++) {
         expect(Number.isInteger(currentTicks[i])).toBe(true);
+        expect(slot0States[i]!.sqrtPriceX96 > 0n).toBe(true);
       }
 
       const adapters = TRUSTED_PHASE2A_BASE_MANIFEST.contracts.adapters.map(
@@ -516,6 +518,7 @@ describe("Base mainnet read-only deposit simulation", () => {
         grossUsdc: parsed.grossUsdc,
         adapters,
         currentTicks,
+        sqrtPriceX96PerPool: slot0States.map((s) => s.sqrtPriceX96),
         quotes: bundle.quotes,
         slippageBps: FIVE_POOL_DEFAULT_SWAP_SLIPPAGE_BPS,
         lpSlippageBps: FIVE_POOL_DEFAULT_LP_SLIPPAGE_BPS,

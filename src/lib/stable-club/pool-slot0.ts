@@ -57,6 +57,29 @@ export function tickFromSlot0Result(slot0: readonly unknown[]): number {
   return tick;
 }
 
+export type PoolSlot0State = {
+  tick: number;
+  sqrtPriceX96: bigint;
+};
+
+/** Extract sqrtPriceX96 at word index 0 — never coerce missing/invalid values to 0. */
+export function sqrtPriceX96FromSlot0Result(slot0: readonly unknown[]): bigint {
+  if (!Array.isArray(slot0) || slot0.length < 1) {
+    throw new Error(
+      `slot0 result missing sqrtPriceX96 at index 0 (length=${Array.isArray(slot0) ? slot0.length : "n/a"})`,
+    );
+  }
+  const raw = slot0[0];
+  if (typeof raw !== "bigint" && typeof raw !== "number") {
+    throw new Error(`Invalid slot0 sqrtPriceX96 type at index 0: ${typeof raw}`);
+  }
+  const sqrtPriceX96 = typeof raw === "bigint" ? raw : BigInt(raw);
+  if (sqrtPriceX96 <= 0n) {
+    throw new Error(`Invalid slot0 sqrtPriceX96: ${sqrtPriceX96.toString()}`);
+  }
+  return sqrtPriceX96;
+}
+
 export type Slot0PublicClient = {
   readContract: (args: {
     address: Address;
@@ -66,25 +89,23 @@ export type Slot0PublicClient = {
 };
 
 /**
- * Read live pool ticks for quote/range planning.
- * SC-F03: RPC/slot0 failures fail closed — never substitute tick 0.
- * Legitimate on-chain tick 0 is still returned when slot0 succeeds.
- * Only verified local Hardhat (network hardhat-local + chainId 31337) may use
- * intentional tick 0 without an RPC read.
+ * Read live pool ticks + sqrtPriceX96 for quote/range/mint-min planning.
+ * SC-F03: RPC/slot0 failures fail closed — never substitute tick/price zero.
  */
-export async function readCurrentTicks(
+export async function readPoolSlot0States(
   publicClient: Slot0PublicClient,
   network: string,
   chainId: number,
   pools: readonly Slot0PoolRef[] = OFFICIAL_STABLE_CLUB_BASE_POOLS,
-): Promise<number[]> {
+): Promise<PoolSlot0State[]> {
   const allowNoRpcTickZero =
     network === "hardhat-local" && chainId === STABLE_CLUB_LOCAL_CHAIN_ID;
-  const ticks: number[] = [];
+  const states: PoolSlot0State[] = [];
 
   for (const pool of pools) {
     if (allowNoRpcTickZero) {
-      ticks.push(0);
+      // Local mock path — tick 0 with corresponding sqrt ratio.
+      states.push({ tick: 0, sqrtPriceX96: 2n ** 96n });
       continue;
     }
 
@@ -115,7 +136,10 @@ export async function readCurrentTicks(
         abi,
         functionName: "slot0",
       });
-      ticks.push(tickFromSlot0Result(slot0));
+      states.push({
+        tick: tickFromSlot0Result(slot0),
+        sqrtPriceX96: sqrtPriceX96FromSlot0Result(slot0),
+      });
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       throw new Error(
@@ -123,5 +147,22 @@ export async function readCurrentTicks(
       );
     }
   }
-  return ticks;
+  return states;
+}
+
+/**
+ * Read live pool ticks for quote/range planning.
+ * SC-F03: RPC/slot0 failures fail closed — never substitute tick 0.
+ * Legitimate on-chain tick 0 is still returned when slot0 succeeds.
+ * Only verified local Hardhat (network hardhat-local + chainId 31337) may use
+ * intentional tick 0 without an RPC read.
+ */
+export async function readCurrentTicks(
+  publicClient: Slot0PublicClient,
+  network: string,
+  chainId: number,
+  pools: readonly Slot0PoolRef[] = OFFICIAL_STABLE_CLUB_BASE_POOLS,
+): Promise<number[]> {
+  const states = await readPoolSlot0States(publicClient, network, chainId, pools);
+  return states.map((s) => s.tick);
 }

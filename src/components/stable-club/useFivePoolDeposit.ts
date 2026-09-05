@@ -25,7 +25,7 @@ import {
 import {
   assertChainEnvironmentMatch,
 } from "@/lib/stable-club/chain-isolation";
-import { readCurrentTicks } from "@/lib/stable-club/pool-slot0";
+import { readCurrentTicks, readPoolSlot0States } from "@/lib/stable-club/pool-slot0";
 import {
   FIVE_POOL_DEFAULT_DEADLINE_SEC,
   FIVE_POOL_DEFAULT_LP_SLIPPAGE_BPS,
@@ -58,6 +58,7 @@ import { FIVE_POOL_ALLOCATION_BPS_PER_LEG } from "@/lib/stable-club/five-pool-st
 import { encodeAllowedActions } from "@/lib/stable-club/permissions";
 import { computeStableClubPermissionId } from "@/lib/stable-club/permission-id";
 import { formatPermit2UserError, permit2AllowanceAbi } from "@/lib/stable-club/permit2";
+import { formatStableClubExecutionError } from "@/lib/stable-club/execution-errors";
 import {
   attestPhase2aDeployments,
   isValidPhase2aPublicDeployments,
@@ -67,7 +68,7 @@ import {
 import { base } from "viem/chains";
 import { buildFivePoolQuotePlan, QuotePlanError } from "@/lib/stable-club/quote-plan";
 
-export { readCurrentTicks } from "@/lib/stable-club/pool-slot0";
+export { readCurrentTicks, readPoolSlot0States } from "@/lib/stable-club/pool-slot0";
 
 /** Matches fork five-pool ALL_ACTIONS (bits 0–4, 6–7). */
 const FIVE_POOL_ALLOWED_ACTIONS = BigInt(
@@ -359,16 +360,19 @@ export function useFivePoolDeposit() {
         grossUsdc: parsed.grossUsdc,
         nowSec,
       });
-      const currentTicks = await readCurrentTicks(
+      const slot0States = await readPoolSlot0States(
         publicClient,
         deployments.network,
         deployments.chainId,
       );
+      const currentTicks = slot0States.map((s) => s.tick);
+      const sqrtPriceX96PerPool = slot0States.map((s) => s.sqrtPriceX96);
       const adapters = deployments.adapters.map((a) => a.adapter) as readonly Address[];
       const plan = buildFivePoolQuotePlan({
         grossUsdc: parsed.grossUsdc,
         adapters,
         currentTicks,
+        sqrtPriceX96PerPool,
         quotes: bundle.quotes,
         slippageBps: swapSlip.bps,
         lpSlippageBps: lpSlip.bps,
@@ -757,6 +761,7 @@ export function useFivePoolDeposit() {
       setProgress("failed");
       const reject = userRejectMessage(err);
       const permit2Msg = formatPermit2UserError(err);
+      const execMsg = formatStableClubExecutionError(err);
       if (
         err instanceof QuotePlanError &&
         (err.code === "STALE_QUOTE" || err.code === "INVALID_DEADLINE")
@@ -768,6 +773,7 @@ export function useFivePoolDeposit() {
         setError(
           reject ??
             permit2Msg ??
+            execMsg ??
             (err instanceof Error ? err.message : "Deposit failed"),
         );
       }

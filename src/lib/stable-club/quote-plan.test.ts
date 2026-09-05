@@ -261,11 +261,12 @@ describe("buildFivePoolQuotePlan — 1000 USDC", () => {
     expect(serializeQuotePlan(a)).toBe(serializeQuotePlan(b));
   });
 
-  it("derives LP mins for all five legs from desired amounts and lpSlippageBps", () => {
+  it("derives LP mins from simulated CL mint consumption (not raw desired)", () => {
     const quotedOut = BigInt(50_000_000);
     const lpSlippageBps = BigInt(250);
+    const slippageBps = BigInt(100);
     const plan = buildFivePoolQuotePlan(
-      baseInput({ quotes: freshQuotes(quotedOut), lpSlippageBps }),
+      baseInput({ quotes: freshQuotes(quotedOut), lpSlippageBps, slippageBps }),
     );
     expect(plan.lpSlippageBps).toBe(lpSlippageBps);
     expect(plan.legDesiredAmounts).toHaveLength(5);
@@ -273,13 +274,13 @@ describe("buildFivePoolQuotePlan — 1000 USDC", () => {
     for (let i = 0; i < 5; i++) {
       const leg = plan.legs[i]!;
       const desired = plan.legDesiredAmounts[i]!;
-      expect(leg.amountAMin).toBe(applyLpSlippageMin(desired.desiredA, lpSlippageBps));
-      expect(leg.amountBMin).toBe(applyLpSlippageMin(desired.desiredB, lpSlippageBps));
-      expect(leg.amountAMin).toBeGreaterThan(BigInt(0));
-      expect(leg.amountBMin).toBeGreaterThan(BigInt(0));
-      // Not the unprotected default of 1
-      expect(leg.amountAMin).not.toBe(BigInt(1));
-      expect(leg.amountBMin).not.toBe(BigInt(1));
+      // Mins are from LiquidityAmounts at sqrtPrice — typically strictly below raw desired floors.
+      const rawA = applyLpSlippageMin(desired.desiredA, lpSlippageBps);
+      const rawB = applyLpSlippageMin(desired.desiredB, lpSlippageBps);
+      expect(leg.amountAMin + leg.amountBMin).toBeGreaterThan(BigInt(0));
+      expect(leg.amountAMin).toBeLessThanOrEqual(rawA);
+      expect(leg.amountBMin).toBeLessThanOrEqual(rawB);
+      expect(leg.amountAMin === BigInt(1) && leg.amountBMin === BigInt(1)).toBe(false);
     }
 
     // Legs 0–1: USDC/cbBTC — desiredA = retainUsdc, desiredB = cbBTC quotedOut
@@ -352,8 +353,10 @@ describe("buildFivePoolQuotePlan — 1000 USDC", () => {
       }),
     );
     for (let i = 2; i < 5; i++) {
-      expect(plan.legs[i]!.amountAMin).toBe(BigInt(9900));
-      expect(plan.legs[i]!.amountBMin).toBe(BigInt(9900));
+      // Simulated mint mins ≤ raw desired floors
+      expect(plan.legs[i]!.amountAMin).toBeLessThanOrEqual(BigInt(9900));
+      expect(plan.legs[i]!.amountBMin).toBeLessThanOrEqual(BigInt(9900));
+      expect(plan.legs[i]!.amountAMin + plan.legs[i]!.amountBMin).toBeGreaterThan(BigInt(0));
     }
   });
 

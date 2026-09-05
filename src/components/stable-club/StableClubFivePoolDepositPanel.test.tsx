@@ -338,7 +338,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
   }
 
   it("successful non-zero tick remains unchanged", async () => {
-    const client = mockClient(async () => [BigInt(0), 1234, 0, 1, 1, false] as const);
+    const client = mockClient(async () => [2n ** 96n, 1234, 0, 1, 1, false] as const);
     const ticks = await readCurrentTicks(client, "base", 8453);
     expect(ticks).toHaveLength(poolsWithAddress.length);
     expect(ticks.every((t) => t === 1234)).toBe(true);
@@ -354,12 +354,12 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
       if (pool.protocol === "uniswap-v3") {
         expect(outputs).toHaveLength(7);
         expect(outputs.some((o) => o.name === "feeProtocol")).toBe(true);
-        return [BigInt(0), 111, 0, 1, 1, 0, true] as const;
+        return [2n ** 96n, 111, 0, 1, 1, 0, true] as const;
       }
       expect(pool.protocol).toBe("aerodrome-slipstream");
       expect(outputs).toHaveLength(6);
       expect(outputs.some((o) => o.name === "feeProtocol")).toBe(false);
-      return [BigInt(0), 222, 0, 1, 1, true] as const;
+      return [2n ** 96n, 222, 0, 1, 1, true] as const;
     });
     const ticks = await readCurrentTicks(client, "base", 8453);
     expect(ticks).toEqual(
@@ -368,7 +368,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
   });
 
   it("successful tick exactly 0 is accepted", async () => {
-    const client = mockClient(async () => [BigInt(0), 0, 0, 1, 1, false] as const);
+    const client = mockClient(async () => [2n ** 96n, 0, 0, 1, 1, false] as const);
     const ticks = await readCurrentTicks(client, "base", 8453);
     expect(ticks).toEqual(poolsWithAddress.map(() => 0));
   });
@@ -379,7 +379,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
       if (address.toLowerCase() === failing.poolAddress!.toLowerCase()) {
         throw new Error("RPC timeout");
       }
-      return [BigInt(0), 99, 0, 1, 1, false] as const;
+      return [2n ** 96n, 99, 0, 1, 1, false] as const;
     });
     await expect(readCurrentTicks(client, "base", 8453)).rejects.toThrow(
       new RegExp(`Failed to read current tick for pool ${failing.id}`),
@@ -395,7 +395,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
       if (address.toLowerCase() === failing.poolAddress!.toLowerCase()) {
         throw new Error("slot0 reverted");
       }
-      return [BigInt(0), 50, 0, 1, 1, false] as const;
+      return [2n ** 96n, 50, 0, 1, 1, false] as const;
     });
     await expect(readCurrentTicks(client, "base", 8453)).rejects.toThrow(/slot0 reverted/);
     expect(calls).toBeLessThanOrEqual(poolsWithAddress.length);
@@ -462,7 +462,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
   });
 
   it("Base 8453 + missing poolAddress → fail closed", async () => {
-    const client = mockClient(async () => [BigInt(0), 1, 0, 1, 1, false] as const);
+    const client = mockClient(async () => [2n ** 96n, 1, 0, 1, 1, false] as const);
     await expect(
       readCurrentTicks(client, "base", 8453, [
         { id: "BASE-MISSING-ADDR", protocol: "uniswap-v3", poolAddress: null },
@@ -472,7 +472,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
   });
 
   it("Base 8453 + invalid poolAddress → fail closed", async () => {
-    const client = mockClient(async () => [BigInt(0), 1, 0, 1, 1, false] as const);
+    const client = mockClient(async () => [2n ** 96n, 1, 0, 1, 1, false] as const);
     await expect(
       readCurrentTicks(client, "base", 8453, [
         {
@@ -488,7 +488,7 @@ describe("SC-F03 — never substitute tick zero on RPC failure", () => {
   it("Base failure produces no plan/deposit call", async () => {
     const buildPlan = vi.fn();
     const submitDepositLocal = vi.fn();
-    const client = mockClient(async () => [BigInt(0), 1, 0, 1, 1, false] as const);
+    const client = mockClient(async () => [2n ** 96n, 1, 0, 1, 1, false] as const);
 
     let planReady = false;
     try {

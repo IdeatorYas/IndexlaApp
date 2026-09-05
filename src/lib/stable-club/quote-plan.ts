@@ -26,6 +26,10 @@ import {
 } from "@/lib/stable-club/five-pool-strategy";
 import { STABLE_CLUB_EXECUTION_FEE_BPS, STABLE_CLUB_USDC_DECIMALS } from "@/lib/stable-club/constants";
 import {
+  getSqrtRatioAtTick,
+  simulateClMintConsumedAmounts,
+} from "@/lib/stable-club/cl-liquidity-math";
+import {
   EMPTY_SWAP_ROUTE_ID,
   STABLE_CLUB_SWAP_ROUTE_IDS,
   type StableClubSwapRouteKey,
@@ -110,6 +114,12 @@ export type BuildFivePoolQuotePlanInput = {
   adapters: readonly Address[];
   /** Current pool ticks in catalogue order (length 5). */
   currentTicks: readonly number[];
+  /**
+   * Live pool sqrtPriceX96 in catalogue order (length 5).
+   * When omitted, derived from `currentTicks` via TickMath (unit-test convenience only).
+   * Production deposit path must pass live slot0 sqrt prices.
+   */
+  sqrtPriceX96PerPool?: readonly bigint[];
   /** Quotes keyed by deterministic swap slot id (all eight required). */
   quotes: Readonly<Partial<Record<FivePoolSwapSlotId, SwapQuoteInput>>>;
   /** Slippage bound applied to quotedOut → swap minOut (0 < bps ≤ QUOTE_PLAN_MAX_SLIPPAGE_BPS). */
@@ -369,6 +379,64 @@ export function applyLpSlippageMin(desiredAmount: bigint, lpSlippageBps: bigint)
 }
 
 /**
+ * Size amountAMin/amountBMin from the amounts the CL pool will actually consume
+ * (LiquidityAmounts at live sqrtPrice), not from raw retain+quote desired totals.
+ * Prevents Aerodrome NPM `PSC` / Uniswap "Price slippage check" when the pool
+ * ratio uses less of one token than the planned desired balance.
+ *
+ * `desiredA`/`desiredB` should already be worst-case post-swap balances (retain + minOut).
+ */
+export function computeClMintAmountMins(params: {
+  tokenA: Address;
+  tokenB: Address;
+  desiredA: bigint;
+  desiredB: bigint;
+  tickLower: number;
+  tickUpper: number;
+  sqrtPriceX96: bigint;
+  lpSlippageBps: bigint;
+}): { amountAMin: bigint; amountBMin: bigint; consumedA: bigint; consumedB: bigint } {
+  let consumed;
+  try {
+    consumed = simulateClMintConsumedAmounts({
+      tokenA: params.tokenA,
+      tokenB: params.tokenB,
+      desiredA: params.desiredA,
+      desiredB: params.desiredB,
+      tickLower: params.tickLower,
+      tickUpper: params.tickUpper,
+      sqrtPriceX96: params.sqrtPriceX96,
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new QuotePlanError("INVALID_AMOUNT_MIN", `CL mint simulation failed: ${detail}`);
+  }
+
+  const amountAMin =
+    consumed.amountA === BigInt(0)
+      ? BigInt(0)
+      : applyLpSlippageMin(consumed.amountA, params.lpSlippageBps);
+  const amountBMin =
+    consumed.amountB === BigInt(0)
+      ? BigInt(0)
+      : applyLpSlippageMin(consumed.amountB, params.lpSlippageBps);
+
+  if (amountAMin === BigInt(0) && amountBMin === BigInt(0)) {
+    throw new QuotePlanError(
+      "INVALID_AMOUNT_MIN",
+      "CL mint simulation produced zero amountAMin and amountBMin",
+    );
+  }
+
+  return {
+    amountAMin,
+    amountBMin,
+    consumedA: consumed.amountA,
+    consumedB: consumed.amountB,
+  };
+}
+
+/**
  * Map retain USDC + swap quotedOuts onto catalogue tokenA/tokenB.
  * Mirrors executor `_allocateUsdcToPair` / `_allocateTokenToPair`.
  */
@@ -616,6 +684,23 @@ export function buildFivePoolQuotePlan(input: BuildFivePoolQuotePlanInput): Five
   if (input.currentTicks.length !== FIVE_POOL_LEG_COUNT) {
     throw new QuotePlanError("INVALID_TICKS", "Exactly five currentTicks required");
   }
+  const sqrtPrices: bigint[] = [];
+  if (input.sqrtPriceX96PerPool != null) {
+    if (input.sqrtPriceX96PerPool.length !== FIVE_POOL_LEG_COUNT) {
+      throw new QuotePlanError("INVALID_TICKS", "Exactly five sqrtPriceX96PerPool required");
+    }
+    for (let i = 0; i < FIVE_POOL_LEG_COUNT; i++) {
+      const p = input.sqrtPriceX96PerPool[i];
+      if (p == null || p <= BigInt(0)) {
+        throw new QuotePlanError("INVALID_TICKS", `Invalid sqrtPriceX96 at leg ${i}`);
+      }
+      sqrtPrices.push(p);
+    }
+  } else {
+    for (let i = 0; i < FIVE_POOL_LEG_COUNT; i++) {
+      sqrtPrices.push(getSqrtRatioAtTick(input.currentTicks[i]!));
+    }
+  }
 
   if (input.slippageBps <= BigInt(0) || input.slippageBps > QUOTE_PLAN_MAX_SLIPPAGE_BPS) {
     throw new QuotePlanError(
@@ -722,8 +807,27 @@ export function buildFivePoolQuotePlan(input: BuildFivePoolQuotePlanInput): Five
       retainUsdc,
       swaps: swapDesiredParts,
     });
-    const amountAMin = applyLpSlippageMin(desired.desiredA, input.lpSlippageBps);
-    const amountBMin = applyLpSlippageMin(desired.desiredB, input.lpSlippageBps);
+    // Worst-case balances after swaps (minOut) — mins must not assume optimistic fills.
+    const worstCaseDesired = mapLegDesiredAmounts({
+      tokenA: pool.tokenA.address,
+      tokenB: pool.tokenB.address,
+      usdc: BASE_TOKENS.USDC.address,
+      retainUsdc,
+      swaps: swapInstructions.slice(0, spec.swaps.length).map((s, idx) => ({
+        tokenOut: spec.swaps[idx]!.tokenOut.address,
+        quotedOut: s.minOut,
+      })),
+    });
+    const mintMins = computeClMintAmountMins({
+      tokenA: pool.tokenA.address,
+      tokenB: pool.tokenB.address,
+      desiredA: worstCaseDesired.desiredA,
+      desiredB: worstCaseDesired.desiredB,
+      tickLower,
+      tickUpper,
+      sqrtPriceX96: sqrtPrices[i]!,
+      lpSlippageBps: input.lpSlippageBps,
+    });
     legDesiredAmounts.push(desired);
 
     while (swapInstructions.length < 2) {
@@ -740,8 +844,8 @@ export function buildFivePoolQuotePlan(input: BuildFivePoolQuotePlanInput): Five
       retainUsdc,
       swaps: [swapInstructions[0]!, swapInstructions[1]!],
       swapCount: spec.swaps.length,
-      amountAMin,
-      amountBMin,
+      amountAMin: mintMins.amountAMin,
+      amountBMin: mintMins.amountBMin,
       slippageBps: input.slippageBps,
     });
   }
