@@ -1,13 +1,23 @@
 /**
  * CL five-pool Permit2 approval plan — executor-only spender (not FeeRouter).
  * Verified: StableClubPhase2bPermit2.test.cjs / Phase2aForkDeposit approveUsdcViaPermit2.
+ *
+ * Live deposit path must check both:
+ * 1) USDC.allowance(user, Permit2)
+ * 2) Permit2.allowance(user, USDC, CL Executor) amount + expiry
+ * then approve any gaps with the exact deposit amount and a short non-zero expiry,
+ * wait for receipts, refresh, and only then call depositFivePoolStrategy.
  */
 import type { Address } from "viem";
 import {
+  assertFutureExpiration,
   buildBoundedErc20ApproveToPermit2,
   buildBoundedPermit2ApproveTx,
   resolvePermit2Address,
 } from "@/lib/stable-club/permit2";
+
+/** Short non-zero Permit2 allowance window for five-pool deposits (30 minutes). */
+export const FIVE_POOL_PERMIT2_ALLOWANCE_TTL_SEC = 30 * 60;
 
 export type ClFivePoolPermit2Plan = {
   permit2: Address;
@@ -19,6 +29,132 @@ export type ClFivePoolPermit2Plan = {
   permit2ApproveTx: ReturnType<typeof buildBoundedPermit2ApproveTx>;
   labels: string[];
 };
+
+export type ClFivePoolPermit2LiveAllowances = {
+  /** USDC.allowance(user, Permit2) */
+  erc20AllowanceToPermit2: bigint;
+  /** Permit2.allowance amount for CL Executor */
+  permit2AmountToExecutor: bigint;
+  /** Permit2.allowance expiration for CL Executor (unix seconds) */
+  permit2ExpirationToExecutor: number;
+};
+
+/** Compute a short future Permit2 expiration; never returns 0. */
+export function computeClFivePoolPermit2Expiration(
+  nowSec: number,
+  ttlSec: number = FIVE_POOL_PERMIT2_ALLOWANCE_TTL_SEC,
+): number {
+  if (!Number.isInteger(nowSec) || nowSec < 0) {
+    throw new Error("nowSec must be a non-negative integer");
+  }
+  if (!Number.isInteger(ttlSec) || ttlSec <= 0) {
+    throw new Error("Permit2 allowance TTL must be a positive integer");
+  }
+  const expiration = nowSec + ttlSec;
+  assertFutureExpiration(expiration, nowSec);
+  return expiration;
+}
+
+export function needsUsdcAllowanceToPermit2(
+  currentAllowance: bigint,
+  requiredGrossUsdc: bigint,
+): boolean {
+  if (requiredGrossUsdc <= BigInt(0)) {
+    throw new Error("requiredGrossUsdc must be > 0");
+  }
+  return currentAllowance < requiredGrossUsdc;
+}
+
+/**
+ * True when Permit2 → CL Executor amount/expiry cannot cover the deposit.
+ * Expiration 0 is always treated as expired (Permit2 AllowanceExpired(0)).
+ */
+export function needsPermit2AllowanceToClExecutor(params: {
+  amount: bigint;
+  expiration: number | bigint;
+  requiredGrossUsdc: bigint;
+  nowSec: number;
+}): boolean {
+  if (params.requiredGrossUsdc <= BigInt(0)) {
+    throw new Error("requiredGrossUsdc must be > 0");
+  }
+  const expiration = Number(params.expiration);
+  if (!Number.isFinite(expiration) || !Number.isInteger(expiration)) {
+    return true;
+  }
+  if (expiration <= 0) {
+    return true;
+  }
+  if (expiration <= params.nowSec) {
+    return true;
+  }
+  if (params.amount < params.requiredGrossUsdc) {
+    return true;
+  }
+  return false;
+}
+
+export function evaluateClFivePoolPermit2Readiness(params: {
+  requiredGrossUsdc: bigint;
+  nowSec: number;
+  allowances: ClFivePoolPermit2LiveAllowances;
+}): {
+  needsErc20Approve: boolean;
+  needsPermit2Approve: boolean;
+  ready: boolean;
+} {
+  const needsErc20Approve = needsUsdcAllowanceToPermit2(
+    params.allowances.erc20AllowanceToPermit2,
+    params.requiredGrossUsdc,
+  );
+  const needsPermit2Approve = needsPermit2AllowanceToClExecutor({
+    amount: params.allowances.permit2AmountToExecutor,
+    expiration: params.allowances.permit2ExpirationToExecutor,
+    requiredGrossUsdc: params.requiredGrossUsdc,
+    nowSec: params.nowSec,
+  });
+  return {
+    needsErc20Approve,
+    needsPermit2Approve,
+    ready: !needsErc20Approve && !needsPermit2Approve,
+  };
+}
+
+/**
+ * Fail closed unless both USDC→Permit2 and Permit2→CL Executor cover the deposit.
+ * Call after refreshing on-chain allowances, immediately before depositFivePoolStrategy.
+ */
+export function assertClFivePoolPermit2Ready(params: {
+  requiredGrossUsdc: bigint;
+  nowSec: number;
+  allowances: ClFivePoolPermit2LiveAllowances;
+  permit2: Address;
+  clExecutor: Address;
+}): void {
+  const status = evaluateClFivePoolPermit2Readiness(params);
+  if (status.needsErc20Approve) {
+    throw new Error(
+      `USDC allowance to Permit2 (${params.permit2}) is insufficient:` +
+        ` need ${params.requiredGrossUsdc}, have ${params.allowances.erc20AllowanceToPermit2}.` +
+        ` Approve USDC → Permit2 for the exact deposit amount, wait for the receipt, then retry.`,
+    );
+  }
+  if (status.needsPermit2Approve) {
+    const exp = params.allowances.permit2ExpirationToExecutor;
+    if (exp <= 0 || exp <= params.nowSec) {
+      throw new Error(
+        `Permit2 AllowanceExpired(${exp}): CL Executor (${params.clExecutor}) allowance is missing or expired.` +
+          ` Approve Permit2 → CL Executor for ${params.requiredGrossUsdc} USDC units with a short non-zero expiry,` +
+          ` wait for the receipt, refresh, then deposit.`,
+      );
+    }
+    throw new Error(
+      `Permit2 InsufficientAllowance(${params.allowances.permit2AmountToExecutor}):` +
+        ` need ${params.requiredGrossUsdc} for CL Executor (${params.clExecutor}).` +
+        ` Approve the exact deposit amount, wait for the receipt, then retry.`,
+    );
+  }
+}
 
 /**
  * Bounded USDC → Permit2, then Permit2 → ConcentratedLiquidityExecutor for full grossUsdc.

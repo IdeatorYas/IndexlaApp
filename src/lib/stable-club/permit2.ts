@@ -7,7 +7,13 @@
  * - StableClubExecutor pulls `depositAmount - swapAmount` (remaining stable)
  * Allowances are sized to each spender's need — never duplicate the gross total.
  */
-import type { Address } from "viem";
+import {
+  BaseError,
+  ContractFunctionRevertedError,
+  decodeErrorResult,
+  type Address,
+  type Hex,
+} from "viem";
 import { LOCAL_HARDHAT_CHAIN_ID } from "@/lib/stable-club/chain-isolation";
 import {
   BASE_CHAIN_ID,
@@ -46,6 +52,26 @@ export const permit2AllowanceAbi = [
       { name: "expiration", type: "uint48" },
       { name: "nonce", type: "uint48" },
     ],
+  },
+  {
+    type: "error",
+    name: "AllowanceExpired",
+    inputs: [{ name: "deadline", type: "uint256" }],
+  },
+  {
+    type: "error",
+    name: "InsufficientAllowance",
+    inputs: [{ name: "amount", type: "uint256" }],
+  },
+  {
+    type: "error",
+    name: "InvalidAmount",
+    inputs: [{ name: "maxAmount", type: "uint256" }],
+  },
+  {
+    type: "error",
+    name: "LengthMismatch",
+    inputs: [],
   },
 ] as const;
 
@@ -409,4 +435,122 @@ export function describePermit2Allowance(params: {
   if (params.expiration <= now) return { status: "expired", label: "Expired" };
   const mins = Math.max(1, Math.floor((params.expiration - now) / 60));
   return { status: "active", label: `Active · ${params.amount.toString()} · ~${mins}m left` };
+}
+
+function extractRevertData(err: unknown): Hex | null {
+  if (!err || typeof err !== "object") return null;
+  const walk = (value: unknown): Hex | null => {
+    if (!value || typeof value !== "object") return null;
+    const rec = value as Record<string, unknown>;
+    if (typeof rec.data === "string" && rec.data.startsWith("0x") && rec.data.length >= 10) {
+      return rec.data as Hex;
+    }
+    if (rec.data && typeof rec.data === "object") {
+      const nested = rec.data as Record<string, unknown>;
+      if (typeof nested.data === "string" && nested.data.startsWith("0x")) {
+        return nested.data as Hex;
+      }
+    }
+    if (typeof rec.raw === "string" && rec.raw.startsWith("0x")) {
+      return rec.raw as Hex;
+    }
+    return null;
+  };
+
+  if (err instanceof BaseError) {
+    const reverted = err.walk((e) => e instanceof ContractFunctionRevertedError);
+    if (reverted instanceof ContractFunctionRevertedError) {
+      const data = walk(reverted) ?? walk(reverted.data);
+      if (data) return data;
+    }
+    const direct = walk(err);
+    if (direct) return direct;
+  }
+  return walk(err);
+}
+
+/**
+ * Decode Permit2 custom errors into a clear user-facing message.
+ * Returns null when the error is not a recognized Permit2 revert.
+ */
+export function formatPermit2UserError(err: unknown): string | null {
+  if (!err) return null;
+
+  if (err instanceof BaseError) {
+    const reverted = err.walk((e) => e instanceof ContractFunctionRevertedError);
+    if (reverted instanceof ContractFunctionRevertedError) {
+      const data = reverted.data;
+      if (data && typeof data === "object" && "errorName" in data) {
+        const named = data as { errorName: string; args?: readonly unknown[] };
+        if (named.errorName === "AllowanceExpired") {
+          const deadline = named.args?.[0] != null ? String(named.args[0]) : "unknown";
+          return (
+            `Permit2 AllowanceExpired(${deadline}): the CL Executor allowance is missing or expired` +
+            (deadline === "0" ? " (deadline=0 means never approved or revoked)." : ".") +
+            " Approve Permit2 → CL Executor for the exact deposit amount with a short non-zero expiry, then retry."
+          );
+        }
+        if (named.errorName === "InsufficientAllowance") {
+          const amount = named.args?.[0] != null ? String(named.args[0]) : "unknown";
+          return (
+            `Permit2 InsufficientAllowance(${amount}): USDC Permit2 allowance to the CL Executor is too low.` +
+            " Approve the exact deposit amount, wait for the receipt, then retry."
+          );
+        }
+        if (named.errorName === "InvalidAmount") {
+          return "Permit2 InvalidAmount: allowance amount is invalid (unlimited approvals are forbidden).";
+        }
+        if (named.errorName === "LengthMismatch") {
+          return "Permit2 LengthMismatch: malformed batch allowance update.";
+        }
+      }
+    }
+  }
+
+  const data = extractRevertData(err);
+  if (data) {
+    try {
+      const decoded = decodeErrorResult({ abi: permit2AllowanceAbi, data });
+      if (decoded.errorName === "AllowanceExpired") {
+        const deadline = String(decoded.args[0]);
+        return (
+          `Permit2 AllowanceExpired(${deadline}): the CL Executor allowance is missing or expired` +
+          (deadline === "0" ? " (deadline=0 means never approved or revoked)." : ".") +
+          " Approve Permit2 → CL Executor for the exact deposit amount with a short non-zero expiry, then retry."
+        );
+      }
+      if (decoded.errorName === "InsufficientAllowance") {
+        return (
+          `Permit2 InsufficientAllowance(${String(decoded.args[0])}): USDC Permit2 allowance to the CL Executor is too low.` +
+          " Approve the exact deposit amount, wait for the receipt, then retry."
+        );
+      }
+      if (decoded.errorName === "InvalidAmount") {
+        return "Permit2 InvalidAmount: allowance amount is invalid (unlimited approvals are forbidden).";
+      }
+      if (decoded.errorName === "LengthMismatch") {
+        return "Permit2 LengthMismatch: malformed batch allowance update.";
+      }
+    } catch {
+      // not a Permit2 selector
+    }
+  }
+
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/AllowanceExpired/i.test(msg)) {
+    return (
+      "Permit2 AllowanceExpired: the CL Executor allowance is missing or expired" +
+      (/\(0\)|deadline[=:]?\s*0/i.test(msg)
+        ? " (deadline=0 means never approved or revoked)."
+        : ".") +
+      " Approve Permit2 → CL Executor for the exact deposit amount with a short non-zero expiry, then retry."
+    );
+  }
+  if (/InsufficientAllowance/i.test(msg)) {
+    return (
+      "Permit2 InsufficientAllowance: USDC Permit2 allowance to the CL Executor is too low." +
+      " Approve the exact deposit amount, wait for the receipt, then retry."
+    );
+  }
+  return null;
 }

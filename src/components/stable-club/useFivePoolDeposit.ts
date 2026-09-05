@@ -43,7 +43,12 @@ import {
   type FivePoolDepositPreview,
   type FivePoolDepositProgress,
 } from "@/lib/stable-club/five-pool-deposit";
-import { buildClFivePoolPermit2Plan } from "@/lib/stable-club/five-pool-permit2";
+import {
+  assertClFivePoolPermit2Ready,
+  buildClFivePoolPermit2Plan,
+  computeClFivePoolPermit2Expiration,
+  evaluateClFivePoolPermit2Readiness,
+} from "@/lib/stable-club/five-pool-permit2";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
   createOracleGuardQuoteAdapter,
@@ -52,7 +57,7 @@ import {
 import { FIVE_POOL_ALLOCATION_BPS_PER_LEG } from "@/lib/stable-club/five-pool-strategy";
 import { encodeAllowedActions } from "@/lib/stable-club/permissions";
 import { computeStableClubPermissionId } from "@/lib/stable-club/permission-id";
-import { permit2AllowanceAbi } from "@/lib/stable-club/permit2";
+import { formatPermit2UserError, permit2AllowanceAbi } from "@/lib/stable-club/permit2";
 import {
   attestPhase2aDeployments,
   isValidPhase2aPublicDeployments,
@@ -595,9 +600,9 @@ export function useFivePoolDeposit() {
       });
 
       setProgress("awaiting-approval");
-      setStatusMessage("Approve USDC → Permit2 (bounded)…");
+      setStatusMessage("Checking USDC + Permit2 allowances…");
 
-      const permitExpiration = nowSec + FIVE_POOL_DEFAULT_DEADLINE_SEC;
+      const permitExpiration = computeClFivePoolPermit2Expiration(nowSec);
       const permitPlan = buildClFivePoolPermit2Plan({
         chainId: expectedChainId,
         permit2: attestedDeployments.permit2,
@@ -608,29 +613,41 @@ export function useFivePoolDeposit() {
         nowSec,
       });
 
-      // Skip ERC20 approve if allowance already sufficient
-      const erc20Allowance = await publicClient.readContract({
-        address: attestedDeployments.usdc,
-        abi: erc20Abi,
-        functionName: "allowance",
-        args: [wallet.address, permitPlan.permit2],
+      const readDepositAllowances = async () => {
+        const erc20AllowanceToPermit2 = await publicClient.readContract({
+          address: attestedDeployments.usdc,
+          abi: erc20Abi,
+          functionName: "allowance",
+          args: [wallet.address, permitPlan.permit2],
+        });
+        const p2 = await publicClient.readContract({
+          address: permitPlan.permit2,
+          abi: permit2AllowanceAbi,
+          functionName: "allowance",
+          args: [wallet.address, attestedDeployments.usdc, attestedDeployments.clExecutor],
+        });
+        return {
+          erc20AllowanceToPermit2,
+          permit2AmountToExecutor: p2[0],
+          permit2ExpirationToExecutor: Number(p2[1]),
+        };
+      };
+
+      let allowances = await readDepositAllowances();
+      const precheckNow = Math.floor(Date.now() / 1000);
+      const readiness = evaluateClFivePoolPermit2Readiness({
+        requiredGrossUsdc: depositArgs.grossUsdc,
+        nowSec: precheckNow,
+        allowances,
       });
-      const needsErc20Approve = erc20Allowance < depositArgs.grossUsdc;
 
       setStatusMessage(
-        needsErc20Approve
-          ? "Approve USDC → Permit2 (bounded)…"
-          : "Approve Permit2 → CL executor (bounded, expiring)…",
+        readiness.needsErc20Approve
+          ? "Approve USDC → Permit2 (exact deposit amount)…"
+          : readiness.needsPermit2Approve
+            ? "Approve Permit2 → CL executor (exact amount, short expiry)…"
+            : "Allowances ready — preparing deposit…",
       );
-      const p2 = await publicClient.readContract({
-        address: permitPlan.permit2,
-        abi: permit2AllowanceAbi,
-        functionName: "allowance",
-        args: [wallet.address, attestedDeployments.usdc, attestedDeployments.clExecutor],
-      });
-      const p2Amount = p2[0];
-      const p2Exp = Number(p2[1]);
-      const needsPermit2Approve = p2Amount < depositArgs.grossUsdc || p2Exp <= nowSec;
 
       const approvalHashes = await runFivePoolDepositApprovalSequence({
         nowSec: () => Math.floor(Date.now() / 1000),
@@ -638,9 +655,9 @@ export function useFivePoolDeposit() {
         deadline: planRef.current.deadline,
         maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
         minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
-        erc20Approve: needsErc20Approve
+        erc20Approve: readiness.needsErc20Approve
           ? async () => {
-              setStatusMessage("Approve USDC → Permit2 (bounded)…");
+              setStatusMessage("Approve USDC → Permit2 (exact deposit amount)…");
               return walletClient.writeContract({
                 address: permitPlan.erc20ApproveTx.address,
                 abi: permitPlan.erc20ApproveTx.abi,
@@ -649,9 +666,9 @@ export function useFivePoolDeposit() {
               });
             }
           : null,
-        permit2Approve: needsPermit2Approve
+        permit2Approve: readiness.needsPermit2Approve
           ? async () => {
-              setStatusMessage("Approve Permit2 → CL executor (bounded, expiring)…");
+              setStatusMessage("Approve Permit2 → CL executor (exact amount, short expiry)…");
               return walletClient.writeContract({
                 address: permitPlan.permit2ApproveTx.address,
                 abi: permitPlan.permit2ApproveTx.abi,
@@ -663,6 +680,18 @@ export function useFivePoolDeposit() {
         waitForSuccess: (hash) => waitForSuccessfulTransactionReceipt(publicClient, hash),
       });
       setApprovalTxHashes(approvalHashes);
+
+      // Refresh both allowances after successful receipts — never deposit on stale reads.
+      setStatusMessage("Refreshing allowances…");
+      allowances = await readDepositAllowances();
+      const postApproveNow = Math.floor(Date.now() / 1000);
+      assertClFivePoolPermit2Ready({
+        requiredGrossUsdc: depositArgs.grossUsdc,
+        nowSec: postApproveNow,
+        allowances,
+        permit2: permitPlan.permit2,
+        clExecutor: attestedDeployments.clExecutor,
+      });
 
       // SC-F10 — recheck remaining validity immediately before deposit write
       const depositNowSec = Math.floor(Date.now() / 1000);
@@ -725,6 +754,7 @@ export function useFivePoolDeposit() {
     } catch (err) {
       setProgress("failed");
       const reject = userRejectMessage(err);
+      const permit2Msg = formatPermit2UserError(err);
       if (
         err instanceof QuotePlanError &&
         (err.code === "STALE_QUOTE" || err.code === "INVALID_DEADLINE")
@@ -733,7 +763,11 @@ export function useFivePoolDeposit() {
         clearPlan();
         planRef.current = null;
       } else {
-        setError(reject ?? (err instanceof Error ? err.message : "Deposit failed"));
+        setError(
+          reject ??
+            permit2Msg ??
+            (err instanceof Error ? err.message : "Deposit failed"),
+        );
       }
     } finally {
       submittingRef.current = false;
