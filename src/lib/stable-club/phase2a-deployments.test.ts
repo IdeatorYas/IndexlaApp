@@ -348,4 +348,12 @@ describe("SC-F09 — Phase 2a pin and verify deployments", () => {
     );
     expect(pub.discoveryStartBlock).toBe(42);
   });
+
+  it("rewrites Base public rpcUrl to the same-origin proxy (not mainnet.base.org)", () => {
+    const pub = toPublicPhase2aDeploymentsPayload(
+      basePhase2aFixture({ rpcUrl: "https://mainnet.base.org" }),
+    );
+    expect(pub.rpcUrl).toBe("/api/stable-club/base-rpc");
+    expect(pub.rpcUrl).not.toMatch(/mainnet\.base\.org/i);
+  });
 });

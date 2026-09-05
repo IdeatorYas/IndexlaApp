@@ -4,6 +4,7 @@
  * Base addresses/hashes come only from the source-controlled trusted manifest — never from JSON.
  */
 import { getAddress, keccak256, type Address, type Hex } from "viem";
+import { STABLE_CLUB_BASE_RPC_PROXY_PATH } from "@/lib/stable-club/base-rpc-client";
 import {
   assertLocalHardhatDeploymentIdentity,
   assertLocalMockPermit2Allowed,
@@ -276,7 +277,11 @@ export function toPublicPhase2aDeploymentsPayload(
     adapters: deployments.adapters,
     routes: deployments.routes,
     strategyKind: deployments.strategyKind,
-    rpcUrl: deployments.rpcUrl ?? "http://127.0.0.1:8545",
+    // Base browser reads go through the same-origin proxy (BASE_RPC_URL), not public mainnet.base.org.
+    rpcUrl:
+      deployments.network === "base" || deployments.chainId === 8453
+        ? STABLE_CLUB_BASE_RPC_PROXY_PATH
+        : (deployments.rpcUrl ?? "http://127.0.0.1:8545"),
     ...(deployments.discoveryStartBlock !== undefined
       ? { discoveryStartBlock: deployments.discoveryStartBlock }
       : {}),

@@ -17,6 +17,10 @@ import {
   strategyPermissionRegistryAbi,
 } from "@/lib/stable-club/abis";
 import {
+  STABLE_CLUB_BASE_RPC_PROXY_PATH,
+} from "@/lib/stable-club/base-rpc-client";
+import { createStableClubBaseReadTransport } from "@/lib/stable-club/base-rpc-transport";
+import {
   STABLE_CLUB_LOCAL_CHAIN,
   STABLE_CLUB_LOCAL_CHAIN_ID,
   STABLE_CLUB_LOCAL_RPC_URL,
@@ -51,6 +55,7 @@ import {
   refetchClFivePoolPermit2AllowancesUntilReady,
   type ClFivePoolPermit2LiveAllowances,
 } from "@/lib/stable-club/five-pool-permit2";
+import { readClFivePoolPermit2AllowancesWithRpcGuard } from "@/lib/stable-club/permit2-allowance-rpc";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
   createOracleGuardQuoteAdapter,
@@ -179,14 +184,27 @@ export function useFivePoolDeposit() {
    * Allowance / readiness reads must use HTTP Base RPC — never the wallet EIP-1193
    * provider. Wallet eth_call is often stale right after a confirmed Permit2 approve,
    * which falsely surfaces AllowanceExpired after "Refreshing allowances…".
+   * Base uses the same-origin RPC proxy (+ fallback transport), not public mainnet.base.org.
    */
   const allowanceReadClient = useMemo(() => {
-    const rpc = deployments?.rpcUrl ?? STABLE_CLUB_LOCAL_RPC_URL;
     const readChain =
       deployments?.network === "hardhat-local" ? STABLE_CLUB_LOCAL_CHAIN : base;
+    if (deployments?.network === "hardhat-local") {
+      return createPublicClient({
+        chain: readChain,
+        transport: http(deployments.rpcUrl ?? STABLE_CLUB_LOCAL_RPC_URL),
+      });
+    }
+    const extraFallbacks =
+      typeof process !== "undefined" &&
+      process.env.NEXT_PUBLIC_BASE_RPC_FALLBACK_URL
+        ? [process.env.NEXT_PUBLIC_BASE_RPC_FALLBACK_URL]
+        : [];
     return createPublicClient({
       chain: readChain,
-      transport: http(rpc),
+      transport: createStableClubBaseReadTransport({
+        extraFallbacks,
+      }),
     });
   }, [deployments?.network, deployments?.rpcUrl]);
 
@@ -206,9 +224,17 @@ export function useFivePoolDeposit() {
           const candidate = json.deployments;
           const attestChain =
             candidate.network === "hardhat-local" ? STABLE_CLUB_LOCAL_CHAIN : base;
+          const attestTransport =
+            candidate.network === "hardhat-local"
+              ? http(candidate.rpcUrl)
+              : candidate.network === "base" ||
+                  candidate.rpcUrl === STABLE_CLUB_BASE_RPC_PROXY_PATH ||
+                  candidate.chainId === 8453
+                ? createStableClubBaseReadTransport()
+                : http(candidate.rpcUrl);
           const attestClient = createPublicClient({
             chain: attestChain,
-            transport: http(candidate.rpcUrl),
+            transport: attestTransport,
           });
           await attestPhase2aDeployments({
             client: {
@@ -625,29 +651,43 @@ export function useFivePoolDeposit() {
       setProgress("awaiting-approval");
       setStatusMessage("Checking USDC + Permit2 allowances…");
 
-      const readDepositAllowances = async (): Promise<ClFivePoolPermit2LiveAllowances> => {
-        // Explicit latest block via HTTP RPC — never wallet-provider eth_call cache.
-        const erc20AllowanceToPermit2 = await allowanceReadClient.readContract({
-          address: attestedDeployments.usdc,
-          abi: erc20Abi,
-          functionName: "allowance",
-          args: [ownerAddress, attestedDeployments.permit2],
-          blockTag: "latest",
-        });
-        const p2 = await allowanceReadClient.readContract({
-          address: attestedDeployments.permit2,
-          abi: permit2AllowanceAbi,
-          functionName: "allowance",
-          args: [ownerAddress, attestedDeployments.usdc, attestedDeployments.clExecutor],
-          blockTag: "latest",
-        });
-        const decoded = decodeClFivePoolPermit2AllowanceTuple(p2[0], p2[1]);
-        return {
-          erc20AllowanceToPermit2,
-          permit2AmountToExecutor: decoded.permit2AmountToExecutor,
-          permit2ExpirationToExecutor: decoded.permit2ExpirationToExecutor,
+      const readDepositAllowancesRaw =
+        async (): Promise<ClFivePoolPermit2LiveAllowances> => {
+          // Explicit latest block via HTTP RPC — never wallet-provider eth_call cache.
+          const erc20AllowanceToPermit2 = await allowanceReadClient.readContract({
+            address: attestedDeployments.usdc,
+            abi: erc20Abi,
+            functionName: "allowance",
+            args: [ownerAddress, attestedDeployments.permit2],
+            blockTag: "latest",
+          });
+          const p2 = await allowanceReadClient.readContract({
+            address: attestedDeployments.permit2,
+            abi: permit2AllowanceAbi,
+            functionName: "allowance",
+            args: [
+              ownerAddress,
+              attestedDeployments.usdc,
+              attestedDeployments.clExecutor,
+            ],
+            blockTag: "latest",
+          });
+          const decoded = decodeClFivePoolPermit2AllowanceTuple(p2[0], p2[1]);
+          return {
+            erc20AllowanceToPermit2,
+            permit2AmountToExecutor: decoded.permit2AmountToExecutor,
+            permit2ExpirationToExecutor: decoded.permit2ExpirationToExecutor,
+          };
         };
-      };
+
+      const readDepositAllowances = () =>
+        readClFivePoolPermit2AllowancesWithRpcGuard({
+          owner: ownerAddress,
+          token: attestedDeployments.usdc,
+          permit2: attestedDeployments.permit2,
+          clExecutor: attestedDeployments.clExecutor,
+          readAllowances: readDepositAllowancesRaw,
+        });
 
       let allowances = await readDepositAllowances();
       const precheckNow = Math.floor(Date.now() / 1000);

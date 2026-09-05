@@ -183,7 +183,10 @@ export const TRUSTED_PHASE2A_BASE_DEPLOYMENTS = {
   ],
   strategyKind: "0x6aa596a46004a6b2f72b8c68391496a8652d1d0b070918ccb9752fba243846c3" as Hex,
   discoveryStartBlock: 50881768,
-  /** Public Base RPC for browser attestation (no API key). Wallet transport preferred at runtime. */
+  /**
+   * Manifest-only placeholder. Public API rewrites Base `rpcUrl` to
+   * `/api/stable-club/base-rpc` (server BASE_RPC_URL). Do not use this URL in the browser.
+   */
   rpcUrl: "https://mainnet.base.org",
 } as const satisfies StableClubPhase2aDeployments;
 
