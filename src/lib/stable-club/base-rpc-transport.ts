@@ -20,7 +20,7 @@ export function createStableClubBaseReadTransport(params?: {
   const transports = urls.map((url) =>
     http(url, {
       retryCount,
-      retryDelay: ({ count }) => Math.min(2_000, 200 * 2 ** count),
+      retryDelay: 300,
       timeout,
     }),
   );
