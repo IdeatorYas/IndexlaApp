@@ -33,18 +33,6 @@ async function forwardToUpstream(
  * Read-only methods only; never exposes upstream URLs to the client.
  */
 export async function POST(request: Request) {
-  const upstreams = resolveStableClubBaseUpstreamRpcUrls();
-  if (upstreams.length === 0) {
-    return NextResponse.json(
-      {
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32000, message: "Base RPC is not configured" },
-      },
-      { status: 503 },
-    );
-  }
-
   let body: JsonRpcBody;
   try {
     body = (await request.json()) as JsonRpcBody;
@@ -65,9 +53,24 @@ export async function POST(request: Request) {
       {
         jsonrpc: "2.0",
         id: body.id ?? null,
-        error: { code: -32601, message: `Method not allowed: ${method || "(missing)"}` },
+        error: {
+          code: -32601,
+          message: `Method not allowed: ${method || "(missing)"}`,
+        },
       },
       { status: 405 },
+    );
+  }
+
+  const upstreams = resolveStableClubBaseUpstreamRpcUrls();
+  if (upstreams.length === 0) {
+    return NextResponse.json(
+      {
+        jsonrpc: "2.0",
+        id: body.id ?? null,
+        error: { code: -32000, message: "Base RPC is not configured" },
+      },
+      { status: 503 },
     );
   }
 

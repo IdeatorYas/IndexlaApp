@@ -1,10 +1,20 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
 import { POST } from "@/app/api/stable-club/base-rpc/route";
 
 describe("POST /api/stable-club/base-rpc", () => {
   const prevBase = process.env.BASE_RPC_URL;
   const prevQn = process.env.QUICKNODE_RPC_URL;
   const prevFb = process.env.BASE_RPC_FALLBACK_URL;
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.BASE_RPC_URL;
+    delete process.env.QUICKNODE_RPC_URL;
+    delete process.env.BASE_RPC_FALLBACK_URL;
+  });
 
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -34,11 +44,12 @@ describe("POST /api/stable-club/base-rpc", () => {
 
   it("forwards eth_call to configured upstream", async () => {
     process.env.BASE_RPC_URL = "https://primary.example/rpc";
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x1" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const res = await POST(
@@ -62,9 +73,6 @@ describe("POST /api/stable-club/base-rpc", () => {
   });
 
   it("returns 503 when no upstream is configured", async () => {
-    delete process.env.BASE_RPC_URL;
-    delete process.env.QUICKNODE_RPC_URL;
-    delete process.env.BASE_RPC_FALLBACK_URL;
     const res = await POST(
       new Request("http://localhost/api/stable-club/base-rpc", {
         method: "POST",

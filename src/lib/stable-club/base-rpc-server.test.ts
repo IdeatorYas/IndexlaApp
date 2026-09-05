@@ -1,10 +1,19 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
 import { resolveStableClubBaseUpstreamRpcUrls } from "@/lib/stable-club/base-rpc-server";
 
 describe("base-rpc-server upstream resolution", () => {
   const prevBase = process.env.BASE_RPC_URL;
   const prevQn = process.env.QUICKNODE_RPC_URL;
   const prevFb = process.env.BASE_RPC_FALLBACK_URL;
+
+  beforeEach(() => {
+    delete process.env.BASE_RPC_URL;
+    delete process.env.QUICKNODE_RPC_URL;
+    delete process.env.BASE_RPC_FALLBACK_URL;
+  });
 
   afterEach(() => {
     if (prevBase === undefined) delete process.env.BASE_RPC_URL;
@@ -26,9 +35,6 @@ describe("base-rpc-server upstream resolution", () => {
   });
 
   it("returns empty when nothing configured", () => {
-    delete process.env.BASE_RPC_URL;
-    delete process.env.QUICKNODE_RPC_URL;
-    delete process.env.BASE_RPC_FALLBACK_URL;
     expect(resolveStableClubBaseUpstreamRpcUrls()).toEqual([]);
   });
 });

@@ -3,7 +3,6 @@
  * Prefer BASE_RPC_URL / QUICKNODE — never default to public mainnet.base.org.
  */
 import "server-only";
-import { getBaseRpcUrlForServer } from "@/lib/stable-club/config";
 
 export function resolveStableClubBaseUpstreamRpcUrls(): string[] {
   const urls: string[] = [];
@@ -13,7 +12,7 @@ export function resolveStableClubBaseUpstreamRpcUrls(): string[] {
     if (/^https:\/\/mainnet\.base\.org\/?$/i.test(url)) return;
     if (!urls.includes(url)) urls.push(url);
   };
-  push(getBaseRpcUrlForServer());
+  push(process.env.BASE_RPC_URL);
   push(process.env.QUICKNODE_RPC_URL);
   push(process.env.BASE_RPC_FALLBACK_URL);
   return urls;
