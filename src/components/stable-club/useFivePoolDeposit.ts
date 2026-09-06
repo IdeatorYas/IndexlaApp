@@ -29,6 +29,7 @@ import {
 import {
   assertChainEnvironmentMatch,
 } from "@/lib/stable-club/chain-isolation";
+import { isExitAllToUsdcAvailable } from "@/lib/stable-club/exit-to-usdc";
 import { readPoolSlot0States } from "@/lib/stable-club/pool-slot0";
 import {
   FIVE_POOL_DEFAULT_DEADLINE_SEC,
@@ -897,6 +898,11 @@ export function useFivePoolDeposit() {
   const depositIntoFivePoolStrategy = useCallback(async () => {
     try {
       setError(null);
+      if (!isExitAllToUsdcAvailable(deployments)) {
+        throw new Error(
+          "Deposits are unavailable until USDC-only Withdraw All (exitAllToUsdc) is enabled. Deposit and Withdraw unlock together after Timelock cutover. Legacy mixed-asset exit is never offered.",
+        );
+      }
       if (!wallet.address) {
         setStatusMessage("Connect wallet to continue…");
         setProgress("awaiting-approval");
@@ -947,6 +953,7 @@ export function useFivePoolDeposit() {
       setStatusMessage(null);
     }
   }, [
+    deployments,
     onExpectedChain,
     prepareQuotes,
     refreshBalancesAndStrategy,

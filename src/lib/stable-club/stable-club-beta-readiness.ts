@@ -1,6 +1,7 @@
 /**
  * Five-pool Base beta readiness — Live vs Ready for activation.
- * Deposits require trusted manifest + attestation + all pools registered on-chain.
+ * Deposits require trusted manifest + attestation + all pools registered on-chain
+ * AND USDC-only exit (exitAllToUsdc) enabled. If withdrawal is unavailable, deposits are unavailable.
  */
 import type { Address, Hex, PublicClient } from "viem";
 import {
@@ -25,6 +26,8 @@ export type StableClubBetaGlobalStatus = "Live" | "Ready for activation";
 export type StableClubBetaReadiness = {
   globalStatus: StableClubBetaGlobalStatus;
   depositsEnabled: boolean;
+  /** Same gate as Withdraw All · Receive USDC — deposits require this true. */
+  exitAllToUsdcAvailable: boolean;
   manifestTrusted: boolean;
   attestationPassed: boolean;
   activatedPoolIds: Stage1FivePoolBetaPoolId[];
@@ -53,11 +56,15 @@ export async function readRegisteredCataloguePoolIds(
   return activated;
 }
 
+export const USDC_EXIT_REQUIRED_FOR_DEPOSIT_BLOCKER =
+  "USDC-only Withdraw All (exitAllToUsdc) is not enabled — deposits are unavailable until Timelock cutover";
+
 export function resolveStableClubDepositBlockers(input: {
   attestationPassed: boolean;
   isBaseProduction: boolean;
   manifestTrusted: boolean;
   missingActivationPoolIds: readonly Stage1FivePoolBetaPoolId[];
+  exitAllToUsdcAvailable: boolean;
 }): string[] {
   const blockers: string[] = [];
   if (input.isBaseProduction && !input.manifestTrusted) {
@@ -69,6 +76,9 @@ export function resolveStableClubDepositBlockers(input: {
   for (const poolId of input.missingActivationPoolIds) {
     blockers.push(`Pool not governance-activated on-chain: ${poolId}`);
   }
+  if (!input.exitAllToUsdcAvailable) {
+    blockers.push(USDC_EXIT_REQUIRED_FOR_DEPOSIT_BLOCKER);
+  }
   return blockers;
 }
 
@@ -76,9 +86,12 @@ export function evaluateStableClubBetaReadiness(input: {
   attestationPassed: boolean;
   isBaseProduction: boolean;
   activatedOnChainIds: readonly Stage1FivePoolBetaPoolId[];
+  /** Must be true for deposits. Defaults false (fail closed). */
+  exitAllToUsdcAvailable?: boolean;
 }): StableClubBetaReadiness {
   const manifestTrusted = getTrustedPhase2aBaseManifest() != null;
   const attestationPassed = input.attestationPassed;
+  const exitAllToUsdcAvailable = input.exitAllToUsdcAvailable === true;
 
   const activatedPoolIds = STAGE1_FIVE_POOL_BETA_POOL_IDS.filter((id) =>
     input.activatedOnChainIds.includes(id),
@@ -92,16 +105,18 @@ export function evaluateStableClubBetaReadiness(input: {
     isBaseProduction: input.isBaseProduction,
     manifestTrusted,
     missingActivationPoolIds,
+    exitAllToUsdcAvailable,
   });
 
   const allActivated = missingActivationPoolIds.length === 0;
   const trustOk = input.isBaseProduction ? manifestTrusted && attestationPassed : attestationPassed;
-  const depositsEnabled = trustOk && allActivated;
+  const depositsEnabled = trustOk && allActivated && exitAllToUsdcAvailable;
   const globalStatus: StableClubBetaGlobalStatus = depositsEnabled ? "Live" : "Ready for activation";
 
   return {
     globalStatus,
     depositsEnabled,
+    exitAllToUsdcAvailable,
     manifestTrusted,
     attestationPassed,
     activatedPoolIds,

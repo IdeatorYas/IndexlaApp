@@ -23,7 +23,9 @@ export function StableClubCompactDeposit({
   const onDeposit = () => {
     setPanelError(null);
     if (failClosed) {
-      setPanelError("Deposits are temporarily unavailable. Confirm you are on Base and try again.");
+      setPanelError(
+        "Deposits are unavailable until USDC-only Withdraw All (exitAllToUsdc) is enabled on Base. Deposit and Withdraw unlock together after Timelock cutover.",
+      );
       return;
     }
     if (wrongNetwork) {
@@ -68,12 +70,25 @@ export function StableClubCompactDeposit({
 
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || failClosed}
         onClick={onDeposit}
         className="mt-5 h-12 w-full rounded-xl bg-[#0b1f3a] text-sm font-bold uppercase tracking-[0.06em] text-white disabled:opacity-45"
       >
-        {d.busy ? "Working…" : wrongNetwork ? "Switch to Base" : "Deposit"}
+        {failClosed
+          ? "Deposit unavailable"
+          : d.busy
+            ? "Working…"
+            : wrongNetwork
+              ? "Switch to Base"
+              : "Deposit"}
       </button>
+
+      {failClosed ? (
+        <p className="mt-3 text-sm text-amber-800" role="status">
+          Deposit and USDC Withdraw unlock together after Timelock enables exitAllToUsdc. Legacy
+          mixed-asset exit is never offered.
+        </p>
+      ) : null}
 
       {d.statusMessage ? (
         <p className="mt-3 text-sm text-emerald-800">{d.statusMessage}</p>

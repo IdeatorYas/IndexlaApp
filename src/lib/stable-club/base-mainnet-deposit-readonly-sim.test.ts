@@ -603,6 +603,8 @@ describe("Base mainnet read-only deposit simulation", () => {
         attestationPassed: true,
         isBaseProduction: true,
         activatedOnChainIds,
+        // Live Base still lacks exitAllToUsdc until Timelock cutover — deposits must stay off.
+        exitAllToUsdcAvailable: false,
       });
       report.readiness = readiness;
       if (!readiness.depositsEnabled) {
@@ -638,18 +640,19 @@ describe("Base mainnet read-only deposit simulation", () => {
       report.liveApi = liveApi;
       report.liveDepositButton = {
         enabledWhen:
-          "depositsEnabled === true (trusted manifest + attestation + all five poolAdapters registered)",
+          "depositsEnabled === true (trusted manifest + attestation + all five poolAdapters + features.exitAllToUsdc)",
         depositsEnabled: readiness.depositsEnabled,
         poolsActivatedArtifactFalseBlocksButton: false,
         expectedUiState: readiness.depositsEnabled
           ? "Deposit Into 5-Pool Strategy enabled (wallet still required to click)"
-          : "Deposit button disabled",
+          : "Deposit button disabled (USDC exit unavailable)",
       };
 
       report.automation = PRIVATE_BETA_LAUNCH_PARAMS.automation;
       report.blockers = blockers;
       report.warnings = warnings;
 
+      // Safety posture: without exitAllToUsdc, deposits must remain NO-GO.
       const verdict =
         blockers.length === 0 && readiness.depositsEnabled ? "GO" : "NO-GO";
       report.verdict = verdict;
@@ -659,12 +662,13 @@ describe("Base mainnet read-only deposit simulation", () => {
       // eslint-disable-next-line no-console
       console.log(JSON.stringify(report, null, 2));
 
-      expect(verdict).toBe("GO");
+      expect(verdict).toBe("NO-GO");
       expect(FIVE_POOL_MIN_USDC_HUMAN).toBe(20);
       expect(STAGE1_FIVE_POOL_BETA_POOL_IDS).toHaveLength(5);
       // Prove artifact flag alone is not a blocker when registrations exist
       expect(artifactPoolsActivated).toBe(false);
-      expect(readiness.depositsEnabled).toBe(true);
+      expect(readiness.depositsEnabled).toBe(false);
+      expect(readiness.exitAllToUsdcAvailable).toBe(false);
     },
     180_000,
   );

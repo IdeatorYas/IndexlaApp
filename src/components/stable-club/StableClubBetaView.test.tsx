@@ -68,9 +68,12 @@ let positionsState = {
 vi.mock("@/components/stable-club/useStableClubBetaReadiness", () => ({
   useStableClubBetaReadiness: () => ({
     readiness: {
-      depositsEnabled: true,
-      depositBlockers: [],
-      globalStatus: "Ready",
+      depositsEnabled: false,
+      exitAllToUsdcAvailable: false,
+      depositBlockers: [
+        "USDC-only Withdraw All (exitAllToUsdc) is not enabled — deposits are unavailable until Timelock cutover",
+      ],
+      globalStatus: "Ready for activation",
     },
     loading: false,
     error: null,
@@ -152,7 +155,7 @@ describe("StableClubBetaView", () => {
     expect(connect).toHaveBeenCalled();
   });
 
-  it("connected with no positions: shows compact deposit only", () => {
+  it("connected with no positions: shows compact deposit gated until USDC exit", () => {
     walletState = {
       status: "connected",
       chainId: 8453,
@@ -163,7 +166,8 @@ describe("StableClubBetaView", () => {
     };
     render(<StableClubBetaView />);
     expect(screen.getByRole("heading", { name: "Deposit USDC" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deposit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deposit unavailable" })).toBeDisabled();
+    expect(screen.getByText(/Deposit and USDC Withdraw unlock together/i)).toBeInTheDocument();
     expect(screen.queryByText("My Stable Club Position")).toBeNull();
     expect(screen.queryByText(/Opt in Auto-Harvest/i)).toBeNull();
     expect(screen.queryByText(/Three Strategies/i)).toBeNull();

@@ -19,6 +19,7 @@ import {
   readRegisteredCataloguePoolIds,
   type StableClubBetaReadiness,
 } from "@/lib/stable-club/stable-club-beta-readiness";
+import { isExitAllToUsdcAvailable } from "@/lib/stable-club/exit-to-usdc";
 import type { Stage1FivePoolBetaPoolId } from "@/lib/stable-club/stage1-launch";
 
 type Phase2aResponse =
@@ -123,8 +124,9 @@ export function useStableClubBetaReadiness() {
         attestationPassed,
         isBaseProduction,
         activatedOnChainIds,
+        exitAllToUsdcAvailable: isExitAllToUsdcAvailable(deployments),
       }),
-    [activatedOnChainIds, attestationPassed, isBaseProduction],
+    [activatedOnChainIds, attestationPassed, deployments, isBaseProduction],
   );
 
   return {

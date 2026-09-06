@@ -339,8 +339,9 @@ export function StableClubFivePoolDepositPanel({
       </p>
       {!depositsEnabled ? (
         <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
-          Atomic deposit disabled until trusted Base manifest attestation and on-chain governance
-          activation are complete for all five pools.
+          Atomic deposit disabled until trusted Base manifest, on-chain pool activation, and
+          USDC-only Withdraw All (exitAllToUsdc) are all enabled. Deposit and Withdraw unlock
+          together; legacy mixed-asset exit is never offered.
         </p>
       ) : null}
 
