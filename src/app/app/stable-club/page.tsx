@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { headers } from "next/headers";
 import { StableClubBetaView } from "@/components/stable-club/StableClubBetaView";
 import { StableClubView } from "@/components/stable-club/StableClubView";
@@ -20,7 +21,15 @@ export default async function StableClubPage() {
 
   return (
     <StableClubWalletProvider preferLocalHardhat={devPanelAllowed}>
-      <StableClubBetaView devToolsEnabled={devPanelAllowed} />
+      <Suspense
+        fallback={
+          <div className="min-h-[70vh] bg-[#f4f7fb] px-4 py-8">
+            <p className="text-center text-base text-[#5b6b7c]">Loading…</p>
+          </div>
+        }
+      >
+        <StableClubBetaView />
+      </Suspense>
       {devPanelAllowed ? (
         <div className="mx-auto max-w-6xl border-t border-app-line px-4 py-8 sm:px-6">
           <StableClubView

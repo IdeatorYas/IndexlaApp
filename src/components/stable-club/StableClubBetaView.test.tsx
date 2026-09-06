@@ -1,21 +1,74 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { render, screen, cleanup, within } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { StableClubBetaView } from "@/components/stable-club/StableClubBetaView";
-import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
-import {
-  STABLE_CLUB_DEMO_POOL_COUNT,
-  STABLE_CLUB_DEMO_PRODUCTS,
-} from "@/lib/stable-club/demo-strategies";
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+const connect = vi.fn();
+const exitAll = vi.fn();
+const refreshPositions = vi.fn();
+
+let walletState = {
+  status: "disconnected" as "disconnected" | "connecting" | "connected",
+  chainId: null as number | null,
+  address: null as string | null,
+  error: null as string | null,
+  connect,
+  switchToBase: vi.fn(),
+};
+
+let positionsState = {
+  deploymentsLoading: false,
+  deployments: { network: "base" as const, chainId: 8453 },
+  deploymentsError: null as string | null,
+  onExpectedChain: true,
+  expectedChainId: 8453,
+  strategyId: null as string | null,
+  strategyRegistered: false,
+  strategyRevoked: false,
+  strategyExpired: false,
+  positions: [] as Array<{
+    legIndex: number;
+    poolId: `0x${string}`;
+    poolLabel: string;
+    positionTokenId: bigint;
+    amountA: bigint;
+    amountB: bigint;
+    tokenASymbol: string;
+    tokenBSymbol: string;
+    allocationBps: bigint;
+    liquidity: bigint;
+    rangeStatus: string;
+  }>,
+  positionsLoading: false,
+  positionsError: null as string | null,
+  stale: false,
+  progress: "idle" as const,
+  statusMessage: null as string | null,
+  error: null as string | null,
+  lastTxHash: null as string | null,
+  explorerUrl: null as string | null,
+  approvalTxHashes: [] as string[],
+  legResults: [] as unknown[],
+  directPlan: null,
+  busy: false,
+  refreshPositions,
+  exitIndividual: vi.fn(),
+  exitAll,
+  emergencyExitLeg: vi.fn(),
+  emergencyExitAllSequential: vi.fn(),
+  revokeStrategy: vi.fn(),
+  showDirectExitPlan: vi.fn(),
+};
 
 vi.mock("@/components/stable-club/useStableClubBetaReadiness", () => ({
   useStableClubBetaReadiness: () => ({
     readiness: {
-      depositsEnabled: false,
-      depositBlockers: [
-        "Deployment attestation has not passed",
-        "Pool not governance-activated on-chain: USDC-cbBTC-AERO-CL100",
-      ],
-      globalStatus: "Ready for activation",
+      depositsEnabled: true,
+      depositBlockers: [],
+      globalStatus: "Ready",
     },
     loading: false,
     error: null,
@@ -26,9 +79,9 @@ vi.mock("@/components/stable-club/useStableClubBetaReadiness", () => ({
 vi.mock("@/components/stable-club/useFivePoolDeposit", () => ({
   useFivePoolDeposit: () => ({
     deploymentsLoading: false,
-    deployments: null,
+    deployments: { network: "base", chainId: 8453 },
     deploymentsError: null,
-    amountInput: "1000",
+    amountInput: "20",
     setAmountInput: vi.fn(),
     invalidatePlan: vi.fn(),
     depositIntoFivePoolStrategy: vi.fn(),
@@ -40,22 +93,12 @@ vi.mock("@/components/stable-club/useFivePoolDeposit", () => ({
     onExpectedChain: true,
     expectedChainId: 8453,
     busy: false,
-    wallet: { address: null, chainId: null },
+    wallet: { address: "0xabc", chainId: 8453 },
   }),
 }));
 
 vi.mock("@/components/wallet/StableClubWalletProvider", () => ({
-  useStableClubWallet: () => ({
-    status: "disconnected",
-    chainId: null,
-    address: null,
-    connect: vi.fn(),
-    switchToBase: vi.fn(),
-  }),
-}));
-
-vi.mock("@/components/stable-club/useStableClubDevPanelAllowed", () => ({
-  useStableClubDevPanelAllowed: () => false,
+  useStableClubWallet: () => walletState,
 }));
 
 vi.mock("@/components/stable-club/useStableClubPoolApy", async (importOriginal) => {
@@ -66,151 +109,109 @@ vi.mock("@/components/stable-club/useStableClubPoolApy", async (importOriginal) 
   };
 });
 
-vi.mock("@/components/stable-club/useStableClubHarvest", () => ({
-  useStableClubHarvest: () => ({
-    deployments: null,
-    permissionRegistered: false,
-    registerHarvestPermission: vi.fn(),
-    runHarvest: vi.fn(),
-    busy: false,
-    uiStatus: { status: "idle", message: null, lastTxHash: null, lastValidationCode: null },
-    verifiedAdapters: [],
-  }),
-}));
-
-vi.mock("@/components/stable-club/useStableClubCompound", () => ({
-  useStableClubCompound: () => ({
-    deployments: null,
-    permissionRegistered: false,
-    registerCompoundPermission: vi.fn(),
-    runCompound: vi.fn(),
-    busy: false,
-    uiStatus: { status: "idle", message: null, lastTxHash: null, lastValidationCode: null },
-    automationAvailable: false,
-    automationStatusMessage: "OpenServ compound keeper is not connected",
-    verifiedAdapters: [],
-  }),
-}));
-
 vi.mock("@/components/stable-club/useFivePoolPositions", () => ({
-  useFivePoolPositions: () => ({
-    deploymentsLoading: false,
-    deployments: { network: "base", chainId: 8453 },
-    deploymentsError: null,
-    onExpectedChain: true,
-    expectedChainId: 8453,
-    strategyId: null,
-    strategyRegistered: false,
-    strategyRevoked: false,
-    strategyExpired: false,
-    positions: [],
-    positionsLoading: false,
-    positionsError: null,
-    stale: false,
-    progress: "idle",
-    statusMessage: null,
-    error: null,
-    lastTxHash: null,
-    explorerUrl: null,
-    approvalTxHashes: [],
-    legResults: [],
-    directPlan: null,
-    busy: false,
-    refreshPositions: vi.fn(),
-    exitIndividual: vi.fn(),
-    exitAll: vi.fn(),
-    emergencyExitLeg: vi.fn(),
-    emergencyExitAllSequential: vi.fn(),
-    revokeStrategy: vi.fn(),
-    showDirectExitPlan: vi.fn(),
-  }),
+  useFivePoolPositions: () => positionsState,
 }));
 
 describe("StableClubBetaView", () => {
-  afterEach(() => cleanup());
-
-  it("renders hero, live Base strategy first, demos, and category copy", () => {
-    render(<StableClubBetaView />);
-
-    expect(screen.getByText("INDEXLA STABLE CLUB")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "One Deposit. Five Pools. Less Risk." })).toBeInTheDocument();
-    expect(screen.getByText(/automatically harvests and compounds/i)).toBeInTheDocument();
-    expect(screen.getByText(/20% Per Pool · Auto-Harvest · Auto-Compound · Non-Custodial/i)).toBeInTheDocument();
-
-    const strategyBoxes = document.querySelectorAll("[data-strategy]");
-    expect(strategyBoxes[0]).toHaveAttribute("data-strategy", "base-five-pool");
-    expect(strategyBoxes[0]).toHaveAttribute("data-status", "live-beta");
-    expect(screen.getByText("LIVE BETA · BASE")).toBeInTheDocument();
-    expect(screen.getByText(/Your five-pool positions/i)).toBeInTheDocument();
-
-    for (const pool of OFFICIAL_STABLE_CLUB_BASE_POOLS) {
-      expect(screen.getByText(pool.id)).toBeInTheDocument();
-    }
-    expect(screen.getAllByText("20%").length).toBeGreaterThanOrEqual(5);
-    expect(screen.getByText("Total allocation")).toBeInTheDocument();
-    expect(screen.getByText("100%")).toBeInTheDocument();
-
-    // Assets and platforms are separate columns
-    expect(screen.getAllByText("Asset pair").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Platform").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Uniswap V3").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText("Aerodrome").length).toBeGreaterThanOrEqual(3);
-
-    expect(screen.getAllByText("UPCOMING · DEMO ONLY · NOT ACTIVE")).toHaveLength(
-      STABLE_CLUB_DEMO_PRODUCTS.length,
-    );
-    expect(screen.getAllByText("Stable → Stable").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Stable → ETH/BTC").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Bitcoin → Other Blue Chips").length).toBeGreaterThanOrEqual(1);
-
-    let demoPoolCount = 0;
-    for (const product of STABLE_CLUB_DEMO_PRODUCTS) {
-      for (const pool of product.pools) {
-        expect(screen.getAllByText(pool.pair).length).toBeGreaterThanOrEqual(1);
-        demoPoolCount += 1;
-      }
-    }
-    expect(demoPoolCount).toBe(STABLE_CLUB_DEMO_POOL_COUNT);
-    expect(STABLE_CLUB_DEMO_POOL_COUNT).toBe(15);
-
-    const comingSoon = screen.getAllByRole("button", { name: "Coming Soon" });
-    expect(comingSoon).toHaveLength(3);
-    for (const btn of comingSoon) {
-      expect(btn).toBeDisabled();
-    }
-
-    expect(
-      screen.getByRole("heading", { name: "Three Strategies. Built for Different Risk Levels." }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/When these upcoming strategies are activated, INDEXLA will automatically harvest and compound/i),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/APYs are variable, may change rapidly and are not guaranteed/i)).toBeInTheDocument();
-
-    // Technical attestation errors hidden from users
-    expect(screen.queryByText("Deposit unavailable")).toBeNull();
-    expect(screen.queryByText(/Deployment attestation has not passed/i)).toBeNull();
-    expect(screen.queryByText(/Pool not governance-activated on-chain/i)).toBeNull();
-
-    expect(screen.queryByText("FAQ")).toBeNull();
-    expect(screen.getByText(/INDEXLA does not custody funds/)).toBeInTheDocument();
-
-    expect(screen.getAllByText(/Auto-Harvest · Auto-Compound/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole("button", { name: /Opt in Auto-Harvest/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Opt in Auto-Compound/i })).toBeDisabled();
-
-    const depositButtons = screen.getAllByRole("button", { name: "Deposit Into 5-Pool Strategy" });
-    // Strategy box CTA stays clickable so users get feedback; hero CTA is an anchor.
-    expect(depositButtons.length).toBeGreaterThanOrEqual(1);
-    expect(depositButtons.every((b) => !(b as HTMLButtonElement).disabled)).toBe(true);
+  afterEach(() => {
+    cleanup();
+    connect.mockReset();
+    exitAll.mockReset();
+    refreshPositions.mockReset();
+    walletState = {
+      status: "disconnected",
+      chainId: null,
+      address: null,
+      error: null,
+      connect,
+      switchToBase: vi.fn(),
+    };
+    positionsState = {
+      ...positionsState,
+      positions: [],
+      positionsLoading: false,
+      strategyRevoked: false,
+      strategyExpired: false,
+      busy: false,
+      statusMessage: null,
+      error: null,
+    };
   });
 
-  it("keeps auto-harvest and auto-compound in Base product messaging", () => {
+  it("disconnected: shows only Connect Wallet", () => {
     render(<StableClubBetaView />);
-    const base = document.querySelector('[data-strategy="base-five-pool"]');
-    expect(base).not.toBeNull();
-    expect(within(base as HTMLElement).getByText(/Auto-Harvest/i)).toBeInTheDocument();
-    expect(within(base as HTMLElement).getByText(/Auto-Compound/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Coming Soon.*Auto-Harvest/i)).toBeNull();
+    expect(screen.getByRole("button", { name: "Connect Wallet" })).toBeInTheDocument();
+    expect(screen.queryByText("My Stable Club Position")).toBeNull();
+    expect(screen.queryByText("Deposit USDC")).toBeNull();
+    expect(screen.queryByText(/One Deposit\. Five Pools/i)).toBeNull();
+    expect(screen.queryByText(/UPCOMING/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Connect Wallet" }));
+    expect(connect).toHaveBeenCalled();
+  });
+
+  it("connected with no positions: shows compact deposit only", () => {
+    walletState = {
+      status: "connected",
+      chainId: 8453,
+      address: "0xab4e242C5b489e8301408C93003903364214559F",
+      error: null,
+      connect,
+      switchToBase: vi.fn(),
+    };
+    render(<StableClubBetaView />);
+    expect(screen.getByRole("heading", { name: "Deposit USDC" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deposit" })).toBeInTheDocument();
+    expect(screen.queryByText("My Stable Club Position")).toBeNull();
+    expect(screen.queryByText(/Opt in Auto-Harvest/i)).toBeNull();
+    expect(screen.queryByText(/Three Strategies/i)).toBeNull();
+  });
+
+  it("connected with positions: shows one table and three strategy buttons", () => {
+    walletState = {
+      status: "connected",
+      chainId: 8453,
+      address: "0xab4e242C5b489e8301408C93003903364214559F",
+      error: null,
+      connect,
+      switchToBase: vi.fn(),
+    };
+    positionsState = {
+      ...positionsState,
+      positions: [0, 1, 2, 3, 4].map((legIndex) => ({
+        legIndex,
+        poolId: `0x${String(legIndex + 1).padStart(64, "0")}` as `0x${string}`,
+        poolLabel: `Pool ${legIndex + 1}`,
+        positionTokenId: BigInt(1000 + legIndex),
+        amountA: BigInt(1_000_000),
+        amountB: BigInt(0),
+        tokenASymbol: "USDC",
+        tokenBSymbol: "WETH",
+        allocationBps: BigInt(2000),
+        liquidity: BigInt(1),
+        rangeStatus: "in-range",
+      })),
+    };
+    render(<StableClubBetaView />);
+
+    expect(screen.getByRole("heading", { name: "My Stable Club Position" })).toBeInTheDocument();
+    expect(screen.getByText("Pool 1")).toBeInTheDocument();
+    expect(screen.getByText("Pool 5")).toBeInTheDocument();
+    expect(screen.getAllByText("20%")).toHaveLength(5);
+
+    const harvest = screen.getByRole("button", { name: "Harvest All" });
+    const compound = screen.getByRole("button", { name: "Compound All" });
+    const withdraw = screen.getByRole("button", { name: "Withdraw All" });
+    expect(harvest).toBeDisabled();
+    expect(compound).toBeDisabled();
+    expect(withdraw).not.toBeDisabled();
+    expect(screen.getAllByRole("tooltip", { hidden: true }).length).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(withdraw);
+    expect(exitAll).toHaveBeenCalled();
+
+    expect(screen.queryByText(/Deposit Into 5-Pool/i)).toBeNull();
+    expect(screen.queryByText(/automation/i)).toBeNull();
+    expect(screen.queryByText(/UPCOMING/i)).toBeNull();
   });
 });

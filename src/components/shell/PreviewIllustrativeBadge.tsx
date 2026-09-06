@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getClientFeatureFlags } from "@/lib/feature-flags";
 
@@ -10,9 +11,11 @@ const PREVIEW_DISCLOSURE =
 const PREVIEW_PANEL_ID = "indexla-preview-illustrative-panel";
 
 export function PreviewIllustrativeBadge() {
+  const pathname = usePathname();
   const { ILLUSTRATIVE_DEMO_DATA } = getClientFeatureFlags();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const hideOnStableClub = pathname?.includes("/stable-club") ?? false;
 
   useEffect(() => {
     if (!open) return;
@@ -25,7 +28,7 @@ export function PreviewIllustrativeBadge() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
 
-  if (!ILLUSTRATIVE_DEMO_DATA) {
+  if (!ILLUSTRATIVE_DEMO_DATA || hideOnStableClub) {
     return null;
   }
 

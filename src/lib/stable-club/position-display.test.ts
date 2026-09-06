@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  allocationPercentFromBps,
   formatPositionTokenAmount,
+  formatPositionValueDisplay,
   positionStatusLabel,
 } from "@/lib/stable-club/position-display";
 
@@ -27,5 +29,19 @@ describe("position-display", () => {
         rangeStatus: "unknown",
       }),
     ).toBe("Closed");
+  });
+
+  it("formats allocation bps and USDC-side value", () => {
+    expect(allocationPercentFromBps(BigInt(2000))).toBe("20%");
+    expect(
+      formatPositionValueDisplay({
+        amountA: BigInt(2_000_000),
+        amountB: BigInt(0),
+        tokenASymbol: "USDC",
+        tokenBSymbol: "WETH",
+        decimalsA: 6,
+        decimalsB: 18,
+      }),
+    ).toBe("$2 + 0 WETH");
   });
 });
