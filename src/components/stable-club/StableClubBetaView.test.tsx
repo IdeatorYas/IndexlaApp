@@ -57,6 +57,8 @@ let positionsState = {
   refreshPositions,
   exitIndividual: vi.fn(),
   exitAll,
+  exitAllToUsdc: vi.fn(),
+  exitAllToUsdcAvailable: false,
   emergencyExitLeg: vi.fn(),
   emergencyExitAllSequential: vi.fn(),
   revokeStrategy: vi.fn(),
@@ -167,7 +169,7 @@ describe("StableClubBetaView", () => {
     expect(screen.queryByText(/Three Strategies/i)).toBeNull();
   });
 
-  it("connected with positions: shows one table and three strategy buttons", () => {
+  it("connected with positions: shows tabs, dashboard and gated withdraw", () => {
     walletState = {
       status: "connected",
       chainId: 8453,
@@ -185,33 +187,40 @@ describe("StableClubBetaView", () => {
         positionTokenId: BigInt(1000 + legIndex),
         amountA: BigInt(1_000_000),
         amountB: BigInt(0),
+        tokenA: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as `0x${string}`,
+        tokenB: "0x4200000000000000000000000000000000000006" as `0x${string}`,
         tokenASymbol: "USDC",
         tokenBSymbol: "WETH",
         allocationBps: BigInt(2000),
         liquidity: BigInt(1),
         rangeStatus: "in-range",
+        protocol: "uniswap-v3",
+        npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as `0x${string}`,
+        adapter: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as `0x${string}`,
+        nftContract: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as `0x${string}`,
       })),
     };
     render(<StableClubBetaView />);
 
-    expect(screen.getByRole("heading", { name: "My Stable Club Position" })).toBeInTheDocument();
-    expect(screen.getByText("Pool 1")).toBeInTheDocument();
-    expect(screen.getByText("Pool 5")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "My Position" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Available Pools" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "My Position" })).toBeInTheDocument();
+    expect(screen.getAllByText("USDC/WETH").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("20%")).toHaveLength(5);
 
-    const harvest = screen.getByRole("button", { name: "Harvest All" });
-    const compound = screen.getByRole("button", { name: "Compound All" });
-    const withdraw = screen.getByRole("button", { name: "Withdraw All" });
+    const harvest = screen.getByRole("button", { name: /Harvest All/i });
+    const compound = screen.getByRole("button", { name: /Compound All/i });
+    const withdraw = screen.getByRole("button", { name: /Withdraw All/i });
     expect(harvest).toBeDisabled();
     expect(compound).toBeDisabled();
     expect(withdraw).not.toBeDisabled();
-    expect(screen.getAllByRole("tooltip", { hidden: true }).length).toBeGreaterThanOrEqual(2);
 
     fireEvent.click(withdraw);
-    expect(exitAll).toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: /Confirm Withdraw All/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unavailable" })).toBeDisabled();
+    expect(exitAll).not.toHaveBeenCalled();
 
-    expect(screen.queryByText(/Deposit Into 5-Pool/i)).toBeNull();
-    expect(screen.queryByText(/automation/i)).toBeNull();
-    expect(screen.queryByText(/UPCOMING/i)).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Available Pools" }));
+    expect(screen.getByRole("heading", { name: "Available Pools" })).toBeInTheDocument();
   });
 });

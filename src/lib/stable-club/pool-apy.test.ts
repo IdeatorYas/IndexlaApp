@@ -17,6 +17,7 @@ function quote(poolId: string, apy: number | null, status: "available" | "unavai
     apyPercent: apy,
     apyBasePercent: apy,
     apyRewardPercent: 0,
+    tvlUsd: null,
     source: "defillama-yields",
     updatedAt: new Date().toISOString(),
     status,
@@ -74,13 +75,18 @@ describe("buildPoolApyQuotes", () => {
   });
 
   it("marks negative APY as unavailable", () => {
-    const pool = STAGE1_FIVE_POOL_BETA_POOL_IDS[1]!;
+    const pool = STAGE1_FIVE_POOL_BETA_POOL_IDS[1]!; // USDC-cbBTC-UNI-005
     const quotes = buildPoolApyQuotes(
       [
         {
           chain: "Base",
-          pool: "0xfBB6Eed8e7aa03B138556eeDaF5D271A5E1e43ef",
+          pool: "uuid-usdc-cbbtc-uni",
           project: "uniswap-v3",
+          poolMeta: "0.05%",
+          underlyingTokens: [
+            "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+          ],
           apy: -5,
         },
       ],
@@ -88,6 +94,65 @@ describe("buildPoolApyQuotes", () => {
     );
     const uni = quotes.find((q) => q.poolId === pool);
     expect(uni?.status).toBe("unavailable");
+  });
+
+  it("matches Uniswap by underlying tokens + fee meta (not pool address UUID)", () => {
+    const quotes = buildPoolApyQuotes(
+      [
+        {
+          chain: "Base",
+          pool: "uuid-usdc-cbbtc-uni",
+          project: "uniswap-v3",
+          poolMeta: "0.05%",
+          underlyingTokens: [
+            "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+          ],
+          apy: 5.5,
+          tvlUsd: 1_000_000,
+        },
+      ],
+      new Date(),
+    );
+    const uni = quotes.find((q) => q.poolId === "USDC-cbBTC-UNI-005");
+    expect(uni?.status).toBe("available");
+    expect(uni?.apyPercent).toBe(5.5);
+  });
+
+  it("does not match CL100 when looking for CL10 (prefix false-positive)", () => {
+    const quotes = buildPoolApyQuotes(
+      [
+        {
+          chain: "Base",
+          pool: "uuid-weth-cbbtc-cl100",
+          project: "aerodrome-slipstream",
+          poolMeta: "CL100 - 0.25%",
+          underlyingTokens: [
+            "0x4200000000000000000000000000000000000006",
+            "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+          ],
+          apy: 4.2,
+        },
+        {
+          chain: "Base",
+          pool: "uuid-weth-cbbtc-cl10",
+          project: "aerodrome-slipstream",
+          poolMeta: "CL10 - 0.055%",
+          underlyingTokens: [
+            "0x4200000000000000000000000000000000000006",
+            "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+          ],
+          apy: 12.5,
+        },
+      ],
+      new Date(),
+    );
+    const cl10 = quotes.find((q) => q.poolId === "cbBTC-WETH-AERO-CL10");
+    const cl100 = quotes.find((q) => q.poolId === "cbBTC-WETH-AERO-CL100");
+    expect(cl10?.status).toBe("available");
+    expect(cl10?.apyPercent).toBe(12.5);
+    expect(cl100?.status).toBe("available");
+    expect(cl100?.apyPercent).toBe(4.2);
   });
 });
 

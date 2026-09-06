@@ -21,6 +21,7 @@ export type PoolApyQuote = {
   apyPercent: number | null;
   apyBasePercent: number | null;
   apyRewardPercent: number | null;
+  tvlUsd: number | null;
   source: "defillama-yields";
   updatedAt: string;
   status: "available" | "unavailable";
@@ -31,15 +32,17 @@ type DefiLlamaPoolRow = {
   chain?: string;
   project?: string;
   pool?: string;
+  poolMeta?: string | null;
   apy?: number | null;
   apyBase?: number | null;
   apyReward?: number | null;
   tvlUsd?: number | null;
+  underlyingTokens?: string[] | null;
 };
 
 const PROJECT_BY_PROTOCOL: Record<string, string[]> = {
-  "uniswap-v3": ["uniswap-v3", "uniswap-v3-base"],
-  "aerodrome-slipstream": ["aerodrome-v3", "aerodrome-slipstream", "aerodrome"],
+  "uniswap-v3": ["uniswap-v3"],
+  "aerodrome-slipstream": ["aerodrome-slipstream"],
 };
 
 function normalizeAddress(addr: string): string {
@@ -100,17 +103,67 @@ function matchDefiLlamaRow(
   rows: DefiLlamaPoolRow[],
   poolAddress: Address,
   protocol: string,
+  poolId: string,
 ): DefiLlamaPoolRow | undefined {
-  const target = normalizeAddress(poolAddress);
   const projects = PROJECT_BY_PROTOCOL[protocol] ?? [];
-  return rows.find(
-    (row) =>
-      row.chain?.toLowerCase() === "base" &&
-      row.pool &&
-      normalizeAddress(row.pool) === target &&
-      (projects.length === 0 ||
-        projects.some((p) => row.project?.toLowerCase().includes(p))),
+  const catalogue = OFFICIAL_STABLE_CLUB_BASE_POOLS.find((p) => p.id === poolId);
+  if (!catalogue) return undefined;
+
+  const tokenA = normalizeAddress(catalogue.tokenA.address);
+  const tokenB = normalizeAddress(catalogue.tokenB.address);
+
+  const candidates = rows.filter((row) => {
+    if (row.chain?.toLowerCase() !== "base") return false;
+    if (
+      projects.length > 0 &&
+      !projects.some((p) => row.project?.toLowerCase() === p.toLowerCase())
+    ) {
+      return false;
+    }
+    const under = (row.underlyingTokens ?? []).map((t) => normalizeAddress(String(t)));
+    if (!under.includes(tokenA) || !under.includes(tokenB)) return false;
+    return true;
+  });
+
+  // Prefer exact pool-address match when DefiLlama ever exposes it.
+  const byAddress = candidates.find(
+    (row) => row.pool && normalizeAddress(row.pool) === normalizeAddress(poolAddress),
   );
+  if (byAddress) return byAddress;
+
+  const meta = (row: DefiLlamaPoolRow) => String(row.poolMeta ?? "").toLowerCase();
+
+  if (protocol === "uniswap-v3" && catalogue.feeOrTick.kind === "fee") {
+    const feePct = (catalogue.feeOrTick.feeBps / 100).toFixed(
+      catalogue.feeOrTick.feeBps % 100 === 0 ? 0 : 2,
+    );
+    // feeBps 5 → 0.05%
+    const feeLabel =
+      catalogue.feeOrTick.feeBps === 5
+        ? "0.05%"
+        : catalogue.feeOrTick.feeBps === 30
+          ? "0.3%"
+          : `${feePct}%`;
+    const hit = candidates.find((row) => meta(row) === feeLabel.toLowerCase());
+    if (hit) return hit;
+  }
+
+  if (
+    protocol === "aerodrome-slipstream" &&
+    catalogue.feeOrTick.kind === "tickSpacing"
+  ) {
+    // DefiLlama meta looks like "CL10 - 0.055%" / "CL100 - 0.25%".
+    // Do not use startsWith("cl10") — that falsely matches CL100.
+    const tick = catalogue.feeOrTick.tickSpacing;
+    const hit = candidates.find((row) => {
+      const m = meta(row).match(/^cl(\d+)/i);
+      return m != null && Number(m[1]) === tick;
+    });
+    if (hit) return hit;
+  }
+
+  // Fail closed — do not pick an arbitrary same-pair pool (would mislead APY).
+  return undefined;
 }
 
 export function buildPoolApyQuotes(rows: DefiLlamaPoolRow[], fetchedAt: Date): PoolApyQuote[] {
@@ -126,6 +179,7 @@ export function buildPoolApyQuotes(rows: DefiLlamaPoolRow[], fetchedAt: Date): P
         apyPercent: null,
         apyBasePercent: null,
         apyRewardPercent: null,
+        tvlUsd: null,
         source: "defillama-yields",
         updatedAt: now,
         status: "unavailable",
@@ -133,7 +187,7 @@ export function buildPoolApyQuotes(rows: DefiLlamaPoolRow[], fetchedAt: Date): P
       };
     }
 
-    const match = matchDefiLlamaRow(rows, pool.poolAddress, pool.protocol);
+    const match = matchDefiLlamaRow(rows, pool.poolAddress, pool.protocol, pool.id);
     const apyPercent = sanitizeApyPercent(match?.apy);
     if (!match || apyPercent == null) {
       return {
@@ -142,6 +196,10 @@ export function buildPoolApyQuotes(rows: DefiLlamaPoolRow[], fetchedAt: Date): P
         apyPercent: null,
         apyBasePercent: null,
         apyRewardPercent: null,
+        tvlUsd:
+          typeof match?.tvlUsd === "number" && Number.isFinite(match.tvlUsd) && match.tvlUsd >= 0
+            ? match.tvlUsd
+            : null,
         source: "defillama-yields",
         updatedAt: now,
         status: "unavailable",
@@ -155,6 +213,10 @@ export function buildPoolApyQuotes(rows: DefiLlamaPoolRow[], fetchedAt: Date): P
       apyPercent,
       apyBasePercent: sanitizeApyPercent(match.apyBase),
       apyRewardPercent: sanitizeApyPercent(match.apyReward),
+      tvlUsd:
+        typeof match.tvlUsd === "number" && Number.isFinite(match.tvlUsd) && match.tvlUsd >= 0
+          ? match.tvlUsd
+          : null,
       source: "defillama-yields",
       updatedAt: now,
       status: "available",

@@ -27,6 +27,14 @@ import { createStableClubBaseReadTransport } from "@/lib/stable-club/base-rpc-tr
 import { assertChainEnvironmentMatch } from "@/lib/stable-club/chain-isolation";
 import { explorerTxUrl } from "@/lib/stable-club/five-pool-deposit";
 import {
+  aggregateExitProceeds,
+  buildExitToUsdcPreview,
+  isExitAllToUsdcAvailable,
+  padExitUnwindSwaps,
+} from "@/lib/stable-club/exit-to-usdc";
+import { BASE_TOKENS } from "@/lib/stable-club/official-pools";
+import { quoteTokenToUsdcViaOracle } from "@/components/stable-club/usePositionUsdValue";
+import {
   FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS,
   aeroFactoryGetPoolAbi,
   aeroNpmPositionsAbi,
@@ -942,6 +950,187 @@ export function useFivePoolPositions() {
     strategyRevoked,
   ]);
 
+  /**
+   * Product Withdraw All — atomic exitAllToUsdc (USDC only).
+   * Never calls legacy exitAll (underlying tokens).
+   */
+  const exitAllToUsdc = useCallback(async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setError(null);
+    setApprovalTxHashes([]);
+    setDirectPlan(null);
+
+    const open = [...positions].sort((a, b) => a.legIndex - b.legIndex);
+    setLegResults(
+      Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
+        const hit = open.find((p) => p.legIndex === i);
+        return {
+          legIndex: i,
+          status: hit ? ("pending" as const) : ("skipped" as const),
+        };
+      }),
+    );
+
+    try {
+      const { d, account, strategyId: sid, walletClient } = ensureReady();
+      if (open.length === 0) throw new Error("No open positions to exit");
+      if (strategyRevoked || strategyExpired) {
+        throw new Error(
+          "Strategy revoked or expired — USDC Withdraw All requires active permissions.",
+        );
+      }
+      if (!isExitAllToUsdcAvailable(d)) {
+        throw new Error(
+          "USDC-only Withdraw All is not enabled on this deployment yet. Requires exitAllToUsdc + reverse cbBTC/WETH→USDC routes. Legacy mixed-asset exitAll is blocked in the product UI.",
+        );
+      }
+
+      const byLeg = new Map(open.map((p) => [p.legIndex, p]));
+      const liveAmountsByLeg = new Map<number, { amountA: bigint; amountB: bigint }>();
+      for (const position of open) {
+        const live = await readLiveExitAmountsForPosition(publicClient, position, account);
+        liveAmountsByLeg.set(position.legIndex, {
+          amountA: live.amountA,
+          amountB: live.amountB,
+        });
+      }
+      const legs = buildExitAllLegs(byLeg, liveAmountsByLeg, slippageBps);
+
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+      const exitPositions = open.map((p) => {
+        const live = liveAmountsByLeg.get(p.legIndex)!;
+        return {
+          tokenA: p.tokenA,
+          tokenB: p.tokenB,
+          tokenASymbol: p.tokenASymbol,
+          tokenBSymbol: p.tokenBSymbol,
+          amountA: live.amountA,
+          amountB: live.amountB,
+        };
+      });
+      const proceeds = aggregateExitProceeds(exitPositions);
+      const quoteCache = new Map<string, bigint>();
+      for (const [tokenIn, amountIn] of [
+        [BASE_TOKENS.cbBTC.address, proceeds.cbBtc],
+        [BASE_TOKENS.WETH.address, proceeds.weth],
+      ] as const) {
+        if (amountIn <= BigInt(0)) continue;
+        const quoted = await quoteTokenToUsdcViaOracle({
+          publicClient,
+          oracleGuard: d.oracleGuard as Address,
+          tokenIn,
+          amountIn,
+        });
+        if (quoted <= BigInt(0)) {
+          throw new Error("OracleGuard returned zero USDC for exit unwind");
+        }
+        quoteCache.set(`${tokenIn.toLowerCase()}:${amountIn.toString()}`, quoted);
+      }
+      const preview = buildExitToUsdcPreview({
+        positions: exitPositions,
+        quoteTokenToUsdc: (tokenIn, amountIn) => {
+          const key = `${tokenIn.toLowerCase()}:${amountIn.toString()}`;
+          const hit = quoteCache.get(key);
+          if (hit == null) {
+            throw new Error(
+              "Missing OracleGuard USDC quote for unwind — refresh and retry.",
+            );
+          }
+          return hit;
+        },
+        deadline,
+      });
+
+      setProgress("awaiting-approval");
+      const hashes: Hex[] = [];
+      for (const position of open) {
+        setStatusMessage(
+          `Approve NFT #${position.positionTokenId.toString()} (leg ${position.legIndex})…`,
+        );
+        setLegResults((prev) =>
+          prev.map((r) =>
+            r.legIndex === position.legIndex ? { ...r, status: "approving" } : r,
+          ),
+        );
+        const h = await approveNftIfNeeded(walletClient, position);
+        if (h) hashes.push(h);
+      }
+      setApprovalTxHashes(hashes);
+
+      const permissionIds = Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
+        const p = byLeg.get(i);
+        return p?.legPermissionId ?? null;
+      });
+      const nonceBase = await resolveExitAllNonceBase(
+        publicClient,
+        d.permissionRegistry,
+        permissionIds,
+      );
+
+      setProgress("awaiting-exit");
+      setStatusMessage(
+        "Confirm Withdraw All (Receive USDC) — atomic; reverts if unwind or min USDC fails…",
+      );
+      setLegResults((prev) =>
+        prev.map((r) => (r.status === "skipped" ? r : { ...r, status: "submitting" })),
+      );
+
+      const swaps = padExitUnwindSwaps(preview.unwindSwaps);
+      const hash = await walletClient.writeContract({
+        address: d.clExecutor,
+        abi: concentratedLiquidityExecutorAbi,
+        functionName: "exitAllToUsdc",
+        args: [
+          sid,
+          legs as never,
+          swaps as never,
+          preview.unwindSwaps.length,
+          preview.minUsdcOut,
+          nonceBase,
+        ],
+      } as never);
+      setLastTxHash(hash);
+      await waitForSuccessfulTransactionReceipt(publicClient, hash);
+      setLegResults((prev) =>
+        prev.map((r) =>
+          r.status === "skipped" ? r : { ...r, status: "confirmed", txHash: hash },
+        ),
+      );
+      setProgress("confirmed");
+      setStatusMessage("Withdraw All (USDC) confirmed");
+      submittingRef.current = false;
+      await refreshPositions();
+    } catch (err) {
+      setProgress("failed");
+      const reject = userRejectMessage(err);
+      const message =
+        reject ??
+        (err instanceof Error
+          ? `${err.message} — exitAllToUsdc reverted; no positions marked exited`
+          : "Withdraw All (USDC) failed — no positions marked exited");
+      setError(message);
+      setLegResults((prev) =>
+        prev.map((r) =>
+          r.status === "skipped" || r.status === "confirmed"
+            ? r
+            : { ...r, status: "failed", error: message },
+        ),
+      );
+    } finally {
+      submittingRef.current = false;
+    }
+  }, [
+    approveNftIfNeeded,
+    ensureReady,
+    positions,
+    publicClient,
+    refreshPositions,
+    slippageBps,
+    strategyExpired,
+    strategyRevoked,
+  ]);
+
   const emergencyExitLeg = useCallback(
     async (legIndex: number) => {
       if (submittingRef.current) return;
@@ -1231,6 +1420,8 @@ export function useFivePoolPositions() {
     refreshPositions,
     exitIndividual,
     exitAll,
+    exitAllToUsdc,
+    exitAllToUsdcAvailable: isExitAllToUsdcAvailable(deployments),
     emergencyExitLeg,
     emergencyExitAllSequential,
     revokeStrategy,
