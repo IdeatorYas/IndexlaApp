@@ -1,12 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { formatUnits } from "viem";
 import {
   formatApyDisplay,
+  protocolDisplayName,
   useStableClubPoolApyMap,
 } from "@/components/stable-club/useStableClubPoolApy";
+import { usePositionClaimableFees } from "@/components/stable-club/usePositionClaimableFees";
+import { usePositionUsdValue } from "@/components/stable-club/usePositionUsdValue";
 import type { useFivePoolPositions } from "@/components/stable-club/useFivePoolPositions";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
+import { isExitAllToUsdcAvailable } from "@/lib/stable-club/exit-to-usdc";
 import {
   allocationPercentFromBps,
   formatPositionValueDisplay,
@@ -16,13 +21,27 @@ import { isLaunchAutomationEnabledForEnvironment } from "@/lib/stable-club/local
 
 type PositionsApi = ReturnType<typeof useFivePoolPositions>;
 
-function ComingSoonTip({ children }: { children: React.ReactNode }) {
+const SHORT_DESC: Record<string, string> = {
+  "USDC-cbBTC-AERO-CL100": "Aerodrome legacy CL100",
+  "USDC-cbBTC-UNI-005": "Uniswap 0.05% USDC/cbBTC",
+  "cbBTC-WETH-AERO-CL10": "Aerodrome CL10 · higher IL",
+  "cbBTC-WETH-AERO-CL100": "Aerodrome legacy CL100",
+  "cbBTC-WETH-UNI-005": "Uniswap 0.05% cbBTC/WETH",
+};
+
+function ComingSoonTip({ label }: { label: string }) {
   return (
-    <span className="group relative inline-flex w-full sm:w-auto">
-      {children}
+    <span className="group relative inline-flex w-full">
+      <button
+        type="button"
+        disabled
+        className="h-11 w-full cursor-not-allowed rounded-xl border border-[#0b1f3a]/15 bg-[#0b1f3a]/5 text-xs font-bold uppercase tracking-[0.06em] text-[#5b6b7c]"
+      >
+        {label} · Coming Soon
+      </button>
       <span
         role="tooltip"
-        className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 hidden w-max -translate-x-1/2 rounded-md bg-[#0b1f3a] px-2 py-1 text-[11px] font-medium text-white shadow-md group-hover:block group-focus-within:block"
+        className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 hidden w-max -translate-x-1/2 rounded-md bg-[#071526] px-2 py-1 text-[11px] font-medium text-emerald-200 group-hover:block"
       >
         Coming soon
       </span>
@@ -37,9 +56,10 @@ function tokenDecimals(symbol: string): number {
   return hit?.decimals ?? 18;
 }
 
-/**
- * Connected + open positions: one table, three strategy-level actions.
- */
+function sym(s: string): string {
+  return s.toUpperCase() === "WBTC" ? "cbBTC" : s;
+}
+
 export function StableClubPositionDashboard({
   positionsApi,
 }: {
@@ -47,11 +67,43 @@ export function StableClubPositionDashboard({
 }) {
   const p = positionsApi;
   const wallet = useStableClubWallet();
-  const { byPoolId: apyByPoolId, loading: apyLoading } = useStableClubPoolApyMap();
-  const [localMsg, setLocalMsg] = useState<string | null>(null);
+  const { byPoolId: apyByPoolId, loading: apyLoading, fetchedAt, source } =
+    useStableClubPoolApyMap();
+  const claimable = usePositionClaimableFees(
+    p.positions.map((pos) => ({
+      legIndex: pos.legIndex,
+      npm: pos.npm,
+      positionTokenId: pos.positionTokenId,
+    })),
+  );
+  const usdValue = usePositionUsdValue(
+    p.positions.map((pos) => ({
+      legIndex: pos.legIndex,
+      tokenA: pos.tokenA,
+      tokenB: pos.tokenB,
+      amountA: pos.amountA,
+      amountB: pos.amountB,
+    })),
+  );
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [lastRefreshAt, setLastRefreshAt] = useState(() => Date.now());
 
   const harvestEnabled = isLaunchAutomationEnabledForEnvironment("harvest", null);
   const compoundEnabled = isLaunchAutomationEnabledForEnvironment("compound", null);
+  const usdcExitReady = isExitAllToUsdcAvailable(p.deployments);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (!p.busy) void p.refreshPositions().then(() => setLastRefreshAt(Date.now()));
+    }, 45_000);
+    return () => window.clearInterval(id);
+  }, [p]);
 
   const rows = useMemo(() => {
     return [...p.positions]
@@ -64,22 +116,50 @@ export function StableClubPositionDashboard({
           catalogue ? apyByPoolId[catalogue.id] : undefined,
           apyLoading,
         );
+        const claim = claimable.rows.find((r) => r.legIndex === pos.legIndex);
+        const legUsd = usdValue.rows.find((r) => r.legIndex === pos.legIndex);
         return {
           key: `${pos.legIndex}-${pos.positionTokenId.toString()}`,
-          poolName: pos.poolLabel,
+          pair: `${sym(pos.tokenASymbol)}/${sym(pos.tokenBSymbol)}`,
+          protocol: catalogue
+            ? protocolDisplayName(catalogue.protocol)
+            : String(pos.protocol ?? "CL"),
+          desc: catalogue ? SHORT_DESC[catalogue.id] ?? catalogue.label : pos.poolLabel,
           apy,
           allocation: allocationPercentFromBps(pos.allocationBps),
-          value: formatPositionValueDisplay({
-            amountA: pos.amountA,
-            amountB: pos.amountB,
-            tokenASymbol: pos.tokenASymbol,
-            tokenBSymbol: pos.tokenBSymbol,
-            decimalsA: tokenDecimals(pos.tokenASymbol),
-            decimalsB: tokenDecimals(pos.tokenBSymbol),
-          }),
+          allocationPct: Number(pos.allocationBps) / 100,
+          value:
+            legUsd != null
+              ? `$${Number(formatUnits(legUsd.valueUsdc, 6)).toLocaleString(undefined, {
+                  maximumFractionDigits: 2,
+                })}`
+              : formatPositionValueDisplay({
+                  amountA: pos.amountA,
+                  amountB: pos.amountB,
+                  tokenASymbol: sym(pos.tokenASymbol),
+                  tokenBSymbol: sym(pos.tokenBSymbol),
+                  decimalsA: tokenDecimals(pos.tokenASymbol),
+                  decimalsB: tokenDecimals(pos.tokenBSymbol),
+                }),
+          claimableUsd: claim?.approxUsdc ?? 0,
+          active: pos.liquidity > 0n && pos.rangeStatus !== "out-of-range",
         };
       });
-  }, [apyByPoolId, apyLoading, p.positions]);
+  }, [apyByPoolId, apyLoading, claimable.rows, p.positions, usdValue.rows]);
+
+  const blendedApy = useMemo(() => {
+    const nums = rows
+      .map((r) => Number(r.apy.replace("%", "")))
+      .filter((n) => Number.isFinite(n));
+    if (!nums.length) return "—";
+    return `${(nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(2)}%`;
+  }, [rows]);
+
+  const totalValue =
+    usdValue.totalUsdc != null
+      ? Number(formatUnits(usdValue.totalUsdc, 6))
+      : null;
+  const secondsAgo = Math.max(0, Math.floor((now - lastRefreshAt) / 1000));
 
   const withdrawDisabled =
     p.busy ||
@@ -88,148 +168,270 @@ export function StableClubPositionDashboard({
     p.strategyExpired ||
     !p.onExpectedChain;
 
-  const onWithdrawAll = () => {
-    setLocalMsg(null);
-    void p.exitAll();
-  };
-
   return (
     <section
       id="my-stable-club-position"
-      className="rounded-2xl border border-[#d7e0ec] bg-white p-5 shadow-[0_1px_2px_rgba(11,31,58,0.06)] sm:p-6"
+      className="overflow-hidden rounded-2xl border border-[#c5d4e8] bg-gradient-to-b from-white to-[#f2f7fc] shadow-[0_8px_28px_rgba(11,31,58,0.08)]"
       aria-label="My Stable Club Position"
     >
-      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e6edf5] pb-4">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#5b6b7c]">
-            Stable Club · Base
-          </p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#0b1f3a] sm:text-[1.75rem]">
-            My Stable Club Position
-          </h1>
-        </div>
-        <div className="text-right text-sm text-[#5b6b7c]">
-          <p className="font-mono text-[#0b1f3a]">
-            {wallet.address
-              ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
-              : "—"}
-          </p>
+      <div className="bg-[linear-gradient(125deg,#071526_0%,#0b1f3a_40%,#1a4f8c_100%)] px-4 py-4 text-white sm:px-5 sm:py-5">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-300">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              </span>
+              Live on Base
+            </div>
+            <h1 className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">My Position</h1>
+            <p className="mt-0.5 text-[11px] text-white/60">
+              {wallet.address
+                ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
+                : "—"}
+              {" · "}
+              {secondsAgo < 5 ? "Updated just now" : `Updated ${secondsAgo}s ago`}
+              {fetchedAt
+                ? ` · APY ${source ?? "DefiLlama"} ${new Date(fetchedAt).toLocaleTimeString()}`
+                : ""}
+            </p>
+          </div>
           <button
             type="button"
             disabled={p.busy || p.positionsLoading}
-            onClick={() => void p.refreshPositions()}
-            className="mt-1 text-xs font-semibold text-[#1a4f8c] underline-offset-2 hover:underline disabled:opacity-50"
+            onClick={() => void p.refreshPositions().then(() => setLastRefreshAt(Date.now()))}
+            className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1 text-[11px] font-semibold"
           >
             Refresh
           </button>
         </div>
-      </header>
 
-      {p.positionsLoading ? (
-        <p className="mt-5 text-sm text-[#5b6b7c]">Loading on-chain positions…</p>
-      ) : null}
-      {p.positionsError ? (
-        <p className="mt-5 text-sm text-[#b42318]" role="alert">
-          Could not load positions: {p.positionsError}
-        </p>
-      ) : null}
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="col-span-2 rounded-xl bg-white/10 px-3 py-2.5 sm:col-span-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/50">
+              Total Position Value
+            </p>
+            <p className="mt-0.5 text-3xl font-bold tabular-nums tracking-tight">
+              {usdValue.loading
+                ? "…"
+                : totalValue != null
+                  ? `$${totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                  : "—"}
+            </p>
+          </div>
+          <div className="rounded-xl bg-white/10 px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/50">
+              Deposited
+            </p>
+            <p className="mt-0.5 text-lg font-semibold tabular-nums">—</p>
+          </div>
+          <div className="rounded-xl bg-white/10 px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/50">
+              Live P/L
+            </p>
+            <p className="mt-0.5 text-lg font-semibold tabular-nums text-emerald-300">—</p>
+          </div>
+          <div className="rounded-xl bg-white/10 px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/50">
+              Blended APY
+            </p>
+            <p className="mt-0.5 text-lg font-semibold tabular-nums text-teal-200">{blendedApy}</p>
+          </div>
+        </div>
 
-      {!p.positionsLoading && rows.length > 0 ? (
-        <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[520px] border-collapse text-left text-[15px] text-[#0b1f3a]">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white/10 px-3 py-2">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/50">
+              Rewards available to claim
+            </p>
+            <p className="text-base font-semibold tabular-nums text-emerald-300">
+              {claimable.loading
+                ? "…"
+                : `≈ $${claimable.totalApproxUsdc.toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                  })}`}
+            </p>
+          </div>
+          <div className="h-2.5 w-full max-w-[220px] overflow-hidden rounded-full bg-white/15 sm:w-48">
+            <div className="flex h-full">
+              {rows.map((row, i) => (
+                <div
+                  key={row.key}
+                  style={{
+                    width: `${Math.max(row.allocationPct, 10)}%`,
+                    background: ["#2dd4bf", "#38bdf8", "#818cf8", "#34d399", "#22d3ee"][i % 5],
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-3 py-3 sm:px-5 sm:py-4">
+        {p.positionsError ? (
+          <p className="mb-2 text-sm text-[#b42318]" role="alert">
+            {p.positionsError}
+          </p>
+        ) : null}
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px] border-collapse text-left text-[13px] text-[#0b1f3a]">
             <thead>
-              <tr className="border-b border-[#e6edf5] text-[12px] font-bold uppercase tracking-[0.08em] text-[#5b6b7c]">
-                <th className="py-2.5 pr-3 font-bold">Pool</th>
-                <th className="py-2.5 pr-3 font-bold">Live APY</th>
-                <th className="py-2.5 pr-3 font-bold">Allocation</th>
-                <th className="py-2.5 font-bold">Position value</th>
+              <tr className="border-b border-[#e6edf5] text-[10px] font-bold uppercase tracking-[0.08em] text-[#5b6b7c]">
+                <th className="py-2 pr-2">Pool</th>
+                <th className="py-2 pr-2">Value</th>
+                <th className="py-2 pr-2">Alloc</th>
+                <th className="py-2 pr-2">APY</th>
+                <th className="py-2 pr-2">Claimable</th>
+                <th className="py-2">Status</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={row.key} className="border-b border-[#eef3f8]">
-                  <td className="py-3.5 pr-3 font-semibold">{row.poolName}</td>
-                  <td className="py-3.5 pr-3 tabular-nums text-emerald-700">{row.apy}</td>
-                  <td className="py-3.5 pr-3 tabular-nums">{row.allocation}</td>
-                  <td className="py-3.5 font-mono text-[13px] sm:text-[14px]">{row.value}</td>
+                  <td className="py-2.5 pr-2">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#0b1f3a] text-[9px] font-bold text-white">
+                        {row.protocol.slice(0, 3).toUpperCase()}
+                      </span>
+                      <div>
+                        <p className="font-semibold leading-tight">{row.pair}</p>
+                        <p className="text-[10px] text-[#5b6b7c]">{row.desc}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-2.5 pr-2 font-mono text-[12px]">{row.value}</td>
+                  <td className="py-2.5 pr-2 tabular-nums font-semibold">{row.allocation}</td>
+                  <td className="py-2.5 pr-2 tabular-nums text-emerald-700">{row.apy}</td>
+                  <td className="py-2.5 pr-2 tabular-nums text-[#0b1f3a]">
+                    ≈ ${row.claimableUsd.toFixed(2)}
+                  </td>
+                  <td className="py-2.5">
+                    <span
+                      className={
+                        row.active
+                          ? "rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700"
+                          : "rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700"
+                      }
+                    >
+                      {row.active ? "Active" : "Check"}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      ) : null}
 
-      <div className="mt-6 grid gap-2 sm:grid-cols-3">
-        {harvestEnabled ? (
-          <button
-            type="button"
-            disabled
-            className="h-12 rounded-xl bg-[#0b1f3a] text-sm font-bold uppercase tracking-[0.06em] text-white opacity-50"
-          >
-            Harvest All
-          </button>
-        ) : (
-          <ComingSoonTip>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          {harvestEnabled ? (
             <button
               type="button"
               disabled
-              className="h-12 w-full cursor-not-allowed rounded-xl border border-[#d7e0ec] bg-[#f5f8fc] text-sm font-bold uppercase tracking-[0.06em] text-[#8a97a8]"
+              className="h-11 rounded-xl bg-[#0b1f3a]/40 text-xs font-bold uppercase tracking-[0.06em] text-white"
             >
               Harvest All
             </button>
-          </ComingSoonTip>
-        )}
-
-        {compoundEnabled ? (
-          <button
-            type="button"
-            disabled
-            className="h-12 rounded-xl bg-[#0b1f3a] text-sm font-bold uppercase tracking-[0.06em] text-white opacity-50"
-          >
-            Compound All
-          </button>
-        ) : (
-          <ComingSoonTip>
+          ) : (
+            <ComingSoonTip label="Harvest All" />
+          )}
+          {compoundEnabled ? (
             <button
               type="button"
               disabled
-              className="h-12 w-full cursor-not-allowed rounded-xl border border-[#d7e0ec] bg-[#f5f8fc] text-sm font-bold uppercase tracking-[0.06em] text-[#8a97a8]"
+              className="h-11 rounded-xl bg-[#0b1f3a]/40 text-xs font-bold uppercase tracking-[0.06em] text-white"
             >
               Compound All
             </button>
-          </ComingSoonTip>
-        )}
+          ) : (
+            <ComingSoonTip label="Compound All" />
+          )}
+          <button
+            type="button"
+            disabled={withdrawDisabled}
+            onClick={() => setConfirmOpen(true)}
+            className="h-11 rounded-xl bg-[#0b1f3a] text-xs font-bold uppercase tracking-[0.06em] text-white disabled:opacity-45"
+          >
+            Withdraw All · Receive USDC
+          </button>
+        </div>
 
-        <button
-          type="button"
-          disabled={withdrawDisabled}
-          onClick={onWithdrawAll}
-          className="h-12 rounded-xl bg-[#0b1f3a] text-sm font-bold uppercase tracking-[0.06em] text-white disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          Withdraw All
-        </button>
+        {!usdcExitReady ? (
+          <p className="mt-2 text-[11px] leading-relaxed text-[#5b6b7c]">
+            Withdraw/Harvest/Compound production paths require Timelock-scheduled executor upgrade
+            + reverse USDC routes. Mixed-asset exitAll is blocked. No incomplete path is exposed.
+          </p>
+        ) : null}
+
+        {p.statusMessage ? <p className="mt-2 text-sm text-emerald-800">{p.statusMessage}</p> : null}
+        {p.error ? (
+          <p className="mt-2 text-sm text-[#b42318]" role="alert">
+            {p.error}
+          </p>
+        ) : null}
+        {p.lastTxHash && p.explorerUrl ? (
+          <p className="mt-2 font-mono text-[11px]">
+            <a
+              href={p.explorerUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[#1a4f8c] underline-offset-2 hover:underline"
+            >
+              BaseScan {p.lastTxHash.slice(0, 10)}…
+            </a>
+          </p>
+        ) : null}
       </div>
 
-      {p.statusMessage ? (
-        <p className="mt-3 text-sm text-emerald-800">{p.statusMessage}</p>
-      ) : null}
-      {p.error ? (
-        <p className="mt-2 text-sm text-[#b42318]" role="alert">
-          {p.error}
-        </p>
-      ) : null}
-      {localMsg ? <p className="mt-2 text-sm text-[#5b6b7c]">{localMsg}</p> : null}
-      {p.lastTxHash && p.explorerUrl ? (
-        <p className="mt-2 font-mono text-xs text-[#5b6b7c]">
-          <a
-            href={p.explorerUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="text-[#1a4f8c] underline-offset-2 hover:underline"
+      {confirmOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#0b1f3a]/50 p-4 sm:items-center">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm Withdraw All"
+            className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
           >
-            {p.lastTxHash}
-          </a>
-        </p>
+            <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw All · Receive USDC</h2>
+            <p className="mt-2 text-sm text-[#5b6b7c]">
+              {usdcExitReady
+                ? "Atomic exitAllToUsdc — closes all legs, unwinds to USDC, reverts on failure."
+                : "Not enabled on live Base until Timelock upgrade + reverse routes are verified. No transaction will be sent."}
+            </p>
+            {preview ? (
+              <ul className="mt-3 space-y-1.5 text-sm">
+                <li className="flex justify-between">
+                  <span className="text-[#5b6b7c]">Est. USDC</span>
+                  <span className="font-semibold">${formatUnits(preview.estimatedUsdcOut, 6)}</span>
+                </li>
+                <li className="flex justify-between">
+                  <span className="text-[#5b6b7c]">Min USDC</span>
+                  <span className="font-semibold">${formatUnits(preview.minUsdcOut, 6)}</span>
+                </li>
+              </ul>
+            ) : null}
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(false)}
+                className="h-10 rounded-xl border border-[#d7e0ec] text-sm font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!usdcExitReady || p.busy}
+                onClick={() => {
+                  setConfirmOpen(false);
+                  void p.exitAllToUsdc();
+                }}
+                className="h-10 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white disabled:opacity-45"
+              >
+                {usdcExitReady ? "Confirm" : "Unavailable"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </section>
   );

@@ -21,6 +21,7 @@ export type PoolApyQuote = {
   apyPercent: number | null;
   apyBasePercent: number | null;
   apyRewardPercent: number | null;
+  tvlUsd: number | null;
   source: "defillama-yields";
   updatedAt: string;
   status: "available" | "unavailable";
@@ -126,6 +127,7 @@ export function buildPoolApyQuotes(rows: DefiLlamaPoolRow[], fetchedAt: Date): P
         apyPercent: null,
         apyBasePercent: null,
         apyRewardPercent: null,
+        tvlUsd: null,
         source: "defillama-yields",
         updatedAt: now,
         status: "unavailable",
@@ -142,6 +144,10 @@ export function buildPoolApyQuotes(rows: DefiLlamaPoolRow[], fetchedAt: Date): P
         apyPercent: null,
         apyBasePercent: null,
         apyRewardPercent: null,
+        tvlUsd:
+          typeof match?.tvlUsd === "number" && Number.isFinite(match.tvlUsd) && match.tvlUsd >= 0
+            ? match.tvlUsd
+            : null,
         source: "defillama-yields",
         updatedAt: now,
         status: "unavailable",
@@ -155,6 +161,10 @@ export function buildPoolApyQuotes(rows: DefiLlamaPoolRow[], fetchedAt: Date): P
       apyPercent,
       apyBasePercent: sanitizeApyPercent(match.apyBase),
       apyRewardPercent: sanitizeApyPercent(match.apyReward),
+      tvlUsd:
+        typeof match.tvlUsd === "number" && Number.isFinite(match.tvlUsd) && match.tvlUsd >= 0
+          ? match.tvlUsd
+          : null,
       source: "defillama-yields",
       updatedAt: now,
       status: "available",

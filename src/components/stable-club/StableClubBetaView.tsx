@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { StableClubAvailablePools } from "@/components/stable-club/StableClubAvailablePools";
 import { StableClubCompactDeposit } from "@/components/stable-club/StableClubCompactDeposit";
 import { StableClubPositionDashboard } from "@/components/stable-club/StableClubPositionDashboard";
 import { useFivePoolPositions } from "@/components/stable-club/useFivePoolPositions";
@@ -9,32 +10,73 @@ import { useStableClubBetaReadiness } from "@/components/stable-club/useStableCl
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
 
+type TabId = "position" | "pools";
+
 function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolean }) {
   const positions = useFivePoolPositions();
   const hasPositions = positions.positions.length > 0;
   const booting =
     (positions.deploymentsLoading || positions.positionsLoading) && !hasPositions;
+  const [tab, setTab] = useState<TabId>("position");
 
   if (booting) {
     return (
-      <section className="rounded-2xl border border-[#d7e0ec] bg-white p-8 text-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]">
+      <section className="rounded-2xl border border-[#d7e0ec] bg-white p-8 text-center">
         <p className="text-base text-[#5b6b7c]">Loading your position…</p>
       </section>
     );
   }
 
-  if (hasPositions) {
-    return <StableClubPositionDashboard positionsApi={positions} />;
-  }
+  return (
+    <div className="space-y-3">
+      <div
+        role="tablist"
+        aria-label="Stable Club sections"
+        className="inline-flex rounded-xl border border-[#d7e0ec] bg-white p-1 shadow-sm"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "position"}
+          onClick={() => setTab("position")}
+          className={
+            tab === "position"
+              ? "rounded-lg bg-[#0b1f3a] px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-white"
+              : "rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-[#5b6b7c]"
+          }
+        >
+          My Position
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "pools"}
+          onClick={() => setTab("pools")}
+          className={
+            tab === "pools"
+              ? "rounded-lg bg-[#0b1f3a] px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-white"
+              : "rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-[#5b6b7c]"
+          }
+        >
+          Available Pools
+        </button>
+      </div>
 
-  return <StableClubCompactDeposit depositsEnabled={depositsEnabled} />;
+      {tab === "pools" ? (
+        <StableClubAvailablePools />
+      ) : hasPositions ? (
+        <StableClubPositionDashboard positionsApi={positions} />
+      ) : (
+        <StableClubCompactDeposit depositsEnabled={depositsEnabled} />
+      )}
+    </div>
+  );
 }
 
-/** Dev-only local screenshot fixtures — never used in production builds. */
-function DevUiPreview({ mode }: { mode: "deposit" | "positions" }) {
-  if (mode === "deposit") {
-    return <StableClubCompactDeposit depositsEnabled />;
-  }
+/** Dev-only local screenshot fixtures — localhost only. */
+function DevUiPreview({ mode }: { mode: "deposit" | "positions" | "pools" }) {
+  if (mode === "pools") return <StableClubAvailablePools />;
+  if (mode === "deposit") return <StableClubCompactDeposit depositsEnabled />;
   const fixture = {
     deploymentsLoading: false,
     deployments: { network: "base" as const, chainId: 8453 },
@@ -49,6 +91,8 @@ function DevUiPreview({ mode }: { mode: "deposit" | "positions" }) {
       legIndex,
       poolId: pool.poolIdHash,
       poolLabel: pool.label,
+      tokenA: pool.tokenA.address,
+      tokenB: pool.tokenB.address,
       tokenASymbol: pool.tokenA.symbol,
       tokenBSymbol: pool.tokenB.symbol,
       positionTokenId: BigInt(1000 + legIndex),
@@ -57,6 +101,10 @@ function DevUiPreview({ mode }: { mode: "deposit" | "positions" }) {
       amountB: BigInt(0),
       allocationBps: BigInt(2000),
       rangeStatus: "in-range" as const,
+      protocol: pool.protocol,
+      npm: pool.infrastructure.npm,
+      adapter: pool.infrastructure.npm,
+      nftContract: pool.infrastructure.npm,
     })),
     positionsLoading: false,
     positionsError: null,
@@ -73,6 +121,8 @@ function DevUiPreview({ mode }: { mode: "deposit" | "positions" }) {
     refreshPositions: async () => undefined,
     exitIndividual: async () => undefined,
     exitAll: async () => undefined,
+    exitAllToUsdc: async () => undefined,
+    exitAllToUsdcAvailable: false,
     emergencyExitLeg: async () => undefined,
     emergencyExitAllSequential: async () => undefined,
     revokeStrategy: async () => undefined,
@@ -85,12 +135,6 @@ function DevUiPreview({ mode }: { mode: "deposit" | "positions" }) {
   );
 }
 
-/**
- * Stable Club product page — three states only:
- * disconnected → Connect Wallet
- * connected, no positions → compact deposit
- * connected, with positions → My Stable Club Position dashboard
- */
 export function StableClubBetaView({
   depositsEnabledOverride,
   loadingOverride,
@@ -106,7 +150,6 @@ export function StableClubBetaView({
   const searchParams = useSearchParams();
   const depositsEnabled = depositsEnabledOverride ?? readiness.depositsEnabled;
   const readinessLoading = loadingOverride ?? loading;
-
   const connected = wallet.status === "connected" && Boolean(wallet.address);
   const connecting = wallet.status === "connecting";
 
@@ -118,12 +161,12 @@ export function StableClubBetaView({
   const uiPreview = allowUiPreview ? searchParams.get("ui") : null;
 
   return (
-    <div className="min-h-[70vh] bg-[#f4f7fb] px-4 py-8 sm:px-6 sm:py-10">
+    <div className="min-h-[70vh] bg-[#e8eef5] px-3 py-6 sm:px-6 sm:py-8">
       <div className="mx-auto w-full max-w-3xl">
-        {uiPreview === "positions" || uiPreview === "deposit" ? (
+        {uiPreview === "positions" || uiPreview === "deposit" || uiPreview === "pools" ? (
           <DevUiPreview mode={uiPreview} />
         ) : !connected ? (
-          <section className="rounded-2xl border border-[#d7e0ec] bg-white p-10 text-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]">
+          <section className="rounded-2xl border border-[#d7e0ec] bg-white p-10 text-center shadow-sm">
             <button
               type="button"
               disabled={connecting}
@@ -139,7 +182,7 @@ export function StableClubBetaView({
             ) : null}
           </section>
         ) : readinessLoading ? (
-          <section className="rounded-2xl border border-[#d7e0ec] bg-white p-8 text-center shadow-[0_1px_2px_rgba(11,31,58,0.06)]">
+          <section className="rounded-2xl border border-[#d7e0ec] bg-white p-8 text-center">
             <p className="text-base text-[#5b6b7c]">Loading…</p>
           </section>
         ) : (
