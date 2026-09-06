@@ -15,6 +15,8 @@ const CBBTC = "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf";
 const WETH = "0x4200000000000000000000000000000000000006";
 const SWAP_ROUTER = "0x46EbaC1c66f1A747084899b61a82Bf5A80E9C3F3";
 const FEE_ROUTER = "0x4660Fd35f6e856ED1a959d5261F0E8a132E8E39c";
+const PERMISSION_REGISTRY = "0xe7b38db8B3910fd65486e33C684cEB5b0Cb56196";
+const STRATEGY_REGISTRY = "0x6052FD15529B9d77aDd7F9C4b45804a7d07BEd83";
 const TIMELOCK = "0x6A83733C829B6F8a9C0E0D4d5713D64eE959167a";
 const SAFE = "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910";
 const DELAY = 172800; // 48h exact floor
@@ -58,6 +60,16 @@ const setExecutorApprovedAbi = {
   inputs: [
     { name: "executor", type: "address" },
     { name: "approved", type: "bool" },
+  ],
+};
+
+const setOperatorAbi = {
+  type: "function",
+  name: "setOperator",
+  stateMutability: "nonpayable",
+  inputs: [
+    { name: "operator_", type: "address" },
+    { name: "allowed", type: "bool" },
   ],
 };
 
@@ -181,8 +193,28 @@ payloads.push(
   }),
 );
 
+targets.push(PERMISSION_REGISTRY);
+values.push(0n);
+payloads.push(
+  encodeFunctionData({
+    abi: [setOperatorAbi],
+    functionName: "setOperator",
+    args: [newExecutor, true],
+  }),
+);
+
+targets.push(STRATEGY_REGISTRY);
+values.push(0n);
+payloads.push(
+  encodeFunctionData({
+    abi: [setOperatorAbi],
+    functionName: "setOperator",
+    args: [newExecutor, true],
+  }),
+);
+
 const predecessor = "0x0000000000000000000000000000000000000000000000000000000000000000";
-const salt = keccak256(stringToHex(`INDEXLA_EXIT_USDC_CUTOVER_${newExecutor.toLowerCase()}`));
+const salt = keccak256(stringToHex(`INDEXLA_EXIT_USDC_CUTOVER_V2_${newExecutor.toLowerCase()}`));
 
 const scheduleBatchData = encodeFunctionData({
   abi: [scheduleBatchAbi],

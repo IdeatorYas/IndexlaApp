@@ -1,0 +1,48 @@
+{
+  "deployedAt": "2026-09-06T18:06:50.643Z",
+  "chainId": 8453,
+  "deployer": "0x977e7055D097bE5924fBdAd7e5a330405820f168",
+  "timelock": "0x6A83733C829B6F8a9C0E0D4d5713D64eE959167a",
+  "newClExecutor": "0xb79aa53926AD282Fe79Fc6518346F053FF7deAD5",
+  "clExecutorDeployTx": "0x1af1e3aa510ccb039510024308e8de756450260ae006bcc2d9df41eab7a940cb",
+  "owner": "0x6A83733C829B6F8a9C0E0D4d5713D64eE959167a",
+  "exitAllToUsdcInBytecode": true,
+  "exitAllToUsdcSelector": "0x1cb72ffc",
+  "adapters": [
+    {
+      "poolId": "0xb51b99144079a80e7d705d0dbef80a3e5e0b55eba8199486dc8d3770c3c14c11",
+      "adapter": "0x1149A55DC779130de46A58F58faffA5Dd0a9dCE5",
+      "registered": "0x1149A55DC779130de46A58F58faffA5Dd0a9dCE5",
+      "approved": true,
+      "match": true
+    },
+    {
+      "poolId": "0xa72adbe1cdd7bb579a7f6915e7a89382f5a6640b29420fca351c0e1324dfbfcd",
+      "adapter": "0xb5fe3b0D372c381c7f8A4fD1185F5732609db53d",
+      "registered": "0xb5fe3b0D372c381c7f8A4fD1185F5732609db53d",
+      "approved": true,
+      "match": true
+    },
+    {
+      "poolId": "0xab4b5c2fb326832537b899664425f8ea62c5385ea66ed996cfcb1a88471ed35f",
+      "adapter": "0x50c487C251089808c563a5e048ba5E698Ce11cd7",
+      "registered": "0x50c487C251089808c563a5e048ba5E698Ce11cd7",
+      "approved": true,
+      "match": true
+    },
+    {
+      "poolId": "0x1749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db",
+      "adapter": "0x40Cf148E7bEb35b8756432eD194AeBA69AD12eE4",
+      "registered": "0x40Cf148E7bEb35b8756432eD194AeBA69AD12eE4",
+      "approved": true,
+      "match": true
+    },
+    {
+      "poolId": "0xbce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af",
+      "adapter": "0x3A68B969cD9B8Be2f6E52B9Ed5d7170ecfff7013",
+      "registered": "0x3A68B969cD9B8Be2f6E52B9Ed5d7170ecfff7013",
+      "approved": true,
+      "match": true
+    }
+  ]
+}
