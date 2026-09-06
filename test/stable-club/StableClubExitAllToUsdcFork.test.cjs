@@ -49,7 +49,15 @@ const POOL_IDS = [
 ];
 
 const ALL_ACTIONS =
-  (1n << 0n) | (1n << 1n) | (1n << 2n) | (1n << 3n) | (1n << 4n) | (1n << 6n) | (1n << 7n);
+  (1n << 0n) |
+  (1n << 1n) |
+  (1n << 2n) |
+  (1n << 3n) |
+  (1n << 4n) |
+  (1n << 6n) |
+  (1n << 7n) |
+  (1n << 8n) | // Harvest
+  (1n << 9n); // Compound
 
 const ERC20_ABI = [
   "function balanceOf(address) view returns (uint256)",
@@ -647,5 +655,156 @@ describe("Base-fork exitAllToUsdc + reverse routes", function () {
     expect(await usdc.balanceOf(ctx.user.address)).to.be.gt(usdcBefore);
     expect(await cbbtc.balanceOf(ctx.user.address)).to.equal(cbbtcBefore);
     expect(await weth.balanceOf(ctx.user.address)).to.equal(wethBefore);
+  });
+
+  it("Safe-owned-equivalent: deposit → harvestAll → compoundAll → exitAllToUsdc (USDC-only; never exitAll)", async function () {
+    const ctx = await deployForkStack();
+    // Deployer stands in as Safe for config; no Timelock in this stack.
+    expect(await ctx.clExecutor.owner()).to.equal((await ethers.getSigners())[0].address);
+
+    const harvestSel = ethers
+      .id(
+        "harvestAll(bytes32,(uint8,address,address,address,uint256,uint256,uint256,uint256)[5],uint256)",
+      )
+      .slice(2, 10);
+    const compoundSel = ethers
+      .id(
+        "compoundAll(bytes32,(uint8,address,address,address,uint256,uint256,uint256,uint256)[5],uint256)",
+      )
+      .slice(2, 10);
+    const exitAllSel = ethers.id("exitAll(bytes32,(uint8,address,address,address,uint256,uint128,uint256,uint256,uint256,bool)[5],uint256)").slice(2, 10);
+    const code = (await ethers.provider.getCode(await ctx.clExecutor.getAddress())).toLowerCase();
+    expect(code).to.include(harvestSel);
+    expect(code).to.include(compoundSel);
+    // Legacy exitAll may remain in bytecode but product path must never call it.
+    expect(code).to.include(exitAllSel);
+
+    const { strategyId } = await registerStrategy(ctx);
+    const positions = await depositCollectingPositions(ctx, strategyId, 11n);
+
+    const manageLegs = [];
+    for (let i = 0; i < positions.length; i++) {
+      const p = positions[i];
+      const a = p.adapter;
+      await p.npm.connect(ctx.user).approve(a.address, p.tokenId);
+      manageLegs.push({
+        legIndex: i,
+        adapter: a.address,
+        tokenA: a.tokenA,
+        tokenB: a.tokenB,
+        positionTokenId: p.tokenId,
+        amountAMin: 0n,
+        amountBMin: 0n,
+        slippageBps: 500n,
+      });
+    }
+    // Pad to exactly 5 — deposit always opens five legs.
+    expect(manageLegs.length).to.equal(5);
+
+    // harvestAll: fees/rewards → user (zero fees is a clean no-op per leg after permission check).
+    await ctx.clExecutor.connect(ctx.user).harvestAll(strategyId, manageLegs, 100n);
+
+    // compoundAll: fee reinvest or clean no-op when fees are zero.
+    await ctx.clExecutor.connect(ctx.user).compoundAll(strategyId, manageLegs, 200n);
+
+    const usdc = await ethers.getContractAt(ERC20_ABI, USDC);
+    const cbbtc = await ethers.getContractAt(ERC20_ABI, CBBTC);
+    const weth = await ethers.getContractAt(ERC20_ABI, WETH);
+
+    const exitLegs = [];
+    let aggCb = 0n;
+    let aggWeth = 0n;
+    for (let i = 0; i < positions.length; i++) {
+      const p = positions[i];
+      const a = p.adapter;
+      const amounts = await a.contract.positionAmounts(p.tokenId);
+      const [t0, t1] = await a.contract.positionTokens(p.tokenId);
+      if (t0.toLowerCase() === CBBTC.toLowerCase()) aggCb += amounts[0];
+      if (t1.toLowerCase() === CBBTC.toLowerCase()) aggCb += amounts[1];
+      if (t0.toLowerCase() === WETH.toLowerCase()) aggWeth += amounts[0];
+      if (t1.toLowerCase() === WETH.toLowerCase()) aggWeth += amounts[1];
+      exitLegs.push({
+        legIndex: i,
+        adapter: a.address,
+        tokenA: a.tokenA,
+        tokenB: a.tokenB,
+        positionTokenId: p.tokenId,
+        liquidity: 0n,
+        amountAMin: 1n,
+        amountBMin: 1n,
+        slippageBps: 500n,
+        fullExit: true,
+      });
+    }
+
+    const deadline = BigInt((await time.latest()) + 3600);
+    const swaps = Array.from({ length: 8 }, () => ({
+      routeId: ethers.ZeroHash,
+      amountIn: 0n,
+      minOut: 0n,
+      quotedOut: 0n,
+      deadline: 0n,
+    }));
+    let swapCount = 0;
+    if (aggCb > 0n) {
+      const quoted = await ctx.oracleGuard.expectedAmountOut(CBBTC, USDC, aggCb, 8, 6);
+      swaps[swapCount++] = {
+        routeId: ROUTE_CBBTC_USDC_UNI,
+        amountIn: aggCb,
+        minOut: (quoted * 9900n) / 10000n,
+        quotedOut: quoted,
+        deadline,
+      };
+    }
+    if (aggWeth > 0n) {
+      const quoted = await ctx.oracleGuard.expectedAmountOut(WETH, USDC, aggWeth, 18, 6);
+      swaps[swapCount++] = {
+        routeId: ROUTE_WETH_USDC_UNI,
+        amountIn: aggWeth,
+        minOut: (quoted * 9900n) / 10000n,
+        quotedOut: quoted,
+        deadline,
+      };
+    }
+
+    const usdcBefore = await usdc.balanceOf(ctx.user.address);
+    const cbbtcBefore = await cbbtc.balanceOf(ctx.user.address);
+    const wethBefore = await weth.balanceOf(ctx.user.address);
+
+    // Product path: exitAllToUsdc only — never legacy exitAll.
+    await ctx.clExecutor
+      .connect(ctx.user)
+      .exitAllToUsdc(strategyId, exitLegs, swaps, swapCount, 1n, 100n);
+
+    expect(await usdc.balanceOf(ctx.user.address)).to.be.gt(usdcBefore);
+    expect(await cbbtc.balanceOf(ctx.user.address)).to.equal(cbbtcBefore);
+    expect(await weth.balanceOf(ctx.user.address)).to.equal(wethBefore);
+  });
+
+  it("harvestAll / compoundAll edge cases: wrong user + missing NFT approval", async function () {
+    const ctx = await deployForkStack();
+    const [, , stranger] = await ethers.getSigners();
+    const { strategyId } = await registerStrategy(ctx);
+    const positions = await depositCollectingPositions(ctx, strategyId, 13n);
+
+    const manageLegs = positions.map((p, i) => ({
+      legIndex: i,
+      adapter: p.adapter.address,
+      tokenA: p.adapter.tokenA,
+      tokenB: p.adapter.tokenB,
+      positionTokenId: p.tokenId,
+      amountAMin: 0n,
+      amountBMin: 0n,
+      slippageBps: 500n,
+    }));
+
+    await expect(
+      ctx.clExecutor.connect(stranger).harvestAll(strategyId, manageLegs, 300n),
+    ).to.be.reverted;
+
+    // No NPM approve → adapter collect should fail for harvest.
+    await expect(
+      ctx.clExecutor.connect(ctx.user).harvestAll(strategyId, manageLegs, 301n),
+    ).to.be.reverted;
   });
 });

@@ -59,6 +59,8 @@ let positionsState = {
   exitAll,
   exitAllToUsdc: vi.fn(),
   exitAllToUsdcAvailable: false,
+  harvestAll: vi.fn(),
+  compoundAll: vi.fn(),
   emergencyExitLeg: vi.fn(),
   emergencyExitAllSequential: vi.fn(),
   revokeStrategy: vi.fn(),
@@ -71,7 +73,7 @@ vi.mock("@/components/stable-club/useStableClubBetaReadiness", () => ({
       depositsEnabled: false,
       exitAllToUsdcAvailable: false,
       depositBlockers: [
-        "USDC-only Withdraw All (exitAllToUsdc) is not enabled — deposits are unavailable until Timelock cutover",
+        "USDC-only Withdraw All (exitAllToUsdc) is not enabled — deposits are unavailable until Safe-owned stack cutover + Base E2E",
       ],
       globalStatus: "Ready for activation",
     },
@@ -212,16 +214,13 @@ describe("StableClubBetaView", () => {
     expect(screen.getAllByText("USDC/WETH").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("20%")).toHaveLength(5);
 
-    const harvest = screen.getByRole("button", { name: /Harvest All/i });
-    const compound = screen.getByRole("button", { name: /Compound All/i });
-    const withdraw = screen.getByRole("button", { name: /Withdraw All/i });
-    expect(harvest).toBeDisabled();
-    expect(compound).toBeDisabled();
-    expect(withdraw).not.toBeDisabled();
-
-    fireEvent.click(withdraw);
-    expect(screen.getByRole("dialog", { name: /Confirm Withdraw All/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Unavailable" })).toBeDisabled();
+    // Actions stay hidden until features.exitAllToUsdc (same gate as Deposit).
+    expect(screen.queryByRole("button", { name: /Harvest All/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Compound All/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Withdraw All/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Harvest, Compound, and USDC Withdraw stay locked/i),
+    ).toBeInTheDocument();
     expect(exitAll).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("tab", { name: "Available Pools" }));

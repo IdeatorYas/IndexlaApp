@@ -29,6 +29,8 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     uint256 private constant MAX_EXIT_UNWIND_SWAPS = 8;
     /// @dev SC-10: exit permission nonces occupy the high half of uint256; deposit legs stay below this flag.
     uint256 public constant EXIT_EXECUTION_NONCE_DOMAIN = uint256(1) << 255;
+    /// @dev Harvest/compound nonces — disjoint from deposit (low) and exit (bit 255).
+    uint256 public constant AUTOMATION_EXECUTION_NONCE_DOMAIN = uint256(1) << 254;
 
     PermissionRegistry public immutable permissionRegistry;
     StrategyPermissionRegistry public immutable strategyRegistry;
@@ -94,6 +96,19 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         uint256 deadline;
     }
 
+    /// @dev Shared leg identity for harvestAll / compoundAll (user-owned CL NFT).
+    struct PositionManageLegParams {
+        uint8 legIndex;
+        address adapter;
+        address tokenA;
+        address tokenB;
+        uint256 positionTokenId;
+        /// @dev Compound only — mins for increaseLiquidity (harvest ignores).
+        uint256 amountAMin;
+        uint256 amountBMin;
+        uint256 slippageBps;
+    }
+
     event AdapterApproved(address indexed adapter, bool approved);
     event TokenApproved(address indexed token, bool approved);
     event PoolRegistered(bytes32 indexed poolId, address indexed adapter);
@@ -116,6 +131,16 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         bytes32 indexed strategyId,
         address indexed user,
         uint256 usdcOut,
+        uint256 executionNonceBase
+    );
+    event StrategyHarvestCompleted(
+        bytes32 indexed strategyId,
+        address indexed user,
+        uint256 executionNonceBase
+    );
+    event StrategyCompoundCompleted(
+        bytes32 indexed strategyId,
+        address indexed user,
         uint256 executionNonceBase
     );
 
@@ -142,6 +167,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     error Permit2Required();
     error InvalidExitUnwindPlan();
     error ResidualNonUsdc();
+    error PositionNotOwned();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
@@ -209,6 +235,22 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         if (legIndex >= LEG_COUNT) revert LegIndexOutOfBounds();
         if (nonceBase > type(uint256).max - legIndex) revert InvalidExecutionNonce();
         return encodeExitExecutionNonce(nonceBase + legIndex);
+    }
+
+    /// @notice Map caller nonce into the harvest/compound domain (bit 254).
+    function encodeAutomationExecutionNonce(uint256 callerNonce) public pure returns (uint256) {
+        if (callerNonce >= AUTOMATION_EXECUTION_NONCE_DOMAIN) revert InvalidExecutionNonce();
+        return AUTOMATION_EXECUTION_NONCE_DOMAIN | callerNonce;
+    }
+
+    function encodeAutomationAllLegExecutionNonce(uint256 nonceBase, uint256 legIndex)
+        public
+        pure
+        returns (uint256)
+    {
+        if (legIndex >= LEG_COUNT) revert LegIndexOutOfBounds();
+        if (nonceBase > type(uint256).max - legIndex) revert InvalidExecutionNonce();
+        return encodeAutomationExecutionNonce(nonceBase + legIndex);
     }
 
     function transferOwnership(address next) external onlyOwner {
@@ -628,6 +670,131 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         _assertBalanceRestored(usdc, preUsdc);
 
         emit StrategyExitToUsdcCompleted(strategyId, user, usdcOut, executionNonceBase);
+    }
+
+    /**
+     * @notice Collect uncollected fees + protocol rewards for all open legs to the user wallet.
+     * @dev Non-custodial: recipient is always the strategy user. Requires per-token NPM approval of each adapter.
+     */
+    function harvestAll(
+        bytes32 strategyId,
+        PositionManageLegParams[5] calldata legs,
+        uint256 executionNonceBase
+    ) external nonReentrant {
+        if (strategyRegistry.getStrategy(strategyId).user != msg.sender) revert StrategyUserMismatch();
+        address user = msg.sender;
+
+        for (uint256 i = 0; i < LEG_COUNT; i++) {
+            PositionManageLegParams calldata leg = legs[i];
+            if (leg.adapter == address(0)) continue;
+            if (leg.legIndex != uint8(i)) revert LegIndexOutOfBounds();
+            encodeAutomationAllLegExecutionNonce(executionNonceBase, i);
+            _harvestLegInternal(strategyId, user, leg, executionNonceBase + i);
+        }
+
+        emit StrategyHarvestCompleted(strategyId, user, executionNonceBase);
+    }
+
+    /**
+     * @notice Collect LP fees into each position via increaseLiquidity; rewards go to the user (no auto-swap).
+     * @dev Legs with zero collectible fees are no-ops after permission validation. Dust residual refunded to user.
+     */
+    function compoundAll(
+        bytes32 strategyId,
+        PositionManageLegParams[5] calldata legs,
+        uint256 executionNonceBase
+    ) external nonReentrant {
+        if (strategyRegistry.getStrategy(strategyId).user != msg.sender) revert StrategyUserMismatch();
+        address user = msg.sender;
+
+        for (uint256 i = 0; i < LEG_COUNT; i++) {
+            PositionManageLegParams calldata leg = legs[i];
+            if (leg.adapter == address(0)) continue;
+            if (leg.legIndex != uint8(i)) revert LegIndexOutOfBounds();
+            encodeAutomationAllLegExecutionNonce(executionNonceBase, i);
+            _compoundLegInternal(strategyId, user, leg, executionNonceBase + i);
+        }
+
+        emit StrategyCompoundCompleted(strategyId, user, executionNonceBase);
+    }
+
+    function _requireManageLeg(
+        bytes32 strategyId,
+        address user,
+        PositionManageLegParams calldata leg,
+        PermissionRegistry.Action action,
+        uint256 executionNonce
+    ) internal {
+        if (!approvedAdapters[leg.adapter]) revert AdapterNotApproved();
+        bytes32 poolId = IConcentratedLiquidityAdapter(leg.adapter).poolId();
+        if (poolAdapters[poolId] != leg.adapter) revert PoolNotApproved();
+        if (IConcentratedLiquidityAdapter(leg.adapter).ownerOf(leg.positionTokenId) != user) {
+            revert PositionNotOwned();
+        }
+
+        uint256 domainNonce = encodeAutomationExecutionNonce(executionNonce);
+        // Harvest: slippage unused (pass 0). Compound: enforce strategy max via slippageBps.
+        uint256 slippage = action == PermissionRegistry.Action.Harvest ? 0 : leg.slippageBps;
+        strategyRegistry.validateStrategyLegExit(
+            strategyId,
+            leg.legIndex,
+            leg.adapter,
+            action,
+            0,
+            slippage,
+            domainNonce
+        );
+    }
+
+    function _harvestLegInternal(
+        bytes32 strategyId,
+        address user,
+        PositionManageLegParams calldata leg,
+        uint256 executionNonce
+    ) internal {
+        _requireManageLeg(strategyId, user, leg, PermissionRegistry.Action.Harvest, executionNonce);
+        IConcentratedLiquidityAdapter(leg.adapter).collectFees(user, leg.positionTokenId, user);
+        IConcentratedLiquidityAdapter(leg.adapter).collectRewards(user, leg.positionTokenId, user);
+    }
+
+    function _compoundLegInternal(
+        bytes32 strategyId,
+        address user,
+        PositionManageLegParams calldata leg,
+        uint256 executionNonce
+    ) internal {
+        _requireManageLeg(strategyId, user, leg, PermissionRegistry.Action.Compound, executionNonce);
+
+        // Rewards (e.g. AERO) go to the user — v1 does not auto-swap.
+        IConcentratedLiquidityAdapter(leg.adapter).collectRewards(user, leg.positionTokenId, user);
+
+        uint256 preA = IERC20(leg.tokenA).balanceOf(address(this));
+        uint256 preB = IERC20(leg.tokenB).balanceOf(address(this));
+        IConcentratedLiquidityAdapter(leg.adapter).collectFees(user, leg.positionTokenId, address(this));
+        uint256 feeA = IERC20(leg.tokenA).balanceOf(address(this)) - preA;
+        uint256 feeB = IERC20(leg.tokenB).balanceOf(address(this)) - preB;
+
+        if (feeA > 0 || feeB > 0) {
+            if (feeA > 0) IERC20(leg.tokenA).forceApprove(leg.adapter, feeA);
+            if (feeB > 0) IERC20(leg.tokenB).forceApprove(leg.adapter, feeB);
+            IConcentratedLiquidityAdapter(leg.adapter).increaseLiquidity(
+                user,
+                leg.positionTokenId,
+                leg.tokenA,
+                leg.tokenB,
+                feeA,
+                feeB,
+                leg.amountAMin,
+                leg.amountBMin
+            );
+            _clearApproval(leg.tokenA, leg.adapter);
+            _clearApproval(leg.tokenB, leg.adapter);
+        }
+
+        _refundExcess(user, leg.tokenA, preA);
+        if (leg.tokenB != leg.tokenA) _refundExcess(user, leg.tokenB, preB);
+        _assertBalanceRestored(leg.tokenA, preA);
+        if (leg.tokenB != leg.tokenA) _assertBalanceRestored(leg.tokenB, preB);
     }
 
     function _trackToken(

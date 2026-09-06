@@ -506,6 +506,54 @@ export const concentratedLiquidityExecutorAbi = [
   },
   {
     type: "function",
+    name: "harvestAll",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "strategyId", type: "bytes32" },
+      {
+        name: "legs",
+        type: "tuple[5]",
+        components: [
+          { name: "legIndex", type: "uint8" },
+          { name: "adapter", type: "address" },
+          { name: "tokenA", type: "address" },
+          { name: "tokenB", type: "address" },
+          { name: "positionTokenId", type: "uint256" },
+          { name: "amountAMin", type: "uint256" },
+          { name: "amountBMin", type: "uint256" },
+          { name: "slippageBps", type: "uint256" },
+        ],
+      },
+      { name: "executionNonceBase", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "compoundAll",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "strategyId", type: "bytes32" },
+      {
+        name: "legs",
+        type: "tuple[5]",
+        components: [
+          { name: "legIndex", type: "uint8" },
+          { name: "adapter", type: "address" },
+          { name: "tokenA", type: "address" },
+          { name: "tokenB", type: "address" },
+          { name: "positionTokenId", type: "uint256" },
+          { name: "amountAMin", type: "uint256" },
+          { name: "amountBMin", type: "uint256" },
+          { name: "slippageBps", type: "uint256" },
+        ],
+      },
+      { name: "executionNonceBase", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "emergencyExitLeg",
     stateMutability: "nonpayable",
     inputs: [

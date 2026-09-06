@@ -17,7 +17,6 @@ import {
   formatPositionValueDisplay,
 } from "@/lib/stable-club/position-display";
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
-import { isLaunchAutomationEnabledForEnvironment } from "@/lib/stable-club/local-automation-policy";
 
 type PositionsApi = ReturnType<typeof useFivePoolPositions>;
 
@@ -28,26 +27,6 @@ const SHORT_DESC: Record<string, string> = {
   "cbBTC-WETH-AERO-CL100": "Aerodrome legacy CL100",
   "cbBTC-WETH-UNI-005": "Uniswap 0.05% cbBTC/WETH",
 };
-
-function ComingSoonTip({ label }: { label: string }) {
-  return (
-    <span className="group relative inline-flex w-full">
-      <button
-        type="button"
-        disabled
-        className="h-11 w-full cursor-not-allowed rounded-xl border border-[#0b1f3a]/15 bg-[#0b1f3a]/5 text-xs font-bold uppercase tracking-[0.06em] text-[#5b6b7c]"
-      >
-        {label} · Coming Soon
-      </button>
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-10 hidden w-max -translate-x-1/2 rounded-md bg-[#071526] px-2 py-1 text-[11px] font-medium text-emerald-200 group-hover:block"
-      >
-        Coming soon
-      </span>
-    </span>
-  );
-}
 
 function tokenDecimals(symbol: string): number {
   const hit = OFFICIAL_STABLE_CLUB_BASE_POOLS.flatMap((p) => [p.tokenA, p.tokenB]).find(
@@ -89,8 +68,6 @@ export function StableClubPositionDashboard({
   const [now, setNow] = useState(() => Date.now());
   const [lastRefreshAt, setLastRefreshAt] = useState(() => Date.now());
 
-  const harvestEnabled = isLaunchAutomationEnabledForEnvironment("harvest", null);
-  const compoundEnabled = isLaunchAutomationEnabledForEnvironment("compound", null);
   const usdcExitReady = isExitAllToUsdcAvailable(p.deployments);
 
   useEffect(() => {
@@ -161,7 +138,8 @@ export function StableClubPositionDashboard({
       : null;
   const secondsAgo = Math.max(0, Math.floor((now - lastRefreshAt) / 1000));
 
-  const withdrawDisabled =
+  const actionsDisabled =
+    !usdcExitReady ||
     p.busy ||
     p.positions.length === 0 ||
     p.strategyRevoked ||
@@ -324,45 +302,40 @@ export function StableClubPositionDashboard({
           </table>
         </div>
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
-          {harvestEnabled ? (
+        {usdcExitReady ? (
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
             <button
               type="button"
-              disabled
-              className="h-11 rounded-xl bg-[#0b1f3a]/40 text-xs font-bold uppercase tracking-[0.06em] text-white"
+              disabled={actionsDisabled}
+              onClick={() => void p.harvestAll()}
+              className="h-11 rounded-xl border border-[#0b1f3a]/20 bg-white text-xs font-bold uppercase tracking-[0.06em] text-[#0b1f3a] disabled:opacity-45"
             >
               Harvest All
             </button>
-          ) : (
-            <ComingSoonTip label="Harvest All" />
-          )}
-          {compoundEnabled ? (
             <button
               type="button"
-              disabled
-              className="h-11 rounded-xl bg-[#0b1f3a]/40 text-xs font-bold uppercase tracking-[0.06em] text-white"
+              disabled={actionsDisabled}
+              onClick={() => void p.compoundAll()}
+              className="h-11 rounded-xl border border-[#0b1f3a]/20 bg-white text-xs font-bold uppercase tracking-[0.06em] text-[#0b1f3a] disabled:opacity-45"
             >
               Compound All
             </button>
-          ) : (
-            <ComingSoonTip label="Compound All" />
-          )}
-          <button
-            type="button"
-            disabled={withdrawDisabled}
-            onClick={() => setConfirmOpen(true)}
-            className="h-11 rounded-xl bg-[#0b1f3a] text-xs font-bold uppercase tracking-[0.06em] text-white disabled:opacity-45"
-          >
-            Withdraw All · Receive USDC
-          </button>
-        </div>
-
-        {!usdcExitReady ? (
-          <p className="mt-2 text-[11px] leading-relaxed text-[#5b6b7c]">
-            Withdraw/Harvest/Compound production paths require Timelock-scheduled executor upgrade
-            + reverse USDC routes. Mixed-asset exitAll is blocked. No incomplete path is exposed.
+            <button
+              type="button"
+              disabled={actionsDisabled}
+              onClick={() => setConfirmOpen(true)}
+              className="h-11 rounded-xl bg-[#0b1f3a] text-xs font-bold uppercase tracking-[0.06em] text-white disabled:opacity-45"
+            >
+              Withdraw All · Receive USDC
+            </button>
+          </div>
+        ) : (
+          <p className="mt-4 text-[11px] leading-relaxed text-[#5b6b7c]">
+            Harvest, Compound, and USDC Withdraw stay locked until the Safe-owned stack is configured
+            and Base E2E proves exitAllToUsdc. Deposit unlocks with the same gate. Legacy mixed-asset
+            exitAll is never offered.
           </p>
-        ) : null}
+        )}
 
         {p.statusMessage ? <p className="mt-2 text-sm text-emerald-800">{p.statusMessage}</p> : null}
         {p.error ? (
@@ -394,9 +367,7 @@ export function StableClubPositionDashboard({
           >
             <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw All · Receive USDC</h2>
             <p className="mt-2 text-sm text-[#5b6b7c]">
-              {usdcExitReady
-                ? "Atomic exitAllToUsdc — closes all legs, unwinds to USDC, reverts on failure."
-                : "Not enabled on live Base until Timelock upgrade + reverse routes are verified. No transaction will be sent."}
+              Atomic exitAllToUsdc — closes all legs, unwinds to USDC, reverts on failure.
             </p>
             {usdValue.totalUsdc != null && usdValue.totalUsdc > BigInt(0) ? (
               <ul className="mt-3 space-y-1.5 text-sm">
@@ -421,14 +392,14 @@ export function StableClubPositionDashboard({
               </button>
               <button
                 type="button"
-                disabled={!usdcExitReady || p.busy}
+                disabled={p.busy}
                 onClick={() => {
                   setConfirmOpen(false);
                   void p.exitAllToUsdc();
                 }}
                 className="h-10 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white disabled:opacity-45"
               >
-                {usdcExitReady ? "Confirm" : "Unavailable"}
+                Confirm
               </button>
             </div>
           </div>

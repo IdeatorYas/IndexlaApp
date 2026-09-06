@@ -123,6 +123,8 @@ function DevUiPreview({ mode }: { mode: "deposit" | "positions" | "pools" }) {
     exitAll: async () => undefined,
     exitAllToUsdc: async () => undefined,
     exitAllToUsdcAvailable: false,
+    harvestAll: async () => undefined,
+    compoundAll: async () => undefined,
     emergencyExitLeg: async () => undefined,
     emergencyExitAllSequential: async () => undefined,
     revokeStrategy: async () => undefined,

@@ -603,7 +603,7 @@ describe("Base mainnet read-only deposit simulation", () => {
         attestationPassed: true,
         isBaseProduction: true,
         activatedOnChainIds,
-        // Live Base still lacks exitAllToUsdc until Timelock cutover — deposits must stay off.
+        // Live Base still lacks exitAllToUsdc until Safe-owned stack cutover — deposits must stay off.
         exitAllToUsdcAvailable: false,
       });
       report.readiness = readiness;

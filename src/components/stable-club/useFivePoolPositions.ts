@@ -89,12 +89,21 @@ function userRejectMessage(err: unknown): string | null {
 
 /** Must match StableClubConcentratedLiquidityExecutor.EXIT_EXECUTION_NONCE_DOMAIN (SC-10). */
 const EXIT_EXECUTION_NONCE_DOMAIN = BigInt(1) << BigInt(255);
+/** Must match StableClubConcentratedLiquidityExecutor.AUTOMATION_EXECUTION_NONCE_DOMAIN. */
+const AUTOMATION_EXECUTION_NONCE_DOMAIN = BigInt(1) << BigInt(254);
 
 function encodeExitExecutionNonce(callerNonce: bigint): bigint {
   if (callerNonce >= EXIT_EXECUTION_NONCE_DOMAIN) {
     throw new Error("Invalid exit execution nonce domain");
   }
   return EXIT_EXECUTION_NONCE_DOMAIN | callerNonce;
+}
+
+function encodeAutomationExecutionNonce(callerNonce: bigint): bigint {
+  if (callerNonce >= AUTOMATION_EXECUTION_NONCE_DOMAIN) {
+    throw new Error("Invalid automation execution nonce domain");
+  }
+  return AUTOMATION_EXECUTION_NONCE_DOMAIN | callerNonce;
 }
 
 async function resolveFreeExecutionNonce(
@@ -156,6 +165,41 @@ async function resolveExitAllNonceBase(
     if (ok) return base;
   }
   throw new Error("No free exitAll nonce base found");
+}
+
+async function resolveAutomationAllNonceBase(
+  publicClient: {
+    readContract: (args: {
+      address: Address;
+      abi: typeof permissionRegistryAbi;
+      functionName: "executionNonceUsed";
+      args: readonly [Hex, bigint];
+    }) => Promise<boolean>;
+  },
+  permissionRegistry: Address,
+  permissionIds: readonly (Hex | null)[],
+  startFrom: bigint = BigInt(1),
+  maxScan: bigint = BigInt(512),
+): Promise<bigint> {
+  for (let base = startFrom; base < startFrom + maxScan; base++) {
+    let ok = true;
+    for (let i = 0; i < FIVE_POOL_LEG_COUNT; i++) {
+      const pid = permissionIds[i];
+      if (!pid) continue;
+      const used = await publicClient.readContract({
+        address: permissionRegistry,
+        abi: permissionRegistryAbi,
+        functionName: "executionNonceUsed",
+        args: [pid, encodeAutomationExecutionNonce(base + BigInt(i))],
+      });
+      if (used) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return base;
+  }
+  throw new Error("No free harvest/compound nonce base found");
 }
 
 /** SC-F05: refresh live adapter amounts before any exit mins / approval / tx. */
@@ -1131,6 +1175,149 @@ export function useFivePoolPositions() {
     strategyRevoked,
   ]);
 
+  const runManageAll = useCallback(
+    async (mode: "harvest" | "compound") => {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      setError(null);
+      setApprovalTxHashes([]);
+      setDirectPlan(null);
+
+      const open = [...positions].sort((a, b) => a.legIndex - b.legIndex);
+      setLegResults(
+        Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
+          const hit = open.find((p) => p.legIndex === i);
+          return {
+            legIndex: i,
+            status: hit ? ("pending" as const) : ("skipped" as const),
+          };
+        }),
+      );
+
+      try {
+        const { d, strategyId: sid, walletClient } = ensureReady();
+        if (open.length === 0) throw new Error(`No open positions to ${mode}`);
+        if (strategyRevoked || strategyExpired) {
+          throw new Error(`Strategy revoked or expired — ${mode} requires active permissions.`);
+        }
+        if (!isExitAllToUsdcAvailable(d)) {
+          throw new Error(
+            `${mode} is not enabled on this deployment yet. Deposit, Harvest, Compound, and USDC Withdraw unlock together.`,
+          );
+        }
+
+        const byLeg = new Map(open.map((p) => [p.legIndex, p]));
+        const legs = Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
+          const p = byLeg.get(i);
+          if (!p) {
+            return {
+              legIndex: i,
+              adapter: "0x0000000000000000000000000000000000000000" as Address,
+              tokenA: "0x0000000000000000000000000000000000000000" as Address,
+              tokenB: "0x0000000000000000000000000000000000000000" as Address,
+              positionTokenId: BigInt(0),
+              amountAMin: BigInt(0),
+              amountBMin: BigInt(0),
+              slippageBps,
+            };
+          }
+          return {
+            legIndex: i,
+            adapter: p.adapter,
+            tokenA: p.tokenA,
+            tokenB: p.tokenB,
+            positionTokenId: p.positionTokenId,
+            amountAMin: BigInt(0),
+            amountBMin: BigInt(0),
+            slippageBps,
+          };
+        });
+
+        setProgress("awaiting-approval");
+        const hashes: Hex[] = [];
+        for (const position of open) {
+          setStatusMessage(
+            `Approve NFT #${position.positionTokenId.toString()} (leg ${position.legIndex})…`,
+          );
+          setLegResults((prev) =>
+            prev.map((r) =>
+              r.legIndex === position.legIndex ? { ...r, status: "approving" } : r,
+            ),
+          );
+          const h = await approveNftIfNeeded(walletClient, position);
+          if (h) hashes.push(h);
+        }
+        setApprovalTxHashes(hashes);
+
+        const permissionIds = Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
+          const p = byLeg.get(i);
+          return p?.legPermissionId ?? null;
+        });
+        const nonceBase = await resolveAutomationAllNonceBase(
+          publicClient,
+          d.permissionRegistry,
+          permissionIds,
+        );
+
+        setProgress("awaiting-exit");
+        setStatusMessage(
+          mode === "harvest"
+            ? "Confirm Harvest All — fees and rewards to your wallet…"
+            : "Confirm Compound All — reinvest LP fees into positions…",
+        );
+        setLegResults((prev) =>
+          prev.map((r) => (r.status === "skipped" ? r : { ...r, status: "submitting" })),
+        );
+
+        const hash = await walletClient.writeContract({
+          address: d.clExecutor,
+          abi: concentratedLiquidityExecutorAbi,
+          functionName: mode === "harvest" ? "harvestAll" : "compoundAll",
+          args: [sid, legs as never, nonceBase],
+        } as never);
+        setLastTxHash(hash);
+        await waitForSuccessfulTransactionReceipt(publicClient, hash);
+        setLegResults((prev) =>
+          prev.map((r) =>
+            r.status === "skipped" ? r : { ...r, status: "confirmed", txHash: hash },
+          ),
+        );
+        setProgress("confirmed");
+        setStatusMessage(mode === "harvest" ? "Harvest All confirmed" : "Compound All confirmed");
+        submittingRef.current = false;
+        await refreshPositions();
+      } catch (err) {
+        setProgress("failed");
+        const reject = userRejectMessage(err);
+        const message =
+          reject ??
+          (err instanceof Error ? `${err.message} — ${mode} reverted` : `${mode} failed`);
+        setError(message);
+        setLegResults((prev) =>
+          prev.map((r) =>
+            r.status === "skipped" || r.status === "confirmed"
+              ? r
+              : { ...r, status: "failed", error: message },
+          ),
+        );
+        submittingRef.current = false;
+      }
+    },
+    [
+      approveNftIfNeeded,
+      ensureReady,
+      positions,
+      publicClient,
+      refreshPositions,
+      slippageBps,
+      strategyExpired,
+      strategyRevoked,
+    ],
+  );
+
+  const harvestAll = useCallback(async () => runManageAll("harvest"), [runManageAll]);
+  const compoundAll = useCallback(async () => runManageAll("compound"), [runManageAll]);
+
   const emergencyExitLeg = useCallback(
     async (legIndex: number) => {
       if (submittingRef.current) return;
@@ -1422,6 +1609,8 @@ export function useFivePoolPositions() {
     exitAll,
     exitAllToUsdc,
     exitAllToUsdcAvailable: isExitAllToUsdcAvailable(deployments),
+    harvestAll,
+    compoundAll,
     emergencyExitLeg,
     emergencyExitAllSequential,
     revokeStrategy,

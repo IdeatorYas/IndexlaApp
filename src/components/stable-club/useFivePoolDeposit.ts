@@ -82,7 +82,7 @@ import { buildFivePoolQuotePlan, QuotePlanError } from "@/lib/stable-club/quote-
 
 export { readCurrentTicks, readPoolSlot0States } from "@/lib/stable-club/pool-slot0";
 
-/** Matches fork five-pool ALL_ACTIONS (bits 0–4, 6–7). */
+/** Matches fork five-pool ALL_ACTIONS including Harvest + Compound (bits 0–4, 6–10). */
 const FIVE_POOL_ALLOWED_ACTIONS = BigInt(
   encodeAllowedActions([
     "deposit-and-add-liquidity",
@@ -92,6 +92,8 @@ const FIVE_POOL_ALLOWED_ACTIONS = BigInt(
     "withdraw-all",
     "revoke-permission",
     "emergency-exit",
+    "harvest",
+    "compound",
   ]),
 );
 
@@ -900,7 +902,7 @@ export function useFivePoolDeposit() {
       setError(null);
       if (!isExitAllToUsdcAvailable(deployments)) {
         throw new Error(
-          "Deposits are unavailable until USDC-only Withdraw All (exitAllToUsdc) is enabled. Deposit and Withdraw unlock together after Timelock cutover. Legacy mixed-asset exit is never offered.",
+          "Deposits are unavailable until USDC-only Withdraw All (exitAllToUsdc) is enabled. Deposit and Withdraw unlock together after Safe-owned stack cutover + Base E2E. Legacy mixed-asset exit is never offered.",
         );
       }
       if (!wallet.address) {

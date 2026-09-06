@@ -24,7 +24,7 @@ export function StableClubCompactDeposit({
     setPanelError(null);
     if (failClosed) {
       setPanelError(
-        "Deposits are unavailable until USDC-only Withdraw All (exitAllToUsdc) is enabled on Base. Deposit and Withdraw unlock together after Timelock cutover.",
+        "Deposits are unavailable until USDC-only Withdraw All (exitAllToUsdc) is enabled on Base. Deposit and Withdraw unlock together after Safe-owned stack cutover + Base E2E.",
       );
       return;
     }
@@ -85,8 +85,8 @@ export function StableClubCompactDeposit({
 
       {failClosed ? (
         <p className="mt-3 text-sm text-amber-800" role="status">
-          Deposit and USDC Withdraw unlock together after Timelock enables exitAllToUsdc. Legacy
-          mixed-asset exit is never offered.
+          Deposit and USDC Withdraw unlock together after Safe-owned stack cutover enables
+          exitAllToUsdc. Legacy mixed-asset exit is never offered.
         </p>
       ) : null}
 

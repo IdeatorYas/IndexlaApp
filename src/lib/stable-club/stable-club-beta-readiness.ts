@@ -57,7 +57,7 @@ export async function readRegisteredCataloguePoolIds(
 }
 
 export const USDC_EXIT_REQUIRED_FOR_DEPOSIT_BLOCKER =
-  "USDC-only Withdraw All (exitAllToUsdc) is not enabled — deposits are unavailable until Timelock cutover";
+  "USDC-only Withdraw All (exitAllToUsdc) is not enabled — deposits are unavailable until Safe-owned stack cutover + Base E2E";
 
 export function resolveStableClubDepositBlockers(input: {
   attestationPassed: boolean;
