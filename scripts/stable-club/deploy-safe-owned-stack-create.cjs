@@ -63,9 +63,7 @@ async function transferToSafe(contract, key) {
 
 async function main() {
   guards.assertConfirmationPhrase(process.env.STABLE_CLUB_BASE_DEPLOY_CONFIRMATION);
-  if (!process.env.DEPLOYER_PRIVATE_KEY?.trim()) {
-    throw new Error("DEPLOYER_PRIVATE_KEY required");
-  }
+  guards.assertDeployerPrivateKeyPresent(process.env.DEPLOYER_PRIVATE_KEY);
   if (!process.env.BASE_RPC_URL?.trim()) {
     throw new Error("BASE_RPC_URL required");
   }
@@ -75,6 +73,59 @@ async function main() {
   if (Number(net.chainId) !== guards.BASE_CHAIN_ID) {
     throw new Error(`Refuse non-Base chainId=${net.chainId}`);
   }
+
+  // Strict address / bytecode / gas preflight before any CREATE.
+  if (!ethers.isAddress(SAFE) || SAFE === ethers.ZeroAddress) {
+    throw new Error("MVP Safe address invalid");
+  }
+  const safeCode = await ethers.provider.getCode(SAFE);
+  if (!guards.isNonEmptyBytecode(safeCode)) {
+    throw new Error("MVP Safe has no bytecode on Base — refusing CREATE");
+  }
+  for (const { label, address } of [
+    { label: "USDC", address: guards.USDC },
+    { label: "cbBTC", address: guards.CBBTC },
+    { label: "WETH", address: guards.WETH },
+    { label: "Permit2", address: guards.BASE_PERMIT2 },
+  ]) {
+    const code = await ethers.provider.getCode(address);
+    if (!guards.isNonEmptyBytecode(code)) {
+      throw new Error(`${label} missing bytecode at ${address}`);
+    }
+  }
+
+  const bal = await ethers.provider.getBalance(deployer.address);
+  const fee = await ethers.provider.getFeeData();
+  const maxFeePerGas = fee.maxFeePerGas ?? fee.gasPrice ?? 0n;
+  // Conservative CREATE-only budget: ~13 creates + 8 ownership transfers ≈ 25M gas worst-case.
+  const gasBudget = 25_000_000n;
+  const estimatedCost = gasBudget * maxFeePerGas;
+  const minReserve = ethers.parseEther("0.001");
+  if (bal < estimatedCost + minReserve) {
+    throw new Error(
+      `Insufficient deployer ETH: bal=${ethers.formatEther(bal)} need≈${ethers.formatEther(estimatedCost + minReserve)} (gasBudget=${gasBudget} maxFee=${maxFeePerGas})`,
+    );
+  }
+  // Refuse runaway gas (Base private-beta ceiling is 1 gwei on SafetyController; CREATE uses network fees).
+  const oneGwei = 1_000_000_000n;
+  if (maxFeePerGas > oneGwei * 50n) {
+    throw new Error(`maxFeePerGas ${maxFeePerGas} exceeds 50 gwei safety cap — refusing CREATE`);
+  }
+
+  console.log(
+    JSON.stringify({
+      phase: "preflight_ok",
+      mode: "CREATE_AND_TRANSFER_ONLY",
+      deployer: deployer.address,
+      safeOwner: SAFE,
+      safeCodeBytes: (safeCode.length - 2) / 2,
+      timelock: null,
+      chainId: Number(net.chainId),
+      balanceEth: ethers.formatEther(bal),
+      maxFeeGwei: ethers.formatUnits(maxFeePerGas, "gwei"),
+      estimatedCostEth: ethers.formatEther(estimatedCost),
+    }),
+  );
 
   console.log(
     JSON.stringify({
@@ -121,6 +172,12 @@ async function main() {
   };
 
   const code = await ethers.provider.getCode(clExecutor.address);
+  // RPC can briefly return empty/stale code right after CREATE — retry before failing.
+  let codeLive = code;
+  for (let i = 0; i < 8 && (!guards.isNonEmptyBytecode(codeLive) || codeLive.length < 100); i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    codeLive = await ethers.provider.getCode(clExecutor.address);
+  }
   const harvestSel = ethers
     .id(
       "harvestAll(bytes32,(uint8,address,address,address,uint256,uint256,uint256,uint256)[5],uint256)",
@@ -141,7 +198,7 @@ async function main() {
     ["compoundAll", compoundSel],
     ["exitAllToUsdc", exitSel],
   ]) {
-    if (!code.toLowerCase().includes(sel)) {
+    if (!codeLive.toLowerCase().includes(sel)) {
       throw new Error(`Deployed CL executor bytecode missing ${label} selector 0x${sel}`);
     }
   }

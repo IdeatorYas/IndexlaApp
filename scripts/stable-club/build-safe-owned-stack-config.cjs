@@ -20,8 +20,10 @@ const guards = require("./base-mainnet-deploy-guards.cjs");
 const { CANONICAL_INFRA, BASE_PERMIT2, EXPECTED_ROUTE_IDS } = require("./phase2a-manifest.cjs");
 
 const SAFE = guards.MVP_SAFE;
+const TIMELOCK_PROPOSAL_SAFE_TX_HASH =
+  "0x649f22a30d1b501d36f316bcc4600f56627c3a3ecd58561479142bcd4d9bb5c4";
 const CANCEL_TIMELOCK_PROPOSAL =
-  "0x649f22a3… — cancel/ignore pending Timelock scheduleBatch (conflicts with Safe-owned stack)";
+  `${TIMELOCK_PROPOSAL_SAFE_TX_HASH} — reject/supersede at Safe nonce 0 (pending Timelock scheduleBatch, 1/2 confirmations)`;
 
 function arg(name) {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
@@ -273,6 +275,24 @@ async function main() {
 
   const txs = [];
 
+  // --- FIRST: supersede conflicting Timelock scheduleBatch at Safe nonce 0 ---
+  // Safe rejection pattern: empty call to the Safe itself at the same nonce.
+  txs.push({
+    label:
+      "REJECT/SUPERSEDE pending Timelock scheduleBatch (Safe nonce 0) — invalidates 0x649f22a3…",
+    to: SAFE,
+    value: "0",
+    data: "0x",
+    operation: 0,
+    requiredSafeNonce: 0,
+    supersedesSafeTxHash: TIMELOCK_PROPOSAL_SAFE_TX_HASH,
+    decoded: {
+      method: "rejectTransaction",
+      args: [],
+      note: "Empty self-call at nonce 0. After 2-of-3 execution, pending scheduleBatch can never execute.",
+    },
+  });
+
   // --- Oracle / Mev / Safety ---
   pushTx(txs, {
     label: "MevGuard.setOracle(oracleGuard)",
@@ -433,12 +453,27 @@ async function main() {
     });
   }
 
+  // Assign sequential Safe nonces after the reject at nonce 0.
+  for (let i = 0; i < txs.length; i++) {
+    if (txs[i].requiredSafeNonce == null) {
+      txs[i].recommendedSafeNonce = i; // reject is 0; config follows 1..n
+    }
+  }
+
   const pack = {
     status: "CALLDATA_ONLY_NO_BROADCAST",
     purpose: "P0-B Safe-owned stack configuration (no Timelock)",
     safe: SAFE,
     safeThresholdNote: "2-of-3 — founder + second owner must confirm; agent will not broadcast",
     cancelTimelockProposal: CANCEL_TIMELOCK_PROPOSAL,
+    timelockProposalToSupersede: {
+      safeTxHash: TIMELOCK_PROPOSAL_SAFE_TX_HASH,
+      to: "0x6A83733C829B6F8a9C0E0D4d5713D64eE959167a",
+      method: "scheduleBatch",
+      confirmations: "1/2",
+      nonce: 0,
+      action: "Execute the first Safe tx in this pack (reject at nonce 0) before any config txs",
+    },
     depositsRemainDisabled: true,
     doNotEnableUntil: [
       "Safe config batch confirmed on-chain",

@@ -168,13 +168,15 @@ describe("resolvePhase2aDeploymentsApiResponse", () => {
         chainId: 8453,
         network: "base",
         isTestOnly: false,
-        clExecutor: "0x1cdE442a760Ddda54087081aF9860471Dc099a9f",
-        discoveryStartBlock: 50881768,
+        clExecutor: "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+        discoveryStartBlock: 50968399,
+        features: { exitAllToUsdc: true },
       },
     });
     if ("deployments" in result.body && result.body.configured) {
       expect(result.body.deployments).not.toHaveProperty("deployer");
       expect(result.body.deployments.adapters).toHaveLength(5);
+      expect(result.body.deployments.routes).toHaveLength(8);
     }
   });
 });

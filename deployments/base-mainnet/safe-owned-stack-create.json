@@ -1,0 +1,155 @@
+{
+  "deployedAt": "2026-09-06T20:32:32.538Z",
+  "chainId": 8453,
+  "network": "base",
+  "mode": "SAFE_OWNED_CREATE_ONLY",
+  "resumedFromPartialCreate": true,
+  "deployer": "0x977e7055D097bE5924fBdAd7e5a330405820f168",
+  "safeOwner": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+  "timelock": null,
+  "note": "CREATE + transferOwnership only. All protocol configuration is Safe calldata — do not broadcast config until founder approval.",
+  "cancelTimelockProposal": "0x649f22a30d1b501d36f316bcc4600f56627c3a3ecd58561479142bcd4d9bb5c4 — reject/supersede at Safe nonce 0 (pending scheduleBatch 1/2).",
+  "contracts": {
+    "permissionRegistry": {
+      "address": "0xF75423289baA42A44981533152c81E16f1aFa069",
+      "createTx": "0x793820196edca5d386363747c99c06c57b4e1d9d18d8e4e856fac66b8eb6e687",
+      "owner": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+      "ownershipTransferTx": "0x0a587b0df7ea5c148917c20c0962a6067003faf62c3685ab7acd2b4ba51d21c8"
+    },
+    "strategyRegistry": {
+      "address": "0xf6696C45A1A186712c530696a5B392Ed9E18ae24",
+      "createTx": "0x49b229a66cc37bfe5f2f27bdbc09be6bc3ae8b9b190746bb78a5f61e50a74fd6",
+      "owner": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+      "ownershipTransferTx": "0x3c7901f443c84dbe62d5f4c5abd9c63cc4d340a651c9e1a40e7d9f450914d5d6"
+    },
+    "feeRouter": {
+      "address": "0xf33239712875a7BD9d171cdD4d782c8FC022154C",
+      "createTx": "0x34dafa028b6be8b28703a704151b30fb4e33372f0ee97332401fd277848ce7c6",
+      "owner": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+      "ownershipTransferTx": "0xe36b314c53adbe6f170f2adbf7dc998b8af25883941f56615eef4abb1a8e8813"
+    },
+    "swapRouter": {
+      "address": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "createTx": "0x8c3e139f666b602c29849e3b3993dcf235f2b611793ed039895ae7a957a72daa",
+      "owner": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+      "ownershipTransferTx": "0xa0d6fe43231a82fd1395db69914eb0cd426cf2d830c4bc327f93eaf1fa5d25b2"
+    },
+    "oracleGuard": {
+      "address": "0x0cD087927F590B28737dFd9c7AAeB73B8ede70Ba",
+      "createTx": "0x9b80b70bd50861097bd3225fdd3d68efce4d51410e546df1ed7e58eaaadcbdb4",
+      "owner": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+      "ownershipTransferTx": "0x09207372b07fa7547d7ca8f5c7b233bf687227a3aeae29b369caaa589de4e26a"
+    },
+    "mevGuard": {
+      "address": "0xa524506a21a9a5105c535a45c55Fe5dF9970c540",
+      "createTx": "0x698c2610dd857620769f9884cc94c8cbd3b695a60b4d33c9d8ed5a4c7eeefca3",
+      "owner": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+      "ownershipTransferTx": "0x82ccd7a5150511dfd4a3ea0aeb57de7d1d5ad7a1b1da1614ad8efbb3a81e83a9"
+    },
+    "safetyController": {
+      "address": "0x429df0c70eEfCC5CD6b8B8FB94Ca8eDe226feDe5",
+      "createTx": "0x8b9ce748303423b97e3e4cbfc4d774f359fd3041cbb081239454fadbe3fafedc",
+      "owner": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+      "ownershipTransferTx": "0xfb9f40736eefd40721f5f6fedd955a874817f24b8266fd628e8d0828f6f42bf5"
+    },
+    "clExecutor": {
+      "address": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "createTx": "0x01f699f59e09c01076ee73bb5ef344df2dc15c4c6e22aff849be820b15027e40",
+      "owner": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+      "ownershipTransferTx": "0x6f45585e798746df0f6cfafe27ba87fd81b9b775e9caa319d7e4d4766f33707b"
+    }
+  },
+  "adapters": [
+    {
+      "poolId": "0xb51b99144079a80e7d705d0dbef80a3e5e0b55eba8199486dc8d3770c3c14c11",
+      "protocol": "aerodrome-slipstream",
+      "generation": "aerodrome-legacy",
+      "adapter": "0x518aB4069fB15dC201a00D19a9bC65CCB4D23fA8",
+      "poolAddress": "0x4e962bb3889bf030368f56810a9c96b83cb3e778",
+      "factory": "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A",
+      "npm": "0x827922686190790b37229fd06084350e74485b72",
+      "router": "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5",
+      "tickSpacing": 100,
+      "fee": null,
+      "tokenA": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "tokenB": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      "createTx": "0x9f25152e37844cb1f82d2ac0fb724d9e9e4471871fa512f56c1a67b91abccd54",
+      "ownershipNote": "Adapters (UniswapV3Adapter / AerodromeSlipstreamAdapter) are not Ownable; ownership is enforced via immutable executor === clExecutor."
+    },
+    {
+      "poolId": "0xa72adbe1cdd7bb579a7f6915e7a89382f5a6640b29420fca351c0e1324dfbfcd",
+      "protocol": "uniswap-v3",
+      "generation": "uniswap-v3",
+      "adapter": "0x27dB4752042A1de36Dae6Ee473Df32Ec5dBA2216",
+      "poolAddress": "0xfBB6Eed8e7aa03B138556eeDaF5D271A5E1e43ef",
+      "factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+      "npm": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+      "router": "0x2626664c2603336E57B271c5C0b26F421741e481",
+      "tickSpacing": null,
+      "fee": 500,
+      "tokenA": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "tokenB": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      "createTx": "0x82d74d3d1d3e3cb504a2ae0b56ecd65e02588d803d4f00d8d676d5f0b484bede",
+      "ownershipNote": "Adapters (UniswapV3Adapter / AerodromeSlipstreamAdapter) are not Ownable; ownership is enforced via immutable executor === clExecutor."
+    },
+    {
+      "poolId": "0xab4b5c2fb326832537b899664425f8ea62c5385ea66ed996cfcb1a88471ed35f",
+      "protocol": "aerodrome-slipstream",
+      "generation": "aerodrome-current",
+      "adapter": "0xf116E439128c9ba2E7824BB46dF12877BcBaC41f",
+      "poolAddress": "0x42d4a22CaD0F5a49681a5715cE994Af73A43B76b",
+      "factory": "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef",
+      "npm": "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53",
+      "router": "0x698Cb2b6dd822994581fEa6eA4Fc755d1363A92F",
+      "tickSpacing": 10,
+      "fee": null,
+      "tokenA": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      "tokenB": "0x4200000000000000000000000000000000000006",
+      "createTx": "0x78c74fa5e7838274e50d3e8b75aa36a3157b0b357622ed8f839270ccd5ac1863",
+      "ownershipNote": "Adapters (UniswapV3Adapter / AerodromeSlipstreamAdapter) are not Ownable; ownership is enforced via immutable executor === clExecutor."
+    },
+    {
+      "poolId": "0x1749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db",
+      "protocol": "aerodrome-slipstream",
+      "generation": "aerodrome-legacy",
+      "adapter": "0xcb58E708fAa868b8D2052c33a798b4BAEa2FAD7b",
+      "poolAddress": "0x70acdf2ad0bf2402c957154f944c19ef4e1cbae1",
+      "factory": "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A",
+      "npm": "0x827922686190790b37229fd06084350e74485b72",
+      "router": "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5",
+      "tickSpacing": 100,
+      "fee": null,
+      "tokenA": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      "tokenB": "0x4200000000000000000000000000000000000006",
+      "createTx": "0xfb5f47b0040f87c5dbc43f476d0163826b4037798e2c3d6ccd9f986eaedf3fe5",
+      "ownershipNote": "Adapters (UniswapV3Adapter / AerodromeSlipstreamAdapter) are not Ownable; ownership is enforced via immutable executor === clExecutor."
+    },
+    {
+      "poolId": "0xbce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af",
+      "protocol": "uniswap-v3",
+      "generation": "uniswap-v3",
+      "adapter": "0xf51bd174b19008526594E9ae5837FcA66BEB6adf",
+      "poolAddress": "0x7AeA2E8A3843516afa07293a10Ac8E49906dabD1",
+      "factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+      "npm": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+      "router": "0x2626664c2603336E57B271c5C0b26F421741e481",
+      "tickSpacing": null,
+      "fee": 500,
+      "tokenA": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      "tokenB": "0x4200000000000000000000000000000000000006",
+      "createTx": "0xe27ba9c19b6a049778ebf1c15a77e9bfc14b4b10afc3113e6fb4c2f8af7274d6",
+      "ownershipNote": "Adapters (UniswapV3Adapter / AerodromeSlipstreamAdapter) are not Ownable; ownership is enforced via immutable executor === clExecutor."
+    }
+  ],
+  "selectors": {
+    "harvestAll": "0xb09e40c9",
+    "compoundAll": "0x9380b577",
+    "exitAllToUsdc": "0x1cb72ffc"
+  },
+  "depositsRemainDisabled": true,
+  "nextSteps": [
+    "node scripts/stable-club/build-safe-owned-stack-config.cjs --artifact=deployments/base-mainnet/safe-owned-stack-create.json",
+    "Reject Timelock proposal at Safe nonce 0, then confirm config txs (2-of-3)",
+    "Tiny Base E2E before features.exitAllToUsdc=true"
+  ]
+}

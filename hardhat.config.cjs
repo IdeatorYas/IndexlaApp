@@ -18,7 +18,8 @@ const deployerPrivateKey = process.env.DEPLOYER_PRIVATE_KEY?.trim();
 const networks = {
   // Browser / E2E / local deploy — distinct from Base (SC-F02).
   hardhat: {
-    chainId: 31337,
+    // FORK_CHAIN_ID=8453 for live-state Base forks (strategy.chainId checks).
+    chainId: process.env.FORK_CHAIN_ID ? Number(process.env.FORK_CHAIN_ID) : 31337,
     hardfork: "cancun",
   },
   localhost: {

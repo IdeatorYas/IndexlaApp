@@ -66,6 +66,13 @@ export type StableClubPhase2aDeployments = {
    * Required on non-local networks; optional on hardhat-local 31337 (defaults to 1).
    */
   discoveryStartBlock?: number | string;
+  /**
+   * Explicit product feature flags. Base deposits/actions stay off until
+   * `exitAllToUsdc` is true after Safe-owned cutover + live E2E proof.
+   */
+  features?: {
+    exitAllToUsdc?: boolean;
+  };
 };
 
 /** Core IndexLa + Permit2 contracts attested on every network. */
@@ -285,6 +292,7 @@ export function toPublicPhase2aDeploymentsPayload(
     ...(deployments.discoveryStartBlock !== undefined
       ? { discoveryStartBlock: deployments.discoveryStartBlock }
       : {}),
+    ...(deployments.features !== undefined ? { features: deployments.features } : {}),
   };
 }
 

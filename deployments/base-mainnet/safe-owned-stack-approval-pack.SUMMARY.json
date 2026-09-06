@@ -1,0 +1,423 @@
+{
+  "status": "CALLDATA_ONLY_NO_BROADCAST",
+  "safe": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+  "depositsRemainDisabled": true,
+  "doNotEnableDeposits": true,
+  "featuresExitAllToUsdc": false,
+  "timelockProposalToSupersede": {
+    "safeTxHash": "0x649f22a30d1b501d36f316bcc4600f56627c3a3ecd58561479142bcd4d9bb5c4",
+    "to": "0x6A83733C829B6F8a9C0E0D4d5713D64eE959167a",
+    "method": "scheduleBatch",
+    "confirmations": "1/2",
+    "nonce": 0,
+    "action": "Execute the first Safe tx in this pack (reject at nonce 0) before any config txs"
+  },
+  "addresses": {
+    "permissionRegistry": "0xF75423289baA42A44981533152c81E16f1aFa069",
+    "strategyRegistry": "0xf6696C45A1A186712c530696a5B392Ed9E18ae24",
+    "feeRouter": "0xf33239712875a7BD9d171cdD4d782c8FC022154C",
+    "swapRouter": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+    "oracleGuard": "0x0cD087927F590B28737dFd9c7AAeB73B8ede70Ba",
+    "mevGuard": "0xa524506a21a9a5105c535a45c55Fe5dF9970c540",
+    "safetyController": "0x429df0c70eEfCC5CD6b8B8FB94Ca8eDe226feDe5",
+    "clExecutor": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "adapters": [
+      {
+        "poolId": "0xb51b99144079a80e7d705d0dbef80a3e5e0b55eba8199486dc8d3770c3c14c11",
+        "adapter": "0x518aB4069fB15dC201a00D19a9bC65CCB4D23fA8"
+      },
+      {
+        "poolId": "0xa72adbe1cdd7bb579a7f6915e7a89382f5a6640b29420fca351c0e1324dfbfcd",
+        "adapter": "0x27dB4752042A1de36Dae6Ee473Df32Ec5dBA2216"
+      },
+      {
+        "poolId": "0xab4b5c2fb326832537b899664425f8ea62c5385ea66ed996cfcb1a88471ed35f",
+        "adapter": "0xf116E439128c9ba2E7824BB46dF12877BcBaC41f"
+      },
+      {
+        "poolId": "0x1749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db",
+        "adapter": "0xcb58E708fAa868b8D2052c33a798b4BAEa2FAD7b"
+      },
+      {
+        "poolId": "0xbce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af",
+        "adapter": "0xf51bd174b19008526594E9ae5837FcA66BEB6adf"
+      }
+    ]
+  },
+  "guardian": "0x157a96Bac2Bf9010445EBBe4c265Cf9C141576Cf",
+  "txCount": 37,
+  "safeTransactions": [
+    {
+      "index": 0,
+      "nonce": 0,
+      "label": "REJECT/SUPERSEDE pending Timelock scheduleBatch (Safe nonce 0) — invalidates 0x649f22a3…",
+      "to": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+      "value": "0",
+      "operation": 0,
+      "method": "rejectTransaction",
+      "data": "0x",
+      "supersedesSafeTxHash": "0x649f22a30d1b501d36f316bcc4600f56627c3a3ecd58561479142bcd4d9bb5c4"
+    },
+    {
+      "index": 1,
+      "nonce": 1,
+      "label": "MevGuard.setOracle(oracleGuard)",
+      "to": "0xa524506a21a9a5105c535a45c55Fe5dF9970c540",
+      "value": "0",
+      "operation": 0,
+      "method": "setOracle",
+      "data": "0x7adbf9730000000000000000000000000cd087927f590b28737dfd9c7aaeb73b8ede70ba"
+    },
+    {
+      "index": 2,
+      "nonce": 2,
+      "label": "OracleGuard.configureFeed USDC",
+      "to": "0x0cD087927F590B28737dFd9c7AAeB73B8ede70Ba",
+      "value": "0",
+      "operation": 0,
+      "method": "configureFeed",
+      "data": "0x03e52685000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda029130000000000000000000000007e860098f58bbfc8648a4311b374b1d669a2bc6b000000000000000000000000000000000000000000000000000000000002a3000000000000000000000000000000000000000000000000000000000000000008"
+    },
+    {
+      "index": 3,
+      "nonce": 3,
+      "label": "OracleGuard.configureFeed cbBTC",
+      "to": "0x0cD087927F590B28737dFd9c7AAeB73B8ede70Ba",
+      "value": "0",
+      "operation": 0,
+      "method": "configureFeed",
+      "data": "0x03e52685000000000000000000000000cbb7c0000ab88b473b1f5afd9ef808440eed33bf00000000000000000000000007da0e54543a844a80abe69c8a12f22b3aa59f9d00000000000000000000000000000000000000000000000000000000000038400000000000000000000000000000000000000000000000000000000000000008"
+    },
+    {
+      "index": 4,
+      "nonce": 4,
+      "label": "OracleGuard.configureFeed WETH",
+      "to": "0x0cD087927F590B28737dFd9c7AAeB73B8ede70Ba",
+      "value": "0",
+      "operation": 0,
+      "method": "configureFeed",
+      "data": "0x03e52685000000000000000000000000420000000000000000000000000000000000000600000000000000000000000071041dddad3595f9ced3dccfbe3d1f4b0a16bb7000000000000000000000000000000000000000000000000000000000000038400000000000000000000000000000000000000000000000000000000000000008"
+    },
+    {
+      "index": 5,
+      "nonce": 5,
+      "label": "OracleGuard.configurePegMonitor cbBTC/BTC",
+      "to": "0x0cD087927F590B28737dFd9c7AAeB73B8ede70Ba",
+      "value": "0",
+      "operation": 0,
+      "method": "configurePegMonitor",
+      "data": "0x7d71f91b000000000000000000000000cbb7c0000ab88b473b1f5afd9ef808440eed33bf0000000000000000000000003a932b286715abc4a86a4acaf68a6cdd89e0d446000000000000000000000000000000000000000000000000000000000000006400000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 6,
+      "nonce": 6,
+      "label": "SafetyController.setGuardian",
+      "to": "0x429df0c70eEfCC5CD6b8B8FB94Ca8eDe226feDe5",
+      "value": "0",
+      "operation": 0,
+      "method": "setGuardian",
+      "data": "0x8a0dac4a000000000000000000000000157a96bac2bf9010445ebbe4c265cf9c141576cf"
+    },
+    {
+      "index": 7,
+      "nonce": 7,
+      "label": "SafetyController.setMaxGasPriceWei (1 gwei)",
+      "to": "0x429df0c70eEfCC5CD6b8B8FB94Ca8eDe226feDe5",
+      "value": "0",
+      "operation": 0,
+      "method": "setMaxGasPriceWei",
+      "data": "0x4d86fc56000000000000000000000000000000000000000000000000000000003b9aca00"
+    },
+    {
+      "index": 8,
+      "nonce": 8,
+      "label": "PermissionRegistry.setStrategyRegistrar(strategyRegistry)",
+      "to": "0xF75423289baA42A44981533152c81E16f1aFa069",
+      "value": "0",
+      "operation": 0,
+      "method": "setStrategyRegistrar",
+      "data": "0x826a2328000000000000000000000000f6696c45a1a186712c530696a5b392ed9e18ae240000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 9,
+      "nonce": 9,
+      "label": "PermissionRegistry.setOperator(clExecutor)",
+      "to": "0xF75423289baA42A44981533152c81E16f1aFa069",
+      "value": "0",
+      "operation": 0,
+      "method": "setOperator",
+      "data": "0x558a7297000000000000000000000000488f0680ff28908f49cc85c05b9e4813e657fcd20000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 10,
+      "nonce": 10,
+      "label": "PermissionRegistry.setOperator(strategyRegistry)",
+      "to": "0xF75423289baA42A44981533152c81E16f1aFa069",
+      "value": "0",
+      "operation": 0,
+      "method": "setOperator",
+      "data": "0x558a7297000000000000000000000000f6696c45a1a186712c530696a5b392ed9e18ae240000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 11,
+      "nonce": 11,
+      "label": "StrategyRegistry.setOperator(clExecutor)",
+      "to": "0xf6696C45A1A186712c530696a5B392Ed9E18ae24",
+      "value": "0",
+      "operation": 0,
+      "method": "setOperator",
+      "data": "0x558a7297000000000000000000000000488f0680ff28908f49cc85c05b9e4813e657fcd20000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 12,
+      "nonce": 12,
+      "label": "FeeRouter.setPermit2",
+      "to": "0xf33239712875a7BD9d171cdD4d782c8FC022154C",
+      "value": "0",
+      "operation": 0,
+      "method": "setPermit2",
+      "data": "0x101ec30a000000000000000000000000000000000022d473030f116ddee9f6b43ac78ba3"
+    },
+    {
+      "index": 13,
+      "nonce": 13,
+      "label": "FeeRouter.setExecutorApproved(clExecutor)",
+      "to": "0xf33239712875a7BD9d171cdD4d782c8FC022154C",
+      "value": "0",
+      "operation": 0,
+      "method": "setExecutorApproved",
+      "data": "0x3f851c34000000000000000000000000488f0680ff28908f49cc85c05b9e4813e657fcd20000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 14,
+      "nonce": 14,
+      "label": "SwapRouter.setExecutorApproved(clExecutor)",
+      "to": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "value": "0",
+      "operation": 0,
+      "method": "setExecutorApproved",
+      "data": "0x3f851c34000000000000000000000000488f0680ff28908f49cc85c05b9e4813e657fcd20000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 15,
+      "nonce": 15,
+      "label": "ClExecutor.setPermit2",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "setPermit2",
+      "data": "0x101ec30a000000000000000000000000000000000022d473030f116ddee9f6b43ac78ba3"
+    },
+    {
+      "index": 16,
+      "nonce": 16,
+      "label": "ClExecutor.setTokenApproval(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913)",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "setTokenApproval",
+      "data": "0x14d91c84000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda029130000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 17,
+      "nonce": 17,
+      "label": "ClExecutor.setTokenApproval(0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf)",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "setTokenApproval",
+      "data": "0x14d91c84000000000000000000000000cbb7c0000ab88b473b1f5afd9ef808440eed33bf0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 18,
+      "nonce": 18,
+      "label": "ClExecutor.setTokenApproval(0x4200000000000000000000000000000000000006)",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "setTokenApproval",
+      "data": "0x14d91c8400000000000000000000000042000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 19,
+      "nonce": 19,
+      "label": "ClExecutor.setAdapterApproval[0]",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "setAdapterApproval",
+      "data": "0xf6cd4c00000000000000000000000000518ab4069fb15dc201a00d19a9bc65ccb4d23fa80000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 20,
+      "nonce": 20,
+      "label": "ClExecutor.registerPool[0] 0xb51b99144079a80e7d705d0dbef80a3e5e0b55eba8199486dc8d3770c3c14c11",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "registerPool",
+      "data": "0x39df8a51b51b99144079a80e7d705d0dbef80a3e5e0b55eba8199486dc8d3770c3c14c11000000000000000000000000518ab4069fb15dc201a00d19a9bc65ccb4d23fa8"
+    },
+    {
+      "index": 21,
+      "nonce": 21,
+      "label": "ClExecutor.setAdapterApproval[1]",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "setAdapterApproval",
+      "data": "0xf6cd4c0000000000000000000000000027db4752042a1de36dae6ee473df32ec5dba22160000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 22,
+      "nonce": 22,
+      "label": "ClExecutor.registerPool[1] 0xa72adbe1cdd7bb579a7f6915e7a89382f5a6640b29420fca351c0e1324dfbfcd",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "registerPool",
+      "data": "0x39df8a51a72adbe1cdd7bb579a7f6915e7a89382f5a6640b29420fca351c0e1324dfbfcd00000000000000000000000027db4752042a1de36dae6ee473df32ec5dba2216"
+    },
+    {
+      "index": 23,
+      "nonce": 23,
+      "label": "ClExecutor.setAdapterApproval[2]",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "setAdapterApproval",
+      "data": "0xf6cd4c00000000000000000000000000f116e439128c9ba2e7824bb46df12877bcbac41f0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 24,
+      "nonce": 24,
+      "label": "ClExecutor.registerPool[2] 0xab4b5c2fb326832537b899664425f8ea62c5385ea66ed996cfcb1a88471ed35f",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "registerPool",
+      "data": "0x39df8a51ab4b5c2fb326832537b899664425f8ea62c5385ea66ed996cfcb1a88471ed35f000000000000000000000000f116e439128c9ba2e7824bb46df12877bcbac41f"
+    },
+    {
+      "index": 25,
+      "nonce": 25,
+      "label": "ClExecutor.setAdapterApproval[3]",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "setAdapterApproval",
+      "data": "0xf6cd4c00000000000000000000000000cb58e708faa868b8d2052c33a798b4baea2fad7b0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 26,
+      "nonce": 26,
+      "label": "ClExecutor.registerPool[3] 0x1749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "registerPool",
+      "data": "0x39df8a511749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db000000000000000000000000cb58e708faa868b8d2052c33a798b4baea2fad7b"
+    },
+    {
+      "index": 27,
+      "nonce": 27,
+      "label": "ClExecutor.setAdapterApproval[4]",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "setAdapterApproval",
+      "data": "0xf6cd4c00000000000000000000000000f51bd174b19008526594e9ae5837fca66beb6adf0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 28,
+      "nonce": 28,
+      "label": "ClExecutor.registerPool[4] 0xbce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af",
+      "to": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+      "value": "0",
+      "operation": 0,
+      "method": "registerPool",
+      "data": "0x39df8a51bce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af000000000000000000000000f51bd174b19008526594e9ae5837fca66beb6adf"
+    },
+    {
+      "index": 29,
+      "nonce": 29,
+      "label": "SwapRouter.configureRoute deposit USDC_CBBTC_AERO_L",
+      "to": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "value": "0",
+      "operation": 0,
+      "method": "configureRoute",
+      "data": "0xeffe7d1dd2d2b417c17973d9768956f0be6e40579c1306d8b2e1e0e6f2536816ea024fac0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000be6d8f0d05cc4be24d5167a3ef062215be6d18a50000000000000000000000005e7bb104d84c7cb9b682aac2f3d509f5f406809a0000000000000000000000004e962bb3889bf030368f56810a9c96b83cb3e778000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913000000000000000000000000cbb7c0000ab88b473b1f5afd9ef808440eed33bf00000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 30,
+      "nonce": 30,
+      "label": "SwapRouter.configureRoute deposit USDC_CBBTC_UNI",
+      "to": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "value": "0",
+      "operation": 0,
+      "method": "configureRoute",
+      "data": "0xeffe7d1d35a54be70bd45014962d39a5cf510d3af695cfd0e7aacc9a3ce67f9b28b4e6a600000000000000000000000000000000000000000000000000000000000000000000000000000000000000002626664c2603336e57b271c5c0b26f421741e48100000000000000000000000033128a8fc17869897dce68ed026d694621f6fdfd000000000000000000000000fbb6eed8e7aa03b138556eedaf5d271a5e1e43ef000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913000000000000000000000000cbb7c0000ab88b473b1f5afd9ef808440eed33bf00000000000000000000000000000000000000000000000000000000000001f40000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 31,
+      "nonce": 31,
+      "label": "SwapRouter.configureRoute deposit USDC_WETH_UNI",
+      "to": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "value": "0",
+      "operation": 0,
+      "method": "configureRoute",
+      "data": "0xeffe7d1dc7f3d85f984bf6e1237310028e0846db312be0260df61614bf0bda9301a15c2f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000002626664c2603336e57b271c5c0b26f421741e48100000000000000000000000033128a8fc17869897dce68ed026d694621f6fdfd000000000000000000000000d0b53d9277642d899df5c87a3966a349a798f224000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913000000000000000000000000420000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000001f40000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 32,
+      "nonce": 32,
+      "label": "SwapRouter.configureRoute deposit USDC_WETH_AERO_L",
+      "to": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "value": "0",
+      "operation": 0,
+      "method": "configureRoute",
+      "data": "0xeffe7d1d4592ffdd4499ee77c400d997d84d3fadc256dd3017826262cc379d355cb5ab400000000000000000000000000000000000000000000000000000000000000001000000000000000000000000be6d8f0d05cc4be24d5167a3ef062215be6d18a50000000000000000000000005e7bb104d84c7cb9b682aac2f3d509f5f406809a000000000000000000000000b2cc224c1c9fee385f8ad6a55b4d94e92359dc59000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913000000000000000000000000420000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 33,
+      "nonce": 33,
+      "label": "SwapRouter.configureRoute reverse CBBTC_USDC_UNI",
+      "to": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "value": "0",
+      "operation": 0,
+      "method": "configureRoute",
+      "data": "0xeffe7d1d792d70605bc949941ebcc28c02388abcc68f73c3f3158e36086fe7533a0bc3bf00000000000000000000000000000000000000000000000000000000000000000000000000000000000000002626664c2603336e57b271c5c0b26f421741e48100000000000000000000000033128a8fc17869897dce68ed026d694621f6fdfd000000000000000000000000fbb6eed8e7aa03b138556eedaf5d271a5e1e43ef000000000000000000000000cbb7c0000ab88b473b1f5afd9ef808440eed33bf000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda0291300000000000000000000000000000000000000000000000000000000000001f40000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 34,
+      "nonce": 34,
+      "label": "SwapRouter.configureRoute reverse CBBTC_USDC_AERO_L",
+      "to": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "value": "0",
+      "operation": 0,
+      "method": "configureRoute",
+      "data": "0xeffe7d1dcce2f23e7b15854497727b7a4d660e450d2c65073ef9289e985e776ca61017200000000000000000000000000000000000000000000000000000000000000001000000000000000000000000be6d8f0d05cc4be24d5167a3ef062215be6d18a50000000000000000000000005e7bb104d84c7cb9b682aac2f3d509f5f406809a0000000000000000000000004e962bb3889bf030368f56810a9c96b83cb3e778000000000000000000000000cbb7c0000ab88b473b1f5afd9ef808440eed33bf000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda0291300000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 35,
+      "nonce": 35,
+      "label": "SwapRouter.configureRoute reverse WETH_USDC_UNI",
+      "to": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "value": "0",
+      "operation": 0,
+      "method": "configureRoute",
+      "data": "0xeffe7d1d39b53d947f9b039d6f66877cbf3d95c2e9d90e89d6ade76fa1c43994eb2c677700000000000000000000000000000000000000000000000000000000000000000000000000000000000000002626664c2603336e57b271c5c0b26f421741e48100000000000000000000000033128a8fc17869897dce68ed026d694621f6fdfd000000000000000000000000d0b53d9277642d899df5c87a3966a349a798f2240000000000000000000000004200000000000000000000000000000000000006000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda0291300000000000000000000000000000000000000000000000000000000000001f40000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "index": 36,
+      "nonce": 36,
+      "label": "SwapRouter.configureRoute reverse WETH_USDC_AERO_L",
+      "to": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "value": "0",
+      "operation": 0,
+      "method": "configureRoute",
+      "data": "0xeffe7d1d8092322c104f0a5dcbf6325eb67741dbf5ec7c40a3661d14d4f1ed950a92e3f80000000000000000000000000000000000000000000000000000000000000001000000000000000000000000be6d8f0d05cc4be24d5167a3ef062215be6d18a50000000000000000000000005e7bb104d84c7cb9b682aac2f3d509f5f406809a000000000000000000000000b2cc224c1c9fee385f8ad6a55b4d94e92359dc590000000000000000000000004200000000000000000000000000000000000006000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda0291300000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000001"
+    }
+  ]
+}
