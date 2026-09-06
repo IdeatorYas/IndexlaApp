@@ -8,6 +8,8 @@ const ALL_ACTIONS =
 const STRATEGY_KIND = ethers.id("STABLE_CLUB_FIVE_POOL_V1");
 const ROUTE_USDC_CBBTC = ethers.id("MOCK_USDC_CBBTC");
 const ROUTE_USDC_WETH = ethers.id("MOCK_USDC_WETH");
+const ROUTE_CBBTC_USDC = ethers.id("MOCK_CBBTC_USDC");
+const ROUTE_WETH_USDC = ethers.id("MOCK_WETH_USDC");
 
 const POOL_IDS = [
   ethers.id("INDEXLA_STABLE_CLUB_BASE_USDC_cbBTC_AERO_CL100"),
@@ -109,6 +111,16 @@ async function deployPhase2aStack() {
   };
   await swapRouter.configureRoute(ROUTE_USDC_CBBTC, routeUsdcCbbtc);
   await swapRouter.configureRoute(ROUTE_USDC_WETH, routeUsdcWeth);
+  await swapRouter.configureRoute(ROUTE_CBBTC_USDC, {
+    ...routeUsdcCbbtc,
+    tokenIn: tokens.cbbtc,
+    tokenOut: tokens.usdc,
+  });
+  await swapRouter.configureRoute(ROUTE_WETH_USDC, {
+    ...routeUsdcWeth,
+    tokenIn: tokens.weth,
+    tokenOut: tokens.usdc,
+  });
 
   const sampleNet = (ethers.parseUnits("100", 6) * 9900n) / 10000n;
   const expectedCb = await oracleGuard.expectedAmountOut(tokens.usdc, tokens.cbbtc, sampleNet, 6, 8);
@@ -117,9 +129,13 @@ async function deployPhase2aStack() {
   const rateWe = (expectedWe * 10n ** 18n) / sampleNet;
   await swapRouter.setRate(ROUTE_USDC_CBBTC, rateCb);
   await swapRouter.setRate(ROUTE_USDC_WETH, rateWe);
+  // Inverse rates for unwind (token → USDC).
+  await swapRouter.setRate(ROUTE_CBBTC_USDC, (10n ** 36n) / rateCb);
+  await swapRouter.setRate(ROUTE_WETH_USDC, (10n ** 36n) / rateWe);
 
   await cbbtc.mint(await swapRouter.getAddress(), ethers.parseUnits("1000000", 8));
   await weth.mint(await swapRouter.getAddress(), ethers.parseUnits("1000000", 18));
+  await usdc.mint(await swapRouter.getAddress(), ethers.parseUnits("100000000", 6));
 
   const adapters = [];
   for (const entry of POOL_CATALOGUE) {
@@ -916,5 +932,145 @@ describe("SC-02 — SafetyController gates deposits, never exits", function () {
       .connect(ctx.user)
       .exitLeg(strategyId, exitParams(adapter, 0, 1n, 0n, 1n), 100n);
     await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
+  });
+});
+
+describe("exitAllToUsdc — USDC-only atomic unwind", function () {
+  async function depositFive(ctx, nonce, grossUsdc = ethers.parseUnits("1000", 6)) {
+    const { strategyId, poolIds } = await registerFivePoolStrategy(ctx);
+    const legs = await buildDepositLegs(ctx, grossUsdc);
+    await approveUsdcDeposit(ctx, ctx.user, grossUsdc);
+    await ctx.clExecutor.connect(ctx.user).depositFivePoolStrategy(
+      strategyId,
+      nonce,
+      grossUsdc,
+      poolIds,
+      BigInt((await time.latest()) + 3600),
+      legs,
+    );
+    return { strategyId, poolIds };
+  }
+
+  function emptyUnwindSwaps() {
+    return Array.from({ length: 8 }, () => ({
+      routeId: ethers.ZeroHash,
+      amountIn: 0n,
+      minOut: 0n,
+      quotedOut: 0n,
+      deadline: 0n,
+    }));
+  }
+
+  it("USDC depositor receives only USDC after exitAllToUsdc (no cbBTC/WETH leftover)", async function () {
+    const ctx = await deployPhase2aStack();
+    const grossUsdc = ethers.parseUnits("1000", 6);
+    const { strategyId } = await depositFive(ctx, 42n, grossUsdc);
+
+    // Approve all five NFTs to adapters.
+    for (let i = 0; i < 5; i++) {
+      const adapter = ctx.adapters[i];
+      await adapter.contract.connect(ctx.user).approve(adapter.address, 1n);
+    }
+
+    // Predict close proceeds from mock position inventories.
+    let cbbtcIn = 0n;
+    let wethIn = 0n;
+    const legs = [];
+    for (let i = 0; i < 5; i++) {
+      const adapter = ctx.adapters[i];
+      const [amount0, amount1] = await adapter.contract.positionAmounts(1n);
+      const t0 = await adapter.contract.token0Of(1n);
+      const t1 = await adapter.contract.token1Of(1n);
+      const map = [
+        { token: t0, amount: amount0 },
+        { token: t1, amount: amount1 },
+      ];
+      for (const { token, amount } of map) {
+        if (token.toLowerCase() === ctx.tokens.cbbtc.toLowerCase()) cbbtcIn += amount;
+        if (token.toLowerCase() === ctx.tokens.weth.toLowerCase()) wethIn += amount;
+      }
+      legs.push(exitParams(adapter, i, 1n, 1n, 1n));
+    }
+
+    const deadline = BigInt((await time.latest()) + 3600);
+    const swaps = emptyUnwindSwaps();
+    let swapCount = 0;
+    if (cbbtcIn > 0n) {
+      const quoted = (cbbtcIn * (await ctx.swapRouter.rateE18(ROUTE_CBBTC_USDC))) / 10n ** 18n;
+      swaps[swapCount++] = {
+        routeId: ROUTE_CBBTC_USDC,
+        amountIn: cbbtcIn,
+        minOut: (quoted * 9900n) / 10000n,
+        quotedOut: quoted,
+        deadline,
+      };
+    }
+    if (wethIn > 0n) {
+      const quoted = (wethIn * (await ctx.swapRouter.rateE18(ROUTE_WETH_USDC))) / 10n ** 18n;
+      swaps[swapCount++] = {
+        routeId: ROUTE_WETH_USDC,
+        amountIn: wethIn,
+        minOut: (quoted * 9900n) / 10000n,
+        quotedOut: quoted,
+        deadline,
+      };
+    }
+    expect(swapCount).to.be.greaterThan(0);
+
+    const usdcBefore = await ctx.usdc.balanceOf(ctx.user.address);
+    const cbbtcBefore = await ctx.cbbtc.balanceOf(ctx.user.address);
+    const wethBefore = await ctx.weth.balanceOf(ctx.user.address);
+
+    const minUsdcOut = 1n;
+    const tx = await ctx.clExecutor
+      .connect(ctx.user)
+      .exitAllToUsdc(strategyId, legs, swaps, swapCount, minUsdcOut, 900n);
+    const receipt = await tx.wait();
+
+    const usdcAfter = await ctx.usdc.balanceOf(ctx.user.address);
+    const cbbtcAfter = await ctx.cbbtc.balanceOf(ctx.user.address);
+    const wethAfter = await ctx.weth.balanceOf(ctx.user.address);
+
+    expect(usdcAfter).to.be.greaterThan(usdcBefore);
+    expect(cbbtcAfter).to.equal(cbbtcBefore);
+    expect(wethAfter).to.equal(wethBefore);
+    expect(await ctx.usdc.balanceOf(await ctx.clExecutor.getAddress())).to.equal(0n);
+    expect(await ctx.cbbtc.balanceOf(await ctx.clExecutor.getAddress())).to.equal(0n);
+    expect(await ctx.weth.balanceOf(await ctx.clExecutor.getAddress())).to.equal(0n);
+
+    for (const adapter of ctx.adapters) {
+      await expect(adapter.contract.ownerOf(1n)).to.be.reverted;
+    }
+
+    // Revert path: minUsdcOut too high fails atomically (fresh deposit).
+    const ctx2 = await deployPhase2aStack();
+    const dep2 = await depositFive(ctx2, 1n, ethers.parseUnits("500", 6));
+    for (let i = 0; i < 5; i++) {
+      await ctx2.adapters[i].contract.connect(ctx2.user).approve(ctx2.adapters[i].address, 1n);
+    }
+    const legs2 = ctx2.adapters.map((a, i) => exitParams(a, i, 1n, 1n, 1n));
+    await expect(
+      ctx2.clExecutor
+        .connect(ctx2.user)
+        .exitAllToUsdc(dep2.strategyId, legs2, emptyUnwindSwaps(), 0, ethers.parseUnits("999999", 6), 10n),
+    ).to.be.reverted;
+    // Positions still intact after failed too-high min without swaps / residual.
+    expect(await ctx2.adapters[0].contract.ownerOf(1n)).to.equal(ctx2.user.address);
+    expect(receipt.status).to.equal(1);
+  });
+
+  it("legacy exitAll still returns underlying tokens (emergency path retained)", async function () {
+    const ctx = await deployPhase2aStack();
+    const { strategyId } = await depositFive(ctx, 7n, ethers.parseUnits("500", 6));
+    for (let i = 0; i < 5; i++) {
+      await ctx.adapters[i].contract.connect(ctx.user).approve(ctx.adapters[i].address, 1n);
+    }
+    const legs = ctx.adapters.map((a, i) => exitParams(a, i, 1n, 1n, 1n));
+    const cbbtcBefore = await ctx.cbbtc.balanceOf(ctx.user.address);
+    const wethBefore = await ctx.weth.balanceOf(ctx.user.address);
+    await ctx.clExecutor.connect(ctx.user).exitAll(strategyId, legs, 70n);
+    const cbbtcAfter = await ctx.cbbtc.balanceOf(ctx.user.address);
+    const wethAfter = await ctx.weth.balanceOf(ctx.user.address);
+    expect(cbbtcAfter + wethAfter).to.be.greaterThan(cbbtcBefore + wethBefore);
   });
 });

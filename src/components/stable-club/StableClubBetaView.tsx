@@ -73,6 +73,8 @@ function DevUiPreview({ mode }: { mode: "deposit" | "positions" }) {
     refreshPositions: async () => undefined,
     exitIndividual: async () => undefined,
     exitAll: async () => undefined,
+    exitAllToUsdc: async () => undefined,
+    exitAllToUsdcAvailable: false,
     emergencyExitLeg: async () => undefined,
     emergencyExitAllSequential: async () => undefined,
     revokeStrategy: async () => undefined,

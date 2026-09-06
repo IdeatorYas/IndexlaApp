@@ -467,6 +467,45 @@ export const concentratedLiquidityExecutorAbi = [
   },
   {
     type: "function",
+    name: "exitAllToUsdc",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "strategyId", type: "bytes32" },
+      {
+        name: "legs",
+        type: "tuple[5]",
+        components: [
+          { name: "legIndex", type: "uint8" },
+          { name: "adapter", type: "address" },
+          { name: "tokenA", type: "address" },
+          { name: "tokenB", type: "address" },
+          { name: "positionTokenId", type: "uint256" },
+          { name: "liquidity", type: "uint128" },
+          { name: "amountAMin", type: "uint256" },
+          { name: "amountBMin", type: "uint256" },
+          { name: "slippageBps", type: "uint256" },
+          { name: "fullExit", type: "bool" },
+        ],
+      },
+      {
+        name: "swaps",
+        type: "tuple[8]",
+        components: [
+          { name: "routeId", type: "bytes32" },
+          { name: "amountIn", type: "uint256" },
+          { name: "minOut", type: "uint256" },
+          { name: "quotedOut", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      },
+      { name: "swapCount", type: "uint8" },
+      { name: "minUsdcOut", type: "uint256" },
+      { name: "executionNonceBase", type: "uint256" },
+    ],
+    outputs: [{ name: "usdcOut", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "emergencyExitLeg",
     stateMutability: "nonpayable",
     inputs: [
@@ -490,6 +529,16 @@ export const concentratedLiquidityExecutorAbi = [
       { name: "executionNonce", type: "uint256" },
     ],
     outputs: [],
+  },
+  {
+    type: "event",
+    name: "StrategyExitToUsdcCompleted",
+    inputs: [
+      { name: "strategyId", type: "bytes32", indexed: true },
+      { name: "user", type: "address", indexed: true },
+      { name: "usdcOut", type: "uint256", indexed: false },
+      { name: "executionNonceBase", type: "uint256", indexed: false },
+    ],
   },
   {
     type: "event",
