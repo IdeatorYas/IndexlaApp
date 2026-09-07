@@ -1462,19 +1462,212 @@ export function useFivePoolPositions() {
   );
 
   /**
-   * Product Withdraw — always pays the user wallet (never leaves proceeds on the executor).
-   * 100% → atomic exitAll (pool tokens to wallet; no ERC20 approve-to-unverified-executor unwind).
-   * 1–99% → sequential exitLeg partial (scaled liquidity; tokens to wallet).
+   * Product Withdraw — direct to verified Uniswap V3 / Aerodrome Slipstream NPM.
+   * Never calls INDEXLA executor/adapters (avoids MetaMask "ERC20 approve to unverified contract").
+   * Proceeds collect to the user wallet. No NFT approve-to-adapter.
    */
+  const exitDirectNpmPercent = useCallback(
+    async (percent: number) => {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      setError(null);
+      setApprovalTxHashes([]);
+      setDirectPlan(null);
+
+      const open = [...positions].sort((a, b) => a.legIndex - b.legIndex);
+      setLegResults(
+        Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
+          const hit = open.find((p) => p.legIndex === i);
+          return {
+            legIndex: i,
+            status: hit ? ("pending" as const) : ("skipped" as const),
+          };
+        }),
+      );
+
+      try {
+        const { account, walletClient, d } = ensureReady();
+        if (open.length === 0) throw new Error("No open positions to withdraw");
+        if (!Number.isFinite(percent) || percent < 1 || percent > 100) {
+          throw new Error("Withdraw percent must be between 1 and 100");
+        }
+        if (d.network === "hardhat-local") {
+          throw new Error(
+            "Direct NPM withdraw is Base-only. Use local Exit All / Emergency on Hardhat.",
+          );
+        }
+
+        const fullExit = Math.round(percent) === 100;
+        const percentBps = fullExit ? 10_000 : Math.round(percent * 100);
+
+        type Built = {
+          legIndex: number;
+          npm: Address;
+          decreaseData: Hex;
+          collectData: Hex;
+          burnData: Hex | null;
+        };
+        const built: Built[] = [];
+
+        for (const position of open) {
+          assertWalletOwnsPosition(account, position.owner, position.positionTokenId);
+          const live = await readLiveExitAmountsForPosition(publicClient, position, account);
+          let liquidity = live.liquidity > BigInt(0) ? live.liquidity : position.liquidity;
+          let amountA = live.amountA;
+          let amountB = live.amountB;
+          if (!fullExit) {
+            const bps = BigInt(percentBps);
+            liquidity = (liquidity * bps) / BigInt(10_000);
+            amountA = (amountA * bps) / BigInt(10_000);
+            amountB = (amountB * bps) / BigInt(10_000);
+            if (liquidity <= BigInt(0)) {
+              throw new Error(
+                `Partial withdraw rounds to zero liquidity for leg ${position.legIndex}`,
+              );
+            }
+          }
+          const plan = buildDirectNpmExitPlan({
+            network: d.network,
+            position,
+            amountA,
+            amountB,
+            liquidity,
+            deadlineSec: BigInt(Math.floor(Date.now() / 1000) + 3600),
+            slippageBps,
+          });
+          if (
+            plan.mode !== "npm-owner" ||
+            !plan.decreaseLiquidityCalldata ||
+            !plan.collectCalldata
+          ) {
+            throw new Error(
+              plan.steps.join(" ") ||
+                `Direct NPM withdraw unavailable for leg ${position.legIndex}`,
+            );
+          }
+          built.push({
+            legIndex: position.legIndex,
+            npm: plan.nftContract,
+            decreaseData: plan.decreaseLiquidityCalldata,
+            collectData: plan.collectCalldata,
+            burnData: fullExit ? plan.burnCalldata : null,
+          });
+          setLegResults((prev) =>
+            prev.map((r) =>
+              r.legIndex === position.legIndex ? { ...r, status: "pending" } : r,
+            ),
+          );
+        }
+
+        const sendPhase = async (
+          label: string,
+          items: { legIndex: number; npm: Address; data: Hex }[],
+        ): Promise<Hex[]> => {
+          const hashes: Hex[] = [];
+          let i = 0;
+          for (const item of items) {
+            i += 1;
+            setProgress("awaiting-exit");
+            setStatusMessage(
+              `Sign ${label} ${i}/${items.length} on verified NPM (tokens → your wallet)…`,
+            );
+            setLegResults((prev) =>
+              prev.map((r) =>
+                r.legIndex === item.legIndex ? { ...r, status: "submitting" } : r,
+              ),
+            );
+            const hash = await walletClient.sendTransaction({
+              to: item.npm,
+              data: item.data,
+              account,
+            });
+            hashes.push(hash);
+            setLastTxHash(hash);
+          }
+          if (hashes.length > 0) {
+            setStatusMessage(`Confirming ${hashes.length} ${label} tx(s) on Base…`);
+            await Promise.all(
+              hashes.map((h) => waitForSuccessfulTransactionReceipt(publicClient, h)),
+            );
+          }
+          return hashes;
+        };
+
+        await sendPhase(
+          "decreaseLiquidity",
+          built.map((b) => ({
+            legIndex: b.legIndex,
+            npm: b.npm,
+            data: b.decreaseData,
+          })),
+        );
+
+        const collectHashes = await sendPhase(
+          "collect",
+          built.map((b) => ({
+            legIndex: b.legIndex,
+            npm: b.npm,
+            data: b.collectData,
+          })),
+        );
+
+        const burns = built.filter((b): b is Built & { burnData: Hex } => b.burnData != null);
+        const burnHashes =
+          burns.length > 0
+            ? await sendPhase(
+                "burn",
+                burns.map((b) => ({
+                  legIndex: b.legIndex,
+                  npm: b.npm,
+                  data: b.burnData,
+                })),
+              )
+            : [];
+
+        const finalHash = burnHashes.at(-1) ?? collectHashes.at(-1);
+
+        setLegResults((prev) =>
+          prev.map((r) =>
+            r.status === "skipped"
+              ? r
+              : { ...r, status: "confirmed", txHash: finalHash },
+          ),
+        );
+        setProgress("confirmed");
+        setStatusMessage(
+          fullExit
+            ? "Withdraw 100% confirmed — pool tokens collected to your wallet via verified NPM"
+            : `Withdraw ${Math.round(percent)}% confirmed — pool tokens collected to your wallet via verified NPM`,
+        );
+        submittingRef.current = false;
+        await refreshPositions();
+      } catch (err) {
+        setProgress("failed");
+        const reject = userRejectMessage(err);
+        const message =
+          reject ??
+          (err instanceof Error ? err.message : "Direct NPM withdraw failed");
+        setError(message);
+        setLegResults((prev) =>
+          prev.map((r) =>
+            r.status === "skipped" || r.status === "confirmed"
+              ? r
+              : { ...r, status: "failed", error: message },
+          ),
+        );
+      } finally {
+        submittingRef.current = false;
+      }
+    },
+    [ensureReady, positions, publicClient, refreshPositions, slippageBps],
+  );
+
+  /** Product Withdraw: always verified NPM → user wallet (never INDEXLA executor). */
   const withdrawPercent = useCallback(
     async (percent: number) => {
-      if (Math.round(percent) === 100) {
-        await exitAll();
-        return;
-      }
-      await exitPartialPercentToWallet(percent);
+      await exitDirectNpmPercent(percent);
     },
-    [exitAll, exitPartialPercentToWallet],
+    [exitDirectNpmPercent],
   );
 
   const runManageAll = useCallback(

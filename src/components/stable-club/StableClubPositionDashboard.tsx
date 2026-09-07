@@ -489,9 +489,9 @@ export function StableClubPositionDashboard({
           >
             <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw to your wallet</h2>
             <p className="mt-2 text-sm text-[#5b6b7c]">
-              Set any percent from 1–100. Sold LP proceeds go to your wallet — not held by INDEXLA
-              contracts. Wallet may ask to approve each LP NFT to the pool adapter (required); that
-              is not an ERC20 spend approval.
+              Set any percent 1–100. Exit runs on verified Uniswap / Aerodrome NPM only — tokens
+              collect to your wallet. No INDEXLA contract approval and no ERC20 approve to
+              unverified contracts.
             </p>
 
             <div className="mt-4 grid grid-cols-2 gap-2">
