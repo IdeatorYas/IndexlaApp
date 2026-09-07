@@ -19,8 +19,9 @@ type TabId = "position" | "pools";
 function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolean }) {
   const positions = useFivePoolPositions();
   const hasPositions = positions.positions.length > 0;
-  const booting =
-    (positions.deploymentsLoading || positions.positionsLoading) && !hasPositions;
+  const showDashboard =
+    hasPositions || (positions.strategyRegistered && !positions.deploymentsLoading);
+  const deploymentsBooting = positions.deploymentsLoading && !hasPositions;
   const [tab, setTab] = useState<TabId>("pools");
   const [addFundsOpen, setAddFundsOpen] = useState(false);
 
@@ -29,6 +30,10 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
     setAddFundsOpen(false);
     void positions.refreshPositions();
   }, [positions]);
+
+  useEffect(() => {
+    if (hasPositions) setTab("position");
+  }, [hasPositions]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -42,10 +47,10 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
     return () => window.removeEventListener(FIVE_POOL_POSITIONS_REFRESH_EVENT, handler);
   }, []);
 
-  if (booting) {
+  if (deploymentsBooting) {
     return (
       <section className="rounded-2xl border border-[#d7e0ec] bg-white p-8 text-center">
-        <p className="text-base text-[#5b6b7c]">Loading your position…</p>
+        <p className="text-base text-[#5b6b7c]">Loading Stable Club…</p>
       </section>
     );
   }
@@ -91,7 +96,7 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
             }
           />
         </div>
-      ) : hasPositions ? (
+      ) : showDashboard ? (
         <div className="space-y-3">
           <StableClubPositionDashboard
             positionsApi={positions}
@@ -109,6 +114,10 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
             />
           ) : null}
         </div>
+      ) : positions.positionsLoading ? (
+        <section className="rounded-2xl border border-[#d7e0ec] bg-white p-8 text-center">
+          <p className="text-base text-[#5b6b7c]">Loading your LP positions…</p>
+        </section>
       ) : (
         <StableClubCompactDeposit
           depositsEnabled={depositsEnabled}

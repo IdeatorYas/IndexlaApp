@@ -48,6 +48,7 @@ import {
   collectTokenIdsFromTransferLogs,
   erc721EnumerableAbi,
   exactPoolBindingExpectations,
+  FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS,
   interpretLiveExitAmounts,
   matchExactPoolMintTokenId,
   positionNftClaimKey,
@@ -55,6 +56,7 @@ import {
   toFivePoolPosition,
   uniV3FactoryGetPoolAbi,
   uniV3NpmPositionsAbi,
+  withDiscoveryTimeout,
   type DirectNpmExitPlan,
   type FivePoolExitProgress,
   type FivePoolPosition,
@@ -274,6 +276,7 @@ async function readLiveExitAmountsForPosition(
 export function useFivePoolPositions() {
   const wallet = useStableClubWallet();
   const submittingRef = useRef(false);
+  const refreshGenerationRef = useRef(0);
 
   const [deployments, setDeployments] = useState<StableClubPhase2aPublicDeployments | null>(null);
   const [deploymentsLoading, setDeploymentsLoading] = useState(true);
@@ -407,44 +410,54 @@ export function useFivePoolPositions() {
       return;
     }
 
+    const generation = ++refreshGenerationRef.current;
     setPositionsLoading(true);
     setPositionsError(null);
-    setStale(false);
     try {
       const client = discoveryClient;
-      const sid = await client.readContract({
-        address: deployments.strategyRegistry,
-        abi: strategyPermissionRegistryAbi,
-        functionName: "strategyIdFor",
-        args: [wallet.address, BigInt(expectedChainId), deployments.usdc],
-      });
+      const sid = await withDiscoveryTimeout(
+        client.readContract({
+          address: deployments.strategyRegistry,
+          abi: strategyPermissionRegistryAbi,
+          functionName: "strategyIdFor",
+          args: [wallet.address, BigInt(expectedChainId), deployments.usdc],
+        }),
+        FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS,
+        "strategyIdFor",
+      );
+      if (generation !== refreshGenerationRef.current) return;
       setStrategyId(sid);
 
-      const strategy = await client.readContract({
-        address: deployments.strategyRegistry,
-        abi: strategyPermissionRegistryAbi,
-        functionName: "getStrategy",
-        args: [sid],
-      } as never);
+      const strategy = await withDiscoveryTimeout(
+        client.readContract({
+          address: deployments.strategyRegistry,
+          abi: strategyPermissionRegistryAbi,
+          functionName: "getStrategy",
+          args: [sid],
+        } as never),
+        FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS,
+        "getStrategy",
+      );
+      if (generation !== refreshGenerationRef.current) return;
       const strategyUser = (strategy as { user: Address }).user;
       const revoked = Boolean((strategy as { revoked: boolean }).revoked);
       const expiresAt = BigInt((strategy as { expiresAt: bigint }).expiresAt);
       const now = BigInt(Math.floor(Date.now() / 1000));
       const registered =
-        strategyUser.toLowerCase() === wallet.address.toLowerCase() && strategyUser !== "0x0000000000000000000000000000000000000000";
+        strategyUser.toLowerCase() === wallet.address.toLowerCase() &&
+        strategyUser !== "0x0000000000000000000000000000000000000000";
       setStrategyRegistered(registered);
       setStrategyRevoked(revoked);
       setStrategyExpired(expiresAt > BigInt(0) && expiresAt <= now);
 
       if (!registered) {
         setPositions([]);
+        setStale(false);
         return;
       }
 
-      const discovered: FivePoolPosition[] = [];
       const isVerifiedLocal =
         deployments.network === "hardhat-local" && deployments.chainId === 31337;
-      const claimedTokenIds = new Set<string>();
 
       // Local Hardhat may lack ERC721Enumerable — keep Transfer log discovery there.
       let logRanges: { fromBlock: bigint; toBlock: bigint }[] | null = null;
@@ -458,261 +471,348 @@ export function useFivePoolPositions() {
         logRanges = buildPositionDiscoveryBlockRanges(fromBlock, latestBlock);
       }
 
-      for (let legIndex = 0; legIndex < FIVE_POOL_LEG_COUNT; legIndex++) {
-        const legRaw = await client.readContract({
-          address: deployments.strategyRegistry,
-          abi: strategyPermissionRegistryAbi,
-          functionName: "getLeg",
-          args: [sid, BigInt(legIndex)],
-        });
-        const leg = legRaw as StrategyLegBinding;
+      // Phase 1 — all strategy legs in parallel (not serial RPC waterfall).
+      const legSettled = await Promise.all(
+        Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, legIndex) =>
+          withDiscoveryTimeout(
+            client.readContract({
+              address: deployments.strategyRegistry,
+              abi: strategyPermissionRegistryAbi,
+              functionName: "getLeg",
+              args: [sid, BigInt(legIndex)],
+            }),
+            FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS,
+            `getLeg[${legIndex}]`,
+          )
+            .then((legRaw) => ({
+              legIndex,
+              ok: true as const,
+              leg: legRaw as StrategyLegBinding,
+            }))
+            .catch((err) => ({
+              legIndex,
+              ok: false as const,
+              error: err instanceof Error ? err.message : String(err),
+            })),
+        ),
+      );
+      if (generation !== refreshGenerationRef.current) return;
+
+      type LegWork = {
+        legIndex: number;
+        leg: StrategyLegBinding;
+        adapterMeta: NonNullable<
+          StableClubPhase2aPublicDeployments["adapters"][number]
+        >;
+        binding: NonNullable<ReturnType<typeof exactPoolBindingExpectations>>;
+        nftContract: Address;
+      };
+
+      const legWork: LegWork[] = [];
+      let partial = false;
+      for (const item of legSettled) {
+        if (!item.ok) {
+          partial = true;
+          continue;
+        }
+        const { leg, legIndex } = item;
         if (!leg.adapter || leg.adapter === "0x0000000000000000000000000000000000000000") {
           continue;
         }
-
         const adapterMeta = deployments.adapters.find(
           (a) => a.adapter.toLowerCase() === leg.adapter.toLowerCase(),
         );
         if (!adapterMeta) {
-          setStale(true);
+          partial = true;
           continue;
         }
-
         const binding = exactPoolBindingExpectations(leg.poolId);
         if (!binding) {
-          // Exact pool identity cannot be proven — no executable exit for this leg.
-          setStale(true);
+          partial = true;
           continue;
         }
-
         const nftContract =
           deployments.network === "hardhat-local" ? adapterMeta.adapter : adapterMeta.npm;
+        legWork.push({ legIndex, leg, adapterMeta, binding, nftContract });
+      }
 
-        let candidates: bigint[];
-        if (isVerifiedLocal && logRanges) {
-          const transferEvent = parseAbiItem(
-            "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
-          );
-          const logs: { args?: { tokenId?: bigint } | null }[] = [];
-          for (const range of logRanges) {
-            const chunk = await client.getLogs({
-              address: nftContract,
-              event: transferEvent,
-              args: {
-                from: "0x0000000000000000000000000000000000000000",
-                to: wallet.address,
-              },
-              fromBlock: range.fromBlock,
-              toBlock: range.toBlock,
-            });
-            logs.push(...chunk);
+      // Phase 2 — enumerate each unique NPM once (Uni/Aero legs share contracts).
+      const candidatesByNft = new Map<string, bigint[]>();
+      const uniqueNfts = [...new Set(legWork.map((w) => w.nftContract.toLowerCase()))];
+      await Promise.all(
+        uniqueNfts.map(async (nftKey) => {
+          const nftContract = legWork.find((w) => w.nftContract.toLowerCase() === nftKey)!
+            .nftContract;
+          try {
+            const candidates = await withDiscoveryTimeout(
+              (async () => {
+                if (isVerifiedLocal && logRanges) {
+                  const transferEvent = parseAbiItem(
+                    "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
+                  );
+                  const logs: { args?: { tokenId?: bigint } | null }[] = [];
+                  for (const range of logRanges) {
+                    const chunk = await client.getLogs({
+                      address: nftContract,
+                      event: transferEvent,
+                      args: {
+                        from: "0x0000000000000000000000000000000000000000",
+                        to: wallet.address,
+                      },
+                      fromBlock: range.fromBlock,
+                      toBlock: range.toBlock,
+                    });
+                    logs.push(...chunk);
+                  }
+                  return collectTokenIdsFromTransferLogs(logs);
+                }
+                return collectOwnedNftTokenIds({
+                  owner: wallet.address!,
+                  balanceOf: (owner) =>
+                    client.readContract({
+                      address: nftContract,
+                      abi: erc721EnumerableAbi,
+                      functionName: "balanceOf",
+                      args: [owner],
+                    }),
+                  tokenOfOwnerByIndex: (owner, index) =>
+                    client.readContract({
+                      address: nftContract,
+                      abi: erc721EnumerableAbi,
+                      functionName: "tokenOfOwnerByIndex",
+                      args: [owner, index],
+                    }),
+                });
+              })(),
+              FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS * 2,
+              `nftEnumerate[${nftKey.slice(0, 10)}]`,
+            );
+            candidatesByNft.set(nftKey, candidates);
+          } catch {
+            partial = true;
+            candidatesByNft.set(nftKey, []);
           }
-          candidates = collectTokenIdsFromTransferLogs(logs);
-        } else {
-          // Base / production: ERC721Enumerable — avoids eth_getLogs plan caps.
-          candidates = await collectOwnedNftTokenIds({
-            owner: wallet.address,
-            balanceOf: (owner) =>
-              client.readContract({
-                address: nftContract,
-                abi: erc721EnumerableAbi,
-                functionName: "balanceOf",
-                args: [owner],
-              }),
-            tokenOfOwnerByIndex: (owner, index) =>
-              client.readContract({
-                address: nftContract,
-                abi: erc721EnumerableAbi,
-                functionName: "tokenOfOwnerByIndex",
-                args: [owner, index],
-              }),
-          });
-        }
+        }),
+      );
+      if (generation !== refreshGenerationRef.current) return;
 
+      // Phase 3 — match legs sequentially so claimed NFT IDs stay consistent.
+      const discovered: FivePoolPosition[] = [];
+      const claimedTokenIds = new Set<string>();
+
+      for (const work of legWork.sort((a, b) => a.legIndex - b.legIndex)) {
+        const { legIndex, leg, adapterMeta, binding, nftContract } = work;
+        const candidates = candidatesByNft.get(nftContract.toLowerCase()) ?? [];
         const isUni =
           binding.protocol === "uniswap-v3" || binding.protocol === "uniswap";
         const isAero =
           binding.protocol === "aerodrome-slipstream" || binding.protocol === "aerodrome";
 
-        const tokenId = await matchExactPoolMintTokenId({
-          candidates,
-          user: wallet.address,
-          expectedTokenA: leg.tokenA,
-          expectedTokenB: leg.tokenB,
-          protocol: binding.protocol,
-          expectedPool: binding.expectedPool,
-          factory: binding.factory,
-          nftContract,
-          expectedFee: binding.expectedFee,
-          expectedTickSpacing: binding.expectedTickSpacing,
-          claimedTokenIds,
-          readOwner: (id) =>
-            client.readContract({
-              address: adapterMeta.adapter,
-              abi: concentratedLiquidityAdapterAbi,
-              functionName: "ownerOf",
-              args: [id],
-            }),
-          readNpmPosition: async (id): Promise<NpmPositionIdentity> => {
-            if (isVerifiedLocal) {
-              // Local mock NFT has no Uni/Aero positions(); synthesize fee/tickSpacing
-              // from catalogue after token reads. Factory proof is short-circuited below.
-              const [token0, token1] = await client.readContract({
-                address: adapterMeta.adapter,
-                abi: concentratedLiquidityAdapterAbi,
-                functionName: "positionTokens",
-                args: [id],
-              });
-              let liquidity = BigInt(0);
-              try {
-                liquidity = await client.readContract({
+        try {
+          const tokenId = await withDiscoveryTimeout(
+            matchExactPoolMintTokenId({
+              candidates,
+              user: wallet.address!,
+              expectedTokenA: leg.tokenA,
+              expectedTokenB: leg.tokenB,
+              protocol: binding.protocol,
+              expectedPool: binding.expectedPool,
+              factory: binding.factory,
+              nftContract,
+              expectedFee: binding.expectedFee,
+              expectedTickSpacing: binding.expectedTickSpacing,
+              claimedTokenIds,
+              readOwner: (id) =>
+                client.readContract({
                   address: adapterMeta.adapter,
                   abi: concentratedLiquidityAdapterAbi,
-                  functionName: "liquidityOf",
+                  functionName: "ownerOf",
                   args: [id],
-                });
-              } catch {
-                liquidity = BigInt(0);
-              }
-              if (isUni) {
-                return {
-                  token0,
-                  token1,
-                  fee: binding.expectedFee,
-                  liquidity,
-                };
-              }
-              return {
-                token0,
-                token1,
-                tickSpacing: binding.expectedTickSpacing,
-                liquidity,
-              };
-            }
-            if (isUni) {
-              const pos = await client.readContract({
-                address: adapterMeta.npm,
-                abi: uniV3NpmPositionsAbi,
-                functionName: "positions",
-                args: [id],
-              });
-              return {
-                token0: pos[2],
-                token1: pos[3],
-                fee: Number(pos[4]),
-                liquidity: BigInt(pos[7]),
-              };
-            }
-            if (isAero) {
-              const pos = await client.readContract({
-                address: adapterMeta.npm,
-                abi: aeroNpmPositionsAbi,
-                functionName: "positions",
-                args: [id],
-              });
-              return {
-                token0: pos[2],
-                token1: pos[3],
-                tickSpacing: Number(pos[4]),
-                liquidity: BigInt(pos[7]),
-              };
-            }
-            throw new Error(`Unsupported protocol for NPM binding: ${binding.protocol}`);
-          },
-          resolveFactoryPool: async ({ token0, token1, fee, tickSpacing }) => {
-            if (isVerifiedLocal) {
-              // Mock adapters are poolId-scoped; catalogue pool is the configured binding target.
-              return binding.expectedPool;
-            }
-            if (isUni && fee != null) {
-              return client.readContract({
-                address: binding.factory,
-                abi: uniV3FactoryGetPoolAbi,
-                functionName: "getPool",
-                args: [token0, token1, fee],
-              });
-            }
-            if (isAero && tickSpacing != null) {
-              return client.readContract({
-                address: binding.factory,
-                abi: aeroFactoryGetPoolAbi,
-                functionName: "getPool",
-                args: [token0, token1, tickSpacing],
-              });
-            }
-            throw new Error("Factory pool resolution requires fee or tickSpacing");
-          },
-          readAmounts: (id) =>
-            client.readContract({
-              address: adapterMeta.adapter,
-              abi: concentratedLiquidityAdapterAbi,
-              functionName: "positionAmounts",
-              args: [id],
+                }),
+              readNpmPosition: async (id): Promise<NpmPositionIdentity> => {
+                if (isVerifiedLocal) {
+                  const [token0, token1] = await client.readContract({
+                    address: adapterMeta.adapter,
+                    abi: concentratedLiquidityAdapterAbi,
+                    functionName: "positionTokens",
+                    args: [id],
+                  });
+                  let liquidity = BigInt(0);
+                  try {
+                    liquidity = await client.readContract({
+                      address: adapterMeta.adapter,
+                      abi: concentratedLiquidityAdapterAbi,
+                      functionName: "liquidityOf",
+                      args: [id],
+                    });
+                  } catch {
+                    liquidity = BigInt(0);
+                  }
+                  if (isUni) {
+                    return { token0, token1, fee: binding.expectedFee, liquidity };
+                  }
+                  return {
+                    token0,
+                    token1,
+                    tickSpacing: binding.expectedTickSpacing,
+                    liquidity,
+                  };
+                }
+                if (isUni) {
+                  const pos = await client.readContract({
+                    address: adapterMeta.npm,
+                    abi: uniV3NpmPositionsAbi,
+                    functionName: "positions",
+                    args: [id],
+                  });
+                  return {
+                    token0: pos[2],
+                    token1: pos[3],
+                    fee: Number(pos[4]),
+                    liquidity: BigInt(pos[7]),
+                  };
+                }
+                if (isAero) {
+                  const pos = await client.readContract({
+                    address: adapterMeta.npm,
+                    abi: aeroNpmPositionsAbi,
+                    functionName: "positions",
+                    args: [id],
+                  });
+                  return {
+                    token0: pos[2],
+                    token1: pos[3],
+                    tickSpacing: Number(pos[4]),
+                    liquidity: BigInt(pos[7]),
+                  };
+                }
+                throw new Error(`Unsupported protocol for NPM binding: ${binding.protocol}`);
+              },
+              resolveFactoryPool: async ({ token0, token1, fee, tickSpacing }) => {
+                if (isVerifiedLocal) return binding.expectedPool;
+                if (isUni && fee != null) {
+                  return client.readContract({
+                    address: binding.factory,
+                    abi: uniV3FactoryGetPoolAbi,
+                    functionName: "getPool",
+                    args: [token0, token1, fee],
+                  });
+                }
+                if (isAero && tickSpacing != null) {
+                  return client.readContract({
+                    address: binding.factory,
+                    abi: aeroFactoryGetPoolAbi,
+                    functionName: "getPool",
+                    args: [token0, token1, tickSpacing],
+                  });
+                }
+                throw new Error("Factory pool resolution requires fee or tickSpacing");
+              },
+              readAmounts: (id) =>
+                client.readContract({
+                  address: adapterMeta.adapter,
+                  abi: concentratedLiquidityAdapterAbi,
+                  functionName: "positionAmounts",
+                  args: [id],
+                }),
             }),
-        });
+            FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS,
+            `matchLeg[${legIndex}]`,
+          );
 
-        if (tokenId == null) continue;
-        claimedTokenIds.add(positionNftClaimKey(nftContract, tokenId));
+          if (tokenId == null) {
+            partial = true;
+            continue;
+          }
+          claimedTokenIds.add(positionNftClaimKey(nftContract, tokenId));
 
-        const owner = await client.readContract({
-          address: adapterMeta.adapter,
-          abi: concentratedLiquidityAdapterAbi,
-          functionName: "ownerOf",
-          args: [tokenId],
-        });
-        if (owner.toLowerCase() !== wallet.address.toLowerCase()) continue;
-
-        const [amount0, amount1] = await client.readContract({
-          address: adapterMeta.adapter,
-          abi: concentratedLiquidityAdapterAbi,
-          functionName: "positionAmounts",
-          args: [tokenId],
-        });
-
-        let liquidity = BigInt(0);
-        try {
-          liquidity = await client.readContract({
+          const owner = await client.readContract({
             address: adapterMeta.adapter,
             abi: concentratedLiquidityAdapterAbi,
-            functionName: "liquidityOf",
+            functionName: "ownerOf",
             args: [tokenId],
           });
+          if (owner.toLowerCase() !== wallet.address!.toLowerCase()) {
+            partial = true;
+            continue;
+          }
+
+          const [amount0, amount1] = await client.readContract({
+            address: adapterMeta.adapter,
+            abi: concentratedLiquidityAdapterAbi,
+            functionName: "positionAmounts",
+            args: [tokenId],
+          });
+
+          let liquidity = BigInt(0);
+          try {
+            liquidity = await client.readContract({
+              address: adapterMeta.adapter,
+              abi: concentratedLiquidityAdapterAbi,
+              functionName: "liquidityOf",
+              args: [tokenId],
+            });
+          } catch {
+            liquidity = amount0 + amount1;
+          }
+
+          const approved = await client.readContract({
+            address: nftContract,
+            abi: erc721PositionAbi,
+            functionName: "getApproved",
+            args: [tokenId],
+          });
+          const adapterApproved = approved.toLowerCase() === adapterMeta.adapter.toLowerCase();
+
+          discovered.push(
+            toFivePoolPosition({
+              legIndex,
+              leg,
+              adapterMeta,
+              network: deployments.network,
+              chainId: deployments.chainId,
+              tokenId,
+              owner,
+              liquidity,
+              amount0,
+              amount1,
+              adapterApproved,
+              rangeStatus: "unknown",
+            }),
+          );
         } catch {
-          liquidity = amount0 + amount1;
+          partial = true;
         }
-
-        const approved = await client.readContract({
-          address: nftContract,
-          abi: erc721PositionAbi,
-          functionName: "getApproved",
-          args: [tokenId],
-        });
-        const adapterApproved = approved.toLowerCase() === adapterMeta.adapter.toLowerCase();
-
-        discovered.push(
-          toFivePoolPosition({
-            legIndex,
-            leg,
-            adapterMeta,
-            network: deployments.network,
-            chainId: deployments.chainId,
-            tokenId,
-            owner,
-            liquidity,
-            amount0,
-            amount1,
-            adapterApproved,
-            rangeStatus: deployments.network === "hardhat-local" ? "unknown" : "unknown",
-          }),
-        );
       }
 
-      setPositions(discovered.sort((a, b) => a.legIndex - b.legIndex));
+      if (generation !== refreshGenerationRef.current) return;
+
+      // Never wipe a good table on partial discovery — merge/replace only when we found legs,
+      // and keep prior rows when this pass found nothing but previous data exists.
+      if (discovered.length > 0) {
+        setPositions(discovered.sort((a, b) => a.legIndex - b.legIndex));
+        setStale(partial || discovered.length < FIVE_POOL_LEG_COUNT);
+        setPositionsError(
+          partial || discovered.length < FIVE_POOL_LEG_COUNT
+            ? "Some LP legs are still syncing — showing discovered positions. Tap Refresh."
+            : null,
+        );
+      } else {
+        setStale(true);
+        setPositionsError(
+          "Could not resolve LP NFTs yet — previous positions kept if shown. Tap Refresh.",
+        );
+        // Keep last-good positions (do not setPositions([])).
+      }
     } catch (err) {
+      if (generation !== refreshGenerationRef.current) return;
       setPositionsError(err instanceof Error ? err.message : "Failed to load positions");
-      setPositions([]);
+      setStale(true);
+      // Keep last-good positions so the My Position table does not disappear on RPC errors.
     } finally {
-      setPositionsLoading(false);
+      if (generation === refreshGenerationRef.current) {
+        setPositionsLoading(false);
+      }
     }
   }, [deployments, discoveryClient, expectedChainId, wallet.address]);
 
@@ -1022,12 +1122,12 @@ export function useFivePoolPositions() {
       if (open.length === 0) throw new Error("No open positions to exit");
       if (strategyRevoked || strategyExpired) {
         throw new Error(
-          "Strategy revoked or expired — USDC Withdraw All requires active permissions.",
+          "Strategy revoked or expired — USDC Withdraw requires active permissions.",
         );
       }
       if (!isExitAllToUsdcAvailable(d)) {
         throw new Error(
-          "USDC-only Withdraw All is not enabled on this deployment yet. Requires exitAllToUsdc + reverse cbBTC/WETH→USDC routes. Legacy mixed-asset exitAll is blocked in the product UI.",
+          "USDC-only Withdraw is not enabled on this deployment yet. Requires exitAllToUsdc + reverse cbBTC/WETH→USDC routes. Legacy mixed-asset exitAll is blocked in the product UI.",
         );
       }
 
@@ -1121,7 +1221,7 @@ export function useFivePoolPositions() {
 
       setProgress("awaiting-exit");
       setStatusMessage(
-        "Confirm Withdraw All (Receive USDC) — atomic; reverts if unwind or min USDC fails…",
+        "Confirm Withdraw (Receive USDC) — atomic; reverts if unwind or min USDC fails…",
       );
       setLegResults((prev) =>
         prev.map((r) => (r.status === "skipped" ? r : { ...r, status: "submitting" })),
@@ -1149,7 +1249,7 @@ export function useFivePoolPositions() {
         ),
       );
       setProgress("confirmed");
-      setStatusMessage("Withdraw All (USDC) confirmed");
+      setStatusMessage("Withdraw (USDC) confirmed");
       submittingRef.current = false;
       await refreshPositions();
     } catch (err) {
@@ -1159,7 +1259,7 @@ export function useFivePoolPositions() {
         reject ??
         (err instanceof Error
           ? `${err.message} — exitAllToUsdc reverted; no positions marked exited`
-          : "Withdraw All (USDC) failed — no positions marked exited");
+          : "Withdraw (USDC) failed — no positions marked exited");
       setError(message);
       setLegResults((prev) =>
         prev.map((r) =>

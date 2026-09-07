@@ -66,3 +66,6 @@ export function allocationPercentFromBps(bps: bigint): string {
   if (!Number.isFinite(pct)) return "—";
   return `${pct.toFixed(pct % 1 === 0 ? 0 : 1)}%`;
 }
+
+/** Equal five-pool launch allocation (2000 bps) when a live leg is not yet discovered. */
+export const FIVE_POOL_DEFAULT_ALLOCATION_BPS = BigInt(2000);

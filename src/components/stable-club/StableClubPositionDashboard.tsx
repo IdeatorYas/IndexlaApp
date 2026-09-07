@@ -13,8 +13,10 @@ import { usePositionUsdValue } from "@/components/stable-club/usePositionUsdValu
 import type { useFivePoolPositions } from "@/components/stable-club/useFivePoolPositions";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
 import { isExitAllToUsdcAvailable } from "@/lib/stable-club/exit-to-usdc";
+import { isFullUsdcWithdrawPercent } from "@/lib/stable-club/five-pool-positions";
 import {
   allocationPercentFromBps,
+  FIVE_POOL_DEFAULT_ALLOCATION_BPS,
   formatPositionValueDisplay,
 } from "@/lib/stable-club/position-display";
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
@@ -93,10 +95,13 @@ export function StableClubPositionDashboard({
     refreshEpoch,
   );
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [withdrawMode, setWithdrawMode] = useState<"100" | "custom">("100");
+  const [customPercent, setCustomPercent] = useState("50");
   const [now, setNow] = useState(() => Date.now());
   const [lastRefreshAt, setLastRefreshAt] = useState(() => Date.now());
 
   const usdcExitReady = isExitAllToUsdcAvailable(p.deployments);
+  const refreshPositions = p.refreshPositions;
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 15_000);
@@ -106,113 +111,97 @@ export function StableClubPositionDashboard({
   useEffect(() => {
     const id = window.setInterval(() => {
       if (!p.busy) {
-        void p.refreshPositions().then(() => {
+        void refreshPositions().then(() => {
           setLastRefreshAt(Date.now());
           setRefreshEpoch((n) => n + 1);
         });
       }
     }, 45_000);
     return () => window.clearInterval(id);
-  }, [p]);
+  }, [p.busy, refreshPositions]);
 
-  /** Aggregate multiple NFTs that share a pool into one dashboard row. */
+  /**
+   * Always render all five official catalogue pools.
+   * Live discovery fills value/claimable; missing legs stay visible (no disappearing rows).
+   */
   const rows = useMemo(() => {
-    const byPool = new Map<
-      string,
-      {
-        poolId: string;
-        pair: string;
-        protocol: string;
-        feeLabel: string;
-        apy: string;
-        allocationBps: bigint;
-        amountA: bigint;
-        amountB: bigint;
-        tokenASymbol: string;
-        tokenBSymbol: string;
-        claimableUsd: number;
-        valueUsdc: bigint | null;
-        active: boolean;
-        nftCount: number;
-      }
-    >();
-
-    const sorted = [...p.positions].sort((a, b) => a.legIndex - b.legIndex);
-    for (const pos of sorted) {
-      const catalogue = OFFICIAL_STABLE_CLUB_BASE_POOLS.find(
-        (pool) => pool.poolIdHash.toLowerCase() === pos.poolId.toLowerCase(),
-      );
+    const positionsByPool = new Map<string, typeof p.positions>();
+    for (const pos of p.positions) {
       const key = pos.poolId.toLowerCase();
-      const claim = claimable.rows.find((r) => r.legIndex === pos.legIndex);
-      const legUsd = usdValue.rows.find((r) => r.legIndex === pos.legIndex);
-      const existing = byPool.get(key);
-      if (!existing) {
-        byPool.set(key, {
-          poolId: pos.poolId,
-          pair: `${sym(pos.tokenASymbol)}/${sym(pos.tokenBSymbol)}`,
-          protocol: catalogue
-            ? protocolDisplayName(catalogue.protocol)
-            : String(pos.protocol ?? "CL"),
-          feeLabel: catalogue ? formatOfficialPoolFee(catalogue) : "",
-          apy: formatApyDisplay(
-            catalogue ? apyByPoolId[catalogue.id] : undefined,
-            apyLoading,
-          ),
-          allocationBps: pos.allocationBps,
-          amountA: pos.amountA,
-          amountB: pos.amountB,
-          tokenASymbol: pos.tokenASymbol,
-          tokenBSymbol: pos.tokenBSymbol,
-          claimableUsd: claim?.approxUsdc ?? 0,
-          valueUsdc: legUsd?.valueUsdc ?? null,
-          active: pos.liquidity > BigInt(0) && pos.rangeStatus !== "out-of-range",
-          nftCount: 1,
-        });
-      } else {
-        existing.amountA += pos.amountA;
-        existing.amountB += pos.amountB;
-        existing.claimableUsd += claim?.approxUsdc ?? 0;
-        if (legUsd?.valueUsdc != null) {
-          existing.valueUsdc = (existing.valueUsdc ?? BigInt(0)) + legUsd.valueUsdc;
-        }
-        existing.active =
-          existing.active ||
-          (pos.liquidity > BigInt(0) && pos.rangeStatus !== "out-of-range");
-        existing.nftCount += 1;
-      }
+      const list = positionsByPool.get(key) ?? [];
+      list.push(pos);
+      positionsByPool.set(key, list);
     }
 
-    return [...byPool.values()].map((row) => ({
-      key: row.poolId,
-      pair: row.pair,
-      protocol: row.protocol,
-      feeLabel: row.feeLabel,
-      tokenASymbol: row.tokenASymbol,
-      tokenBSymbol: row.tokenBSymbol,
-      apy: row.apy,
-      allocation: allocationPercentFromBps(row.allocationBps),
-      allocationPct: Number(row.allocationBps) / 100,
-      value:
-        row.valueUsdc != null
-          ? `$${Number(formatUnits(row.valueUsdc, 6)).toLocaleString(undefined, {
-              maximumFractionDigits: 2,
-            })}`
-          : formatPositionValueDisplay({
-              amountA: row.amountA,
-              amountB: row.amountB,
-              tokenASymbol: sym(row.tokenASymbol),
-              tokenBSymbol: sym(row.tokenBSymbol),
-              decimalsA: tokenDecimals(row.tokenASymbol),
-              decimalsB: tokenDecimals(row.tokenBSymbol),
-            }),
-      claimableUsd: row.claimableUsd,
-      active: row.active,
-      nftCount: row.nftCount,
-    }));
-  }, [apyByPoolId, apyLoading, claimable.rows, p.positions, usdValue.rows]);
+    return OFFICIAL_STABLE_CLUB_BASE_POOLS.map((catalogue) => {
+      const live = positionsByPool.get(catalogue.poolIdHash.toLowerCase()) ?? [];
+      const allocationBps =
+        live[0]?.allocationBps ?? FIVE_POOL_DEFAULT_ALLOCATION_BPS;
+      let amountA = BigInt(0);
+      let amountB = BigInt(0);
+      let claimableUsd = 0;
+      let valueUsdc: bigint | null = null;
+      let active = false;
+      for (const pos of live) {
+        amountA += pos.amountA;
+        amountB += pos.amountB;
+        const claim = claimable.rows.find((r) => r.legIndex === pos.legIndex);
+        claimableUsd += claim?.approxUsdc ?? 0;
+        const legUsd = usdValue.rows.find((r) => r.legIndex === pos.legIndex);
+        if (legUsd?.valueUsdc != null) {
+          valueUsdc = (valueUsdc ?? BigInt(0)) + legUsd.valueUsdc;
+        }
+        active =
+          active ||
+          (pos.liquidity > BigInt(0) && pos.rangeStatus !== "out-of-range");
+      }
+      const tokenASymbol = live[0]?.tokenASymbol ?? catalogue.tokenA.symbol;
+      const tokenBSymbol = live[0]?.tokenBSymbol ?? catalogue.tokenB.symbol;
+      const discovered = live.length > 0;
+      return {
+        key: catalogue.poolIdHash,
+        pair: `${sym(tokenASymbol)}/${sym(tokenBSymbol)}`,
+        protocol: protocolDisplayName(catalogue.protocol),
+        feeLabel: formatOfficialPoolFee(catalogue),
+        tokenASymbol,
+        tokenBSymbol,
+        apy: formatApyDisplay(apyByPoolId[catalogue.id], apyLoading),
+        allocation: allocationPercentFromBps(allocationBps),
+        allocationPct: Number(allocationBps) / 100,
+        value: !discovered
+          ? p.positionsLoading
+            ? "…"
+            : "—"
+          : valueUsdc != null
+            ? `$${Number(formatUnits(valueUsdc, 6)).toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })}`
+            : formatPositionValueDisplay({
+                amountA,
+                amountB,
+                tokenASymbol: sym(tokenASymbol),
+                tokenBSymbol: sym(tokenBSymbol),
+                decimalsA: tokenDecimals(tokenASymbol),
+                decimalsB: tokenDecimals(tokenBSymbol),
+              }),
+        claimableUsd: discovered ? claimableUsd : 0,
+        active: discovered ? active : false,
+        nftCount: live.length,
+        discovered,
+      };
+    });
+  }, [
+    apyByPoolId,
+    apyLoading,
+    claimable.rows,
+    p.positions,
+    p.positionsLoading,
+    usdValue.rows,
+  ]);
 
   const blendedApy = useMemo(() => {
     const nums = rows
+      .filter((r) => r.discovered)
       .map((r) => Number(r.apy.replace("%", "")))
       .filter((n) => Number.isFinite(n));
     if (apyLoading) return "…";
@@ -231,6 +220,15 @@ export function StableClubPositionDashboard({
     p.strategyExpired ||
     !p.onExpectedChain;
 
+  const withdrawPercent =
+    withdrawMode === "100" ? 100 : Number.parseFloat(customPercent);
+  const withdrawPercentValid =
+    Number.isFinite(withdrawPercent) &&
+    withdrawPercent >= 1 &&
+    withdrawPercent <= 100;
+  const withdrawIsFullUsdc =
+    withdrawPercentValid && isFullUsdcWithdrawPercent(withdrawPercent);
+
   const markRefreshed = () => {
     setLastRefreshAt(Date.now());
     setRefreshEpoch((n) => n + 1);
@@ -238,7 +236,7 @@ export function StableClubPositionDashboard({
 
   const afterAction = async (fn: () => Promise<void>) => {
     await fn();
-    await p.refreshPositions();
+    await refreshPositions();
     markRefreshed();
   };
 
@@ -269,7 +267,11 @@ export function StableClubPositionDashboard({
                 ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
                 : "Wallet"}
               {" · "}
-              {secondsAgo < 5 ? "Updated just now" : `Updated ${secondsAgo}s ago`}
+              {p.positionsLoading
+                ? "Syncing LPs…"
+                : secondsAgo < 5
+                  ? "Updated just now"
+                  : `Updated ${secondsAgo}s ago`}
               {fetchedAt
                 ? ` · APY ${source ?? "DefiLlama"} ${new Date(fetchedAt).toLocaleTimeString()}`
                 : ""}
@@ -279,7 +281,7 @@ export function StableClubPositionDashboard({
             type="button"
             disabled={p.busy || p.positionsLoading}
             onClick={() =>
-              void p.refreshPositions().then(() => {
+              void refreshPositions().then(() => {
                 markRefreshed();
               })
             }
@@ -332,6 +334,7 @@ export function StableClubPositionDashboard({
                 style={{
                   width: `${Math.max(row.allocationPct, 10)}%`,
                   background: ["#2dd4bf", "#38bdf8", "#818cf8", "#34d399", "#22d3ee"][i % 5],
+                  opacity: row.discovered ? 1 : 0.35,
                 }}
               />
             ))}
@@ -340,9 +343,10 @@ export function StableClubPositionDashboard({
       </div>
 
       <div className="px-3 py-3.5 sm:px-5 sm:py-4">
-        {p.positionsError ? (
-          <p className="mb-2 text-sm text-[#b42318]" role="alert">
-            {p.positionsError}
+        {p.stale || p.positionsError ? (
+          <p className="mb-2 text-sm text-amber-800" role="status">
+            {p.positionsError ??
+              "Position data may be incomplete — tap Refresh if a pool looks missing."}
           </p>
         ) : null}
 
@@ -388,17 +392,25 @@ export function StableClubPositionDashboard({
                     {row.apy}
                   </td>
                   <td className="py-3 pr-2 text-[14px] font-bold tabular-nums">
-                    ≈ ${row.claimableUsd.toFixed(2)}
+                    {row.discovered ? `≈ $${row.claimableUsd.toFixed(2)}` : "—"}
                   </td>
                   <td className="py-3">
                     <span
                       className={
-                        row.active
-                          ? "rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700"
-                          : "rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-extrabold text-amber-700"
+                        !row.discovered
+                          ? "rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-600"
+                          : row.active
+                            ? "rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700"
+                            : "rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-extrabold text-amber-700"
                       }
                     >
-                      {row.active ? "Active" : "Check"}
+                      {!row.discovered
+                        ? p.positionsLoading
+                          ? "Syncing"
+                          : "Pending"
+                        : row.active
+                          ? "Active"
+                          : "Check"}
                     </span>
                   </td>
                 </tr>
@@ -426,7 +438,7 @@ export function StableClubPositionDashboard({
             onClick={() => void afterAction(() => p.harvestAll())}
             className={actionBtn}
           >
-            Harvest All
+            Harvest
           </button>
           <button
             type="button"
@@ -434,15 +446,19 @@ export function StableClubPositionDashboard({
             onClick={() => void afterAction(() => p.compoundAll())}
             className={actionBtn}
           >
-            Compound All
+            Compound
           </button>
           <button
             type="button"
             disabled={!usdcExitReady || actionsBusy}
-            onClick={() => setConfirmOpen(true)}
+            onClick={() => {
+              setWithdrawMode("100");
+              setCustomPercent("50");
+              setConfirmOpen(true);
+            }}
             className="h-12 rounded-xl bg-[#0b1f3a] text-[12px] font-extrabold uppercase tracking-[0.07em] text-white shadow-[0_8px_22px_rgba(11,31,58,0.22)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Withdraw All · Receive USDC
+            Withdraw
           </button>
         </div>
 
@@ -471,13 +487,69 @@ export function StableClubPositionDashboard({
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Confirm Withdraw All"
+            aria-label="Confirm Withdraw"
             className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
           >
-            <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw All · Receive USDC</h2>
+            <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw · Receive USDC</h2>
             <p className="mt-2 text-sm text-[#5b6b7c]">
-              Closes all five LP legs and returns USDC only. Reverts on failure.
+              Choose 100% or a custom percent. Proceeds return as USDC only.
             </p>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setWithdrawMode("100")}
+                className={
+                  withdrawMode === "100"
+                    ? "h-11 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white"
+                    : "h-11 rounded-xl border border-[#d7e0ec] text-sm font-semibold text-[#0b1f3a]"
+                }
+              >
+                100%
+              </button>
+              <button
+                type="button"
+                onClick={() => setWithdrawMode("custom")}
+                className={
+                  withdrawMode === "custom"
+                    ? "h-11 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white"
+                    : "h-11 rounded-xl border border-[#d7e0ec] text-sm font-semibold text-[#0b1f3a]"
+                }
+              >
+                Custom %
+              </button>
+            </div>
+
+            {withdrawMode === "custom" ? (
+              <label className="mt-3 block text-sm text-[#5b6b7c]">
+                Percent
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={customPercent}
+                  onChange={(e) => setCustomPercent(e.target.value)}
+                  className="mt-1 h-11 w-full rounded-xl border border-[#d7e0ec] px-3 font-semibold text-[#0b1f3a]"
+                />
+              </label>
+            ) : null}
+
+            {!withdrawPercentValid ? (
+              <p className="mt-2 text-sm text-[#b42318]" role="alert">
+                Enter a percent between 1 and 100.
+              </p>
+            ) : !withdrawIsFullUsdc ? (
+              <p className="mt-2 text-sm text-amber-800" role="status">
+                Live USDC exit is atomic at 100% only. Choose 100% to withdraw as USDC, or set
+                custom to 100.
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-[#5b6b7c]">
+                Closes all five LP legs and returns USDC only. Reverts on failure.
+              </p>
+            )}
+
             {usdValue.totalUsdc != null && usdValue.totalUsdc > BigInt(0) ? (
               <ul className="mt-3 space-y-1.5 text-sm">
                 <li className="flex justify-between">
@@ -496,14 +568,14 @@ export function StableClubPositionDashboard({
               </button>
               <button
                 type="button"
-                disabled={p.busy}
+                disabled={p.busy || !withdrawIsFullUsdc}
                 onClick={() => {
                   setConfirmOpen(false);
                   void afterAction(() => p.exitAllToUsdc());
                 }}
                 className="h-10 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white disabled:opacity-45"
               >
-                Confirm
+                Confirm USDC
               </button>
             </div>
           </div>

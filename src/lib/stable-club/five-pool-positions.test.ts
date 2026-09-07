@@ -14,6 +14,7 @@ import {
   collectTokenIdsFromTransferLogs,
   exactPoolBindingExpectations,
   interpretLiveExitAmounts,
+  isFullUsdcWithdrawPercent,
   LOCAL_POSITION_DISCOVERY_FROM_BLOCK,
   mapAmountsToLegOrder,
   mapLegMinsToToken01,
@@ -25,6 +26,7 @@ import {
   resolvePositionDiscoveryFromBlock,
   toFivePoolPosition,
   uniswapV3FeeFromCatalogueBps,
+  withDiscoveryTimeout,
   type FivePoolPosition,
   type StrategyLegBinding,
 } from "@/lib/stable-club/five-pool-positions";
@@ -880,6 +882,28 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
       tokenOfOwnerByIndex: async (_o, i) => BigInt(100) + i,
     });
     expect(ids).toEqual([BigInt(100), BigInt(101), BigInt(102)]);
+  });
+
+  it("withDiscoveryTimeout resolves before deadline", async () => {
+    await expect(
+      withDiscoveryTimeout(Promise.resolve(42), 1_000, "fast"),
+    ).resolves.toBe(42);
+  });
+
+  it("withDiscoveryTimeout rejects after deadline", async () => {
+    await expect(
+      withDiscoveryTimeout(
+        new Promise(() => undefined),
+        20,
+        "slow-leg",
+      ),
+    ).rejects.toThrow(/slow-leg timed out/);
+  });
+
+  it("isFullUsdcWithdrawPercent only accepts 100", () => {
+    expect(isFullUsdcWithdrawPercent(100)).toBe(true);
+    expect(isFullUsdcWithdrawPercent(99)).toBe(false);
+    expect(isFullUsdcWithdrawPercent(50)).toBe(false);
   });
 
   it("correct Uni tokenId binds to its exact pool", async () => {

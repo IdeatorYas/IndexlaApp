@@ -979,4 +979,45 @@ export function toFivePoolPosition(params: {
   };
 }
 
+/**
+ * Bound a single RPC/discovery promise so one hung upstream cannot stall all five legs.
+ */
+export async function withDiscoveryTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${ms}ms`));
+        }, ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/** Default per-leg discovery budget (ms) — keeps My Position responsive under RPC pressure. */
+export const FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS = 12_000;
+
+/**
+ * Product Withdraw percent → basis points. Accepts 1–100 inclusive.
+ * Live executor USDC exit (`exitAllToUsdc`) requires 100% (fullExit).
+ */
+export function withdrawPercentToBps(percent: number): bigint {
+  if (!Number.isFinite(percent) || percent < 1 || percent > 100) {
+    throw new Error("Withdraw percent must be between 1 and 100");
+  }
+  return BigInt(Math.round(percent * 100));
+}
+
+export function isFullUsdcWithdrawPercent(percent: number): boolean {
+  return Number.isFinite(percent) && Math.round(percent) === 100;
+}
+
 export { explorerTxUrl, concentratedLiquidityAdapterAbi, erc721PositionAbi };

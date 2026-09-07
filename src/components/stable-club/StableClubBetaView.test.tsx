@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { StableClubBetaView } from "@/components/stable-club/StableClubBetaView";
+import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
@@ -160,6 +161,7 @@ describe("StableClubBetaView", () => {
       ...positionsState,
       positions: [],
       positionsLoading: false,
+      strategyRegistered: false,
       strategyRevoked: false,
       strategyExpired: false,
       busy: false,
@@ -217,40 +219,55 @@ describe("StableClubBetaView", () => {
     };
     positionsState = {
       ...positionsState,
-      positions: [0, 1, 2, 3, 4].map((legIndex) => ({
+      strategyRegistered: true,
+      positions: OFFICIAL_STABLE_CLUB_BASE_POOLS.map((pool, legIndex) => ({
         legIndex,
-        poolId: `0x${String(legIndex + 1).padStart(64, "0")}` as `0x${string}`,
-        poolLabel: `Pool ${legIndex + 1}`,
+        poolId: pool.poolIdHash,
+        poolLabel: pool.label,
         positionTokenId: BigInt(1000 + legIndex),
         amountA: BigInt(1_000_000),
         amountB: BigInt(0),
-        tokenA: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as `0x${string}`,
-        tokenB: "0x4200000000000000000000000000000000000006" as `0x${string}`,
-        tokenASymbol: "USDC",
-        tokenBSymbol: "WETH",
+        tokenA: pool.tokenA.address,
+        tokenB: pool.tokenB.address,
+        tokenASymbol: pool.tokenA.symbol,
+        tokenBSymbol: pool.tokenB.symbol,
         allocationBps: BigInt(2000),
         liquidity: BigInt(1),
         rangeStatus: "in-range",
-        protocol: "uniswap-v3",
-        npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as `0x${string}`,
-        adapter: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as `0x${string}`,
-        nftContract: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as `0x${string}`,
+        protocol: pool.protocol,
+        npm: pool.infrastructure.npm,
+        adapter: pool.infrastructure.npm,
+        nftContract: pool.infrastructure.npm,
       })),
     };
     render(<StableClubBetaView />);
 
-    // Default tab is Available Pools even with positions
-    expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "My Position" }));
-
+    // With live positions, My Position opens so the five-LP table is visible immediately
     expect(screen.getByRole("heading", { name: "My Position" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "My Position" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
     expect(screen.getByRole("button", { name: "Add Funds" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Harvest All" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Compound All" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Withdraw All · Receive USDC/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Harvest" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Compound" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Withdraw" })).toBeInTheDocument();
     expect(screen.queryByText(/Coming Soon/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Harvest All/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Withdraw All/i })).toBeNull();
+
+    // Full five-pool LP table always present
+    expect(screen.getByRole("columnheader", { name: "Pool" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Alloc" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "APY" })).toBeInTheDocument();
+    expect(screen.getAllByText("20%").length).toBeGreaterThanOrEqual(5);
+
+    fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
+    expect(screen.getByRole("dialog", { name: "Confirm Withdraw" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "100%" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Custom %" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     fireEvent.click(screen.getByRole("tab", { name: "Available Pools" }));
     expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
