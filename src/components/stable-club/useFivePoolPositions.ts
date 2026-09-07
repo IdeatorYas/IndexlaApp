@@ -17,6 +17,7 @@ import {
   permissionRegistryAbi,
   strategyPermissionRegistryAbi,
 } from "@/lib/stable-club/abis";
+import { requireGasPriceWithinSafetyCeiling } from "@/lib/stable-club/gas-price-ceiling-preflight";
 import {
   STABLE_CLUB_LOCAL_CHAIN,
   STABLE_CLUB_LOCAL_CHAIN_ID,
@@ -1029,6 +1030,12 @@ export function useFivePoolPositions() {
           "USDC-only Withdraw All is not enabled on this deployment yet. Requires exitAllToUsdc + reverse cbBTC/WETH→USDC routes. Legacy mixed-asset exitAll is blocked in the product UI.",
         );
       }
+
+      setStatusMessage("Checking network gas vs SafetyController ceiling…");
+      await requireGasPriceWithinSafetyCeiling({
+        publicClient,
+        safetyController: d.safetyController as Address,
+      });
 
       const byLeg = new Map(open.map((p) => [p.legIndex, p]));
       const liveAmountsByLeg = new Map<number, { amountA: bigint; amountB: bigint }>();

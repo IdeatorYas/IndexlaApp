@@ -32,7 +32,7 @@ export type StableClubLaunchParams = {
     userPaysGas: true;
     /**
      * Wei. Founder-approved for capped MVP.
-     * On-chain: SafetyController.maxGasPriceWei — adjustable only via 48h Timelock.
+     * On-chain: SafetyController.maxGasPriceWei — onlyOwner (live owner = MVP Safe).
      */
     gasCeilingWei: string;
   };
@@ -77,7 +77,7 @@ export const PRIVATE_BETA_LAUNCH_PARAMS: StableClubLaunchParams = {
     preferProtocolTwap: true,
     failClosedOnStaleOracle: true,
     userPaysGas: true,
-    gasCeilingWei: "1000000000",
+    gasCeilingWei: "100000000000",
   },
   automation: {
     harvestEnabled: false,

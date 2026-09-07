@@ -113,6 +113,13 @@ export const safetyControllerAbi = [
     inputs: [{ name: "poolId", type: "bytes32" }],
     outputs: [{ name: "", type: "bool" }],
   },
+  {
+    type: "function",
+    name: "maxGasPriceWei",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
 ] as const;
 
 export const permissionRegistryAbi = [

@@ -17,6 +17,7 @@ import {
   erc20Abi,
   strategyPermissionRegistryAbi,
 } from "@/lib/stable-club/abis";
+import { requireGasPriceWithinSafetyCeiling } from "@/lib/stable-club/gas-price-ceiling-preflight";
 import {
   STABLE_CLUB_BASE_RPC_PROXY_PATH,
 } from "@/lib/stable-club/base-rpc-client";
@@ -631,6 +632,11 @@ export function useFivePoolDeposit() {
         deploymentChainId: attestedDeployments.chainId,
         network: attestedDeployments.network,
         permit2: attestedDeployments.permit2,
+      });
+      setStatusMessage("Checking network gas vs SafetyController ceiling…");
+      await requireGasPriceWithinSafetyCeiling({
+        publicClient,
+        safetyController: attestedDeployments.safetyController,
       });
       if (!strategyRegisteredRef.current && !strategyRegistered) {
         throw new Error("Register the five-pool strategy before depositing");

@@ -1,16 +1,16 @@
 /**
  * Founder-approved Base gas ceiling for capped MVP.
- * Encoded in PRIVATE_BETA_LAUNCH_PARAMS; on-chain changes only via 48h Timelock
- * (SafetyController.setMaxGasPriceWei — owner = Timelock).
+ * Encoded in PRIVATE_BETA_LAUNCH_PARAMS. Live SafetyController owner is the MVP Safe
+ * (setMaxGasPriceWei is onlyOwner). Policy docs still prefer eventual Timelock ownership.
  */
-export const APPROVED_GAS_CEILING_WEI = "1000000000" as const; // 1 gwei
+export const APPROVED_GAS_CEILING_WEI = "100000000000" as const; // 100 gwei
 
 export const GAS_CEILING_RECOMMENDATION = {
   chainId: 8453 as const,
-  measuredAt: "2026-08-27",
+  measuredAt: "2026-09-07",
   status: "founder-approved-encoded" as const,
   recommendedGasCeilingWei: APPROVED_GAS_CEILING_WEI,
-  recommendedGasCeilingGwei: "1",
+  recommendedGasCeilingGwei: "100",
   evidence: {
     baseFeeSamples: 12,
     baseFeeWeiMin: "5000000",
@@ -24,13 +24,14 @@ export const GAS_CEILING_RECOMMENDATION = {
     notes: [
       "SafetyController checks tx.gasprice (L2), not total user cost including L1 data fee.",
       "L1 data fee dominates user UX cost variance on Base; keep separate ops monitoring.",
-      "1 gwei ceiling ≈ 200× observed baseFee — fail-closed on abnormal L2 fee spikes.",
-      "On-chain adjustments only via Safe → 48h Timelock → setMaxGasPriceWei.",
+      "Raised from 1 gwei → 100 gwei: 1 gwei blocked real Base txs when fee data ~1.004 gwei (GasPriceTooHigh).",
+      "Constructor default is 100 gwei; live Safe must execute setMaxGasPriceWei(100 gwei).",
+      "Live owner is MVP Safe (2-of-3); Timelock exists but is not current owner of SafetyController.",
     ],
   },
-  /** Founder approved 2026-08-27: encode into launch params for capped MVP. */
+  /** Founder approved: encode into launch params for capped MVP. */
   encodeInLaunchParams: true,
-  adjustableOnlyViaTimelock: true,
+  adjustableOnlyViaTimelock: false,
   timelockSecondsRequired: 48 * 60 * 60,
 } as const;
 

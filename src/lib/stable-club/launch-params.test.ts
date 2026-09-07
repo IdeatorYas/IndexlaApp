@@ -56,8 +56,8 @@ describe("private-beta launch params", () => {
     expect(floorSwapFeeAmount(BigInt(10_000))).toBe(BigInt(100));
   });
 
-  it("encodes founder-approved gasCeilingWei (1 gwei) with 48h Timelock governance", () => {
-    expect(PRIVATE_BETA_LAUNCH_PARAMS.safety.gasCeilingWei).toBe("1000000000");
+  it("encodes founder-approved gasCeilingWei (100 gwei)", () => {
+    expect(PRIVATE_BETA_LAUNCH_PARAMS.safety.gasCeilingWei).toBe("100000000000");
     expect(PRIVATE_BETA_LAUNCH_PARAMS.governance.timelockSeconds).toBe(48 * 3600);
     expect(PRIVATE_BETA_LAUNCH_PARAMS.governance.unpauseRequiresTimelock).toBe(true);
   });

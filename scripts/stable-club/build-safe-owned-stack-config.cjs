@@ -337,7 +337,7 @@ async function main() {
     args: [guardian],
   });
   pushTx(txs, {
-    label: "SafetyController.setMaxGasPriceWei (1 gwei)",
+    label: "SafetyController.setMaxGasPriceWei (100 gwei)",
     to: safetyController,
     method: "setMaxGasPriceWei",
     abi: abis.setMaxGasPriceWei,
