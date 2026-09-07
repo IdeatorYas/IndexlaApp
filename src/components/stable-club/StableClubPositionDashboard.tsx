@@ -489,9 +489,10 @@ export function StableClubPositionDashboard({
           >
             <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw to your wallet</h2>
             <p className="mt-2 text-sm text-[#5b6b7c]">
-              Set any percent 1–100. Exit runs on verified Uniswap / Aerodrome NPM only — tokens
-              collect to your wallet. No INDEXLA contract approval and no ERC20 approve to
-              unverified contracts.
+              Engine <span className="font-mono text-[11px]">npm-direct-v3</span>: one Uniswap /
+              Aerodrome multicall per LP (decrease + collect). Tokens go to your wallet. Your wallet
+              must show <span className="font-semibold">multicall</span> on the position manager —
+              reject if it shows Approve or any INDEXLA contract.
             </p>
 
             <div className="mt-4 grid grid-cols-2 gap-2">

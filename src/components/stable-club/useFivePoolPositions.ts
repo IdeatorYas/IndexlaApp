@@ -39,6 +39,7 @@ import {
   FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS,
   aeroFactoryGetPoolAbi,
   aeroNpmPositionsAbi,
+  applyNpmExitSlippageMin,
   assertWalletOwnsPosition,
   buildDirectNpmExitPlan,
   buildExitAllLegs,
@@ -48,6 +49,7 @@ import {
   collectOwnedNftTokenIdsWithRetry,
   collectTokenIdsFromTransferLogs,
   erc721EnumerableAbi,
+  mapLegMinsToToken01,
   exactPoolBindingExpectations,
   FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS,
   interpretLiveExitAmounts,
@@ -71,6 +73,13 @@ import {
   FIVE_POOL_POSITIONS_REFRESH_EVENT,
 } from "@/lib/stable-club/positions-refresh";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
+import {
+  assertAllowedNpm,
+  assertNotApproveCalldata,
+  buildNpmWithdrawMulticallCalls,
+  NPM_DIRECT_WITHDRAW_ENGINE,
+  npmPositionManagerAbi,
+} from "@/lib/stable-club/npm-direct-withdraw";
 import {
   attestPhase2aDeployments,
   isValidPhase2aPublicDeployments,
@@ -1462,9 +1471,9 @@ export function useFivePoolPositions() {
   );
 
   /**
-   * Product Withdraw — direct to verified Uniswap V3 / Aerodrome Slipstream NPM.
-   * Never calls INDEXLA executor/adapters (avoids MetaMask "ERC20 approve to unverified contract").
-   * Proceeds collect to the user wallet. No NFT approve-to-adapter.
+   * Product Withdraw — one multicall per LP on allowlisted Uniswap/Aerodrome NPM only.
+   * Never INDEXLA executor/adapters. Never approve() (wallets mislabel ERC721 approve as ERC20).
+   * Proceeds collect to the connected wallet.
    */
   const exitDirectNpmPercent = useCallback(
     async (percent: number) => {
@@ -1486,31 +1495,46 @@ export function useFivePoolPositions() {
       );
 
       try {
-        const { account, walletClient, d } = ensureReady();
-        if (open.length === 0) throw new Error("No open positions to withdraw");
-        if (!Number.isFinite(percent) || percent < 1 || percent > 100) {
-          throw new Error("Withdraw percent must be between 1 and 100");
+        if (!wallet.address || !wallet.provider) {
+          throw new Error("Connect wallet to withdraw");
         }
+        if (!onExpectedChain) {
+          throw new Error(`Wrong network — switch to chain ${expectedChainId}`);
+        }
+        const d = requireAttestedPhase2aDeployments(deployments);
         if (d.network === "hardhat-local") {
           throw new Error(
             "Direct NPM withdraw is Base-only. Use local Exit All / Emergency on Hardhat.",
           );
         }
+        if (open.length === 0) throw new Error("No open positions to withdraw");
+        if (!Number.isFinite(percent) || percent < 1 || percent > 100) {
+          throw new Error("Withdraw percent must be between 1 and 100");
+        }
+
+        const account = wallet.address;
+        const walletClient = createWalletClient({
+          account,
+          chain,
+          transport: custom(wallet.provider),
+        });
 
         const fullExit = Math.round(percent) === 100;
         const percentBps = fullExit ? 10_000 : Math.round(percent * 100);
+        const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
 
-        type Built = {
-          legIndex: number;
-          npm: Address;
-          decreaseData: Hex;
-          collectData: Hex;
-          burnData: Hex | null;
-        };
+        type Built = { legIndex: number; npm: Address; calls: Hex[] };
         const built: Built[] = [];
 
         for (const position of open) {
           assertWalletOwnsPosition(account, position.owner, position.positionTokenId);
+          const npm = assertAllowedNpm(position.npm);
+          if (position.adapter.toLowerCase() === npm.toLowerCase()) {
+            throw new Error(
+              `Refusing withdraw: leg ${position.legIndex} NPM equals adapter (INDEXLA path blocked)`,
+            );
+          }
+
           const live = await readLiveExitAmountsForPosition(publicClient, position, account);
           let liquidity = live.liquidity > BigInt(0) ? live.liquidity : position.liquidity;
           let amountA = live.amountA;
@@ -1526,106 +1550,70 @@ export function useFivePoolPositions() {
               );
             }
           }
-          const plan = buildDirectNpmExitPlan({
-            network: d.network,
-            position,
-            amountA,
-            amountB,
-            liquidity,
-            deadlineSec: BigInt(Math.floor(Date.now() / 1000) + 3600),
-            slippageBps,
-          });
-          if (
-            plan.mode !== "npm-owner" ||
-            !plan.decreaseLiquidityCalldata ||
-            !plan.collectCalldata
-          ) {
+          if (amountA <= BigInt(0) && amountB <= BigInt(0)) {
             throw new Error(
-              plan.steps.join(" ") ||
-                `Direct NPM withdraw unavailable for leg ${position.legIndex}`,
+              `Exit amounts are both zero for leg ${position.legIndex} — refresh and retry`,
             );
           }
-          built.push({
-            legIndex: position.legIndex,
-            npm: plan.nftContract,
-            decreaseData: plan.decreaseLiquidityCalldata,
-            collectData: plan.collectCalldata,
-            burnData: fullExit ? plan.burnCalldata : null,
+
+          const { amount0Min, amount1Min } = mapLegMinsToToken01({
+            tokenA: position.tokenA,
+            tokenB: position.tokenB,
+            amountAMin: applyNpmExitSlippageMin(amountA, slippageBps),
+            amountBMin: applyNpmExitSlippageMin(amountB, slippageBps),
           });
-          setLegResults((prev) =>
-            prev.map((r) =>
-              r.legIndex === position.legIndex ? { ...r, status: "pending" } : r,
-            ),
-          );
+
+          const { calls, multicallData } = buildNpmWithdrawMulticallCalls({
+            tokenId: position.positionTokenId,
+            liquidity,
+            amount0Min,
+            amount1Min,
+            deadline,
+            recipient: account,
+            burnAfter: fullExit,
+          });
+          assertNotApproveCalldata(multicallData);
+          for (const c of calls) assertNotApproveCalldata(c);
+
+          built.push({ legIndex: position.legIndex, npm, calls });
         }
 
-        const sendPhase = async (
-          label: string,
-          items: { legIndex: number; npm: Address; data: Hex }[],
-        ): Promise<Hex[]> => {
-          const hashes: Hex[] = [];
-          let i = 0;
-          for (const item of items) {
-            i += 1;
-            setProgress("awaiting-exit");
-            setStatusMessage(
-              `Sign ${label} ${i}/${items.length} on verified NPM (tokens → your wallet)…`,
-            );
-            setLegResults((prev) =>
-              prev.map((r) =>
-                r.legIndex === item.legIndex ? { ...r, status: "submitting" } : r,
-              ),
-            );
-            const hash = await walletClient.sendTransaction({
-              to: item.npm,
-              data: item.data,
-              account,
-            });
-            hashes.push(hash);
-            setLastTxHash(hash);
-          }
-          if (hashes.length > 0) {
-            setStatusMessage(`Confirming ${hashes.length} ${label} tx(s) on Base…`);
-            await Promise.all(
-              hashes.map((h) => waitForSuccessfulTransactionReceipt(publicClient, h)),
-            );
-          }
-          return hashes;
-        };
+        const hashes: Hex[] = [];
+        for (let i = 0; i < built.length; i++) {
+          const item = built[i]!;
+          setProgress("awaiting-exit");
+          setStatusMessage(
+            `${NPM_DIRECT_WITHDRAW_ENGINE}: sign Uniswap/Aerodrome multicall ${i + 1}/${built.length} ` +
+              `(tokens → your wallet). Reject if wallet shows Approve or an INDEXLA contract.`,
+          );
+          setLegResults((prev) =>
+            prev.map((r) =>
+              r.legIndex === item.legIndex ? { ...r, status: "submitting" } : r,
+            ),
+          );
 
-        await sendPhase(
-          "decreaseLiquidity",
-          built.map((b) => ({
-            legIndex: b.legIndex,
-            npm: b.npm,
-            data: b.decreaseData,
-          })),
+          const hash = await walletClient.writeContract({
+            address: item.npm,
+            abi: npmPositionManagerAbi,
+            functionName: "multicall",
+            args: [item.calls],
+            account,
+            chain,
+          });
+          assertNotApproveCalldata(
+            // defensive: wallet must have been asked for multicall, not approve
+            item.calls[0]!,
+          );
+          hashes.push(hash);
+          setLastTxHash(hash);
+        }
+
+        setStatusMessage(`Confirming ${hashes.length} NPM withdraw tx(s) on Base…`);
+        await Promise.all(
+          hashes.map((h) => waitForSuccessfulTransactionReceipt(publicClient, h)),
         );
 
-        const collectHashes = await sendPhase(
-          "collect",
-          built.map((b) => ({
-            legIndex: b.legIndex,
-            npm: b.npm,
-            data: b.collectData,
-          })),
-        );
-
-        const burns = built.filter((b): b is Built & { burnData: Hex } => b.burnData != null);
-        const burnHashes =
-          burns.length > 0
-            ? await sendPhase(
-                "burn",
-                burns.map((b) => ({
-                  legIndex: b.legIndex,
-                  npm: b.npm,
-                  data: b.burnData,
-                })),
-              )
-            : [];
-
-        const finalHash = burnHashes.at(-1) ?? collectHashes.at(-1);
-
+        const finalHash = hashes.at(-1);
         setLegResults((prev) =>
           prev.map((r) =>
             r.status === "skipped"
@@ -1636,8 +1624,8 @@ export function useFivePoolPositions() {
         setProgress("confirmed");
         setStatusMessage(
           fullExit
-            ? "Withdraw 100% confirmed — pool tokens collected to your wallet via verified NPM"
-            : `Withdraw ${Math.round(percent)}% confirmed — pool tokens collected to your wallet via verified NPM`,
+            ? `${NPM_DIRECT_WITHDRAW_ENGINE}: 100% collected to your wallet`
+            : `${NPM_DIRECT_WITHDRAW_ENGINE}: ${Math.round(percent)}% collected to your wallet`,
         );
         submittingRef.current = false;
         await refreshPositions();
@@ -1659,7 +1647,18 @@ export function useFivePoolPositions() {
         submittingRef.current = false;
       }
     },
-    [ensureReady, positions, publicClient, refreshPositions, slippageBps],
+    [
+      chain,
+      deployments,
+      expectedChainId,
+      onExpectedChain,
+      positions,
+      publicClient,
+      refreshPositions,
+      slippageBps,
+      wallet.address,
+      wallet.provider,
+    ],
   );
 
   /** Product Withdraw: always verified NPM → user wallet (never INDEXLA executor). */
