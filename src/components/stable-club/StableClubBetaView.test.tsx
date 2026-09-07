@@ -8,6 +8,9 @@ vi.mock("next/navigation", () => ({
 
 const connect = vi.fn();
 const exitAll = vi.fn();
+const harvestAll = vi.fn();
+const compoundAll = vi.fn();
+const exitAllToUsdc = vi.fn();
 const refreshPositions = vi.fn();
 
 let walletState = {
@@ -21,7 +24,11 @@ let walletState = {
 
 let positionsState = {
   deploymentsLoading: false,
-  deployments: { network: "base" as const, chainId: 8453 },
+  deployments: {
+    network: "base" as const,
+    chainId: 8453,
+    features: { exitAllToUsdc: true },
+  },
   deploymentsError: null as string | null,
   onExpectedChain: true,
   expectedChainId: 8453,
@@ -41,6 +48,12 @@ let positionsState = {
     allocationBps: bigint;
     liquidity: bigint;
     rangeStatus: string;
+    tokenA?: `0x${string}`;
+    tokenB?: `0x${string}`;
+    protocol?: string;
+    npm?: `0x${string}`;
+    adapter?: `0x${string}`;
+    nftContract?: `0x${string}`;
   }>,
   positionsLoading: false,
   positionsError: null as string | null,
@@ -57,10 +70,10 @@ let positionsState = {
   refreshPositions,
   exitIndividual: vi.fn(),
   exitAll,
-  exitAllToUsdc: vi.fn(),
-  exitAllToUsdcAvailable: false,
-  harvestAll: vi.fn(),
-  compoundAll: vi.fn(),
+  exitAllToUsdc,
+  exitAllToUsdcAvailable: true,
+  harvestAll,
+  compoundAll,
   emergencyExitLeg: vi.fn(),
   emergencyExitAllSequential: vi.fn(),
   revokeStrategy: vi.fn(),
@@ -70,12 +83,10 @@ let positionsState = {
 vi.mock("@/components/stable-club/useStableClubBetaReadiness", () => ({
   useStableClubBetaReadiness: () => ({
     readiness: {
-      depositsEnabled: false,
-      exitAllToUsdcAvailable: false,
-      depositBlockers: [
-        "USDC-only Withdraw All (exitAllToUsdc) is not enabled — deposits are unavailable until Safe-owned stack cutover + Base E2E",
-      ],
-      globalStatus: "Ready for activation",
+      depositsEnabled: true,
+      exitAllToUsdcAvailable: true,
+      depositBlockers: [] as string[],
+      globalStatus: "Ready",
     },
     loading: false,
     error: null,
@@ -86,7 +97,7 @@ vi.mock("@/components/stable-club/useStableClubBetaReadiness", () => ({
 vi.mock("@/components/stable-club/useFivePoolDeposit", () => ({
   useFivePoolDeposit: () => ({
     deploymentsLoading: false,
-    deployments: { network: "base", chainId: 8453 },
+    deployments: { network: "base", chainId: 8453, features: { exitAllToUsdc: true } },
     deploymentsError: null,
     amountInput: "20",
     setAmountInput: vi.fn(),
@@ -112,7 +123,7 @@ vi.mock("@/components/stable-club/useStableClubPoolApy", async (importOriginal) 
   const actual = await importOriginal<typeof import("@/components/stable-club/useStableClubPoolApy")>();
   return {
     ...actual,
-    useStableClubPoolApyMap: () => ({ byPoolId: {}, loading: false }),
+    useStableClubPoolApyMap: () => ({ byPoolId: {}, loading: false, fetchedAt: null, source: null }),
   };
 });
 
@@ -120,11 +131,22 @@ vi.mock("@/components/stable-club/useFivePoolPositions", () => ({
   useFivePoolPositions: () => positionsState,
 }));
 
+vi.mock("@/components/stable-club/usePositionClaimableFees", () => ({
+  usePositionClaimableFees: () => ({ rows: [], totalApproxUsdc: 0, loading: false }),
+}));
+
+vi.mock("@/components/stable-club/usePositionUsdValue", () => ({
+  usePositionUsdValue: () => ({ rows: [], totalUsdc: null, loading: false }),
+}));
+
 describe("StableClubBetaView", () => {
   afterEach(() => {
     cleanup();
     connect.mockReset();
     exitAll.mockReset();
+    harvestAll.mockReset();
+    compoundAll.mockReset();
+    exitAllToUsdc.mockReset();
     refreshPositions.mockReset();
     walletState = {
       status: "disconnected",
@@ -151,13 +173,11 @@ describe("StableClubBetaView", () => {
     expect(screen.getByRole("button", { name: "Connect Wallet" })).toBeInTheDocument();
     expect(screen.queryByText("My Stable Club Position")).toBeNull();
     expect(screen.queryByText("Deposit USDC")).toBeNull();
-    expect(screen.queryByText(/One Deposit\. Five Pools/i)).toBeNull();
-    expect(screen.queryByText(/UPCOMING/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Connect Wallet" }));
     expect(connect).toHaveBeenCalled();
   });
 
-  it("connected with no positions: shows compact deposit gated until USDC exit", () => {
+  it("connected with no positions: defaults to Available Pools with Deposit USDC", () => {
     walletState = {
       status: "connected",
       chainId: 8453,
@@ -167,15 +187,26 @@ describe("StableClubBetaView", () => {
       switchToBase: vi.fn(),
     };
     render(<StableClubBetaView />);
+    expect(screen.getByRole("tab", { name: "Available Pools" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tab", { name: "My Position" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
+    expect(screen.getByText("LIVE BETA")).toBeInTheDocument();
+    expect(screen.getByText(/One USDC deposit · Five LP positions · 20% each/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Deposit USDC" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deposit unavailable" })).toBeDisabled();
-    expect(screen.getByText(/Deposit and USDC Withdraw unlock together/i)).toBeInTheDocument();
-    expect(screen.queryByText("My Stable Club Position")).toBeNull();
-    expect(screen.queryByText(/Opt in Auto-Harvest/i)).toBeNull();
-    expect(screen.queryByText(/Three Strategies/i)).toBeNull();
+    expect(screen.getByRole("button", { name: "Deposit USDC" })).toBeEnabled();
+    expect(screen.queryByText(/Risk/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "My Position" }));
+    expect(screen.getByRole("heading", { name: "Deposit USDC" })).toBeInTheDocument();
   });
 
-  it("connected with positions: shows tabs, dashboard and gated withdraw", () => {
+  it("connected with positions: four action buttons and always-clickable tabs", () => {
     walletState = {
       status: "connected",
       chainId: 8453,
@@ -208,22 +239,22 @@ describe("StableClubBetaView", () => {
     };
     render(<StableClubBetaView />);
 
-    expect(screen.getByRole("tab", { name: "My Position" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Available Pools" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "My Position" })).toBeInTheDocument();
-    expect(screen.getAllByText("USDC/WETH").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("20%")).toHaveLength(5);
+    // Default tab is Available Pools even with positions
+    expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "My Position" }));
 
-    // Actions stay hidden until features.exitAllToUsdc (same gate as Deposit).
-    expect(screen.queryByRole("button", { name: /Harvest All/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Compound All/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Withdraw All/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "My Position" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Funds" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Harvest All" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Compound All" })).toBeInTheDocument();
     expect(
-      screen.getByText(/Harvest, Compound, and USDC Withdraw stay locked/i),
+      screen.getByRole("button", { name: /Withdraw All · Receive USDC/i }),
     ).toBeInTheDocument();
-    expect(exitAll).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Coming Soon/i)).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "Available Pools" }));
-    expect(screen.getByRole("heading", { name: "Available Pools" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "My Position" }));
+    expect(screen.getByRole("heading", { name: "My Position" })).toBeInTheDocument();
   });
 });

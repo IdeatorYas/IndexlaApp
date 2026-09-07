@@ -73,16 +73,37 @@ export function formatOfficialPoolFee(pool: {
   return `CL${pool.feeOrTick.tickSpacing}`;
 }
 
+/**
+ * Live APY for UI: never blank or "—".
+ * - loading → "…"
+ * - available (incl. 0) → "0.00%" / "12.34%"
+ * - genuine fetch/match failure → "Unavailable"
+ */
 export function formatApyDisplay(quote: PoolApyQuote | undefined, loading: boolean): string {
   if (loading) return "…";
-  if (!quote || quote.status !== "available" || quote.apyPercent == null) return "—";
-  return `${quote.apyPercent.toFixed(1)}%`;
+  if (!quote || quote.status !== "available" || quote.apyPercent == null) {
+    return "Unavailable";
+  }
+  return `${quote.apyPercent.toFixed(2)}%`;
 }
 
+/** Fee / reward APY parts — zero rewards show 0.00%, never dashes. */
 export function formatApyPart(value: number | null | undefined, loading: boolean): string {
   if (loading) return "…";
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${value.toFixed(1)}%`;
+  if (value == null || !Number.isFinite(value)) return "Unavailable";
+  return `${value.toFixed(2)}%`;
+}
+
+/** Zero is a valid live value (e.g. reward APY with no incentives). */
+export function formatApyPartAllowZero(
+  value: number | null | undefined,
+  loading: boolean,
+  quoteAvailable: boolean,
+): string {
+  if (loading) return "…";
+  if (!quoteAvailable) return "Unavailable";
+  if (value == null || !Number.isFinite(value)) return "0.00%";
+  return `${value.toFixed(2)}%`;
 }
 
 export function protocolDisplayName(protocol: "uniswap-v3" | "aerodrome-slipstream"): string {
@@ -91,7 +112,7 @@ export function protocolDisplayName(protocol: "uniswap-v3" | "aerodrome-slipstre
 }
 
 export function formatTvlUsd(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "—";
+  if (value == null || !Number.isFinite(value)) return "Unavailable";
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
   if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
   return `$${value.toFixed(0)}`;

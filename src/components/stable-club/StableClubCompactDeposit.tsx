@@ -1,30 +1,46 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFivePoolDeposit } from "@/components/stable-club/useFivePoolDeposit";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
 import { STABLE_CLUB_CHAIN_ID } from "@/lib/stable-club/constants";
 
 /**
- * Compact deposit form for connected wallets with no open five-pool position.
+ * Compact deposit / Add Funds form — equal 20% allocation across five Base pools.
  */
 export function StableClubCompactDeposit({
   depositsEnabled,
+  onDepositSuccess,
+  title = "Deposit USDC",
+  subtitle = "One deposit · equal 20% allocation across five Base pools",
+  compact = false,
 }: {
   depositsEnabled: boolean;
+  onDepositSuccess?: () => void;
+  title?: string;
+  subtitle?: string;
+  compact?: boolean;
 }) {
   const d = useFivePoolDeposit();
   const wallet = useStableClubWallet();
   const [panelError, setPanelError] = useState<string | null>(null);
+  const notifiedTx = useRef<string | null>(null);
   const wrongNetwork = wallet.chainId != null && wallet.chainId !== STABLE_CLUB_CHAIN_ID;
   const busy = d.deploymentsLoading || d.busy;
   const failClosed = !d.deploymentsLoading && (!depositsEnabled || !d.deployments);
+
+  useEffect(() => {
+    if (d.progress !== "confirmed" || !d.lastTxHash) return;
+    if (notifiedTx.current === d.lastTxHash) return;
+    notifiedTx.current = d.lastTxHash;
+    onDepositSuccess?.();
+  }, [d.progress, d.lastTxHash, onDepositSuccess]);
 
   const onDeposit = () => {
     setPanelError(null);
     if (failClosed) {
       setPanelError(
-        "Deposits are unavailable until USDC-only Withdraw All (exitAllToUsdc) is enabled on Base. Deposit and Withdraw unlock together after Safe-owned stack cutover + Base E2E.",
+        "Deposits are unavailable until USDC-only Withdraw All (exitAllToUsdc) is enabled on Base.",
       );
       return;
     }
@@ -37,13 +53,23 @@ export function StableClubCompactDeposit({
 
   return (
     <section
-      className="rounded-2xl border border-[#d7e0ec] bg-white p-5 shadow-[0_1px_2px_rgba(11,31,58,0.06)] sm:p-6"
+      className={
+        compact
+          ? "rounded-xl border border-[#d7e0ec] bg-[#f8fafc] p-4"
+          : "rounded-2xl border border-[#d7e0ec] bg-white p-5 shadow-[0_1px_2px_rgba(11,31,58,0.06)] sm:p-6"
+      }
       aria-label="Deposit into Stable Club"
     >
-      <h1 className="text-2xl font-bold tracking-tight text-[#0b1f3a]">Deposit USDC</h1>
-      <p className="mt-1 text-sm text-[#5b6b7c]">
-        One deposit · equal 20% allocation across five Base pools
-      </p>
+      <h1
+        className={
+          compact
+            ? "text-lg font-bold tracking-tight text-[#0b1f3a]"
+            : "text-2xl font-bold tracking-tight text-[#0b1f3a]"
+        }
+      >
+        {title}
+      </h1>
+      <p className="mt-1 text-sm text-[#5b6b7c]">{subtitle}</p>
 
       {wrongNetwork ? (
         <p className="mt-4 text-sm text-[#b42318]" role="alert">
@@ -62,7 +88,7 @@ export function StableClubCompactDeposit({
             d.setAmountInput(e.target.value);
             d.invalidatePlan();
           }}
-          className="mt-2 h-12 w-full rounded-xl border border-[#d7e0ec] bg-[#f8fafc] px-3 text-base text-[#0b1f3a] outline-none focus:border-[#1a4f8c]"
+          className="mt-2 h-12 w-full rounded-xl border border-[#d7e0ec] bg-white px-3 text-base text-[#0b1f3a] outline-none focus:border-[#1a4f8c]"
           placeholder="20"
           autoComplete="off"
         />
@@ -80,15 +106,10 @@ export function StableClubCompactDeposit({
             ? "Working…"
             : wrongNetwork
               ? "Switch to Base"
-              : "Deposit"}
+              : title.includes("Add")
+                ? "Add Funds"
+                : "Deposit USDC"}
       </button>
-
-      {failClosed ? (
-        <p className="mt-3 text-sm text-amber-800" role="status">
-          Deposit and USDC Withdraw unlock together after Safe-owned stack cutover enables
-          exitAllToUsdc. Legacy mixed-asset exit is never offered.
-        </p>
-      ) : null}
 
       {d.statusMessage ? (
         <p className="mt-3 text-sm text-emerald-800">{d.statusMessage}</p>
