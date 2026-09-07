@@ -63,6 +63,35 @@ describe("transaction-receipt (SC-F01)", () => {
     ).rejects.toThrow(/out of gas/i);
   });
 
+  it("detects wallet-substituted OOG via mined tx.gas even when requested was 10M", async () => {
+    const publicClient = {
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: "reverted",
+        transactionHash: HASH,
+        gasUsed: BigInt(6_554_393),
+      }),
+      getTransaction: vi.fn().mockResolvedValue({
+        gas: BigInt(6_561_716),
+      }),
+    };
+    await expect(
+      waitForSuccessfulTransactionReceipt(publicClient, HASH, {
+        gasLimit: BigInt(10_000_000),
+      }),
+    ).rejects.toThrow(/out of gas/i);
+    expect(publicClient.getTransaction).toHaveBeenCalledWith({ hash: HASH });
+  });
+
+  it("assertSuccessfulTransactionReceipt prefers minedGasLimit for OOG", () => {
+    expect(() =>
+      assertSuccessfulTransactionReceipt(
+        { status: "reverted", gasUsed: BigInt(6_554_393), transactionHash: HASH },
+        HASH,
+        { gasLimit: BigInt(10_000_000), minedGasLimit: BigInt(6_561_716) },
+      ),
+    ).toThrow(/out of gas/i);
+  });
+
   it("waitForSuccessfulTransactionReceipt throws on reverted mined tx", async () => {
     const publicClient = {
       waitForTransactionReceipt: vi.fn().mockResolvedValue({

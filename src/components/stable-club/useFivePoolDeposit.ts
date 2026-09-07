@@ -5,6 +5,7 @@ import {
   createPublicClient,
   createWalletClient,
   custom,
+  encodeFunctionData,
   formatUnits,
   http,
   type Address,
@@ -59,7 +60,13 @@ import {
 import { readClFivePoolPermit2AllowancesWithRpcGuard } from "@/lib/stable-club/permit2-allowance-rpc";
 import {
   applyFivePoolDepositGasBuffer,
+  preflightDepositFivePoolStrategyCall,
+  requireFivePoolDepositGasLimit,
 } from "@/lib/stable-club/five-pool-deposit-gas";
+import {
+  assertRegistrationAllowsDeposit,
+  isStrategyAlreadyExistsError,
+} from "@/lib/stable-club/five-pool-registration-flow";
 import { requestFivePoolPositionsRefresh } from "@/lib/stable-club/positions-refresh";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
@@ -475,16 +482,22 @@ export function useFivePoolDeposit() {
     try {
       attestedDeployments = requireAttestedPhase2aDeployments(deployments);
     } catch {
-      setError("Wallet and deployments required");
-      return;
+      const message = "Wallet and deployments required";
+      setError(message);
+      setProgress("failed");
+      throw new Error(message);
     }
     if (!wallet.address || !wallet.provider) {
-      setError("Wallet and deployments required");
-      return;
+      const message = "Wallet and deployments required";
+      setError(message);
+      setProgress("failed");
+      throw new Error(message);
     }
     if (!onExpectedChain) {
-      setError(`Wrong network — switch to chain ${expectedChainId}`);
-      return;
+      const message = `Wrong network — switch to chain ${expectedChainId}`;
+      setError(message);
+      setProgress("failed");
+      throw new Error(message);
     }
     try {
       assertChainEnvironmentMatch({
@@ -494,8 +507,10 @@ export function useFivePoolDeposit() {
         permit2: attestedDeployments.permit2,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Chain/environment mismatch");
-      return;
+      const message = e instanceof Error ? e.message : "Chain/environment mismatch";
+      setError(message);
+      setProgress("failed");
+      throw e instanceof Error ? e : new Error(message);
     }
     setError(null);
     setStatusMessage("Registering five-pool strategy…");
@@ -572,7 +587,7 @@ export function useFivePoolDeposit() {
     } catch (err) {
       const message =
         userRejectMessage(err) ?? (err instanceof Error ? err.message : "Registration failed");
-      if (/StrategyAlreadyExists/i.test(message)) {
+      if (isStrategyAlreadyExistsError(message)) {
         await refreshBalancesAndStrategy();
         setError(null);
         setProgress("idle");
@@ -581,6 +596,7 @@ export function useFivePoolDeposit() {
       }
       setError(message);
       setProgress("failed");
+      throw err instanceof Error ? err : new Error(message);
     }
   }, [
     chain,
@@ -590,6 +606,7 @@ export function useFivePoolDeposit() {
     publicClient,
     refreshBalancesAndStrategy,
     wallet.address,
+    wallet.chainId,
     wallet.provider,
   ]);
 
@@ -823,7 +840,7 @@ export function useFivePoolDeposit() {
       ] as const;
 
       // HTTP estimate + buffer — wallet eth_estimateGas alone OOGed at ~6.59M
-      // (tx 0x1e76759c…); same calldata succeeds with higher gas.
+      // (tx 0x1e76759c… / 0xac64ff1b…); same calldata succeeds at ≥10M.
       const gasEstimate = await allowanceReadClient.estimateContractGas({
         address: attestedDeployments.clExecutor,
         abi: concentratedLiquidityExecutorAbi,
@@ -831,7 +848,26 @@ export function useFivePoolDeposit() {
         args: depositWriteArgs as never,
         account: ownerAddress,
       });
-      const depositGas = applyFivePoolDepositGasBuffer(gasEstimate);
+      const depositGas = requireFivePoolDepositGasLimit(
+        applyFivePoolDepositGasBuffer(gasEstimate),
+      );
+
+      setStatusMessage("Simulating deposit…");
+      const depositCalldata = encodeFunctionData({
+        abi: concentratedLiquidityExecutorAbi,
+        functionName: "depositFivePoolStrategy",
+        args: depositWriteArgs as never,
+      });
+      await preflightDepositFivePoolStrategyCall({
+        gas: depositGas,
+        call: ({ gas }) =>
+          allowanceReadClient.call({
+            account: ownerAddress,
+            to: attestedDeployments.clExecutor,
+            data: depositCalldata,
+            gas,
+          }),
+      });
 
       setStatusMessage("Confirm depositFivePoolStrategy…");
 
@@ -924,13 +960,10 @@ export function useFivePoolDeposit() {
       }
       if (!strategyRegisteredRef.current && !strategyRegistered) {
         setStatusMessage("Registering five-pool strategy…");
+        // registerStrategy rethrows on hard failure; StrategyAlreadyExists returns normally.
         await registerStrategy();
         await refreshBalancesAndStrategy();
-        if (!strategyRegisteredRef.current) {
-          throw new Error(
-            "Strategy registration did not complete. Confirm the wallet prompt, then try Deposit again.",
-          );
-        }
+        assertRegistrationAllowsDeposit(strategyRegisteredRef.current);
       }
       if (!planRef.current || !quoteBundleRef.current) {
         setStatusMessage("Preparing quotes…");
