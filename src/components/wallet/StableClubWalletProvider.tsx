@@ -12,6 +12,7 @@ import { useAppKit } from "@reown/appkit/react";
 import {
   useAccount,
   useChainId,
+  useConnect,
   useDisconnect,
   useSwitchChain,
 } from "wagmi";
@@ -53,6 +54,7 @@ export function StableClubWalletProvider({
   const { open } = useAppKit();
   const { address, isConnected, isConnecting, connector } = useAccount();
   const chainId = useChainId();
+  const { connectAsync, connectors } = useConnect();
   const { disconnectAsync } = useDisconnect();
   const { switchChainAsync } = useSwitchChain();
   const [provider, setProvider] = useState<EIP1193Provider | null>(null);
@@ -81,6 +83,44 @@ export function StableClubWalletProvider({
       cancelled = true;
     };
   }, [connector]);
+
+  /**
+   * Auto-reconnect injected wallets (MetaMask / Playwright inject) when the site
+   * already has eth_accounts authorized — required for My Position discovery.
+   */
+  useEffect(() => {
+    if (preferLocalHardhat || isConnected || isConnecting) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const eth = (
+          typeof window !== "undefined"
+            ? (window as Window & { ethereum?: EIP1193Provider }).ethereum
+            : undefined
+        );
+        if (!eth?.request) return;
+        const accounts = (await eth.request({ method: "eth_accounts" })) as string[];
+        if (cancelled || !accounts?.[0]) return;
+        const injected =
+          connectors.find((c) => c.type === "injected") ??
+          connectors.find((c) => c.id === "injected" || /injected|metaMask/i.test(c.name));
+        if (!injected) return;
+        await connectAsync({ connector: injected, chainId: expectedChainId });
+      } catch {
+        // Manual Connect Wallet remains available.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    preferLocalHardhat,
+    isConnected,
+    isConnecting,
+    connectors,
+    connectAsync,
+    expectedChainId,
+  ]);
 
   const status: StableClubWalletState["status"] = !isConnected
     ? isConnecting

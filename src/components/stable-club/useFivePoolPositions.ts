@@ -44,7 +44,7 @@ import {
   buildExitAllLegs,
   buildFullExitLegParams,
   buildPositionDiscoveryBlockRanges,
-  collectOwnedNftTokenIds,
+  collectOwnedNftTokenIdsWithRetry,
   collectTokenIdsFromTransferLogs,
   erc721EnumerableAbi,
   exactPoolBindingExpectations,
@@ -548,6 +548,7 @@ export function useFivePoolPositions() {
       // Phase 2 — enumerate each unique NPM once (Uni/Aero legs share contracts).
       const candidatesByNft = new Map<string, bigint[]>();
       const uniqueNfts = [...new Set(legWork.map((w) => w.nftContract.toLowerCase()))];
+      const enumErrors: string[] = [];
       await Promise.all(
         uniqueNfts.map(async (nftKey) => {
           const nftContract = legWork.find((w) => w.nftContract.toLowerCase() === nftKey)!
@@ -575,8 +576,9 @@ export function useFivePoolPositions() {
                   }
                   return collectTokenIdsFromTransferLogs(logs);
                 }
-                return collectOwnedNftTokenIds({
+                return collectOwnedNftTokenIdsWithRetry({
                   owner: wallet.address!,
+                  label: `nftEnumerate[${nftKey.slice(0, 10)}]`,
                   balanceOf: (owner) =>
                     client.readContract({
                       address: nftContract,
@@ -593,17 +595,29 @@ export function useFivePoolPositions() {
                     }),
                 });
               })(),
-              FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS * 2,
+              FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS * 3,
               `nftEnumerate[${nftKey.slice(0, 10)}]`,
             );
             candidatesByNft.set(nftKey, candidates);
-          } catch {
+          } catch (err) {
             partial = true;
-            candidatesByNft.set(nftKey, []);
+            const msg = err instanceof Error ? err.message : String(err);
+            enumErrors.push(msg);
+            // Do not poison match with empty candidates on hard failure — leave unset
+            // so Phase 3 can skip this NPM cleanly and surface the RPC error.
           }
         }),
       );
       if (generation !== refreshGenerationRef.current) return;
+
+      if (enumErrors.length > 0 && candidatesByNft.size === 0) {
+        setStale(true);
+        setPositionsError(
+          `LP discovery RPC failed (${enumErrors[0]}). Tap Refresh — positions kept if previously loaded.`,
+        );
+        setPositionsLoading(false);
+        return;
+      }
 
       // Phase 3 — match legs sequentially so claimed NFT IDs stay consistent.
       const discovered: FivePoolPosition[] = [];
@@ -611,6 +625,10 @@ export function useFivePoolPositions() {
 
       for (const work of legWork.sort((a, b) => a.legIndex - b.legIndex)) {
         const { legIndex, leg, adapterMeta, binding, nftContract } = work;
+        if (!candidatesByNft.has(nftContract.toLowerCase())) {
+          partial = true;
+          continue;
+        }
         const candidates = candidatesByNft.get(nftContract.toLowerCase()) ?? [];
         const isUni =
           binding.protocol === "uniswap-v3" || binding.protocol === "uniswap";

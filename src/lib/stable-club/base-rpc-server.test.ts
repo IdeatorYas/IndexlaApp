@@ -31,10 +31,19 @@ describe("base-rpc-server upstream resolution", () => {
     expect(resolveStableClubBaseUpstreamRpcUrls()).toEqual([
       "https://primary.example/rpc",
       "https://fallback.example/rpc",
+      "https://base.publicnode.com",
+      "https://base.llamarpc.com",
     ]);
   });
 
   it("returns empty when nothing configured", () => {
     expect(resolveStableClubBaseUpstreamRpcUrls()).toEqual([]);
+  });
+
+  it("does not attach public last-resorts without a configured primary", () => {
+    process.env.BASE_RPC_FALLBACK_URL = "https://fallback.example/rpc";
+    // FALLBACK alone still counts as configured upstream
+    expect(resolveStableClubBaseUpstreamRpcUrls()[0]).toBe("https://fallback.example/rpc");
+    expect(resolveStableClubBaseUpstreamRpcUrls()).toContain("https://base.publicnode.com");
   });
 });

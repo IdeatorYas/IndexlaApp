@@ -1003,7 +1003,41 @@ export async function withDiscoveryTimeout<T>(
 }
 
 /** Default per-leg discovery budget (ms) — keeps My Position responsive under RPC pressure. */
-export const FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS = 12_000;
+export const FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS = 18_000;
+
+/** Retries for NFT enumeration when upstream rate-limits mid-refresh. */
+export const FIVE_POOL_NFT_ENUM_MAX_ATTEMPTS = 3;
+
+export async function collectOwnedNftTokenIdsWithRetry(params: {
+  owner: Address;
+  balanceOf: (owner: Address) => Promise<bigint>;
+  tokenOfOwnerByIndex: (owner: Address, index: bigint) => Promise<bigint>;
+  maxIds?: number;
+  attempts?: number;
+  label?: string;
+}): Promise<bigint[]> {
+  const attempts = params.attempts ?? FIVE_POOL_NFT_ENUM_MAX_ATTEMPTS;
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await collectOwnedNftTokenIds({
+        owner: params.owner,
+        balanceOf: params.balanceOf,
+        tokenOfOwnerByIndex: params.tokenOfOwnerByIndex,
+        maxIds: params.maxIds,
+      });
+    } catch (err) {
+      lastErr = err;
+      if (i + 1 < attempts) {
+        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+      }
+    }
+  }
+  const label = params.label ?? "nftEnumerate";
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error(`${label} failed after ${attempts} attempts`);
+}
 
 /**
  * Product Withdraw percent → basis points. Accepts 1–100 inclusive.

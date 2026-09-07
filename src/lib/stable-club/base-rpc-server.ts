@@ -1,8 +1,17 @@
 /**
  * Server-only Base upstream RPC list for the Stable Club JSON-RPC proxy.
  * Prefer BASE_RPC_URL / QUICKNODE — never default to public mainnet.base.org.
+ *
+ * Last-resort public HTTPS endpoints (read-only proxy) keep position discovery
+ * alive when QuikNode/Alchemy hit daily rate limits.
  */
 import "server-only";
+
+/** Free/public Base HTTPS RPCs — never mainnet.base.org. */
+export const STABLE_CLUB_BASE_PUBLIC_FALLBACK_RPCS = [
+  "https://base.publicnode.com",
+  "https://base.llamarpc.com",
+] as const;
 
 export function resolveStableClubBaseUpstreamRpcUrls(): string[] {
   const urls: string[] = [];
@@ -10,11 +19,17 @@ export function resolveStableClubBaseUpstreamRpcUrls(): string[] {
     const url = raw?.trim();
     if (!url) return;
     if (/^https:\/\/mainnet\.base\.org\/?$/i.test(url)) return;
+    if (!/^https:\/\//i.test(url)) return;
     if (!urls.includes(url)) urls.push(url);
   };
   push(process.env.BASE_RPC_URL);
   push(process.env.QUICKNODE_RPC_URL);
   push(process.env.BASE_RPC_FALLBACK_URL);
+  push(process.env.BASE_RPC_FALLBACK_URL_2);
+  // Only attach public last-resorts when a primary paid/configured RPC exists.
+  if (urls.length > 0) {
+    for (const pub of STABLE_CLUB_BASE_PUBLIC_FALLBACK_RPCS) push(pub);
+  }
   return urls;
 }
 
