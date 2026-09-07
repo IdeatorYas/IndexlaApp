@@ -40,17 +40,17 @@ function TokenPairMarks({ a, b }: { a: string; b: string }) {
     <div className="relative flex shrink-0 items-center">
       {sa ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={sa} alt="" className="h-7 w-7 rounded-full ring-1 ring-white" />
+        <img src={sa} alt="" className="h-8 w-8 rounded-full ring-1 ring-white" />
       ) : (
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#0b1f3a] text-[9px] font-bold text-white">
+        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#0b1f3a] text-[10px] font-bold text-white">
           {sym(a).slice(0, 2)}
         </span>
       )}
       {sb ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={sb} alt="" className="-ml-2 h-7 w-7 rounded-full ring-1 ring-white" />
+        <img src={sb} alt="" className="-ml-2.5 h-8 w-8 rounded-full ring-1 ring-white" />
       ) : (
-        <span className="-ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#1a4f8c] text-[9px] font-bold text-white">
+        <span className="-ml-2.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#1a4f8c] text-[10px] font-bold text-white">
           {sym(b).slice(0, 2)}
         </span>
       )}
@@ -73,12 +73,14 @@ export function StableClubPositionDashboard({
   const wallet = useStableClubWallet();
   const { byPoolId: apyByPoolId, loading: apyLoading, fetchedAt, source } =
     useStableClubPoolApyMap();
+  const [refreshEpoch, setRefreshEpoch] = useState(0);
   const claimable = usePositionClaimableFees(
     p.positions.map((pos) => ({
       legIndex: pos.legIndex,
       npm: pos.npm,
       positionTokenId: pos.positionTokenId,
     })),
+    refreshEpoch,
   );
   const usdValue = usePositionUsdValue(
     p.positions.map((pos) => ({
@@ -88,6 +90,7 @@ export function StableClubPositionDashboard({
       amountA: pos.amountA,
       amountB: pos.amountB,
     })),
+    refreshEpoch,
   );
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -102,7 +105,12 @@ export function StableClubPositionDashboard({
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      if (!p.busy) void p.refreshPositions().then(() => setLastRefreshAt(Date.now()));
+      if (!p.busy) {
+        void p.refreshPositions().then(() => {
+          setLastRefreshAt(Date.now());
+          setRefreshEpoch((n) => n + 1);
+        });
+      }
     }, 45_000);
     return () => window.clearInterval(id);
   }, [p]);
@@ -207,9 +215,10 @@ export function StableClubPositionDashboard({
     const nums = rows
       .map((r) => Number(r.apy.replace("%", "")))
       .filter((n) => Number.isFinite(n));
+    if (apyLoading) return "…";
     if (!nums.length) return "Unavailable";
     return `${(nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(2)}%`;
-  }, [rows]);
+  }, [apyLoading, rows]);
 
   const totalValue =
     usdValue.totalUsdc != null ? Number(formatUnits(usdValue.totalUsdc, 6)) : null;
@@ -222,11 +231,19 @@ export function StableClubPositionDashboard({
     p.strategyExpired ||
     !p.onExpectedChain;
 
+  const markRefreshed = () => {
+    setLastRefreshAt(Date.now());
+    setRefreshEpoch((n) => n + 1);
+  };
+
   const afterAction = async (fn: () => Promise<void>) => {
     await fn();
     await p.refreshPositions();
-    setLastRefreshAt(Date.now());
+    markRefreshed();
   };
+
+  const actionBtn =
+    "h-12 rounded-xl border border-[#0b1f3a]/18 bg-white text-[12px] font-extrabold uppercase tracking-[0.07em] text-[#0b1f3a] transition hover:bg-[#f5f9fc] disabled:cursor-not-allowed disabled:opacity-40";
 
   return (
     <section
@@ -237,20 +254,20 @@ export function StableClubPositionDashboard({
       <div className="bg-[linear-gradient(125deg,#071526_0%,#0b1f3a_40%,#1a4f8c_100%)] px-4 py-5 text-white sm:px-6 sm:py-6">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-400/15 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-300">
+            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
               </span>
               Live on Base
             </div>
-            <h1 className="mt-2 text-2xl font-extrabold tracking-tight sm:text-[1.75rem]">
+            <h1 className="mt-2.5 text-[1.65rem] font-extrabold tracking-[-0.03em] sm:text-[1.85rem]">
               My Position
             </h1>
-            <p className="mt-1 text-xs text-white/60">
+            <p className="mt-1.5 text-[12px] font-medium text-white/65">
               {wallet.address
                 ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
-                : "—"}
+                : "Wallet"}
               {" · "}
               {secondsAgo < 5 ? "Updated just now" : `Updated ${secondsAgo}s ago`}
               {fetchedAt
@@ -261,19 +278,23 @@ export function StableClubPositionDashboard({
           <button
             type="button"
             disabled={p.busy || p.positionsLoading}
-            onClick={() => void p.refreshPositions().then(() => setLastRefreshAt(Date.now()))}
-            className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-semibold"
+            onClick={() =>
+              void p.refreshPositions().then(() => {
+                markRefreshed();
+              })
+            }
+            className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-semibold disabled:opacity-45"
           >
             Refresh
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-5">
-          <div className="col-span-2 rounded-xl bg-white/10 px-3.5 py-3 sm:col-span-2">
-            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/50">
+        <div className="mt-5 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+          <div className="rounded-xl bg-white/10 px-4 py-3.5 sm:col-span-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/50">
               Total Position Value
             </p>
-            <p className="mt-1 text-[2rem] font-extrabold tabular-nums tracking-tight leading-none">
+            <p className="mt-1.5 text-[2.05rem] font-extrabold tabular-nums tracking-tight leading-none">
               {usdValue.loading
                 ? "…"
                 : totalValue != null
@@ -281,32 +302,19 @@ export function StableClubPositionDashboard({
                   : "Unavailable"}
             </p>
           </div>
-          <div className="rounded-xl bg-white/10 px-3 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/50">
-              Deposited
-            </p>
-            <p className="mt-1 text-lg font-bold tabular-nums">—</p>
-          </div>
-          <div className="rounded-xl bg-white/10 px-3 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/50">
-              Live P/L
-            </p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-emerald-300">—</p>
-          </div>
-          <div className="rounded-xl bg-white/10 px-3 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/50">
+          <div className="rounded-xl bg-white/10 px-4 py-3.5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/50">
               Blended APY
             </p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-teal-200">{blendedApy}</p>
-          </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white/10 px-3.5 py-2.5">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/50">
-              Rewards available to claim
+            <p className="mt-1.5 text-[1.55rem] font-extrabold tabular-nums text-teal-200">
+              {blendedApy}
             </p>
-            <p className="text-base font-bold tabular-nums text-emerald-300">
+          </div>
+          <div className="rounded-xl bg-white/10 px-4 py-3.5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/50">
+              Claimable Rewards
+            </p>
+            <p className="mt-1.5 text-[1.55rem] font-extrabold tabular-nums text-emerald-300">
               {claimable.loading
                 ? "…"
                 : `≈ $${claimable.totalApproxUsdc.toLocaleString(undefined, {
@@ -314,18 +322,19 @@ export function StableClubPositionDashboard({
                   })}`}
             </p>
           </div>
-          <div className="h-2.5 w-full max-w-[220px] overflow-hidden rounded-full bg-white/15 sm:w-48">
-            <div className="flex h-full">
-              {rows.map((row, i) => (
-                <div
-                  key={row.key}
-                  style={{
-                    width: `${Math.max(row.allocationPct, 10)}%`,
-                    background: ["#2dd4bf", "#38bdf8", "#818cf8", "#34d399", "#22d3ee"][i % 5],
-                  }}
-                />
-              ))}
-            </div>
+        </div>
+
+        <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-white/15">
+          <div className="flex h-full">
+            {rows.map((row, i) => (
+              <div
+                key={row.key}
+                style={{
+                  width: `${Math.max(row.allocationPct, 10)}%`,
+                  background: ["#2dd4bf", "#38bdf8", "#818cf8", "#34d399", "#22d3ee"][i % 5],
+                }}
+              />
+            ))}
           </div>
         </div>
       </div>
@@ -338,9 +347,9 @@ export function StableClubPositionDashboard({
         ) : null}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-left text-[13px] text-[#0b1f3a]">
+          <table className="w-full min-w-[640px] border-collapse text-left text-[#0b1f3a]">
             <thead>
-              <tr className="border-b border-[#e6edf5] text-[10px] font-bold uppercase tracking-[0.08em] text-[#5b6b7c]">
+              <tr className="border-b border-[#e6edf5] text-[10px] font-extrabold uppercase tracking-[0.1em] text-[#5b6b7c]">
                 <th className="py-2.5 pr-2">Pool</th>
                 <th className="py-2.5 pr-2">Value</th>
                 <th className="py-2.5 pr-2">Alloc</th>
@@ -356,10 +365,10 @@ export function StableClubPositionDashboard({
                     <div className="flex items-center gap-2.5">
                       <TokenPairMarks a={row.tokenASymbol} b={row.tokenBSymbol} />
                       <div>
-                        <p className="text-[14px] font-bold leading-tight tracking-tight">
+                        <p className="text-[15px] font-extrabold leading-tight tracking-tight">
                           {row.pair}
                           {row.nftCount > 1 ? (
-                            <span className="ml-1.5 text-[10px] font-semibold text-[#5b6b7c]">
+                            <span className="ml-1.5 text-[10px] font-bold text-[#5b6b7c]">
                               · {row.nftCount} LPs
                             </span>
                           ) : null}
@@ -371,20 +380,22 @@ export function StableClubPositionDashboard({
                       </div>
                     </div>
                   </td>
-                  <td className="py-3 pr-2 font-mono text-[13px] font-semibold">{row.value}</td>
-                  <td className="py-3 pr-2 text-[13px] font-bold tabular-nums">{row.allocation}</td>
-                  <td className="py-3 pr-2 text-[13px] font-bold tabular-nums text-emerald-700">
+                  <td className="py-3 pr-2 font-mono text-[14px] font-bold">{row.value}</td>
+                  <td className="py-3 pr-2 text-[14px] font-extrabold tabular-nums">
+                    {row.allocation}
+                  </td>
+                  <td className="py-3 pr-2 text-[14px] font-extrabold tabular-nums text-emerald-700">
                     {row.apy}
                   </td>
-                  <td className="py-3 pr-2 text-[13px] font-semibold tabular-nums">
+                  <td className="py-3 pr-2 text-[14px] font-bold tabular-nums">
                     ≈ ${row.claimableUsd.toFixed(2)}
                   </td>
                   <td className="py-3">
                     <span
                       className={
                         row.active
-                          ? "rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700"
-                          : "rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700"
+                          ? "rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700"
+                          : "rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-extrabold text-amber-700"
                       }
                     >
                       {row.active ? "Active" : "Check"}
@@ -403,8 +414,8 @@ export function StableClubPositionDashboard({
             onClick={onAddFunds}
             className={
               addFundsOpen
-                ? "h-11 rounded-xl border-2 border-[#0b1f3a] bg-[#0b1f3a]/5 text-xs font-bold uppercase tracking-[0.06em] text-[#0b1f3a] disabled:opacity-45"
-                : "h-11 rounded-xl border border-[#0b1f3a]/20 bg-white text-xs font-bold uppercase tracking-[0.06em] text-[#0b1f3a] disabled:opacity-45"
+                ? "h-12 rounded-xl border-2 border-[#0b1f3a] bg-[#0b1f3a]/[0.06] text-[12px] font-extrabold uppercase tracking-[0.07em] text-[#0b1f3a] disabled:opacity-40"
+                : actionBtn
             }
           >
             Add Funds
@@ -413,7 +424,7 @@ export function StableClubPositionDashboard({
             type="button"
             disabled={!usdcExitReady || actionsBusy}
             onClick={() => void afterAction(() => p.harvestAll())}
-            className="h-11 rounded-xl border border-[#0b1f3a]/20 bg-white text-xs font-bold uppercase tracking-[0.06em] text-[#0b1f3a] disabled:opacity-45"
+            className={actionBtn}
           >
             Harvest All
           </button>
@@ -421,7 +432,7 @@ export function StableClubPositionDashboard({
             type="button"
             disabled={!usdcExitReady || actionsBusy}
             onClick={() => void afterAction(() => p.compoundAll())}
-            className="h-11 rounded-xl border border-[#0b1f3a]/20 bg-white text-xs font-bold uppercase tracking-[0.06em] text-[#0b1f3a] disabled:opacity-45"
+            className={actionBtn}
           >
             Compound All
           </button>
@@ -429,17 +440,11 @@ export function StableClubPositionDashboard({
             type="button"
             disabled={!usdcExitReady || actionsBusy}
             onClick={() => setConfirmOpen(true)}
-            className="h-11 rounded-xl bg-[#0b1f3a] text-xs font-bold uppercase tracking-[0.06em] text-white disabled:opacity-45"
+            className="h-12 rounded-xl bg-[#0b1f3a] text-[12px] font-extrabold uppercase tracking-[0.07em] text-white shadow-[0_8px_22px_rgba(11,31,58,0.22)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Withdraw All · Receive USDC
           </button>
         </div>
-
-        {!usdcExitReady ? (
-          <p className="mt-3 text-[11px] leading-relaxed text-[#5b6b7c]">
-            Harvest, Compound, and USDC Withdraw require features.exitAllToUsdc on this deployment.
-          </p>
-        ) : null}
 
         {p.statusMessage ? <p className="mt-2 text-sm text-emerald-800">{p.statusMessage}</p> : null}
         {p.error ? (
@@ -471,16 +476,13 @@ export function StableClubPositionDashboard({
           >
             <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw All · Receive USDC</h2>
             <p className="mt-2 text-sm text-[#5b6b7c]">
-              Atomic exitAllToUsdc — closes all legs, unwinds to USDC, reverts on failure.
+              Closes all five LP legs and returns USDC only. Reverts on failure.
             </p>
             {usdValue.totalUsdc != null && usdValue.totalUsdc > BigInt(0) ? (
               <ul className="mt-3 space-y-1.5 text-sm">
                 <li className="flex justify-between">
                   <span className="text-[#5b6b7c]">Est. position value</span>
                   <span className="font-semibold">${formatUnits(usdValue.totalUsdc, 6)}</span>
-                </li>
-                <li className="text-[11px] text-[#5b6b7c]">
-                  Exact min USDC is set at confirm from OracleGuard + 1% slippage.
                 </li>
               </ul>
             ) : null}

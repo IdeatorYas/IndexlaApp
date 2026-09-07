@@ -51,6 +51,8 @@ export function usePositionClaimableFees(
     npm: Address;
     positionTokenId: bigint;
   }>,
+  /** Bump after harvest/compound/withdraw/deposit so claimable reloads without changing positions keys. */
+  refreshEpoch = 0,
 ): { rows: ClaimableFeeRow[]; totalApproxUsdc: number; loading: boolean } {
   const [rows, setRows] = useState<ClaimableFeeRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -131,7 +133,7 @@ export function usePositionClaimableFees(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, refreshEpoch]);
 
   const totalApproxUsdc = rows.reduce((a, r) => a + r.approxUsdc, 0);
   return { rows, totalApproxUsdc, loading };

@@ -79,15 +79,17 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
 
       {tab === "pools" ? (
         <div className="space-y-3">
-          <StableClubAvailablePools />
-          {!hasPositions ? (
-            <div id="stable-club-deposit">
-              <StableClubCompactDeposit
-                depositsEnabled={depositsEnabled}
-                onDepositSuccess={onDepositSuccess}
-              />
-            </div>
-          ) : null}
+          <StableClubAvailablePools
+            depositSlot={
+              !hasPositions ? (
+                <StableClubCompactDeposit
+                  depositsEnabled={depositsEnabled}
+                  onDepositSuccess={onDepositSuccess}
+                  compact
+                />
+              ) : undefined
+            }
+          />
         </div>
       ) : hasPositions ? (
         <div className="space-y-3">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   formatApyDisplay,
   formatApyPartAllowZero,
@@ -23,35 +23,37 @@ function TokenMark({ symbol }: { symbol: string }) {
   const src = TOKEN_LOGO_URLS[key];
   if (!src) {
     return (
-      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#0b1f3a] text-[9px] font-bold text-white">
+      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#0b1f3a] text-[10px] font-bold text-white">
         {key.slice(0, 2)}
       </span>
     );
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt="" className="h-7 w-7 rounded-full bg-white ring-1 ring-[#d7e0ec]" />
+    <img src={src} alt="" className="h-8 w-8 rounded-full bg-white ring-1 ring-[#d7e0ec]" />
   );
 }
 
-function ProtocolMark({ protocol }: { protocol: "uniswap-v3" | "aerodrome-slipstream" }) {
+function ProtocolLogo({ protocol }: { protocol: "uniswap-v3" | "aerodrome-slipstream" }) {
   if (protocol === "uniswap-v3") {
     return (
-      <span
-        className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#FF007A] text-[8px] font-black text-white"
-        title="Uniswap V3"
-      >
-        U
-      </span>
+      <svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="16" fill="#FF007A" />
+        <path
+          fill="#fff"
+          d="M9.2 21.6c1.6-3.8 4.2-6.3 7.4-6.8.4-2.1 1.5-3.6 3.1-4.2.5-.2 1-.2 1.4 0 .7.3 1.1 1 1.1 2 0 .4 0 .8-.2 1.2l-1.1 3.1c1.7.8 2.8 2.2 3 4 .2 1.8-.6 3.4-2.1 4.3-1 .6-2.1.8-3.3.6-1.9-.3-3.5-1.6-4.4-3.5-.6 1.4-1.5 2.5-2.7 3.1-.5.3-1.1.3-1.6.1-.7-.3-1.1-1-1.1-1.9 0-.4.1-.8.5-1.5l.1-.2Zm4.2-1.1c.7 1.6 1.9 2.7 3.3 2.9 1 .2 1.9 0 2.6-.4.9-.5 1.3-1.5 1.2-2.6-.1-1.2-.9-2.2-2.2-2.7l-4.9 2.8Zm5.2-7.7c-.8.3-1.4 1.2-1.6 2.5l3.1-1.1c.1-.3.1-.5.1-.7 0-.4-.1-.6-.3-.7-.3-.1-.7 0-1.3.3Z"
+        />
+      </svg>
     );
   }
   return (
-    <span
-      className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#3B8CFF] text-[8px] font-black text-white"
-      title="Aerodrome"
-    >
-      A
-    </span>
+    <svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true">
+      <circle cx="16" cy="16" r="16" fill="#3B8CFF" />
+      <path
+        fill="#fff"
+        d="M8.5 20.5 16 7.5l7.5 13H20l-4-7.1L12 20.5H8.5Zm3.2 2.2h8.6L16 16.8l-4.3 5.9Z"
+      />
+    </svg>
   );
 }
 
@@ -62,10 +64,13 @@ export function StableClubAvailablePools({
   showDepositCta = false,
   depositsEnabled = false,
   onDepositClick,
+  depositSlot,
 }: {
   showDepositCta?: boolean;
   depositsEnabled?: boolean;
   onDepositClick?: () => void;
+  /** Optional deposit form rendered inside this panel (users without positions). */
+  depositSlot?: ReactNode;
 } = {}) {
   const { byPoolId, loading, fetchedAt } = useStableClubPoolApyMap();
   const pools = OFFICIAL_STABLE_CLUB_BASE_POOLS.filter((p) =>
@@ -87,19 +92,19 @@ export function StableClubAvailablePools({
       className="overflow-hidden rounded-2xl border border-[#b8cce3] bg-white shadow-[0_12px_40px_rgba(11,31,58,0.10)]"
       aria-label="Available Pools"
     >
-      <header className="relative overflow-hidden bg-[linear-gradient(135deg,#04101f_0%,#0b1f3a_45%,#0052FF_160%)] px-5 py-6 text-white sm:px-7 sm:py-7">
-        <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[#0052FF]/25 blur-2xl" />
-        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="shrink-0 rounded-2xl bg-white/10 p-2.5 ring-1 ring-white/20 backdrop-blur-sm">
-              <DegenChainLogo chain="base" size={56} />
+      <header className="relative overflow-hidden bg-[linear-gradient(135deg,#04101f_0%,#0b1f3a_42%,#0052FF_155%)] px-5 py-7 text-white sm:px-7 sm:py-8">
+        <div className="pointer-events-none absolute -right-12 -top-14 h-48 w-48 rounded-full bg-[#0052FF]/30 blur-3xl" />
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-4 sm:gap-5">
+            <div className="shrink-0 rounded-2xl bg-white/12 p-3 ring-1 ring-white/25 backdrop-blur-sm">
+              <DegenChainLogo chain="base" size={72} />
             </div>
             <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl font-extrabold tracking-[-0.03em] sm:text-2xl">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h2 className="text-[1.35rem] font-extrabold tracking-[-0.035em] sm:text-[1.75rem]">
                   TOP BASE CHAIN LPs
                 </h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-300 ring-1 ring-emerald-400/30">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300 ring-1 ring-emerald-400/35">
                   <span className="relative flex h-1.5 w-1.5">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
                     <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -107,20 +112,20 @@ export function StableClubAvailablePools({
                   LIVE BETA
                 </span>
               </div>
-              <p className="mt-2 text-sm font-medium text-white/75">
+              <p className="mt-2.5 text-[13px] font-medium leading-snug text-white/80 sm:text-sm">
                 One USDC deposit · Five LP positions · 20% each
               </p>
             </div>
           </div>
-          <div className="rounded-2xl bg-white/10 px-4 py-3 text-left ring-1 ring-white/15 sm:min-w-[9.5rem] sm:text-right">
-            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/55">
+          <div className="rounded-2xl bg-white/10 px-4 py-3.5 text-left ring-1 ring-white/20 sm:min-w-[10.5rem] sm:text-right">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/55">
               Live blended APY
             </p>
-            <p className="mt-0.5 text-2xl font-extrabold tabular-nums tracking-tight text-teal-200">
+            <p className="mt-1 text-[1.75rem] font-extrabold tabular-nums tracking-tight text-teal-200">
               {blendedApy}
             </p>
             {fetchedAt ? (
-              <p className="mt-0.5 text-[10px] text-white/45">
+              <p className="mt-1 text-[10px] text-white/45">
                 {new Date(fetchedAt).toLocaleTimeString()}
               </p>
             ) : null}
@@ -136,61 +141,61 @@ export function StableClubAvailablePools({
           return (
             <article
               key={pool.id}
-              className="flex flex-col gap-3 px-4 py-3.5 transition-colors hover:bg-[#f7fafc] sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 sm:py-3.5"
+              className="flex flex-col gap-3 px-4 py-3 transition-colors duration-200 hover:bg-[#f5f9fc] sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-6 sm:py-3"
             >
-              <div className="flex min-w-0 items-center gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
                 <div className="relative flex shrink-0 items-center">
                   <TokenMark symbol={pool.tokenA.symbol} />
-                  <span className="-ml-2">
+                  <span className="-ml-2.5">
                     <TokenMark symbol={pool.tokenB.symbol} />
                   </span>
-                  <span className="absolute -bottom-1 -right-1">
-                    <ProtocolMark protocol={pool.protocol} />
+                  <span className="absolute -bottom-1 -right-1 rounded-full bg-white p-0.5 shadow-sm ring-1 ring-[#e8eef5]">
+                    <ProtocolLogo protocol={pool.protocol} />
                   </span>
                 </div>
                 <div className="min-w-0">
-                  <h3 className="truncate text-[15px] font-bold tracking-tight text-[#0b1f3a]">
+                  <h3 className="truncate text-[15px] font-extrabold tracking-tight text-[#0b1f3a] sm:text-base">
                     {pair}
                   </h3>
                   <p className="mt-0.5 text-[11px] font-semibold text-[#5b6b7c]">
                     {protocolDisplayName(pool.protocol)} · {formatOfficialPoolFee(pool)}
                   </p>
                 </div>
-                <span className="ml-1 hidden shrink-0 rounded-full bg-[#0b1f3a]/[0.06] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#0b1f3a] sm:inline-flex">
+                <span className="ml-auto shrink-0 rounded-full bg-[#0b1f3a]/[0.07] px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.1em] text-[#0b1f3a] sm:ml-2">
                   20%
                 </span>
               </div>
 
-              <dl className="grid grid-cols-4 gap-2 text-sm sm:max-w-[22rem] sm:flex-1">
+              <dl className="grid grid-cols-4 gap-2 sm:w-[22rem] sm:shrink-0">
                 <div>
-                  <dt className="text-[9px] font-bold uppercase tracking-[0.08em] text-[#8a9aab]">
+                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[#8a9aab]">
                     Live APY
                   </dt>
-                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-emerald-700">
+                  <dd className="mt-0.5 text-[13px] font-extrabold tabular-nums text-emerald-700 sm:text-sm">
                     {formatApyDisplay(quote, loading)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[9px] font-bold uppercase tracking-[0.08em] text-[#8a9aab]">
+                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[#8a9aab]">
                     Fee APY
                   </dt>
-                  <dd className="mt-0.5 text-[13px] font-semibold tabular-nums text-[#0b1f3a]">
+                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-[#0b1f3a] sm:text-sm">
                     {formatApyPartAllowZero(quote?.apyBasePercent, loading, Boolean(available))}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[9px] font-bold uppercase tracking-[0.08em] text-[#8a9aab]">
+                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[#8a9aab]">
                     Reward APY
                   </dt>
-                  <dd className="mt-0.5 text-[13px] font-semibold tabular-nums text-[#0b1f3a]">
+                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-[#0b1f3a] sm:text-sm">
                     {formatApyPartAllowZero(quote?.apyRewardPercent, loading, Boolean(available))}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[9px] font-bold uppercase tracking-[0.08em] text-[#8a9aab]">
+                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[#8a9aab]">
                     TVL
                   </dt>
-                  <dd className="mt-0.5 text-[13px] font-semibold tabular-nums text-[#0b1f3a]">
+                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-[#0b1f3a] sm:text-sm">
                     {loading
                       ? "…"
                       : available && quote?.tvlUsd != null
@@ -199,16 +204,18 @@ export function StableClubAvailablePools({
                   </dd>
                 </div>
               </dl>
-
-              <span className="inline-flex w-fit rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-700 sm:hidden">
-                20% allocation
-              </span>
             </article>
           );
         })}
       </div>
 
-      {showDepositCta ? (
+      {depositSlot ? (
+        <div className="border-t border-[#e8eef5] bg-[#f7fafc] px-4 py-4 sm:px-6 sm:py-5">
+          {depositSlot}
+        </div>
+      ) : null}
+
+      {showDepositCta && !depositSlot ? (
         <div className="border-t border-[#e8eef5] bg-[#f7fafc] px-5 py-5 sm:px-7">
           <button
             type="button"

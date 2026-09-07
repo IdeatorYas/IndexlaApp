@@ -65,6 +65,8 @@ export function usePositionUsdValue(
     amountA: bigint;
     amountB: bigint;
   }>,
+  /** Bump after successful actions so USD totals re-quote. */
+  refreshEpoch = 0,
 ): {
   rows: PositionUsdRow[];
   totalUsdc: bigint | null;
@@ -140,7 +142,7 @@ export function usePositionUsdValue(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, refreshEpoch]);
 
   return { rows, totalUsdc, loading, source };
 }
