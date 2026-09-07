@@ -286,6 +286,54 @@ export function buildFullExitLegParams(params: {
   };
 }
 
+/**
+ * Partial LP decrease — proceeds go to the user wallet (not the executor).
+ * `percentBps` is 1..9999 (0.01% .. 99.99%). Use buildFullExitLegParams / exitAllToUsdc for 100%.
+ */
+export function buildPartialExitLegParams(params: {
+  legIndex: number;
+  adapter: Address;
+  tokenA: Address;
+  tokenB: Address;
+  positionTokenId: bigint;
+  liquidity: bigint;
+  amountA: bigint;
+  amountB: bigint;
+  percentBps: number;
+  slippageBps: bigint;
+}): ExitLegParams {
+  if (!Number.isFinite(params.percentBps) || params.percentBps < 1 || params.percentBps >= 10_000) {
+    throw new Error("Partial exit percentBps must be in [1, 9999]");
+  }
+  if (params.liquidity <= BigInt(0)) {
+    throw new Error(`Position liquidity is zero for leg ${params.legIndex}`);
+  }
+  if (params.amountA <= BigInt(0) && params.amountB <= BigInt(0)) {
+    throw new Error(
+      `Exit amounts are both zero for leg ${params.legIndex} — refusing calldata (would revert as 0/0)`,
+    );
+  }
+  const bps = BigInt(Math.floor(params.percentBps));
+  const liq = (params.liquidity * bps) / BigInt(10_000);
+  if (liq <= BigInt(0)) {
+    throw new Error(`Partial liquidity rounds to zero for leg ${params.legIndex}`);
+  }
+  const amountA = (params.amountA * bps) / BigInt(10_000);
+  const amountB = (params.amountB * bps) / BigInt(10_000);
+  return {
+    legIndex: params.legIndex,
+    adapter: params.adapter,
+    tokenA: params.tokenA,
+    tokenB: params.tokenB,
+    positionTokenId: params.positionTokenId,
+    liquidity: liq,
+    amountAMin: applyExitSlippageMin(amountA, params.slippageBps),
+    amountBMin: applyExitSlippageMin(amountB, params.slippageBps),
+    slippageBps: params.slippageBps,
+    fullExit: false,
+  };
+}
+
 export function buildSkippedExitLeg(legIndex: number): ExitLegParams {
   return {
     legIndex,

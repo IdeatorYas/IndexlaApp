@@ -12,8 +12,6 @@ import { usePositionClaimableFees } from "@/components/stable-club/usePositionCl
 import { usePositionUsdValue } from "@/components/stable-club/usePositionUsdValue";
 import type { useFivePoolPositions } from "@/components/stable-club/useFivePoolPositions";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
-import { isExitAllToUsdcAvailable } from "@/lib/stable-club/exit-to-usdc";
-import { isFullUsdcWithdrawPercent } from "@/lib/stable-club/five-pool-positions";
 import {
   allocationPercentFromBps,
   FIVE_POOL_DEFAULT_ALLOCATION_BPS,
@@ -100,7 +98,7 @@ export function StableClubPositionDashboard({
   const [now, setNow] = useState(() => Date.now());
   const [lastRefreshAt, setLastRefreshAt] = useState(() => Date.now());
 
-  const usdcExitReady = isExitAllToUsdcAvailable(p.deployments);
+  const harvestCompoundReady = p.exitAllToUsdcAvailable;
   const refreshPositions = p.refreshPositions;
 
   useEffect(() => {
@@ -226,8 +224,7 @@ export function StableClubPositionDashboard({
     Number.isFinite(withdrawPercent) &&
     withdrawPercent >= 1 &&
     withdrawPercent <= 100;
-  const withdrawIsFullUsdc =
-    withdrawPercentValid && isFullUsdcWithdrawPercent(withdrawPercent);
+  const withdrawIsFull = withdrawPercentValid && Math.round(withdrawPercent) === 100;
 
   const markRefreshed = () => {
     setLastRefreshAt(Date.now());
@@ -434,7 +431,7 @@ export function StableClubPositionDashboard({
           </button>
           <button
             type="button"
-            disabled={!usdcExitReady || actionsBusy}
+            disabled={!harvestCompoundReady || actionsBusy}
             onClick={() => void afterAction(() => p.harvestAll())}
             className={actionBtn}
           >
@@ -442,7 +439,7 @@ export function StableClubPositionDashboard({
           </button>
           <button
             type="button"
-            disabled={!usdcExitReady || actionsBusy}
+            disabled={!harvestCompoundReady || actionsBusy}
             onClick={() => void afterAction(() => p.compoundAll())}
             className={actionBtn}
           >
@@ -450,7 +447,7 @@ export function StableClubPositionDashboard({
           </button>
           <button
             type="button"
-            disabled={!usdcExitReady || actionsBusy}
+            disabled={actionsBusy}
             onClick={() => {
               setWithdrawMode("100");
               setCustomPercent("50");
@@ -490,9 +487,11 @@ export function StableClubPositionDashboard({
             aria-label="Confirm Withdraw"
             className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
           >
-            <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw · Receive USDC</h2>
+            <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw to your wallet</h2>
             <p className="mt-2 text-sm text-[#5b6b7c]">
-              Choose 100% or a custom percent. Proceeds return as USDC only.
+              Set any percent from 1–100. Sold LP proceeds go to your wallet — not held by INDEXLA
+              contracts. Wallet may ask to approve each LP NFT to the pool adapter (required); that
+              is not an ERC20 spend approval.
             </p>
 
             <div className="mt-4 grid grid-cols-2 gap-2">
@@ -522,7 +521,7 @@ export function StableClubPositionDashboard({
 
             {withdrawMode === "custom" ? (
               <label className="mt-3 block text-sm text-[#5b6b7c]">
-                Percent
+                Percent (1–100)
                 <input
                   type="number"
                   min={1}
@@ -539,14 +538,15 @@ export function StableClubPositionDashboard({
               <p className="mt-2 text-sm text-[#b42318]" role="alert">
                 Enter a percent between 1 and 100.
               </p>
-            ) : !withdrawIsFullUsdc ? (
-              <p className="mt-2 text-sm text-amber-800" role="status">
-                Live USDC exit is atomic at 100% only. Choose 100% to withdraw as USDC, or set
-                custom to 100.
+            ) : withdrawIsFull ? (
+              <p className="mt-2 text-sm text-[#5b6b7c]">
+                Closes all open LP legs in one transaction. Underlying pool tokens return to your
+                wallet.
               </p>
             ) : (
               <p className="mt-2 text-sm text-[#5b6b7c]">
-                Closes all five LP legs and returns USDC only. Reverts on failure.
+                Withdraws {Math.round(withdrawPercent)}% of liquidity from each open leg. Underlying
+                pool tokens return to your wallet (you may receive USDC + other pool assets).
               </p>
             )}
 
@@ -556,6 +556,18 @@ export function StableClubPositionDashboard({
                   <span className="text-[#5b6b7c]">Est. position value</span>
                   <span className="font-semibold">${formatUnits(usdValue.totalUsdc, 6)}</span>
                 </li>
+                {withdrawPercentValid ? (
+                  <li className="flex justify-between">
+                    <span className="text-[#5b6b7c]">Est. withdraw (~{Math.round(withdrawPercent)}%)</span>
+                    <span className="font-semibold">
+                      $
+                      {formatUnits(
+                        (usdValue.totalUsdc * BigInt(Math.round(withdrawPercent))) / BigInt(100),
+                        6,
+                      )}
+                    </span>
+                  </li>
+                ) : null}
               </ul>
             ) : null}
             <div className="mt-4 grid grid-cols-2 gap-2">
@@ -568,14 +580,15 @@ export function StableClubPositionDashboard({
               </button>
               <button
                 type="button"
-                disabled={p.busy || !withdrawIsFullUsdc}
+                disabled={p.busy || !withdrawPercentValid}
                 onClick={() => {
+                  const pct = withdrawPercent;
                   setConfirmOpen(false);
-                  void afterAction(() => p.exitAllToUsdc());
+                  void afterAction(() => p.withdrawPercent(pct));
                 }}
                 className="h-10 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white disabled:opacity-45"
               >
-                Confirm USDC
+                Confirm {withdrawPercentValid ? `${Math.round(withdrawPercent)}%` : ""}
               </button>
             </div>
           </div>

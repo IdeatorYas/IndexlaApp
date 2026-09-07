@@ -43,6 +43,7 @@ import {
   buildDirectNpmExitPlan,
   buildExitAllLegs,
   buildFullExitLegParams,
+  buildPartialExitLegParams,
   buildPositionDiscoveryBlockRanges,
   collectOwnedNftTokenIdsWithRetry,
   collectTokenIdsFromTransferLogs,
@@ -900,6 +901,7 @@ export function useFivePoolPositions() {
     async (
       walletClient: ReturnType<typeof createWalletClient>,
       position: FivePoolPosition,
+      opts?: { waitForReceipt?: boolean },
     ): Promise<Hex | null> => {
       const approved = await publicClient.readContract({
         address: position.nftContract,
@@ -914,10 +916,50 @@ export function useFivePoolPositions() {
         functionName: "approve",
         args: [position.adapter, position.positionTokenId],
       } as never);
-      await waitForSuccessfulTransactionReceipt(publicClient, hash);
+      if (opts?.waitForReceipt !== false) {
+        await waitForSuccessfulTransactionReceipt(publicClient, hash);
+      }
       return hash;
     },
     [publicClient],
+  );
+
+  /**
+   * Sign all missing NFT approvals first (no per-tx mining wait), then confirm receipts in parallel.
+   * Cuts withdraw latency from ~5 serial mine-waits to one parallel confirm batch.
+   */
+  const approveOpenPositionsFast = useCallback(
+    async (
+      walletClient: ReturnType<typeof createWalletClient>,
+      open: FivePoolPosition[],
+    ): Promise<Hex[]> => {
+      const hashes: Hex[] = [];
+      let signIndex = 0;
+      const needCount = open.length;
+      for (const position of open) {
+        signIndex += 1;
+        setStatusMessage(
+          `Sign NFT approval ${signIndex}/${needCount} (no wait between signatures)…`,
+        );
+        setLegResults((prev) =>
+          prev.map((r) =>
+            r.legIndex === position.legIndex ? { ...r, status: "approving" } : r,
+          ),
+        );
+        const h = await approveNftIfNeeded(walletClient, position, {
+          waitForReceipt: false,
+        });
+        if (h) hashes.push(h);
+      }
+      if (hashes.length > 0) {
+        setStatusMessage(`Confirming ${hashes.length} approval(s) on Base…`);
+        await Promise.all(
+          hashes.map((h) => waitForSuccessfulTransactionReceipt(publicClient, h)),
+        );
+      }
+      return hashes;
+    },
+    [approveNftIfNeeded, publicClient],
   );
 
   const exitIndividual = useCallback(
@@ -1042,19 +1084,7 @@ export function useFivePoolPositions() {
       const legs = buildExitAllLegs(byLeg, liveAmountsByLeg, slippageBps);
 
       setProgress("awaiting-approval");
-      const hashes: Hex[] = [];
-      for (const position of open) {
-        setStatusMessage(
-          `Approve NFT #${position.positionTokenId.toString()} (leg ${position.legIndex})…`,
-        );
-        setLegResults((prev) =>
-          prev.map((r) =>
-            r.legIndex === position.legIndex ? { ...r, status: "approving" } : r,
-          ),
-        );
-        const h = await approveNftIfNeeded(walletClient, position);
-        if (h) hashes.push(h);
-      }
+      const hashes = await approveOpenPositionsFast(walletClient, open);
       setApprovalTxHashes(hashes);
 
       const permissionIds = Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
@@ -1069,7 +1099,7 @@ export function useFivePoolPositions() {
 
       setProgress("awaiting-exit");
       setStatusMessage(
-        "Confirm atomic exitAll — one transaction; on revert no positions exit…",
+        "Confirm Withdraw — LP tokens are sent to YOUR wallet (not held by the contract)…",
       );
       setLegResults((prev) =>
         prev.map((r) => (r.status === "skipped" ? r : { ...r, status: "submitting" })),
@@ -1089,7 +1119,7 @@ export function useFivePoolPositions() {
         ),
       );
       setProgress("confirmed");
-      setStatusMessage("Exit All confirmed (atomic)");
+      setStatusMessage("Withdraw confirmed — pool tokens sent to your wallet");
       submittingRef.current = false;
       await refreshPositions();
     } catch (err) {
@@ -1112,7 +1142,7 @@ export function useFivePoolPositions() {
       submittingRef.current = false;
     }
   }, [
-    approveNftIfNeeded,
+    approveOpenPositionsFast,
     ensureReady,
     positions,
     publicClient,
@@ -1221,19 +1251,7 @@ export function useFivePoolPositions() {
       });
 
       setProgress("awaiting-approval");
-      const hashes: Hex[] = [];
-      for (const position of open) {
-        setStatusMessage(
-          `Approve NFT #${position.positionTokenId.toString()} (leg ${position.legIndex})…`,
-        );
-        setLegResults((prev) =>
-          prev.map((r) =>
-            r.legIndex === position.legIndex ? { ...r, status: "approving" } : r,
-          ),
-        );
-        const h = await approveNftIfNeeded(walletClient, position);
-        if (h) hashes.push(h);
-      }
+      const hashes = await approveOpenPositionsFast(walletClient, open);
       setApprovalTxHashes(hashes);
 
       const permissionIds = Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
@@ -1248,7 +1266,7 @@ export function useFivePoolPositions() {
 
       setProgress("awaiting-exit");
       setStatusMessage(
-        "Confirm Withdraw (Receive USDC) — atomic; reverts if unwind or min USDC fails…",
+        "Confirm Withdraw — USDC is sent to YOUR wallet in the same transaction…",
       );
       setLegResults((prev) =>
         prev.map((r) => (r.status === "skipped" ? r : { ...r, status: "submitting" })),
@@ -1276,7 +1294,7 @@ export function useFivePoolPositions() {
         ),
       );
       setProgress("confirmed");
-      setStatusMessage("Withdraw (USDC) confirmed");
+      setStatusMessage("Withdraw confirmed — USDC sent to your wallet");
       submittingRef.current = false;
       await refreshPositions();
     } catch (err) {
@@ -1299,7 +1317,7 @@ export function useFivePoolPositions() {
       submittingRef.current = false;
     }
   }, [
-    approveNftIfNeeded,
+    approveOpenPositionsFast,
     ensureReady,
     positions,
     publicClient,
@@ -1308,6 +1326,156 @@ export function useFivePoolPositions() {
     strategyExpired,
     strategyRevoked,
   ]);
+
+  /**
+   * Partial withdraw (1–99%): decreaseLiquidity on each open leg; tokens go to the user wallet.
+   * Never routes proceeds through the executor / swap router.
+   */
+  const exitPartialPercentToWallet = useCallback(
+    async (percent: number) => {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      setError(null);
+      setApprovalTxHashes([]);
+      setDirectPlan(null);
+
+      const open = [...positions].sort((a, b) => a.legIndex - b.legIndex);
+      setLegResults(
+        Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
+          const hit = open.find((p) => p.legIndex === i);
+          return {
+            legIndex: i,
+            status: hit ? ("pending" as const) : ("skipped" as const),
+          };
+        }),
+      );
+
+      try {
+        const { d, account, strategyId: sid, walletClient } = ensureReady();
+        if (open.length === 0) throw new Error("No open positions to exit");
+        if (strategyRevoked || strategyExpired) {
+          throw new Error(
+            "Strategy revoked or expired — partial withdraw requires active permissions.",
+          );
+        }
+        if (!Number.isFinite(percent) || percent < 1 || percent >= 100) {
+          throw new Error("Partial withdraw percent must be between 1 and 99");
+        }
+        const percentBps = Math.round(percent * 100);
+
+        setProgress("awaiting-approval");
+        const hashes = await approveOpenPositionsFast(walletClient, open);
+        setApprovalTxHashes(hashes);
+
+        for (const position of open) {
+          const live = await readLiveExitAmountsForPosition(publicClient, position, account);
+          let liquidity = position.liquidity;
+          try {
+            liquidity = await publicClient.readContract({
+              address: position.adapter,
+              abi: concentratedLiquidityAdapterAbi,
+              functionName: "liquidityOf",
+              args: [position.positionTokenId],
+            });
+          } catch {
+            liquidity = position.liquidity;
+          }
+          const leg = buildPartialExitLegParams({
+            legIndex: position.legIndex,
+            adapter: position.adapter,
+            tokenA: position.tokenA,
+            tokenB: position.tokenB,
+            positionTokenId: position.positionTokenId,
+            liquidity,
+            amountA: live.amountA,
+            amountB: live.amountB,
+            percentBps,
+            slippageBps,
+          });
+          const nonce = await resolveFreeExecutionNonce(
+            publicClient,
+            d.permissionRegistry,
+            position.legPermissionId,
+          );
+
+          setProgress("awaiting-exit");
+          setStatusMessage(
+            `Confirm partial withdraw leg ${position.legIndex} (${percent}%) — tokens to YOUR wallet…`,
+          );
+          setLegResults((prev) =>
+            prev.map((r) =>
+              r.legIndex === position.legIndex ? { ...r, status: "submitting" } : r,
+            ),
+          );
+
+          const hash = await walletClient.writeContract({
+            address: d.clExecutor,
+            abi: concentratedLiquidityExecutorAbi,
+            functionName: "exitLeg",
+            args: [sid, leg as never, nonce],
+          } as never);
+          setLastTxHash(hash);
+          await waitForSuccessfulTransactionReceipt(publicClient, hash);
+          setLegResults((prev) =>
+            prev.map((r) =>
+              r.legIndex === position.legIndex
+                ? { ...r, status: "confirmed", txHash: hash }
+                : r,
+            ),
+          );
+        }
+
+        setProgress("confirmed");
+        setStatusMessage(
+          `Partial withdraw ${percent}% confirmed — pool tokens sent to your wallet`,
+        );
+        submittingRef.current = false;
+        await refreshPositions();
+      } catch (err) {
+        setProgress("failed");
+        const reject = userRejectMessage(err);
+        const message =
+          reject ??
+          (err instanceof Error ? err.message : "Partial withdraw failed");
+        setError(message);
+        setLegResults((prev) =>
+          prev.map((r) =>
+            r.status === "skipped" || r.status === "confirmed"
+              ? r
+              : { ...r, status: "failed", error: message },
+          ),
+        );
+      } finally {
+        submittingRef.current = false;
+      }
+    },
+    [
+      approveOpenPositionsFast,
+      ensureReady,
+      positions,
+      publicClient,
+      refreshPositions,
+      slippageBps,
+      strategyExpired,
+      strategyRevoked,
+    ],
+  );
+
+  /**
+   * Product Withdraw — always pays the user wallet (never leaves proceeds on the executor).
+   * 100% → atomic exitAll (pool tokens to wallet; no ERC20 approve-to-unverified-executor unwind).
+   * 1–99% → sequential exitLeg partial (scaled liquidity; tokens to wallet).
+   */
+  const withdrawPercent = useCallback(
+    async (percent: number) => {
+      if (Math.round(percent) === 100) {
+        await exitAll();
+        return;
+      }
+      await exitPartialPercentToWallet(percent);
+    },
+    [exitAll, exitPartialPercentToWallet],
+  );
 
   const runManageAll = useCallback(
     async (mode: "harvest" | "compound") => {
@@ -1368,19 +1536,7 @@ export function useFivePoolPositions() {
         });
 
         setProgress("awaiting-approval");
-        const hashes: Hex[] = [];
-        for (const position of open) {
-          setStatusMessage(
-            `Approve NFT #${position.positionTokenId.toString()} (leg ${position.legIndex})…`,
-          );
-          setLegResults((prev) =>
-            prev.map((r) =>
-              r.legIndex === position.legIndex ? { ...r, status: "approving" } : r,
-            ),
-          );
-          const h = await approveNftIfNeeded(walletClient, position);
-          if (h) hashes.push(h);
-        }
+        const hashes = await approveOpenPositionsFast(walletClient, open);
         setApprovalTxHashes(hashes);
 
         const permissionIds = Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
@@ -1438,7 +1594,7 @@ export function useFivePoolPositions() {
       }
     },
     [
-      approveNftIfNeeded,
+      approveOpenPositionsFast,
       ensureReady,
       positions,
       publicClient,
@@ -1743,6 +1899,8 @@ export function useFivePoolPositions() {
     exitAll,
     exitAllToUsdc,
     exitAllToUsdcAvailable: isExitAllToUsdcAvailable(deployments),
+    exitPartialPercentToWallet,
+    withdrawPercent,
     harvestAll,
     compoundAll,
     emergencyExitLeg,

@@ -8,6 +8,7 @@ import {
   buildDirectNpmExitPlan,
   buildExitAllLegs,
   buildFullExitLegParams,
+  buildPartialExitLegParams,
   buildPositionDiscoveryBlockRanges,
   buildSkippedExitLeg,
   collectOwnedNftTokenIds,
@@ -904,6 +905,25 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
     expect(isFullUsdcWithdrawPercent(100)).toBe(true);
     expect(isFullUsdcWithdrawPercent(99)).toBe(false);
     expect(isFullUsdcWithdrawPercent(50)).toBe(false);
+  });
+
+  it("buildPartialExitLegParams scales liquidity and keeps fullExit false", () => {
+    const leg = buildPartialExitLegParams({
+      legIndex: 0,
+      adapter: ADAPTER,
+      tokenA: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address,
+      tokenB: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+      positionTokenId: BigInt(42),
+      liquidity: BigInt(10_000),
+      amountA: BigInt(1_000_000),
+      amountB: BigInt(2_000_000),
+      percentBps: 2_500,
+      slippageBps: BigInt(50),
+    });
+    expect(leg.fullExit).toBe(false);
+    expect(leg.liquidity).toBe(BigInt(2_500));
+    expect(leg.amountAMin).toBeGreaterThan(BigInt(0));
+    expect(leg.amountBMin).toBeGreaterThan(BigInt(0));
   });
 
   it("correct Uni tokenId binds to its exact pool", async () => {
