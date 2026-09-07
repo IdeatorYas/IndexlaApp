@@ -428,7 +428,7 @@ export function useFivePoolPositions() {
       if (generation !== refreshGenerationRef.current) return;
       setStrategyId(sid);
 
-      const strategy = await withDiscoveryTimeout(
+      const strategyRaw = await withDiscoveryTimeout(
         client.readContract({
           address: deployments.strategyRegistry,
           abi: strategyPermissionRegistryAbi,
@@ -439,11 +439,20 @@ export function useFivePoolPositions() {
         "getStrategy",
       );
       if (generation !== refreshGenerationRef.current) return;
-      const strategyUser = (strategy as { user: Address }).user;
-      const revoked = Boolean((strategy as { revoked: boolean }).revoked);
-      const expiresAt = BigInt((strategy as { expiresAt: bigint }).expiresAt);
+      const strategy = strategyRaw as {
+        user?: Address;
+        revoked?: boolean;
+        expiresAt?: bigint;
+        0?: Address;
+        9?: bigint;
+        10?: boolean;
+      };
+      const strategyUser = (strategy.user ?? strategy[0]) as Address;
+      const revoked = Boolean(strategy.revoked ?? strategy[10]);
+      const expiresAt = BigInt(strategy.expiresAt ?? strategy[9] ?? 0);
       const now = BigInt(Math.floor(Date.now() / 1000));
       const registered =
+        typeof strategyUser === "string" &&
         strategyUser.toLowerCase() === wallet.address.toLowerCase() &&
         strategyUser !== "0x0000000000000000000000000000000000000000";
       setStrategyRegistered(registered);

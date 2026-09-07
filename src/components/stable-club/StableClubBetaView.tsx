@@ -19,10 +19,9 @@ type TabId = "position" | "pools";
 function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolean }) {
   const positions = useFivePoolPositions();
   const hasPositions = positions.positions.length > 0;
-  const showDashboard =
-    hasPositions || (positions.strategyRegistered && !positions.deploymentsLoading);
   const deploymentsBooting = positions.deploymentsLoading && !hasPositions;
-  const [tab, setTab] = useState<TabId>("pools");
+  /** My Position always shows the five-row dashboard once deployments load — never replace with Deposit USDC. */
+  const [tab, setTab] = useState<TabId>("position");
   const [addFundsOpen, setAddFundsOpen] = useState(false);
 
   const onDepositSuccess = useCallback(() => {
@@ -32,8 +31,8 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
   }, [positions]);
 
   useEffect(() => {
-    if (hasPositions) setTab("position");
-  }, [hasPositions]);
+    if (hasPositions || positions.strategyRegistered) setTab("position");
+  }, [hasPositions, positions.strategyRegistered]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -86,7 +85,7 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
         <div className="space-y-3">
           <StableClubAvailablePools
             depositSlot={
-              !hasPositions ? (
+              !hasPositions && !positions.strategyRegistered ? (
                 <StableClubCompactDeposit
                   depositsEnabled={depositsEnabled}
                   onDepositSuccess={onDepositSuccess}
@@ -96,7 +95,7 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
             }
           />
         </div>
-      ) : showDashboard ? (
+      ) : (
         <div className="space-y-3">
           <StableClubPositionDashboard
             positionsApi={positions}
@@ -114,15 +113,6 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
             />
           ) : null}
         </div>
-      ) : positions.positionsLoading ? (
-        <section className="rounded-2xl border border-[#d7e0ec] bg-white p-8 text-center">
-          <p className="text-base text-[#5b6b7c]">Loading your LP positions…</p>
-        </section>
-      ) : (
-        <StableClubCompactDeposit
-          depositsEnabled={depositsEnabled}
-          onDepositSuccess={onDepositSuccess}
-        />
       )}
     </div>
   );
@@ -220,7 +210,12 @@ export function StableClubBetaView({
   const [allowUiPreview, setAllowUiPreview] = useState(false);
   useEffect(() => {
     const host = window.location.hostname;
-    setAllowUiPreview(host === "localhost" || host === "127.0.0.1");
+    // Localhost + production QA screenshot path (?ui=positions|deposit|pools).
+    setAllowUiPreview(
+      host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "app.indexla.tech",
+    );
   }, []);
   const uiPreview = allowUiPreview ? searchParams.get("ui") : null;
 

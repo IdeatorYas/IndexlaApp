@@ -179,7 +179,7 @@ describe("StableClubBetaView", () => {
     expect(connect).toHaveBeenCalled();
   });
 
-  it("connected with no positions: defaults to Available Pools with Deposit USDC", () => {
+  it("connected with no positions: defaults to My Position table (not Deposit USDC)", () => {
     walletState = {
       status: "connected",
       chainId: 8453,
@@ -189,23 +189,17 @@ describe("StableClubBetaView", () => {
       switchToBase: vi.fn(),
     };
     render(<StableClubBetaView />);
-    expect(screen.getByRole("tab", { name: "Available Pools" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "My Position" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.getByRole("tab", { name: "My Position" })).toHaveAttribute(
-      "aria-selected",
-      "false",
-    );
-    expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
-    expect(screen.getByText("LIVE BETA")).toBeInTheDocument();
-    expect(screen.getByText(/One USDC deposit · Five LP positions · 20% each/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Deposit USDC" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Deposit USDC" })).toBeEnabled();
-    expect(screen.queryByText(/Risk/i)).toBeNull();
+    expect(screen.getByRole("heading", { name: "My Position" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Pool" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Withdraw" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Deposit USDC" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("tab", { name: "My Position" }));
-    expect(screen.getByRole("heading", { name: "Deposit USDC" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Available Pools" }));
+    expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
   });
 
   it("connected with positions: four action buttons and always-clickable tabs", () => {
