@@ -1,4 +1,4 @@
-import { decodeFunctionData, getAddress, type Address } from "viem";
+import { decodeFunctionData, getAddress, type Address, type Hex } from "viem";
 import { describe, expect, it } from "vitest";
 import { ZERO_ADDRESS } from "@/lib/stable-club/nft-approval";
 import {
@@ -7,6 +7,7 @@ import {
   assertWalletOwnsPosition,
   buildDirectNpmExitPlan,
   buildExitAllLegs,
+  buildExitAllToUsdcLegs,
   buildFullExitLegParams,
   buildPartialExitLegParams,
   buildPositionDiscoveryBlockRanges,
@@ -924,6 +925,45 @@ describe("SC-F04 — bounded discovery + exact NFT/pool binding", () => {
     expect(leg.liquidity).toBe(BigInt(2_500));
     expect(leg.amountAMin).toBeGreaterThan(BigInt(0));
     expect(leg.amountBMin).toBeGreaterThan(BigInt(0));
+  });
+
+  it("buildExitAllToUsdcLegs full vs partial", () => {
+    const pos: FivePoolPosition = {
+      legIndex: 0,
+      poolId: ("0x" + "11".repeat(32)) as Hex,
+      poolLabel: "t",
+      pairLabel: "USDC/cbBTC",
+      protocol: "uniswap-v3",
+      adapter: ADAPTER,
+      nftContract: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as Address,
+      npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as Address,
+      tokenA: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address,
+      tokenB: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+      tokenASymbol: "USDC",
+      tokenBSymbol: "cbBTC",
+      positionTokenId: BigInt(1),
+      liquidity: BigInt(10_000),
+      amount0: BigInt(0),
+      amount1: BigInt(0),
+      amountA: BigInt(1_000_000),
+      amountB: BigInt(2_000),
+      allocationBps: BigInt(2000),
+      legPermissionId: ("0x" + "22".repeat(32)) as `0x${string}`,
+      owner: USER,
+      adapterApproved: true,
+      rangeStatus: "in-range",
+      explorerNftUrl: null,
+      protocolExplorerHint: "x",
+    };
+    const map = new Map<number, FivePoolPosition>([[0, pos]]);
+    const live = new Map([
+      [0, { amountA: BigInt(1_000_000), amountB: BigInt(2_000), liquidity: BigInt(10_000) }],
+    ]);
+    const full = buildExitAllToUsdcLegs(map, live, BigInt(50), 10_000);
+    expect(full[0]!.fullExit).toBe(true);
+    const partial = buildExitAllToUsdcLegs(map, live, BigInt(50), 2_500);
+    expect(partial[0]!.fullExit).toBe(false);
+    expect(partial[0]!.liquidity).toBe(BigInt(2_500));
   });
 
   it("correct Uni tokenId binds to its exact pool", async () => {

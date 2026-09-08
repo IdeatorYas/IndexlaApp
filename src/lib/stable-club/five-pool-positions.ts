@@ -17,7 +17,8 @@ import { FIVE_POOL_LEG_COUNT } from "@/lib/stable-club/five-pool-strategy";
 import type { Phase2aAdapterDeployment } from "@/lib/stable-club/phase2a-deployments";
 import { explorerTxUrl } from "@/lib/stable-club/five-pool-deposit";
 
-export const FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS = BigInt(100);
+export const FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS = BigInt(500); // 5% — avoid PSC on closePosition
+
 export const FIVE_POOL_EXIT_MIN_FLOOR = BigInt(1);
 
 export type FivePoolExitProgress =
@@ -347,6 +348,64 @@ export function buildSkippedExitLeg(legIndex: number): ExitLegParams {
     slippageBps: FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS,
     fullExit: true,
   };
+}
+
+/**
+ * Build ExitLegParams[5] for atomic exitAllToUsdc.
+ * percentBps 10000 → fullExit close+burn; 1..9999 → partial decreaseLiquidityTo executor.
+ */
+export function buildExitAllToUsdcLegs(
+  positionsByLeg: Map<number, FivePoolPosition>,
+  liveAmountsByLeg: ReadonlyMap<number, { amountA: bigint; amountB: bigint; liquidity: bigint }>,
+  slippageBps: bigint,
+  percentBps: number,
+): ExitLegParams[] {
+  if (!Number.isFinite(percentBps) || percentBps < 1 || percentBps > 10_000) {
+    throw new Error("exitAllToUsdc percentBps must be in [1, 10000]");
+  }
+  const full = percentBps === 10_000;
+  const legs: ExitLegParams[] = [];
+  for (let i = 0; i < FIVE_POOL_LEG_COUNT; i++) {
+    const pos = positionsByLeg.get(i);
+    if (!pos) {
+      legs.push(buildSkippedExitLeg(i));
+      continue;
+    }
+    const live = liveAmountsByLeg.get(i);
+    if (!live) {
+      throw new Error(`Missing live exit amounts for leg ${i}`);
+    }
+    if (full) {
+      legs.push(
+        buildFullExitLegParams({
+          legIndex: i,
+          adapter: pos.adapter,
+          tokenA: pos.tokenA,
+          tokenB: pos.tokenB,
+          positionTokenId: pos.positionTokenId,
+          amountA: live.amountA,
+          amountB: live.amountB,
+          slippageBps,
+        }),
+      );
+    } else {
+      legs.push(
+        buildPartialExitLegParams({
+          legIndex: i,
+          adapter: pos.adapter,
+          tokenA: pos.tokenA,
+          tokenB: pos.tokenB,
+          positionTokenId: pos.positionTokenId,
+          liquidity: live.liquidity > BigInt(0) ? live.liquidity : pos.liquidity,
+          amountA: live.amountA,
+          amountB: live.amountB,
+          percentBps,
+          slippageBps,
+        }),
+      );
+    }
+  }
+  return legs;
 }
 
 /**

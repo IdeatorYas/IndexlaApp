@@ -807,4 +807,200 @@ describe("Base-fork exitAllToUsdc + reverse routes", function () {
       ctx.clExecutor.connect(ctx.user).harvestAll(strategyId, manageLegs, 301n),
     ).to.be.reverted;
   });
+
+  it("partial exitAllToUsdc 20% then 50% then 100%: USDC-only, liquidity shrinks, swap fail reverts", async function () {
+    const ctx = await deployForkStack();
+    const decSel = ethers
+      .id(
+        "decreaseLiquidityTo(address,uint256,address,address,address,uint128,uint256,uint256)",
+      )
+      .slice(2, 10);
+    for (const a of ctx.adapters) {
+      const code = (await ethers.provider.getCode(a.address)).toLowerCase();
+      expect(code, `${a.poolId} decreaseLiquidityTo`).to.include(decSel);
+    }
+
+    const { strategyId } = await registerStrategy(ctx);
+    const positions = await depositCollectingPositions(ctx, strategyId, 17n);
+    const usdc = await ethers.getContractAt(ERC20_ABI, USDC);
+    const cbbtc = await ethers.getContractAt(ERC20_ABI, CBBTC);
+    const weth = await ethers.getContractAt(ERC20_ABI, WETH);
+
+    async function buildPartialLegs(percentBps) {
+      const exitLegs = [];
+      let aggCb = 0n;
+      let aggWeth = 0n;
+      for (let i = 0; i < positions.length; i++) {
+        const p = positions[i];
+        const a = p.adapter;
+        const amounts = await a.contract.positionAmounts(p.tokenId);
+        const [t0, t1] = await a.contract.positionTokens(p.tokenId);
+        const npmPos = await ethers.getContractAt(
+          a.protocol === "uniswap-v3"
+            ? [
+                "function positions(uint256) view returns (uint96,address,address,address,uint24,int24,int24,uint128,uint256,uint256,uint128,uint128)",
+              ]
+            : [
+                "function positions(uint256) view returns (uint96,address,address,address,int24,int24,int24,uint128,uint256,uint256,uint128,uint128)",
+              ],
+          a.npm,
+        );
+        const liqNow = (await npmPos.positions(p.tokenId))[7];
+        const fullExit = percentBps === 10_000n;
+        const liqOut = fullExit ? 0n : (liqNow * percentBps) / 10_000n;
+        const scaleA = fullExit ? amounts[0] : (amounts[0] * percentBps) / 10_000n;
+        const scaleB = fullExit ? amounts[1] : (amounts[1] * percentBps) / 10_000n;
+        if (t0.toLowerCase() === CBBTC.toLowerCase()) aggCb += scaleA;
+        if (t1.toLowerCase() === CBBTC.toLowerCase()) aggCb += scaleB;
+        if (t0.toLowerCase() === WETH.toLowerCase()) aggWeth += scaleA;
+        if (t1.toLowerCase() === WETH.toLowerCase()) aggWeth += scaleB;
+        const npmApprove = await ethers.getContractAt(
+          [
+            "function getApproved(uint256 tokenId) view returns (address)",
+            "function approve(address to, uint256 tokenId)",
+          ],
+          a.npm,
+        );
+        const approved = await npmApprove.getApproved(p.tokenId);
+        if (approved.toLowerCase() !== a.address.toLowerCase()) {
+          await npmApprove.connect(ctx.user).approve(a.address, p.tokenId);
+        }
+        exitLegs.push({
+          legIndex: i,
+          adapter: a.address,
+          tokenA: a.tokenA,
+          tokenB: a.tokenB,
+          positionTokenId: p.tokenId,
+          liquidity: liqOut,
+          amountAMin: 1n,
+          amountBMin: 1n,
+          slippageBps: 500n,
+          fullExit,
+        });
+      }
+      const deadline = BigInt((await time.latest()) + 3600);
+      const swaps = Array.from({ length: 8 }, () => ({
+        routeId: ethers.ZeroHash,
+        amountIn: 0n,
+        minOut: 0n,
+        quotedOut: 0n,
+        deadline: 0n,
+      }));
+      let swapCount = 0;
+      if (aggCb > 0n) {
+        const amountInMax = (aggCb * 125n) / 100n + 1n;
+        const quoted = await ctx.oracleGuard.expectedAmountOut(
+          CBBTC,
+          USDC,
+          amountInMax,
+          8,
+          6,
+        );
+        swaps[swapCount++] = {
+          routeId: ROUTE_CBBTC_USDC_UNI,
+          amountIn: amountInMax,
+          minOut: (quoted * 9900n) / 10000n,
+          quotedOut: quoted,
+          deadline,
+        };
+      }
+      if (aggWeth > 0n) {
+        const amountInMax = (aggWeth * 125n) / 100n + 1n;
+        const quoted = await ctx.oracleGuard.expectedAmountOut(
+          WETH,
+          USDC,
+          amountInMax,
+          18,
+          6,
+        );
+        swaps[swapCount++] = {
+          routeId: ROUTE_WETH_USDC_UNI,
+          amountIn: amountInMax,
+          minOut: (quoted * 9900n) / 10000n,
+          quotedOut: quoted,
+          deadline,
+        };
+      }
+      return { exitLegs, swaps, swapCount };
+    }
+
+    async function remainingLiqSum() {
+      let sum = 0n;
+      for (const p of positions) {
+        const a = p.adapter;
+        const npmPos = await ethers.getContractAt(
+          a.protocol === "uniswap-v3"
+            ? [
+                "function positions(uint256) view returns (uint96,address,address,address,uint24,int24,int24,uint128,uint256,uint256,uint128,uint128)",
+              ]
+            : [
+                "function positions(uint256) view returns (uint96,address,address,address,int24,int24,int24,uint128,uint256,uint256,uint128,uint128)",
+              ],
+          a.npm,
+        );
+        try {
+          sum += (await npmPos.positions(p.tokenId))[7];
+        } catch {
+          // burned
+        }
+      }
+      return sum;
+    }
+
+    const liq0 = await remainingLiqSum();
+    expect(liq0).to.be.gt(0n);
+    const cbbtcBeforeDust = await cbbtc.balanceOf(ctx.user.address);
+    const wethBeforeDust = await weth.balanceOf(ctx.user.address);
+
+    const usdc0 = await usdc.balanceOf(ctx.user.address);
+    {
+      const { exitLegs, swaps, swapCount } = await buildPartialLegs(2_000n);
+      await ctx.clExecutor
+        .connect(ctx.user)
+        .exitAllToUsdc(strategyId, exitLegs, swaps, swapCount, 1n, 401n);
+    }
+    expect(await usdc.balanceOf(ctx.user.address)).to.be.gt(usdc0);
+    expect(await cbbtc.balanceOf(ctx.user.address)).to.equal(cbbtcBeforeDust);
+    expect(await weth.balanceOf(ctx.user.address)).to.equal(wethBeforeDust);
+    const liq1 = await remainingLiqSum();
+    expect(liq1).to.be.lt(liq0);
+    expect(liq1).to.be.gt(0n);
+
+    {
+      const { exitLegs, swaps, swapCount } = await buildPartialLegs(5_000n);
+      await ctx.clExecutor
+        .connect(ctx.user)
+        .exitAllToUsdc(strategyId, exitLegs, swaps, swapCount, 1n, 402n);
+    }
+    const liq2 = await remainingLiqSum();
+    expect(liq2).to.be.lt(liq1);
+    expect(liq2).to.be.gt(0n);
+    expect(await cbbtc.balanceOf(ctx.user.address)).to.equal(cbbtcBeforeDust);
+
+    {
+      const { exitLegs, swaps, swapCount } = await buildPartialLegs(10_000n);
+      if (swapCount > 0) {
+        swaps[0].minOut = swaps[0].quotedOut * 10n + 1n;
+        const usdcBeforeFail = await usdc.balanceOf(ctx.user.address);
+        const liqBeforeFail = await remainingLiqSum();
+        await expect(
+          ctx.clExecutor
+            .connect(ctx.user)
+            .exitAllToUsdc(strategyId, exitLegs, swaps, swapCount, 1n, 403n),
+        ).to.be.reverted;
+        expect(await usdc.balanceOf(ctx.user.address)).to.equal(usdcBeforeFail);
+        expect(await remainingLiqSum()).to.equal(liqBeforeFail);
+      }
+    }
+
+    {
+      const { exitLegs, swaps, swapCount } = await buildPartialLegs(10_000n);
+      await ctx.clExecutor
+        .connect(ctx.user)
+        .exitAllToUsdc(strategyId, exitLegs, swaps, swapCount, 1n, 404n);
+    }
+    expect(await remainingLiqSum()).to.equal(0n);
+    expect(await cbbtc.balanceOf(ctx.user.address)).to.equal(cbbtcBeforeDust);
+    expect(await weth.balanceOf(ctx.user.address)).to.equal(wethBeforeDust);
+  });
 });

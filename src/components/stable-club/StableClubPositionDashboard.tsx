@@ -93,12 +93,13 @@ export function StableClubPositionDashboard({
     refreshEpoch,
   );
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [withdrawMode, setWithdrawMode] = useState<"100" | "custom">("100");
+  const [withdrawPreset, setWithdrawPreset] = useState<20 | 50 | 100 | "custom">(100);
   const [customPercent, setCustomPercent] = useState("50");
   const [now, setNow] = useState(() => Date.now());
   const [lastRefreshAt, setLastRefreshAt] = useState(() => Date.now());
 
   const harvestCompoundReady = p.exitAllToUsdcAvailable;
+  const exitPercentEnabled = p.exitPercentToUsdcAvailable;
   const refreshPositions = p.refreshPositions;
 
   useEffect(() => {
@@ -218,13 +219,30 @@ export function StableClubPositionDashboard({
     p.strategyExpired ||
     !p.onExpectedChain;
 
-  const withdrawPercent =
-    withdrawMode === "100" ? 100 : Number.parseFloat(customPercent);
+  const withdrawPercent = !exitPercentEnabled
+    ? 100
+    : withdrawPreset === "custom"
+      ? Number.parseFloat(customPercent)
+      : withdrawPreset;
   const withdrawPercentValid =
     Number.isFinite(withdrawPercent) &&
     withdrawPercent >= 1 &&
     withdrawPercent <= 100;
-  const withdrawIsFull = withdrawPercentValid && Math.round(withdrawPercent) === 100;
+  const withdrawConfirmReady = exitPercentEnabled
+    ? withdrawPercentValid
+    : true;
+
+  const uniqueAdapters = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const pos of p.positions) {
+      const key = pos.adapter.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(pos.adapter);
+    }
+    return out;
+  }, [p.positions]);
 
   const markRefreshed = () => {
     setLastRefreshAt(Date.now());
@@ -449,7 +467,7 @@ export function StableClubPositionDashboard({
             type="button"
             disabled={actionsBusy}
             onClick={() => {
-              setWithdrawMode("100");
+              setWithdrawPreset(100);
               setCustomPercent("50");
               setConfirmOpen(true);
             }}
@@ -458,6 +476,32 @@ export function StableClubPositionDashboard({
             Withdraw
           </button>
         </div>
+
+        {p.strandedAssets.length > 0 ? (
+          <div
+            className="mt-4 rounded-xl border border-[#d7e0ec] bg-[#f8fafc] px-3.5 py-3 text-sm text-[#0b1f3a]"
+            role="status"
+          >
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-[#5b6b7c]">
+              Stranded wallet assets
+            </p>
+            <ul className="mt-2 space-y-1 font-mono text-[13px] font-semibold">
+              {p.strandedAssets.map((row) => (
+                <li key={`${row.tokenIn}-${row.amountIn.toString()}`} className="flex justify-between gap-3">
+                  <span>{row.symbol}</span>
+                  <span>
+                    {formatUnits(row.amountIn, tokenDecimals(row.symbol))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-[12px] leading-snug text-[#5b6b7c]">
+              These balances are in your wallet and are <strong>not</strong> auto-swept by
+              Withdraw. Recovery is manual only — contact IndexLa support if you need help
+              converting them to USDC.
+            </p>
+          </div>
+        ) : null}
 
         {p.statusMessage ? <p className="mt-2 text-sm text-emerald-800">{p.statusMessage}</p> : null}
         {p.error ? (
@@ -495,59 +539,64 @@ export function StableClubPositionDashboard({
               NPM from your wallet. Reverts on failure.
             </p>
 
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setWithdrawMode("100")}
-                className={
-                  withdrawMode === "100"
-                    ? "h-11 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white"
-                    : "h-11 rounded-xl border border-[#d7e0ec] text-sm font-semibold text-[#0b1f3a]"
-                }
-              >
-                100%
-              </button>
-              <button
-                type="button"
-                onClick={() => setWithdrawMode("custom")}
-                className={
-                  withdrawMode === "custom"
-                    ? "h-11 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white"
-                    : "h-11 rounded-xl border border-[#d7e0ec] text-sm font-semibold text-[#0b1f3a]"
-                }
-              >
-                Custom %
-              </button>
-            </div>
-
-            {withdrawMode === "custom" ? (
-              <label className="mt-3 block text-sm text-[#5b6b7c]">
-                Percent (1–100)
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  step={1}
-                  value={customPercent}
-                  onChange={(e) => setCustomPercent(e.target.value)}
-                  className="mt-1 h-11 w-full rounded-xl border border-[#d7e0ec] px-3 font-semibold text-[#0b1f3a]"
-                />
-              </label>
-            ) : null}
-
-            {!withdrawPercentValid ? (
-              <p className="mt-2 text-sm text-[#b42318]" role="alert">
-                Enter a percent between 1 and 100.
-              </p>
-            ) : !withdrawIsFull ? (
-              <p className="mt-2 text-sm text-amber-800" role="status">
-                Live contracts only support atomic USDC exit at <strong>100% of remaining</strong>{" "}
-                liquidity. Select 100% to withdraw now. Partial % requires a Safe
-                executor/adapter upgrade.
-              </p>
+            {exitPercentEnabled ? (
+              <>
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  {([20, 50, 100] as const).map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => setWithdrawPreset(pct)}
+                      className={
+                        withdrawPreset === pct
+                          ? "h-11 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white"
+                          : "h-11 rounded-xl border border-[#d7e0ec] text-sm font-semibold text-[#0b1f3a]"
+                      }
+                    >
+                      {pct}%
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWithdrawPreset("custom")}
+                  className={
+                    withdrawPreset === "custom"
+                      ? "mt-2 h-11 w-full rounded-xl bg-[#0b1f3a] text-sm font-bold text-white"
+                      : "mt-2 h-11 w-full rounded-xl border border-[#d7e0ec] text-sm font-semibold text-[#0b1f3a]"
+                  }
+                >
+                  Custom %
+                </button>
+                {withdrawPreset === "custom" ? (
+                  <label className="mt-3 block text-sm text-[#5b6b7c]">
+                    Percent (1–100)
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      step={1}
+                      value={customPercent}
+                      onChange={(e) => setCustomPercent(e.target.value)}
+                      className="mt-1 h-11 w-full rounded-xl border border-[#d7e0ec] px-3 font-semibold text-[#0b1f3a]"
+                    />
+                  </label>
+                ) : null}
+                {!withdrawPercentValid ? (
+                  <p className="mt-2 text-sm text-[#b42318]" role="alert">
+                    Enter a percent between 1 and 100.
+                  </p>
+                ) : (
+                  <p className="mt-2 text-sm text-[#5b6b7c]">
+                    Exits {Math.round(withdrawPercent)}% of remaining liquidity on every open LP
+                    leg → USDC only to your wallet.
+                  </p>
+                )}
+              </>
             ) : (
-              <p className="mt-2 text-sm text-[#5b6b7c]">
-                Exits 100% of remaining liquidity on every open LP leg → USDC only to your wallet.
+              <p className="mt-4 text-sm text-[#5b6b7c]">
+                Exits <span className="font-semibold">100%</span> of remaining liquidity on every
+                open LP leg → USDC only to your wallet.
               </p>
             )}
 
@@ -559,6 +608,44 @@ export function StableClubPositionDashboard({
                 </li>
               </ul>
             ) : null}
+
+            <div className="mt-4 rounded-xl border border-[#d7e0ec] bg-[#f8fafc] px-3.5 py-3 text-[12px] leading-snug text-[#0b1f3a]">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-[#5b6b7c]">
+                Approval disclosure · Base
+              </p>
+              <p className="mt-2 text-[#5b6b7c]">
+                Your wallet may warn because ERC721{" "}
+                <span className="font-mono font-semibold text-[#0b1f3a]">approve</span> shares
+                selector{" "}
+                <span className="font-mono font-semibold text-[#0b1f3a]">0x095ea7b3</span> with
+                ERC20. Review each prompt carefully.
+              </p>
+              <p className="mt-2 text-[#5b6b7c]">
+                Each open LP needs a per-tokenId NFT{" "}
+                <span className="font-mono font-semibold text-[#0b1f3a]">
+                  approve(adapter, tokenId)
+                </span>{" "}
+                to the IndexLa adapter — not{" "}
+                <span className="font-mono">setApprovalForAll</span>.
+              </p>
+              {uniqueAdapters.length > 0 ? (
+                <ul className="mt-2 space-y-1">
+                  {uniqueAdapters.map((adapter) => (
+                    <li key={adapter}>
+                      <a
+                        href={`https://basescan.org/address/${adapter}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono text-[#1a4f8c] underline-offset-2 hover:underline"
+                      >
+                        {adapter.slice(0, 6)}…{adapter.slice(-4)}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -569,27 +656,17 @@ export function StableClubPositionDashboard({
               </button>
               <button
                 type="button"
-                disabled={p.busy || !withdrawIsFull}
+                disabled={p.busy || !withdrawConfirmReady}
                 onClick={() => {
+                  const pct = exitPercentEnabled ? Math.round(withdrawPercent) : 100;
                   setConfirmOpen(false);
-                  void afterAction(() => p.withdrawPercent(100));
+                  void afterAction(() => p.withdrawPercent(pct));
                 }}
                 className="h-10 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white disabled:opacity-45"
               >
                 Confirm USDC
               </button>
             </div>
-            <button
-              type="button"
-              disabled={p.busy}
-              onClick={() => {
-                setConfirmOpen(false);
-                void afterAction(() => p.recoverLooseAssetsToUsdc());
-              }}
-              className="mt-2 h-10 w-full rounded-xl border border-[#d7e0ec] text-sm font-semibold text-[#0b1f3a] disabled:opacity-45"
-            >
-              Recover loose cbBTC/WETH → USDC
-            </button>
           </div>
         </div>
       ) : null}

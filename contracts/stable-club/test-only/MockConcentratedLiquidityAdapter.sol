@@ -176,9 +176,25 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
         address tokenA,
         address tokenB,
         uint128 liquidity,
+        uint256 amountAMin,
+        uint256 amountBMin
+    ) external onlyExecutor returns (uint256 amountA, uint256 amountB) {
+        return decreaseLiquidityTo(
+            lpOwner, tokenId, lpOwner, tokenA, tokenB, liquidity, amountAMin, amountBMin
+        );
+    }
+
+    function decreaseLiquidityTo(
+        address lpOwner,
+        uint256 tokenId,
+        address recipient,
+        address tokenA,
+        address tokenB,
+        uint128 liquidity,
         uint256,
         uint256
-    ) external onlyExecutor returns (uint256 amountA, uint256 amountB) {
+    ) public onlyExecutor returns (uint256 amountA, uint256 amountB) {
+        if (recipient != lpOwner && recipient != msg.sender) revert InvalidCloseRecipient();
         _requireAdapterApproval(tokenId, lpOwner);
         require(liquidityOf[tokenId] >= liquidity, "liq");
         liquidityOf[tokenId] -= liquidity;
@@ -188,8 +204,8 @@ contract MockConcentratedLiquidityAdapter is IConcentratedLiquidityAdapter, ERC7
         else amount0Of[tokenId] = 0;
         if (amount1Of[tokenId] >= amount1) amount1Of[tokenId] -= amount1;
         else amount1Of[tokenId] = 0;
-        IERC20(token0Of[tokenId]).safeTransfer(lpOwner, amount0);
-        IERC20(token1Of[tokenId]).safeTransfer(lpOwner, amount1);
+        IERC20(token0Of[tokenId]).safeTransfer(recipient, amount0);
+        IERC20(token1Of[tokenId]).safeTransfer(recipient, amount1);
         (amountA, amountB) = _mapFrom01(tokenA, tokenB, token0Of[tokenId], token1Of[tokenId], amount0, amount1);
     }
 

@@ -282,6 +282,23 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
         uint256 amountAMin,
         uint256 amountBMin
     ) external onlyExecutor returns (uint256 amountA, uint256 amountB) {
+        return decreaseLiquidityTo(
+            lpOwner, tokenId, lpOwner, tokenA, tokenB, liquidity, amountAMin, amountBMin
+        );
+    }
+
+    /// @inheritdoc IConcentratedLiquidityAdapter
+    function decreaseLiquidityTo(
+        address lpOwner,
+        uint256 tokenId,
+        address recipient,
+        address tokenA,
+        address tokenB,
+        uint128 liquidity,
+        uint256 amountAMin,
+        uint256 amountBMin
+    ) public onlyExecutor returns (uint256 amountA, uint256 amountB) {
+        if (recipient != lpOwner && recipient != msg.sender) revert InvalidCloseRecipient();
         _requirePoolIdentity(tokenId);
         _requireNpmApproval(tokenId, lpOwner);
         (, , address token0, address token1, , , , , , , , ) = IUniswapV3NPM(npm).positions(tokenId);
@@ -297,7 +314,7 @@ contract UniswapV3Adapter is IConcentratedLiquidityAdapter {
                 deadline: block.timestamp
             })
         );
-        _collectTo(lpOwner, tokenId);
+        _collectTo(recipient, tokenId);
         (amountA, amountB) = _mapFrom01(tokenA, tokenB, token0, token1, amount0, amount1);
     }
 

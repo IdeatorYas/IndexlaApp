@@ -31,15 +31,12 @@ import {
   aggregateExitProceeds,
   buildExitToUsdcPreview,
   isExitAllToUsdcAvailable,
+  isExitPercentToUsdcAvailable,
   padExitUnwindSwaps,
 } from "@/lib/stable-club/exit-to-usdc";
-import { BASE_TOKENS, BASE_DEX_UNISWAP_V3 } from "@/lib/stable-club/official-pools";
+import { BASE_TOKENS } from "@/lib/stable-club/official-pools";
 import { quoteTokenToUsdcViaOracle } from "@/components/stable-club/usePositionUsdValue";
-import {
-  planLooseAssetRecoveries,
-  recoverOneLooseAssetToUsdc,
-  RECOVER_LOOSE_ASSETS_ENGINE,
-} from "@/lib/stable-club/recover-loose-assets";
+import { planLooseAssetRecoveries } from "@/lib/stable-club/recover-loose-assets";
 import {
   FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS,
   aeroFactoryGetPoolAbi,
@@ -48,6 +45,7 @@ import {
   assertWalletOwnsPosition,
   buildDirectNpmExitPlan,
   buildExitAllLegs,
+  buildExitAllToUsdcLegs,
   buildFullExitLegParams,
   buildPartialExitLegParams,
   buildPositionDiscoveryBlockRanges,
@@ -307,6 +305,9 @@ export function useFivePoolPositions() {
   const [legResults, setLegResults] = useState<PerLegExitResult[]>([]);
   const [directPlan, setDirectPlan] = useState<DirectNpmExitPlan | null>(null);
   const [slippageBps] = useState(FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS);
+  const [strandedAssets, setStrandedAssets] = useState<
+    { symbol: string; tokenIn: Address; amountIn: bigint }[]
+  >([]);
 
   const chain = useMemo(
     () =>
@@ -410,11 +411,47 @@ export function useFivePoolPositions() {
     };
   }, []);
 
+  const refreshStrandedAssets = useCallback(async () => {
+    if (!deployments || !wallet.address) {
+      setStrandedAssets([]);
+      return;
+    }
+    if (deployments.network === "hardhat-local" || deployments.chainId !== 8453) {
+      setStrandedAssets([]);
+      return;
+    }
+    if (!onExpectedChain) {
+      setStrandedAssets([]);
+      return;
+    }
+    try {
+      const planned = await planLooseAssetRecoveries({
+        publicClient,
+        account: wallet.address,
+      });
+      setStrandedAssets(
+        planned.map((row) => ({
+          symbol: row.symbol,
+          tokenIn: row.tokenIn,
+          amountIn: row.amountIn,
+        })),
+      );
+    } catch {
+      // Read-only reporting — keep prior list on RPC blips.
+    }
+  }, [
+    deployments,
+    onExpectedChain,
+    publicClient,
+    wallet.address,
+  ]);
+
   const refreshPositions = useCallback(async () => {
     if (!deployments || !wallet.address) {
       setPositions([]);
       setStrategyId(null);
       setStrategyRegistered(false);
+      setStrandedAssets([]);
       return;
     }
 
@@ -470,6 +507,7 @@ export function useFivePoolPositions() {
       if (!registered) {
         setPositions([]);
         setStale(false);
+        void refreshStrandedAssets();
         return;
       }
 
@@ -624,6 +662,7 @@ export function useFivePoolPositions() {
           `LP discovery RPC failed (${enumErrors[0]}). Tap Refresh — positions kept if previously loaded.`,
         );
         setPositionsLoading(false);
+        void refreshStrandedAssets();
         return;
       }
 
@@ -839,6 +878,7 @@ export function useFivePoolPositions() {
         );
         // Keep last-good positions (do not setPositions([])).
       }
+      void refreshStrandedAssets();
     } catch (err) {
       if (generation !== refreshGenerationRef.current) return;
       setPositionsError(err instanceof Error ? err.message : "Failed to load positions");
@@ -849,7 +889,7 @@ export function useFivePoolPositions() {
         setPositionsLoading(false);
       }
     }
-  }, [deployments, discoveryClient, expectedChainId, wallet.address]);
+  }, [deployments, discoveryClient, expectedChainId, refreshStrandedAssets, wallet.address]);
 
   useEffect(() => {
     void refreshPositions();
@@ -945,8 +985,9 @@ export function useFivePoolPositions() {
       const needCount = open.length;
       for (const position of open) {
         signIndex += 1;
+        const adapterShort = `${position.adapter.slice(0, 6)}…${position.adapter.slice(-4)}`;
         setStatusMessage(
-          `Sign NFT approval ${signIndex}/${needCount} (no wait between signatures)…`,
+          `Sign ERC721 NFT approve ${signIndex}/${needCount} to IndexLa adapter ${adapterShort} (Basescan: https://basescan.org/address/${position.adapter})…`,
         );
         setLegResults((prev) =>
           prev.map((r) =>
@@ -959,7 +1000,9 @@ export function useFivePoolPositions() {
         if (h) hashes.push(h);
       }
       if (hashes.length > 0) {
-        setStatusMessage(`Confirming ${hashes.length} approval(s) on Base…`);
+        setStatusMessage(
+          `Confirming ${hashes.length} ERC721 NFT approve(s) to IndexLa adapter on Base…`,
+        );
         await Promise.all(
           hashes.map((h) => waitForSuccessfulTransactionReceipt(publicClient, h)),
         );
@@ -1162,8 +1205,9 @@ export function useFivePoolPositions() {
   /**
    * Product Withdraw All — atomic exitAllToUsdc (USDC only).
    * Never calls legacy exitAll (underlying tokens).
+   * @param percent 1–100 of remaining LP liquidity (default 100). Partial requires exitPercentToUsdc.
    */
-  const exitAllToUsdc = useCallback(async () => {
+  const exitAllToUsdc = useCallback(async (percent: number = 100) => {
     if (submittingRef.current) return;
     submittingRef.current = true;
     setError(null);
@@ -1195,6 +1239,17 @@ export function useFivePoolPositions() {
         );
       }
 
+      const pct = Math.round(percent);
+      if (!Number.isFinite(percent) || pct < 1 || pct > 100) {
+        throw new Error("Withdraw percent must be between 1 and 100");
+      }
+      if (pct !== 100 && !isExitPercentToUsdcAvailable(d)) {
+        throw new Error(
+          "Atomic USDC Withdraw on live INDEXLA contracts exits 100% of remaining LP liquidity only. Partial % requires exitPercentToUsdc after Safe cutover.",
+        );
+      }
+      const percentBps = pct * 100;
+
       setStatusMessage("Checking network gas vs SafetyController ceiling…");
       await requireGasPriceWithinSafetyCeiling({
         publicClient,
@@ -1202,17 +1257,23 @@ export function useFivePoolPositions() {
       });
 
       const byLeg = new Map(open.map((p) => [p.legIndex, p]));
-      const liveAmountsByLeg = new Map<number, { amountA: bigint; amountB: bigint }>();
+      const liveAmountsByLeg = new Map<
+        number,
+        { amountA: bigint; amountB: bigint; liquidity: bigint }
+      >();
       for (const position of open) {
         const live = await readLiveExitAmountsForPosition(publicClient, position, account);
         liveAmountsByLeg.set(position.legIndex, {
           amountA: live.amountA,
           amountB: live.amountB,
+          liquidity: live.liquidity > BigInt(0) ? live.liquidity : position.liquidity,
         });
       }
-      const legs = buildExitAllLegs(byLeg, liveAmountsByLeg, slippageBps);
+      const legs = buildExitAllToUsdcLegs(byLeg, liveAmountsByLeg, slippageBps, percentBps);
 
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+      const scaleAmount = (amt: bigint) =>
+        percentBps === 10_000 ? amt : (amt * BigInt(percentBps)) / BigInt(10_000);
       const exitPositions = open.map((p) => {
         const live = liveAmountsByLeg.get(p.legIndex)!;
         return {
@@ -1220,8 +1281,8 @@ export function useFivePoolPositions() {
           tokenB: p.tokenB,
           tokenASymbol: p.tokenASymbol,
           tokenBSymbol: p.tokenBSymbol,
-          amountA: live.amountA,
-          amountB: live.amountB,
+          amountA: scaleAmount(live.amountA),
+          amountB: scaleAmount(live.amountB),
         };
       });
       const proceeds = aggregateExitProceeds(exitPositions);
@@ -1231,16 +1292,17 @@ export function useFivePoolPositions() {
         [BASE_TOKENS.WETH.address, proceeds.weth],
       ] as const) {
         if (amountIn <= BigInt(0)) continue;
+        const amountInMax = (amountIn * BigInt(125)) / BigInt(100) + BigInt(1);
         const quoted = await quoteTokenToUsdcViaOracle({
           publicClient,
           oracleGuard: d.oracleGuard as Address,
           tokenIn,
-          amountIn,
+          amountIn: amountInMax,
         });
         if (quoted <= BigInt(0)) {
           throw new Error("OracleGuard returned zero USDC for exit unwind");
         }
-        quoteCache.set(`${tokenIn.toLowerCase()}:${amountIn.toString()}`, quoted);
+        quoteCache.set(`${tokenIn.toLowerCase()}:${amountInMax.toString()}`, quoted);
       }
       const preview = buildExitToUsdcPreview({
         positions: exitPositions,
@@ -1273,7 +1335,9 @@ export function useFivePoolPositions() {
 
       setProgress("awaiting-exit");
       setStatusMessage(
-        "Confirm ONE Withdraw tx on INDEXLA executor — LP close + unwind swaps; USDC only to your wallet (reverts on failure)…",
+        pct === 100
+          ? "Confirm ONE Withdraw tx on INDEXLA executor — LP close + unwind swaps; USDC only to your wallet (reverts on failure)…"
+          : `Confirm ONE Withdraw tx (${pct}%) on INDEXLA executor — partial LP decrease + unwind; USDC only to your wallet (reverts on failure)…`,
       );
       setLegResults((prev) =>
         prev.map((r) => (r.status === "skipped" ? r : { ...r, status: "submitting" })),
@@ -1326,7 +1390,9 @@ export function useFivePoolPositions() {
       );
       setProgress("confirmed");
       setStatusMessage(
-        "Withdraw confirmed — USDC sent to your wallet. If you still hold loose cbBTC/WETH from the failed NPM attempt, use Recover loose assets.",
+        pct === 100
+          ? "Withdraw confirmed — USDC sent to your wallet."
+          : `Withdraw ${pct}% confirmed — USDC sent to your wallet.`,
       );
       submittingRef.current = false;
       await refreshPositions();
@@ -1506,7 +1572,8 @@ export function useFivePoolPositions() {
   /**
    * Product Withdraw — atomic INDEXLA `exitAllToUsdc` only.
    * Never calls Uniswap/Aerodrome NPM from the wallet.
-   * Live executor requires fullExit on every open leg → 100% of remaining liquidity → USDC only.
+   * Live executor requires fullExit on every open leg → 100% of remaining liquidity → USDC only
+   * unless `features.exitPercentToUsdc` is enabled.
    */
   const withdrawPercent = useCallback(
     async (percent: number) => {
@@ -1514,133 +1581,15 @@ export function useFivePoolPositions() {
       if (!Number.isFinite(percent) || pct < 1 || pct > 100) {
         throw new Error("Withdraw percent must be between 1 and 100");
       }
-      if (pct !== 100) {
+      if (pct !== 100 && !isExitPercentToUsdcAvailable(deployments)) {
         throw new Error(
           "Atomic USDC Withdraw on live INDEXLA contracts exits 100% of remaining LP liquidity only (single executor tx). Select 100%. Partial % needs a Safe executor/adapter upgrade.",
         );
       }
-      await exitAllToUsdc();
+      await exitAllToUsdc(pct);
     },
-    [exitAllToUsdc],
+    [deployments, exitAllToUsdc],
   );
-
-  /**
-   * Convert loose wallet cbBTC/WETH (from failed npm-direct) to USDC via verified Uni SwapRouter.
-   */
-  const recoverLooseAssetsToUsdc = useCallback(async () => {
-    if (submittingRef.current) return;
-    submittingRef.current = true;
-    setError(null);
-    try {
-      if (!wallet.address || !wallet.provider) {
-        throw new Error("Connect wallet to recover loose assets");
-      }
-      if (!onExpectedChain) {
-        throw new Error(`Wrong network — switch to chain ${expectedChainId}`);
-      }
-      const d = requireAttestedPhase2aDeployments(deployments);
-      if (d.network === "hardhat-local") {
-        throw new Error("Loose-asset recovery is Base-only");
-      }
-      const account = wallet.address;
-      const walletClient = createWalletClient({
-        account,
-        chain,
-        transport: custom(wallet.provider),
-      });
-
-      const planned = await planLooseAssetRecoveries({ publicClient, account });
-      if (planned.length === 0) {
-        setStatusMessage("No loose cbBTC/WETH in wallet to recover");
-        setProgress("confirmed");
-        return;
-      }
-
-      for (const row of planned) {
-        setProgress("awaiting-exit");
-        setStatusMessage(
-          `${RECOVER_LOOSE_ASSETS_ENGINE}: quoting ${row.symbol} → USDC on Uniswap…`,
-        );
-        const quoted = await quoteTokenToUsdcViaOracle({
-          publicClient,
-          oracleGuard: d.oracleGuard as Address,
-          tokenIn: row.tokenIn,
-          amountIn: row.amountIn,
-        });
-        if (quoted <= BigInt(0)) {
-          throw new Error(`OracleGuard returned zero USDC for ${row.symbol} recovery`);
-        }
-
-        // Approve step (may return first)
-        setStatusMessage(
-          `${RECOVER_LOOSE_ASSETS_ENGINE}: if prompted, approve ${row.symbol} to verified Uniswap SwapRouter only…`,
-        );
-        let hash = await recoverOneLooseAssetToUsdc({
-          publicClient,
-          walletClient,
-          account,
-          tokenIn: row.tokenIn,
-          amountIn: row.amountIn,
-          quotedUsdcOut: quoted,
-        });
-        setLastTxHash(hash);
-        await waitForSuccessfulTransactionReceipt(publicClient, hash);
-
-        // If that was approve, run swap
-        const allowance = (await publicClient.readContract({
-          address: row.tokenIn,
-          abi: [
-            {
-              type: "function",
-              name: "allowance",
-              stateMutability: "view",
-              inputs: [
-                { name: "owner", type: "address" },
-                { name: "spender", type: "address" },
-              ],
-              outputs: [{ type: "uint256" }],
-            },
-          ] as const,
-          functionName: "allowance",
-          args: [account, BASE_DEX_UNISWAP_V3.swapRouter],
-        })) as bigint;
-        if (allowance >= row.amountIn) {
-          setStatusMessage(
-            `${RECOVER_LOOSE_ASSETS_ENGINE}: swap ${row.symbol} → USDC (verified Uni router)…`,
-          );
-          hash = await recoverOneLooseAssetToUsdc({
-            publicClient,
-            walletClient,
-            account,
-            tokenIn: row.tokenIn,
-            amountIn: row.amountIn,
-            quotedUsdcOut: quoted,
-          });
-          setLastTxHash(hash);
-          await waitForSuccessfulTransactionReceipt(publicClient, hash);
-        }
-      }
-
-      setProgress("confirmed");
-      setStatusMessage("Loose assets recovered to USDC in your wallet");
-    } catch (err) {
-      setProgress("failed");
-      setError(
-        userRejectMessage(err) ??
-          (err instanceof Error ? err.message : "Loose asset recovery failed"),
-      );
-    } finally {
-      submittingRef.current = false;
-    }
-  }, [
-    chain,
-    deployments,
-    expectedChainId,
-    onExpectedChain,
-    publicClient,
-    wallet.address,
-    wallet.provider,
-  ]);
 
   const runManageAll = useCallback(
     async (mode: "harvest" | "compound") => {
@@ -2064,9 +2013,11 @@ export function useFivePoolPositions() {
     exitAll,
     exitAllToUsdc,
     exitAllToUsdcAvailable: isExitAllToUsdcAvailable(deployments),
+    exitPercentToUsdcAvailable: isExitPercentToUsdcAvailable(deployments),
     exitPartialPercentToWallet,
     withdrawPercent,
-    recoverLooseAssetsToUsdc,
+    strandedAssets,
+    refreshStrandedAssets,
     harvestAll,
     compoundAll,
     emergencyExitLeg,

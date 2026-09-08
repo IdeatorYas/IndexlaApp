@@ -57,4 +57,8 @@ module.exports = {
     tests: "./test/stable-club",
   },
   networks,
+  // Etherscan API v2 — single key covers Base (chainid 8453). Never commit the key.
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY?.trim() || "",
+  },
 };

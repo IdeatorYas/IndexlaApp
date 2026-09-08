@@ -5,6 +5,7 @@ import {
   applySlippageMin,
   buildExitToUsdcPreview,
   isExitAllToUsdcAvailable,
+  isExitPercentToUsdcAvailable,
   padExitUnwindSwaps,
 } from "@/lib/stable-club/exit-to-usdc";
 
@@ -78,6 +79,28 @@ describe("exit-to-usdc", () => {
       isExitAllToUsdcAvailable({ network: "base", features: { exitAllToUsdc: true } }),
     ).toBe(true);
     expect(isExitAllToUsdcAvailable({ network: "hardhat-local" })).toBe(true);
+  });
+
+  it("gates partial % until features.exitPercentToUsdc is explicitly enabled", () => {
+    expect(isExitPercentToUsdcAvailable({ network: "base" })).toBe(false);
+    expect(
+      isExitPercentToUsdcAvailable({
+        network: "base",
+        features: { exitAllToUsdc: true },
+      }),
+    ).toBe(false);
+    expect(
+      isExitPercentToUsdcAvailable({
+        network: "base",
+        features: { exitAllToUsdc: true, exitPercentToUsdc: true },
+      }),
+    ).toBe(true);
+    expect(
+      isExitPercentToUsdcAvailable({
+        network: "base",
+        features: { exitAllToUsdc: false, exitPercentToUsdc: true },
+      }),
+    ).toBe(false);
   });
 });
 

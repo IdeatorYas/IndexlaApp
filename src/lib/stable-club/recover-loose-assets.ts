@@ -11,6 +11,7 @@ import {
   type PublicClient,
   type WalletClient,
 } from "viem";
+import { base } from "viem/chains";
 import { BASE_DEX_UNISWAP_V3, BASE_TOKENS } from "@/lib/stable-club/official-pools";
 import { applySlippageMin } from "@/lib/stable-club/exit-to-usdc";
 
@@ -111,6 +112,8 @@ export async function recoverOneLooseAssetToUsdc(params: {
     args: [params.account, router],
   })) as bigint;
 
+  const chain = params.walletClient.chain ?? base;
+
   if (allowance < params.amountIn) {
     const approveHash = await params.walletClient.writeContract({
       address: params.tokenIn,
@@ -118,6 +121,7 @@ export async function recoverOneLooseAssetToUsdc(params: {
       functionName: "approve",
       args: [router, params.amountIn],
       account: params.account,
+      chain,
     });
     return approveHash; // caller waits then retries swap
   }
@@ -156,5 +160,6 @@ export async function recoverOneLooseAssetToUsdc(params: {
       },
     ],
     account: params.account,
+    chain,
   });
 }

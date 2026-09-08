@@ -9,7 +9,7 @@ import {
   STABLE_CLUB_SWAP_ROUTE_LABELS,
 } from "@/lib/stable-club/swap-routes";
 
-export const EXIT_UNWIND_SLIPPAGE_BPS = BigInt(300); // 3% — exit unwind tolerance
+export const EXIT_UNWIND_SLIPPAGE_BPS = BigInt(100); // 1% — must satisfy MevGuard slipFloor + impact band
 
 export const MAX_EXIT_UNWIND_SWAPS = 8;
 
@@ -128,8 +128,11 @@ export function buildExitToUsdcPreview(params: {
     routeAero: Hex,
   ) => {
     if (amountIn <= BigInt(0)) return;
+    // Pad amountIn as a max estimate so the executor can swap the true LP delta
+    // (partial exits) and scale minOut/quotedOut without leaving ResidualNonUsdc.
+    const amountInMax = (amountIn * BigInt(125)) / BigInt(100) + BigInt(1);
     const routeId = preferred === "aero" ? routeAero : routeUni;
-    const quotedOut = params.quoteTokenToUsdc(tokenIn, amountIn);
+    const quotedOut = params.quoteTokenToUsdc(tokenIn, amountInMax);
     if (quotedOut <= BigInt(0)) {
       throw new Error(`No USDC quote for ${symbol} unwind`);
     }
@@ -137,7 +140,7 @@ export function buildExitToUsdcPreview(params: {
       routeId,
       tokenIn,
       tokenInSymbol: symbol,
-      amountIn,
+      amountIn: amountInMax,
       quotedOut,
       minOut: applySlippageMin(quotedOut),
       deadline: params.deadline,
@@ -222,12 +225,27 @@ export function padExitUnwindSwaps(
 /** Live Base has deposit routes only; reverse routes + new executor fn required. */
 export function isExitAllToUsdcAvailable(deployments: {
   network?: string;
-  features?: { exitAllToUsdc?: boolean };
+  features?: { exitAllToUsdc?: boolean; exitPercentToUsdc?: boolean };
 } | null): boolean {
   if (!deployments) return false;
   if (deployments.features?.exitAllToUsdc === true) return true;
   if (deployments.network === "hardhat-local") return true;
   return false;
+}
+
+/**
+ * Partial % (1–99) atomic USDC exit — requires both feature flags.
+ * Keep false on live Base until Safe cutover enables exitPercentToUsdc.
+ */
+export function isExitPercentToUsdcAvailable(deployments: {
+  network?: string;
+  features?: { exitAllToUsdc?: boolean; exitPercentToUsdc?: boolean };
+} | null): boolean {
+  if (!deployments) return false;
+  return (
+    deployments.features?.exitAllToUsdc === true &&
+    deployments.features?.exitPercentToUsdc === true
+  );
 }
 
 /** Re-export deposit route ids for symmetry checks in tests. */

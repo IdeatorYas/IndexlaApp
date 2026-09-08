@@ -72,6 +72,8 @@ export type StableClubPhase2aDeployments = {
    */
   features?: {
     exitAllToUsdc?: boolean;
+    /** Partial % USDC exit — enable only after Safe cutover. */
+    exitPercentToUsdc?: boolean;
   };
 };
 

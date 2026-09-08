@@ -45,6 +45,19 @@ interface IConcentratedLiquidityAdapter {
         uint256 amountBMin
     ) external returns (uint256 amountA, uint256 amountB);
 
+    /// @notice Partial LP decrease with explicit collect recipient (lpOwner or msg.sender/executor only).
+    /// @dev Used by exitAllToUsdc partial % so proceeds stay on the executor for USDC unwind.
+    function decreaseLiquidityTo(
+        address lpOwner,
+        uint256 tokenId,
+        address recipient,
+        address tokenA,
+        address tokenB,
+        uint128 liquidity,
+        uint256 amountAMin,
+        uint256 amountBMin
+    ) external returns (uint256 amountA, uint256 amountB);
+
     /// @param recipient NPM fee/reward recipient (user for harvest; executor for atomic compound).
     function collectFees(
         address lpOwner,

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -525,10 +526,11 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             );
         } else {
             if (leg.liquidity == 0) revert InvalidAmount();
-            // Partial decrease always returns proceeds to the user (not used by exitAllToUsdc).
-            IConcentratedLiquidityAdapter(leg.adapter).decreaseLiquidity(
+            // Partial: collect to proceedsRecipient (user for exitLeg; executor for exitAllToUsdc %).
+            IConcentratedLiquidityAdapter(leg.adapter).decreaseLiquidityTo(
                 user,
                 leg.positionTokenId,
+                proceedsRecipient,
                 leg.tokenA,
                 leg.tokenB,
                 leg.liquidity,
@@ -578,10 +580,10 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     }
 
     /**
-     * @notice Atomic full exit that unwinds all non-USDC proceeds to USDC, then pays the user USDC only.
-     * @dev Closes all legs to this executor, executes allowlisted reverse swaps (token → USDC),
-     *      requires `minUsdcOut`, transfers USDC to the user, and reverts if any residual non-USDC remains.
-     *      Underlying-asset `exitAll` remains available as a separate emergency/break-glass path.
+     * @notice Atomic exit that unwinds non-USDC proceeds to USDC, then pays the user USDC only.
+     * @dev Each open leg may be fullExit (close+burn) or partial (decreaseLiquidityTo executor).
+     *      Executes allowlisted reverse swaps (token → USDC), requires `minUsdcOut`, transfers USDC
+     *      to the user, and reverts if any residual non-USDC remains.
      */
     function exitAllToUsdc(
         bytes32 strategyId,
@@ -607,7 +609,8 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             ExitLegParams calldata leg = legs[i];
             if (leg.adapter == address(0)) continue;
             if (leg.legIndex != uint8(i)) revert LegIndexOutOfBounds();
-            if (!leg.fullExit) revert InvalidAmount();
+            // fullExit closes+burns; !fullExit requires liquidity > 0 (enforced in _exitLegInternal).
+            if (!leg.fullExit && leg.liquidity == 0) revert InvalidAmount();
             encodeExitAllLegExecutionNonce(executionNonceBase, i);
 
             trackedCount = _trackToken(tracked, preTracked, trackedCount, leg.tokenA);
@@ -616,7 +619,9 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             _exitLegInternal(strategyId, user, leg, executionNonceBase + i, false, address(this));
         }
 
-        // Unwind non-USDC → USDC via allowlisted reverse routes.
+        // Unwind non-USDC → USDC via allowlisted reverse swaps.
+        // Use actual executor balance deltas (not calldata estimates) so partial %
+        // decreaseLiquidity proceeds match ResidualNonUsdc exactly.
         for (uint256 s = 0; s < swapCount; s++) {
             ExitUnwindSwap calldata swap = swaps[s];
             if (swap.amountIn == 0 || swap.minOut == 0 || swap.quotedOut == 0) revert MinOutRequired();
@@ -627,6 +632,46 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
                 revert InvalidExitUnwindPlan();
             }
             if (!approvedTokens[route.tokenIn]) revert TokenNotApproved();
+
+            uint256 preBal = 0;
+            bool trackedToken = false;
+            for (uint256 t = 0; t < trackedCount; t++) {
+                if (tracked[t] == route.tokenIn) {
+                    preBal = preTracked[t];
+                    trackedToken = true;
+                    break;
+                }
+            }
+            if (!trackedToken) revert InvalidExitUnwindPlan();
+
+            uint256 available = IERC20(route.tokenIn).balanceOf(address(this));
+            if (available < preBal) revert InvalidAmount();
+            uint256 delta = available - preBal;
+            if (delta == 0) revert InvalidExitUnwindPlan();
+
+            // Calldata amountIn is an upper-bound estimate from the client.
+            // Always swap the full delta so ResidualNonUsdc can pass after partial exits.
+            uint256 amountIn = delta;
+            uint256 minOut = swap.minOut;
+            uint256 quotedOut = swap.quotedOut;
+            if (swap.amountIn > amountIn) {
+                // Re-quote for the true delta. Linear scale of a padded quote can
+                // undershoot MevGuard's oracle slipFloor via integer rounding.
+                uint8 decimalsIn = IERC20Metadata(route.tokenIn).decimals();
+                uint8 decimalsOut = IERC20Metadata(usdc).decimals();
+                quotedOut = oracleGuard.expectedAmountOut(
+                    route.tokenIn, usdc, amountIn, decimalsIn, decimalsOut
+                );
+                // Match MevGuard.assertSwapProtections(..., slippageBps=100) slipFloor,
+                // but keep a stricter (higher) caller minOut so fail-closed tests/UX work.
+                uint256 guardFloor = (quotedOut * 9_900) / 10_000;
+                uint256 scaledCallerMin = (swap.minOut * amountIn) / swap.amountIn;
+                minOut = scaledCallerMin > guardFloor ? scaledCallerMin : guardFloor;
+            } else if (swap.amountIn < amountIn) {
+                // Estimate too low would leave residual — reject rather than leave dust.
+                revert InvalidExitUnwindPlan();
+            }
+            if (minOut == 0 || quotedOut == 0) revert MinOutRequired();
 
             bytes32 poolIdHint = bytes32(0);
             // Use first open leg pool for safety context when available.
@@ -642,15 +687,15 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
             mevGuard.assertSwapProtections(
                 route.tokenIn,
                 usdc,
-                swap.amountIn,
-                swap.minOut,
-                swap.quotedOut,
+                amountIn,
+                minOut,
+                quotedOut,
                 100,
                 swap.deadline
             );
 
-            IERC20(route.tokenIn).forceApprove(address(swapRouter), swap.amountIn);
-            swapRouter.executeExactInput(swap.routeId, swap.amountIn, swap.minOut, swap.deadline);
+            IERC20(route.tokenIn).forceApprove(address(swapRouter), amountIn);
+            swapRouter.executeExactInput(swap.routeId, amountIn, minOut, swap.deadline);
             _clearApproval(route.tokenIn, address(swapRouter));
         }
 
