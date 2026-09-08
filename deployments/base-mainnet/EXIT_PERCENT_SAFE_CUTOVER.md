@@ -1,45 +1,41 @@
-# Exit-percent Safe cutover — required actions
+# Exit-percent Safe cutover — live status
 
-## Proven gap
+## CREATE complete (Base)
 
-Live adapters on Base (`0x518a…` … `0xf51b…`) **lack** `decreaseLiquidityTo`. Partial % USDC cannot be enabled on the current pinned stack.
+| Role | Address |
+|------|---------|
+| **New CL executor** (owner = Safe) | `0x455cc33194f82E253F41d91C1201eB4095c9D1Fa` |
+| Previous CL executor (keep for open positions) | `0x488f0680ff28908F49CC85C05b9E4813e657FcD2` |
+| Adapter[0] | `0x426dF92067335e3B5Df01a8e0165Ac7BFCA27E8D` |
+| Adapter[1] | `0x6d81BC4748483D61a16dDB9F44C2F4C98301e3ae` |
+| Adapter[2] | `0x60DD0546b4816DAaEb864F1A3EbF3619D60646d3` |
+| Adapter[3] | `0x76C480a97589f4384E20d35F08436FA2758CE58b` |
+| Adapter[4] | `0x5831Dbc39a336e22A54F828fDcd3d75CfE26Ef1D` |
+| Ownership transfer tx | `0x29bc464834e46ab48bd517ae38134af73b4292b0a7e257a6232ec60077a8ca73` |
 
-## Agent-prepared (no broadcast)
+Shared registries/swapRouter/oracle/mev/safety **reused** from `safe-owned-stack-create.json`.
 
-| Artifact / script | Purpose |
-|-------------------|---------|
-| `scripts/stable-club/deploy-exit-percent-cutover-create.cjs` | EOA CREATE new CL executor + 5 adapters (with `decreaseLiquidityTo`), ownership → Safe. Reuses live shared registries/swapRouter. |
-| `scripts/stable-club/build-exit-percent-cutover-pack.cjs` | Builds Safe MultiSend calldata pack (no broadcast). |
-| `scripts/stable-club/verify-safe-owned-stack.cjs` | Basescan verify for **current** live spenders (needs `ETHERSCAN_API_KEY`). |
+## Safe 2-of-3 — ACTION REQUIRED
 
-## Exact confirmation required to CREATE
+- **Queue:** https://app.safe.global/transactions/queue?safe=base:0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910
+- **safeTxHash:** `0x9da1c5f2b5f8ddbdaf86b3553e20c23a82371d7e4edaa985b499f6f1bbe0db08`
+- **Nonce:** 2 · **Threshold:** 2 · **1 confirmation already proposed**
+- **18 inner calls** — see `exit-percent-cutover-approval-pack.json`
 
-```bash
-# .env.local (do not commit):
-STABLE_CLUB_BASE_DEPLOY_CONFIRMATION=I AUTHORIZE INDEXLA STABLE CLUB BASE MAINNET DEPLOY
-BASE_RPC_URL=...
-DEPLOYER_PRIVATE_KEY=...
-ETHERSCAN_API_KEY=...   # for verify
+Review every inner call (`setOperator`, `setExecutorApproved`, `setPermit2`, token/adapter approvals, `registerPool`). Confirm & execute as remaining owner(s).
 
-npx hardhat run scripts/stable-club/deploy-exit-percent-cutover-create.cjs --network base
-node scripts/stable-club/build-exit-percent-cutover-pack.cjs
-```
+## Do not enable % until
 
-## Safe 2-of-3 (you must sign)
-
-1. Open `deployments/base-mainnet/exit-percent-cutover-approval-pack.json` after CREATE.
-2. Review every `safeTransactions[]` entry (`to`, `data`, `decoded.method`).
-3. Execute via Safe UI / propose-safe Multisend pattern — **agent will not bypass**.
-4. After execute: Basescan-verify new executor + adapters; tiny Base E2E (deposit → 20% → 50% → 100% `exitAllToUsdc`).
-5. Only then pin trusted manifest + `features.exitPercentToUsdc=true` and unlock app %.
+1. Safe MultiSend executed on-chain  
+2. Basescan verify new executor + 5 adapters (`ETHERSCAN_API_KEY` in `.env.local`)  
+3. Tiny Base E2E on **new** stack: deposit → 20% → 50% → 100% `exitAllToUsdc`  
+4. Pin trusted manifest + `features.exitPercentToUsdc=true` + app deploy  
 
 ## Existing open positions
 
-Strategy legs pin **old** adapter addresses permanently (IDs non-recyclable).  
-**Required:** complete **100%** `exitAllToUsdc` on the **current** verified stack, then register a **new** strategy against the new adapters before using partial %.
+Strategy legs pin **old** adapters permanently.  
+**Required:** 100% `exitAllToUsdc` on **current** product stack (`0x488f…`), then register a **new** strategy against the new adapters before using partial %.
 
-## Current product (pre-cutover)
+## Etherscan key
 
-- Withdraw = **100% only** atomic USDC via live `0x488f…` executor.
-- NFT→adapter approve is required and bounded per `tokenId`.
-- Recover button removed; stranded cbBTC/WETH shown read-only.
+Paste into local `.env.local` line `ETHERSCAN_API_KEY=` (file opened in editor; never commit).
