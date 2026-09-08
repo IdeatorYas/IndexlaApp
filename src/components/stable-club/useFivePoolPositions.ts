@@ -2040,13 +2040,23 @@ export function useFivePoolPositions() {
     exitAll,
     exitAllToUsdc,
     exitAllToUsdcAvailable: isExitAllToUsdcAvailable(deployments),
-    exitPercentToUsdcAvailable:
+    /** Feature flag only — % UI always shown when cutover is live. Stack gating is in exitAllToUsdc. */
+    exitPercentToUsdcAvailable: isExitPercentToUsdcAvailable(deployments),
+    /** True when open positions can safely use decreaseLiquidityTo partial exits. */
+    exitPercentExecutable:
       isExitPercentToUsdcAvailable(deployments) &&
       (positions.length === 0 ||
         resolveClStackForAdapters(
           deployments!,
           positions.map((p) => p.adapter),
         ).percentExitAllowed),
+    withdrawStackKind:
+      positions.length === 0 || !deployments
+        ? ("primary" as const)
+        : resolveClStackForAdapters(
+            deployments,
+            positions.map((p) => p.adapter),
+          ).kind,
     exitPartialPercentToWallet,
     withdrawPercent,
     strandedAssets,

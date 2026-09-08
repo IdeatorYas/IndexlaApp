@@ -100,6 +100,8 @@ export function StableClubPositionDashboard({
 
   const harvestCompoundReady = p.exitAllToUsdcAvailable;
   const exitPercentEnabled = p.exitPercentToUsdcAvailable;
+  const exitPercentExecutable = p.exitPercentExecutable !== false;
+  const withdrawStackKind = p.withdrawStackKind ?? "primary";
   const refreshPositions = p.refreshPositions;
 
   useEffect(() => {
@@ -586,6 +588,12 @@ export function StableClubPositionDashboard({
                   <p className="mt-2 text-sm text-[#b42318]" role="alert">
                     Enter a percent between 1 and 100.
                   </p>
+                ) : !exitPercentExecutable && Math.round(withdrawPercent) !== 100 ? (
+                  <p className="mt-2 text-sm text-[#b42318]" role="alert">
+                    These LPs are on the previous adapter set. Choose{" "}
+                    <span className="font-semibold">100%</span> to receive USDC now. After you
+                    deposit again, 20% / 50% / custom will execute on-chain.
+                  </p>
                 ) : (
                   <p className="mt-2 text-sm text-[#5b6b7c]">
                     Removes {Math.round(withdrawPercent)}% of remaining LP liquidity → sells
@@ -596,8 +604,7 @@ export function StableClubPositionDashboard({
             ) : (
               <p className="mt-4 text-sm text-[#5b6b7c]">
                 Exits <span className="font-semibold">100%</span> of remaining LP liquidity →
-                sells non-USDC → sends USDC only to your wallet. (Pre-cutover strategies are
-                100%-only; open a new deposit for partial %.)
+                sells non-USDC → sends USDC only to your wallet.
               </p>
             )}
 
@@ -615,31 +622,37 @@ export function StableClubPositionDashboard({
                 Approval disclosure · Base
               </p>
               <p className="mt-2 text-[#5b6b7c]">
-                Your wallet may warn because ERC721{" "}
-                <span className="font-mono font-semibold text-[#0b1f3a]">approve</span> shares
-                selector{" "}
-                <span className="font-mono font-semibold text-[#0b1f3a]">0x095ea7b3</span> with
-                ERC20. Review each prompt carefully.
+                Wallets often mislabel NFT{" "}
+                <span className="font-mono font-semibold text-[#0b1f3a]">approve</span> as
+                “ERC20 approve” because both use selector{" "}
+                <span className="font-mono font-semibold text-[#0b1f3a]">0x095ea7b3</span>. This is
+                a <span className="font-semibold text-[#0b1f3a]">per-tokenId NFT approval</span>{" "}
+                to a Basescan-verified IndexLa adapter — not unlimited USDC spend. Your funds stay
+                in the LP NFT until the exit tx; that tx reverts on failure.
               </p>
               <p className="mt-2 text-[#5b6b7c]">
-                Each open LP needs a per-tokenId NFT{" "}
-                <span className="font-mono font-semibold text-[#0b1f3a]">
-                  approve(adapter, tokenId)
-                </span>{" "}
-                to the IndexLa adapter — not{" "}
-                <span className="font-mono">setApprovalForAll</span>.
+                Stack:{" "}
+                <span className="font-semibold text-[#0b1f3a]">
+                  {withdrawStackKind === "legacy"
+                    ? "legacy adapters (use 100% now)"
+                    : "current adapters (% exits enabled)"}
+                </span>
+                .
+              </p>
+              <p className="mt-2 text-[#5b6b7c]">
+                Open Basescan for each spender below (green check = verified source):
               </p>
               {uniqueAdapters.length > 0 ? (
                 <ul className="mt-2 space-y-1">
                   {uniqueAdapters.map((adapter) => (
                     <li key={adapter}>
                       <a
-                        href={`https://basescan.org/address/${adapter}`}
+                        href={`https://basescan.org/address/${adapter}#code`}
                         target="_blank"
                         rel="noreferrer"
                         className="font-mono text-[#1a4f8c] underline-offset-2 hover:underline"
                       >
-                        {adapter.slice(0, 6)}…{adapter.slice(-4)}
+                        {adapter}
                       </a>
                     </li>
                   ))}
@@ -657,7 +670,13 @@ export function StableClubPositionDashboard({
               </button>
               <button
                 type="button"
-                disabled={p.busy || !withdrawConfirmReady}
+                disabled={
+                  p.busy ||
+                  !withdrawConfirmReady ||
+                  (exitPercentEnabled &&
+                    !exitPercentExecutable &&
+                    Math.round(withdrawPercent) !== 100)
+                }
                 onClick={() => {
                   const pct = exitPercentEnabled ? Math.round(withdrawPercent) : 100;
                   setConfirmOpen(false);
