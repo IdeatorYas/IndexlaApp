@@ -75,6 +75,15 @@ export type StableClubPhase2aDeployments = {
     /** Partial % USDC exit — enable only after Safe cutover. */
     exitPercentToUsdc?: boolean;
   };
+  /**
+   * Pre-cutover CL executor + adapters. Strategies whose legs still pin these
+   * adapters must deposit/exit via `legacyExitStack.clExecutor` (100% only).
+   * Primary `clExecutor`/`adapters` are the decreaseLiquidityTo stack.
+   */
+  legacyExitStack?: {
+    clExecutor: Address;
+    adapters: Phase2aAdapterDeployment[];
+  };
 };
 
 /** Core IndexLa + Permit2 contracts attested on every network. */
@@ -295,6 +304,9 @@ export function toPublicPhase2aDeploymentsPayload(
       ? { discoveryStartBlock: deployments.discoveryStartBlock }
       : {}),
     ...(deployments.features !== undefined ? { features: deployments.features } : {}),
+    ...(deployments.legacyExitStack !== undefined
+      ? { legacyExitStack: deployments.legacyExitStack }
+      : {}),
   };
 }
 

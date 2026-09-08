@@ -3,6 +3,9 @@
  * Safe-owned stack CREATE + MultiSend config after live Base E2E
  * (deposit → harvest → compound → exitAllToUsdc, USDC-only).
  *
+ * Exit-percent cutover (2026-09-08): primary CL executor + adapters include
+ * decreaseLiquidityTo. Pre-cutover stack retained as legacyExitStack (100% only).
+ *
  * Addresses and runtime keccak256 hashes are recorded evidence only —
  * do not invent or edit casually.
  */
@@ -11,6 +14,116 @@ import type {
   StableClubPhase2aDeployments,
   TrustedPhase2aBaseManifest,
 } from "@/lib/stable-club/phase2a-deployments";
+
+/** Pre-cutover CL executor (no decreaseLiquidityTo on adapters). */
+const LEGACY_CL_EXECUTOR =
+  "0x488f0680ff28908F49CC85C05b9E4813e657FcD2" as Address;
+
+const LEGACY_ADAPTERS = [
+  {
+    poolId: "0xb51b99144079a80e7d705d0dbef80a3e5e0b55eba8199486dc8d3770c3c14c11" as Hex,
+    protocol: "aerodrome-slipstream",
+    adapter: "0x518aB4069fB15dC201a00D19a9bC65CCB4D23fA8" as Address,
+    tokenA: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address,
+    tokenB: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+    factory: "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A" as Address,
+    npm: "0x827922686190790b37229fd06084350e74485b72" as Address,
+    router: "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5" as Address,
+  },
+  {
+    poolId: "0xa72adbe1cdd7bb579a7f6915e7a89382f5a6640b29420fca351c0e1324dfbfcd" as Hex,
+    protocol: "uniswap-v3",
+    adapter: "0x27dB4752042A1de36Dae6Ee473Df32Ec5dBA2216" as Address,
+    tokenA: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address,
+    tokenB: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+    factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD" as Address,
+    npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as Address,
+    router: "0x2626664c2603336E57B271c5C0b26F421741e481" as Address,
+  },
+  {
+    poolId: "0xab4b5c2fb326832537b899664425f8ea62c5385ea66ed996cfcb1a88471ed35f" as Hex,
+    protocol: "aerodrome-slipstream",
+    adapter: "0xf116E439128c9ba2E7824BB46dF12877BcBaC41f" as Address,
+    tokenA: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+    tokenB: "0x4200000000000000000000000000000000000006" as Address,
+    factory: "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef" as Address,
+    npm: "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53" as Address,
+    router: "0x698Cb2b6dd822994581fEa6eA4Fc755d1363A92F" as Address,
+  },
+  {
+    poolId: "0x1749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db" as Hex,
+    protocol: "aerodrome-slipstream",
+    adapter: "0xcb58E708fAa868b8D2052c33a798b4BAEa2FAD7b" as Address,
+    tokenA: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+    tokenB: "0x4200000000000000000000000000000000000006" as Address,
+    factory: "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A" as Address,
+    npm: "0x827922686190790b37229fd06084350e74485b72" as Address,
+    router: "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5" as Address,
+  },
+  {
+    poolId: "0xbce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af" as Hex,
+    protocol: "uniswap-v3",
+    adapter: "0xf51bd174b19008526594E9ae5837FcA66BEB6adf" as Address,
+    tokenA: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+    tokenB: "0x4200000000000000000000000000000000000006" as Address,
+    factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD" as Address,
+    npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as Address,
+    router: "0x2626664c2603336E57B271c5C0b26F421741e481" as Address,
+  },
+] as const;
+
+const PRIMARY_ADAPTERS = [
+  {
+    poolId: "0xb51b99144079a80e7d705d0dbef80a3e5e0b55eba8199486dc8d3770c3c14c11" as Hex,
+    protocol: "aerodrome-slipstream",
+    adapter: "0x426dF92067335e3B5Df01a8e0165Ac7BFCA27E8D" as Address,
+    tokenA: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address,
+    tokenB: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+    factory: "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A" as Address,
+    npm: "0x827922686190790b37229fd06084350e74485b72" as Address,
+    router: "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5" as Address,
+  },
+  {
+    poolId: "0xa72adbe1cdd7bb579a7f6915e7a89382f5a6640b29420fca351c0e1324dfbfcd" as Hex,
+    protocol: "uniswap-v3",
+    adapter: "0x6d81BC4748483D61a16dDB9F44C2F4C98301e3ae" as Address,
+    tokenA: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address,
+    tokenB: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+    factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD" as Address,
+    npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as Address,
+    router: "0x2626664c2603336E57B271c5C0b26F421741e481" as Address,
+  },
+  {
+    poolId: "0xab4b5c2fb326832537b899664425f8ea62c5385ea66ed996cfcb1a88471ed35f" as Hex,
+    protocol: "aerodrome-slipstream",
+    adapter: "0x60DD0546b4816DAaEb864F1A3EbF3619D60646d3" as Address,
+    tokenA: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+    tokenB: "0x4200000000000000000000000000000000000006" as Address,
+    factory: "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef" as Address,
+    npm: "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53" as Address,
+    router: "0x698Cb2b6dd822994581fEa6eA4Fc755d1363A92F" as Address,
+  },
+  {
+    poolId: "0x1749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db" as Hex,
+    protocol: "aerodrome-slipstream",
+    adapter: "0x76C480a97589f4384E20d35F08436FA2758CE58b" as Address,
+    tokenA: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+    tokenB: "0x4200000000000000000000000000000000000006" as Address,
+    factory: "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A" as Address,
+    npm: "0x827922686190790b37229fd06084350e74485b72" as Address,
+    router: "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5" as Address,
+  },
+  {
+    poolId: "0xbce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af" as Hex,
+    protocol: "uniswap-v3",
+    adapter: "0x5831Dbc39a336e22A54F828fDcd3d75CfE26Ef1D" as Address,
+    tokenA: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf" as Address,
+    tokenB: "0x4200000000000000000000000000000000000006" as Address,
+    factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD" as Address,
+    npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1" as Address,
+    router: "0x2626664c2603336E57B271c5C0b26F421741e481" as Address,
+  },
+] as const;
 
 export const TRUSTED_PHASE2A_BASE_MANIFEST = {
   chainId: 8453,
@@ -21,7 +134,7 @@ export const TRUSTED_PHASE2A_BASE_MANIFEST = {
     strategyRegistry: "0xf6696C45A1A186712c530696a5B392Ed9E18ae24",
     feeRouter: "0xf33239712875a7BD9d171cdD4d782c8FC022154C",
     swapRouter: "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
-    clExecutor: "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+    clExecutor: "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
     oracleGuard: "0x0cD087927F590B28737dFd9c7AAeB73B8ede70Ba",
     mevGuard: "0xa524506a21a9a5105c535a45c55Fe5dF9970c540",
     safetyController: "0x429df0c70eEfCC5CD6b8B8FB94Ca8eDe226feDe5",
@@ -30,11 +143,11 @@ export const TRUSTED_PHASE2A_BASE_MANIFEST = {
     cbbtc: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
     weth: "0x4200000000000000000000000000000000000006",
     adapters: [
-      "0x518aB4069fB15dC201a00D19a9bC65CCB4D23fA8",
-      "0x27dB4752042A1de36Dae6Ee473Df32Ec5dBA2216",
-      "0xf116E439128c9ba2E7824BB46dF12877BcBaC41f",
-      "0xcb58E708fAa868b8D2052c33a798b4BAEa2FAD7b",
-      "0xf51bd174b19008526594E9ae5837FcA66BEB6adf",
+      "0x426dF92067335e3B5Df01a8e0165Ac7BFCA27E8D",
+      "0x6d81BC4748483D61a16dDB9F44C2F4C98301e3ae",
+      "0x60DD0546b4816DAaEb864F1A3EbF3619D60646d3",
+      "0x76C480a97589f4384E20d35F08436FA2758CE58b",
+      "0x5831Dbc39a336e22A54F828fDcd3d75CfE26Ef1D",
     ],
   },
   runtimeCodeHashes: {
@@ -46,8 +159,8 @@ export const TRUSTED_PHASE2A_BASE_MANIFEST = {
       "0xabbeafc96fc1f32f6ba7279aaf1980b27eed78746b37665fe1f7ffa1b9ddff37",
     "0x56c6c76b4d5997754988d3c26083af315bffa98f":
       "0xd7505a04f222bb3c9bebf371b454ce87479b02b09e60eda7e3ed2c05a34223b4",
-    "0x488f0680ff28908f49cc85c05b9e4813e657fcd2":
-      "0xee1130c54f91f6ac11b3078962e6fbb6fd4d76b138601ce1521b19b30161b04a",
+    "0x455cc33194f82e253f41d91c1201eb4095c9d1fa":
+      "0x61a8c3ff3ae721bbd780e944790cbca0d04c54540806f91f475b996259bccdf9",
     "0x0cd087927f590b28737dfd9c7aaeb73b8ede70ba":
       "0x72abe7dc9e08714ec8f299076928b564cbc926e1b01b41d3c62a80808e3a7ab9",
     "0xa524506a21a9a5105c535a45c55fe5df9970c540":
@@ -62,16 +175,16 @@ export const TRUSTED_PHASE2A_BASE_MANIFEST = {
       "0x91149353e08445ba77a52bf7e4cef919054027f4ad42812b4314bbaf2abd8b71",
     "0x4200000000000000000000000000000000000006":
       "0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c",
-    "0x518ab4069fb15dc201a00d19a9bc65ccb4d23fa8":
-      "0xff73bc694f8dacb1693d925f4c1f59679077720f4be84312bca2a16da30f6fd3",
-    "0x27db4752042a1de36dae6ee473df32ec5dba2216":
-      "0xbfd30c58b4b6c5693b34e56f12744af1a4986eb72de70aec4d90d1cb74ade29c",
-    "0xf116e439128c9ba2e7824bb46df12877bcbac41f":
-      "0xd437aad6d6197c78371cf2202176b8e3043cfafec0276258f3b9e58251a2a533",
-    "0xcb58e708faa868b8d2052c33a798b4baea2fad7b":
-      "0x428418b50b2f494c302b2cc2aa637dd1f3ef17c785b70cab5cd7e77c4ebbfd80",
-    "0xf51bd174b19008526594e9ae5837fca66beb6adf":
-      "0x616b4e47968777dff1e976215320636aadd238b61cc41c5b76a2ce799ee8609e",
+    "0x426df92067335e3b5df01a8e0165ac7bfca27e8d":
+      "0x1b96e6d26103cb26b52bdb03c0d8c1aa2cdfcdb3202a1897d79ef40580db6041",
+    "0x6d81bc4748483d61a16ddb9f44c2f4c98301e3ae":
+      "0x8b400b938f9d899e13ad58ebfc6012bef119b57bdbef8616a1658a14177fa4d4",
+    "0x60dd0546b4816daaeb864f1a3ebf3619d60646d3":
+      "0xe1900c8f59c0f796aa679b864800865c24b623c1008c0d168cbe331307282c91",
+    "0x76c480a97589f4384e20d35f08436fa2758ce58b":
+      "0xca10e3a7cf54da4f956a105b633aee3972b9dc033a4bcd720ef3fc08fab5fbe1",
+    "0x5831dbc39a336e22a54f828fdcd3d75cfe26ef1d":
+      "0x1e52b8796d9e129e798274df27d988fa58b0f411c0d60dca3a46b4e897b9ae84",
   },
 } as const satisfies TrustedPhase2aBaseManifest;
 
@@ -80,8 +193,9 @@ export const TRUSTED_PHASE2A_BASE_DEPLOYMENTS = {
   chainId: 8453,
   network: "base",
   isTestOnly: false,
-  label: "INDEXLA Stable Club five-pool Base mainnet (Safe-owned stack)",
-  deployedAt: "2026-09-06T20:32:32.538Z",
+  label:
+    "INDEXLA Stable Club five-pool Base mainnet (Safe-owned exit-percent stack)",
+  deployedAt: "2026-09-08T17:12:17.000Z",
   deployer: "0x977e7055D097bE5924fBdAd7e5a330405820f168" as Address,
   /** Unused on Base (isTestOnly=false); required by payload shape only. */
   testUser: "0x0000000000000000000000000000000000000001" as Address,
@@ -106,58 +220,7 @@ export const TRUSTED_PHASE2A_BASE_DEPLOYMENTS = {
     "0x1749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db",
     "0xbce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af",
   ] as Hex[],
-  adapters: [
-    {
-      poolId: "0xb51b99144079a80e7d705d0dbef80a3e5e0b55eba8199486dc8d3770c3c14c11",
-      protocol: "aerodrome-slipstream",
-      adapter: "0x518aB4069fB15dC201a00D19a9bC65CCB4D23fA8",
-      tokenA: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-      tokenB: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
-      factory: "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A",
-      npm: "0x827922686190790b37229fd06084350e74485b72",
-      router: "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5",
-    },
-    {
-      poolId: "0xa72adbe1cdd7bb579a7f6915e7a89382f5a6640b29420fca351c0e1324dfbfcd",
-      protocol: "uniswap-v3",
-      adapter: "0x27dB4752042A1de36Dae6Ee473Df32Ec5dBA2216",
-      tokenA: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-      tokenB: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
-      factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
-      npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
-      router: "0x2626664c2603336E57B271c5C0b26F421741e481",
-    },
-    {
-      poolId: "0xab4b5c2fb326832537b899664425f8ea62c5385ea66ed996cfcb1a88471ed35f",
-      protocol: "aerodrome-slipstream",
-      adapter: "0xf116E439128c9ba2E7824BB46dF12877BcBaC41f",
-      tokenA: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
-      tokenB: "0x4200000000000000000000000000000000000006",
-      factory: "0xf8f2eB4940CFE7d13603DDDD87f123820Fc061Ef",
-      npm: "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53",
-      router: "0x698Cb2b6dd822994581fEa6eA4Fc755d1363A92F",
-    },
-    {
-      poolId: "0x1749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db",
-      protocol: "aerodrome-slipstream",
-      adapter: "0xcb58E708fAa868b8D2052c33a798b4BAEa2FAD7b",
-      tokenA: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
-      tokenB: "0x4200000000000000000000000000000000000006",
-      factory: "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A",
-      npm: "0x827922686190790b37229fd06084350e74485b72",
-      router: "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5",
-    },
-    {
-      poolId: "0xbce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af",
-      protocol: "uniswap-v3",
-      adapter: "0xf51bd174b19008526594E9ae5837FcA66BEB6adf",
-      tokenA: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
-      tokenB: "0x4200000000000000000000000000000000000006",
-      factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
-      npm: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
-      router: "0x2626664c2603336E57B271c5C0b26F421741e481",
-    },
-  ],
+  adapters: [...PRIMARY_ADAPTERS],
   routes: [
     {
       name: "USDC_CBBTC_AERO_L",
@@ -204,6 +267,11 @@ export const TRUSTED_PHASE2A_BASE_DEPLOYMENTS = {
   discoveryStartBlock: 50968399,
   features: {
     exitAllToUsdc: true,
+    exitPercentToUsdc: true,
+  },
+  legacyExitStack: {
+    clExecutor: LEGACY_CL_EXECUTOR,
+    adapters: [...LEGACY_ADAPTERS],
   },
   /**
    * Manifest-only placeholder. Public API rewrites Base `rpcUrl` to

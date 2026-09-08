@@ -34,6 +34,10 @@ import {
   isExitPercentToUsdcAvailable,
   padExitUnwindSwaps,
 } from "@/lib/stable-club/exit-to-usdc";
+import {
+  findDiscoveryAdapterMeta,
+  resolveClStackForAdapters,
+} from "@/lib/stable-club/cl-stack-resolve";
 import { BASE_TOKENS } from "@/lib/stable-club/official-pools";
 import { quoteTokenToUsdcViaOracle } from "@/components/stable-club/usePositionUsdValue";
 import { planLooseAssetRecoveries } from "@/lib/stable-club/recover-loose-assets";
@@ -574,9 +578,7 @@ export function useFivePoolPositions() {
         if (!leg.adapter || leg.adapter === "0x0000000000000000000000000000000000000000") {
           continue;
         }
-        const adapterMeta = deployments.adapters.find(
-          (a) => a.adapter.toLowerCase() === leg.adapter.toLowerCase(),
-        );
+        const adapterMeta = findDiscoveryAdapterMeta(deployments, leg.adapter);
         if (!adapterMeta) {
           partial = true;
           continue;
@@ -1243,11 +1245,18 @@ export function useFivePoolPositions() {
       if (!Number.isFinite(percent) || pct < 1 || pct > 100) {
         throw new Error("Withdraw percent must be between 1 and 100");
       }
-      if (pct !== 100 && !isExitPercentToUsdcAvailable(d)) {
+      const stack = resolveClStackForAdapters(
+        d,
+        open.map((p) => p.adapter),
+      );
+      if (pct !== 100 && !stack.percentExitAllowed) {
         throw new Error(
-          "Atomic USDC Withdraw on live INDEXLA contracts exits 100% of remaining LP liquidity only. Partial % requires exitPercentToUsdc after Safe cutover.",
+          stack.kind === "legacy"
+            ? "This strategy uses the pre-cutover adapters. Withdraw 100% USDC on the legacy stack, then open a new strategy for partial % exits."
+            : "Atomic USDC Withdraw on live INDEXLA contracts exits 100% of remaining LP liquidity only. Partial % requires exitPercentToUsdc after Safe cutover.",
         );
       }
+      const clExecutor = stack.clExecutor;
       const percentBps = pct * 100;
 
       setStatusMessage("Checking network gas vs SafetyController ceiling…");
@@ -1348,7 +1357,7 @@ export function useFivePoolPositions() {
       // Fail closed before the wallet prompt when mins/routes would revert.
       try {
         await publicClient.simulateContract({
-          address: d.clExecutor,
+          address: clExecutor,
           abi: concentratedLiquidityExecutorAbi,
           functionName: "exitAllToUsdc",
           args: [
@@ -1369,7 +1378,7 @@ export function useFivePoolPositions() {
       }
 
       const hash = await walletClient.writeContract({
-        address: d.clExecutor,
+        address: clExecutor,
         abi: concentratedLiquidityExecutorAbi,
         functionName: "exitAllToUsdc",
         args: [
@@ -1581,14 +1590,27 @@ export function useFivePoolPositions() {
       if (!Number.isFinite(percent) || pct < 1 || pct > 100) {
         throw new Error("Withdraw percent must be between 1 and 100");
       }
-      if (pct !== 100 && !isExitPercentToUsdcAvailable(deployments)) {
+      const open = [...positions];
+      if (open.length > 0) {
+        const stack = resolveClStackForAdapters(
+          deployments!,
+          open.map((p) => p.adapter),
+        );
+        if (pct !== 100 && !stack.percentExitAllowed) {
+          throw new Error(
+            stack.kind === "legacy"
+              ? "This strategy uses pre-cutover adapters — withdraw 100% USDC only, then open a new strategy for partial %."
+              : "Partial % withdraw is not enabled on this deployment.",
+          );
+        }
+      } else if (pct !== 100 && !isExitPercentToUsdcAvailable(deployments)) {
         throw new Error(
           "Atomic USDC Withdraw on live INDEXLA contracts exits 100% of remaining LP liquidity only (single executor tx). Select 100%. Partial % needs a Safe executor/adapter upgrade.",
         );
       }
       await exitAllToUsdc(pct);
     },
-    [deployments, exitAllToUsdc],
+    [deployments, exitAllToUsdc, positions],
   );
 
   const runManageAll = useCallback(
@@ -1663,6 +1685,11 @@ export function useFivePoolPositions() {
           permissionIds,
         );
 
+        const stack = resolveClStackForAdapters(
+          d,
+          open.map((p) => p.adapter),
+        );
+
         setProgress("awaiting-exit");
         setStatusMessage(
           mode === "harvest"
@@ -1674,7 +1701,7 @@ export function useFivePoolPositions() {
         );
 
         const hash = await walletClient.writeContract({
-          address: d.clExecutor,
+          address: stack.clExecutor,
           abi: concentratedLiquidityExecutorAbi,
           functionName: mode === "harvest" ? "harvestAll" : "compoundAll",
           args: [sid, legs as never, nonceBase],
@@ -2013,7 +2040,13 @@ export function useFivePoolPositions() {
     exitAll,
     exitAllToUsdc,
     exitAllToUsdcAvailable: isExitAllToUsdcAvailable(deployments),
-    exitPercentToUsdcAvailable: isExitPercentToUsdcAvailable(deployments),
+    exitPercentToUsdcAvailable:
+      isExitPercentToUsdcAvailable(deployments) &&
+      (positions.length === 0 ||
+        resolveClStackForAdapters(
+          deployments!,
+          positions.map((p) => p.adapter),
+        ).percentExitAllowed),
     exitPartialPercentToWallet,
     withdrawPercent,
     strandedAssets,

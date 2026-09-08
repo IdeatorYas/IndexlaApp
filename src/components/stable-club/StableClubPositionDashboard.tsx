@@ -588,15 +588,16 @@ export function StableClubPositionDashboard({
                   </p>
                 ) : (
                   <p className="mt-2 text-sm text-[#5b6b7c]">
-                    Exits {Math.round(withdrawPercent)}% of remaining liquidity on every open LP
-                    leg → USDC only to your wallet.
+                    Removes {Math.round(withdrawPercent)}% of remaining LP liquidity → sells
+                    non-USDC → sends USDC only to your wallet (one atomic tx).
                   </p>
                 )}
               </>
             ) : (
               <p className="mt-4 text-sm text-[#5b6b7c]">
-                Exits <span className="font-semibold">100%</span> of remaining liquidity on every
-                open LP leg → USDC only to your wallet.
+                Exits <span className="font-semibold">100%</span> of remaining LP liquidity →
+                sells non-USDC → sends USDC only to your wallet. (Pre-cutover strategies are
+                100%-only; open a new deposit for partial %.)
               </p>
             )}
 
