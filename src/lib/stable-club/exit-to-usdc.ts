@@ -9,7 +9,8 @@ import {
   STABLE_CLUB_SWAP_ROUTE_LABELS,
 } from "@/lib/stable-club/swap-routes";
 
-export const EXIT_UNWIND_SLIPPAGE_BPS = BigInt(100); // 1%
+export const EXIT_UNWIND_SLIPPAGE_BPS = BigInt(300); // 3% — exit unwind tolerance
+
 export const MAX_EXIT_UNWIND_SWAPS = 8;
 
 /** Reverse route labels (token → USDC). Must be configured on-chain before Base enablement. */

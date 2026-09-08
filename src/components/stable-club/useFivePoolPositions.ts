@@ -33,8 +33,13 @@ import {
   isExitAllToUsdcAvailable,
   padExitUnwindSwaps,
 } from "@/lib/stable-club/exit-to-usdc";
-import { BASE_TOKENS } from "@/lib/stable-club/official-pools";
+import { BASE_TOKENS, BASE_DEX_UNISWAP_V3 } from "@/lib/stable-club/official-pools";
 import { quoteTokenToUsdcViaOracle } from "@/components/stable-club/usePositionUsdValue";
+import {
+  planLooseAssetRecoveries,
+  recoverOneLooseAssetToUsdc,
+  RECOVER_LOOSE_ASSETS_ENGINE,
+} from "@/lib/stable-club/recover-loose-assets";
 import {
   FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS,
   aeroFactoryGetPoolAbi,
@@ -73,13 +78,6 @@ import {
   FIVE_POOL_POSITIONS_REFRESH_EVENT,
 } from "@/lib/stable-club/positions-refresh";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
-import {
-  assertAllowedNpm,
-  assertNotApproveCalldata,
-  buildNpmWithdrawMulticallCalls,
-  NPM_DIRECT_WITHDRAW_ENGINE,
-  npmPositionManagerAbi,
-} from "@/lib/stable-club/npm-direct-withdraw";
 import {
   attestPhase2aDeployments,
   isValidPhase2aPublicDeployments,
@@ -1275,13 +1273,37 @@ export function useFivePoolPositions() {
 
       setProgress("awaiting-exit");
       setStatusMessage(
-        "Confirm Withdraw — USDC is sent to YOUR wallet in the same transaction…",
+        "Confirm ONE Withdraw tx on INDEXLA executor — LP close + unwind swaps; USDC only to your wallet (reverts on failure)…",
       );
       setLegResults((prev) =>
         prev.map((r) => (r.status === "skipped" ? r : { ...r, status: "submitting" })),
       );
 
       const swaps = padExitUnwindSwaps(preview.unwindSwaps);
+
+      // Fail closed before the wallet prompt when mins/routes would revert.
+      try {
+        await publicClient.simulateContract({
+          address: d.clExecutor,
+          abi: concentratedLiquidityExecutorAbi,
+          functionName: "exitAllToUsdc",
+          args: [
+            sid,
+            legs as never,
+            swaps as never,
+            preview.unwindSwaps.length,
+            preview.minUsdcOut,
+            nonceBase,
+          ],
+          account,
+        });
+      } catch (simErr) {
+        const detail = simErr instanceof Error ? simErr.message : String(simErr);
+        throw new Error(
+          `Withdraw simulation failed (no funds moved): ${detail.slice(0, 280)}`,
+        );
+      }
+
       const hash = await walletClient.writeContract({
         address: d.clExecutor,
         abi: concentratedLiquidityExecutorAbi,
@@ -1303,7 +1325,9 @@ export function useFivePoolPositions() {
         ),
       );
       setProgress("confirmed");
-      setStatusMessage("Withdraw confirmed — USDC sent to your wallet");
+      setStatusMessage(
+        "Withdraw confirmed — USDC sent to your wallet. If you still hold loose cbBTC/WETH from the failed NPM attempt, use Recover loose assets.",
+      );
       submittingRef.current = false;
       await refreshPositions();
     } catch (err) {
@@ -1471,203 +1495,152 @@ export function useFivePoolPositions() {
   );
 
   /**
-   * Product Withdraw — one multicall per LP on allowlisted Uniswap/Aerodrome NPM only.
-   * Never INDEXLA executor/adapters. Never approve() (wallets mislabel ERC721 approve as ERC20).
-   * Proceeds collect to the connected wallet.
+   * @deprecated Product Withdraw must never call NPM from the wallet.
    */
-  const exitDirectNpmPercent = useCallback(
-    async (percent: number) => {
-      if (submittingRef.current) return;
-      submittingRef.current = true;
-      setError(null);
-      setApprovalTxHashes([]);
-      setDirectPlan(null);
+  const exitDirectNpmPercent = useCallback(async (_percent: number) => {
+    throw new Error(
+      "Direct NPM withdraw is disabled. Use Withdraw → 100% (atomic INDEXLA exitAllToUsdc → USDC only).",
+    );
+  }, []);
 
-      const open = [...positions].sort((a, b) => a.legIndex - b.legIndex);
-      setLegResults(
-        Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
-          const hit = open.find((p) => p.legIndex === i);
-          return {
-            legIndex: i,
-            status: hit ? ("pending" as const) : ("skipped" as const),
-          };
-        }),
-      );
-
-      try {
-        if (!wallet.address || !wallet.provider) {
-          throw new Error("Connect wallet to withdraw");
-        }
-        if (!onExpectedChain) {
-          throw new Error(`Wrong network — switch to chain ${expectedChainId}`);
-        }
-        const d = requireAttestedPhase2aDeployments(deployments);
-        if (d.network === "hardhat-local") {
-          throw new Error(
-            "Direct NPM withdraw is Base-only. Use local Exit All / Emergency on Hardhat.",
-          );
-        }
-        if (open.length === 0) throw new Error("No open positions to withdraw");
-        if (!Number.isFinite(percent) || percent < 1 || percent > 100) {
-          throw new Error("Withdraw percent must be between 1 and 100");
-        }
-
-        const account = wallet.address;
-        const walletClient = createWalletClient({
-          account,
-          chain,
-          transport: custom(wallet.provider),
-        });
-
-        const fullExit = Math.round(percent) === 100;
-        const percentBps = fullExit ? 10_000 : Math.round(percent * 100);
-        const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-
-        type Built = { legIndex: number; npm: Address; calls: Hex[] };
-        const built: Built[] = [];
-
-        for (const position of open) {
-          assertWalletOwnsPosition(account, position.owner, position.positionTokenId);
-          const npm = assertAllowedNpm(position.npm);
-          if (position.adapter.toLowerCase() === npm.toLowerCase()) {
-            throw new Error(
-              `Refusing withdraw: leg ${position.legIndex} NPM equals adapter (INDEXLA path blocked)`,
-            );
-          }
-
-          const live = await readLiveExitAmountsForPosition(publicClient, position, account);
-          let liquidity = live.liquidity > BigInt(0) ? live.liquidity : position.liquidity;
-          let amountA = live.amountA;
-          let amountB = live.amountB;
-          if (!fullExit) {
-            const bps = BigInt(percentBps);
-            liquidity = (liquidity * bps) / BigInt(10_000);
-            amountA = (amountA * bps) / BigInt(10_000);
-            amountB = (amountB * bps) / BigInt(10_000);
-            if (liquidity <= BigInt(0)) {
-              throw new Error(
-                `Partial withdraw rounds to zero liquidity for leg ${position.legIndex}`,
-              );
-            }
-          }
-          if (amountA <= BigInt(0) && amountB <= BigInt(0)) {
-            throw new Error(
-              `Exit amounts are both zero for leg ${position.legIndex} — refresh and retry`,
-            );
-          }
-
-          const { amount0Min, amount1Min } = mapLegMinsToToken01({
-            tokenA: position.tokenA,
-            tokenB: position.tokenB,
-            amountAMin: applyNpmExitSlippageMin(amountA, slippageBps),
-            amountBMin: applyNpmExitSlippageMin(amountB, slippageBps),
-          });
-
-          const { calls, multicallData } = buildNpmWithdrawMulticallCalls({
-            tokenId: position.positionTokenId,
-            liquidity,
-            amount0Min,
-            amount1Min,
-            deadline,
-            recipient: account,
-            burnAfter: fullExit,
-          });
-          assertNotApproveCalldata(multicallData);
-          for (const c of calls) assertNotApproveCalldata(c);
-
-          built.push({ legIndex: position.legIndex, npm, calls });
-        }
-
-        const hashes: Hex[] = [];
-        for (let i = 0; i < built.length; i++) {
-          const item = built[i]!;
-          setProgress("awaiting-exit");
-          setStatusMessage(
-            `${NPM_DIRECT_WITHDRAW_ENGINE}: sign Uniswap/Aerodrome multicall ${i + 1}/${built.length} ` +
-              `(tokens → your wallet). Reject if wallet shows Approve or an INDEXLA contract.`,
-          );
-          setLegResults((prev) =>
-            prev.map((r) =>
-              r.legIndex === item.legIndex ? { ...r, status: "submitting" } : r,
-            ),
-          );
-
-          const hash = await walletClient.writeContract({
-            address: item.npm,
-            abi: npmPositionManagerAbi,
-            functionName: "multicall",
-            args: [item.calls],
-            account,
-            chain,
-          });
-          assertNotApproveCalldata(
-            // defensive: wallet must have been asked for multicall, not approve
-            item.calls[0]!,
-          );
-          hashes.push(hash);
-          setLastTxHash(hash);
-        }
-
-        setStatusMessage(`Confirming ${hashes.length} NPM withdraw tx(s) on Base…`);
-        await Promise.all(
-          hashes.map((h) => waitForSuccessfulTransactionReceipt(publicClient, h)),
-        );
-
-        const finalHash = hashes.at(-1);
-        setLegResults((prev) =>
-          prev.map((r) =>
-            r.status === "skipped"
-              ? r
-              : { ...r, status: "confirmed", txHash: finalHash },
-          ),
-        );
-        setProgress("confirmed");
-        setStatusMessage(
-          fullExit
-            ? `${NPM_DIRECT_WITHDRAW_ENGINE}: 100% collected to your wallet`
-            : `${NPM_DIRECT_WITHDRAW_ENGINE}: ${Math.round(percent)}% collected to your wallet`,
-        );
-        submittingRef.current = false;
-        await refreshPositions();
-      } catch (err) {
-        setProgress("failed");
-        const reject = userRejectMessage(err);
-        const message =
-          reject ??
-          (err instanceof Error ? err.message : "Direct NPM withdraw failed");
-        setError(message);
-        setLegResults((prev) =>
-          prev.map((r) =>
-            r.status === "skipped" || r.status === "confirmed"
-              ? r
-              : { ...r, status: "failed", error: message },
-          ),
-        );
-      } finally {
-        submittingRef.current = false;
-      }
-    },
-    [
-      chain,
-      deployments,
-      expectedChainId,
-      onExpectedChain,
-      positions,
-      publicClient,
-      refreshPositions,
-      slippageBps,
-      wallet.address,
-      wallet.provider,
-    ],
-  );
-
-  /** Product Withdraw: always verified NPM → user wallet (never INDEXLA executor). */
+  /**
+   * Product Withdraw — atomic INDEXLA `exitAllToUsdc` only.
+   * Never calls Uniswap/Aerodrome NPM from the wallet.
+   * Live executor requires fullExit on every open leg → 100% of remaining liquidity → USDC only.
+   */
   const withdrawPercent = useCallback(
     async (percent: number) => {
-      await exitDirectNpmPercent(percent);
+      const pct = Math.round(percent);
+      if (!Number.isFinite(percent) || pct < 1 || pct > 100) {
+        throw new Error("Withdraw percent must be between 1 and 100");
+      }
+      if (pct !== 100) {
+        throw new Error(
+          "Atomic USDC Withdraw on live INDEXLA contracts exits 100% of remaining LP liquidity only (single executor tx). Select 100%. Partial % needs a Safe executor/adapter upgrade.",
+        );
+      }
+      await exitAllToUsdc();
     },
-    [exitDirectNpmPercent],
+    [exitAllToUsdc],
   );
+
+  /**
+   * Convert loose wallet cbBTC/WETH (from failed npm-direct) to USDC via verified Uni SwapRouter.
+   */
+  const recoverLooseAssetsToUsdc = useCallback(async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setError(null);
+    try {
+      if (!wallet.address || !wallet.provider) {
+        throw new Error("Connect wallet to recover loose assets");
+      }
+      if (!onExpectedChain) {
+        throw new Error(`Wrong network — switch to chain ${expectedChainId}`);
+      }
+      const d = requireAttestedPhase2aDeployments(deployments);
+      if (d.network === "hardhat-local") {
+        throw new Error("Loose-asset recovery is Base-only");
+      }
+      const account = wallet.address;
+      const walletClient = createWalletClient({
+        account,
+        chain,
+        transport: custom(wallet.provider),
+      });
+
+      const planned = await planLooseAssetRecoveries({ publicClient, account });
+      if (planned.length === 0) {
+        setStatusMessage("No loose cbBTC/WETH in wallet to recover");
+        setProgress("confirmed");
+        return;
+      }
+
+      for (const row of planned) {
+        setProgress("awaiting-exit");
+        setStatusMessage(
+          `${RECOVER_LOOSE_ASSETS_ENGINE}: quoting ${row.symbol} → USDC on Uniswap…`,
+        );
+        const quoted = await quoteTokenToUsdcViaOracle({
+          publicClient,
+          oracleGuard: d.oracleGuard as Address,
+          tokenIn: row.tokenIn,
+          amountIn: row.amountIn,
+        });
+        if (quoted <= BigInt(0)) {
+          throw new Error(`OracleGuard returned zero USDC for ${row.symbol} recovery`);
+        }
+
+        // Approve step (may return first)
+        setStatusMessage(
+          `${RECOVER_LOOSE_ASSETS_ENGINE}: if prompted, approve ${row.symbol} to verified Uniswap SwapRouter only…`,
+        );
+        let hash = await recoverOneLooseAssetToUsdc({
+          publicClient,
+          walletClient,
+          account,
+          tokenIn: row.tokenIn,
+          amountIn: row.amountIn,
+          quotedUsdcOut: quoted,
+        });
+        setLastTxHash(hash);
+        await waitForSuccessfulTransactionReceipt(publicClient, hash);
+
+        // If that was approve, run swap
+        const allowance = (await publicClient.readContract({
+          address: row.tokenIn,
+          abi: [
+            {
+              type: "function",
+              name: "allowance",
+              stateMutability: "view",
+              inputs: [
+                { name: "owner", type: "address" },
+                { name: "spender", type: "address" },
+              ],
+              outputs: [{ type: "uint256" }],
+            },
+          ] as const,
+          functionName: "allowance",
+          args: [account, BASE_DEX_UNISWAP_V3.swapRouter],
+        })) as bigint;
+        if (allowance >= row.amountIn) {
+          setStatusMessage(
+            `${RECOVER_LOOSE_ASSETS_ENGINE}: swap ${row.symbol} → USDC (verified Uni router)…`,
+          );
+          hash = await recoverOneLooseAssetToUsdc({
+            publicClient,
+            walletClient,
+            account,
+            tokenIn: row.tokenIn,
+            amountIn: row.amountIn,
+            quotedUsdcOut: quoted,
+          });
+          setLastTxHash(hash);
+          await waitForSuccessfulTransactionReceipt(publicClient, hash);
+        }
+      }
+
+      setProgress("confirmed");
+      setStatusMessage("Loose assets recovered to USDC in your wallet");
+    } catch (err) {
+      setProgress("failed");
+      setError(
+        userRejectMessage(err) ??
+          (err instanceof Error ? err.message : "Loose asset recovery failed"),
+      );
+    } finally {
+      submittingRef.current = false;
+    }
+  }, [
+    chain,
+    deployments,
+    expectedChainId,
+    onExpectedChain,
+    publicClient,
+    wallet.address,
+    wallet.provider,
+  ]);
 
   const runManageAll = useCallback(
     async (mode: "harvest" | "compound") => {
@@ -2093,6 +2066,7 @@ export function useFivePoolPositions() {
     exitAllToUsdcAvailable: isExitAllToUsdcAvailable(deployments),
     exitPartialPercentToWallet,
     withdrawPercent,
+    recoverLooseAssetsToUsdc,
     harvestAll,
     compoundAll,
     emergencyExitLeg,

@@ -7,14 +7,16 @@ import {
   getAddress,
   type Address,
   type Hex,
+  type PublicClient,
 } from "viem";
 import {
   BASE_DEX_AERODROME_CURRENT,
   BASE_DEX_AERODROME_LEGACY,
   BASE_DEX_UNISWAP_V3,
 } from "@/lib/stable-club/official-pools";
+import { applyNpmExitSlippageMin } from "@/lib/stable-club/five-pool-positions";
 
-export const NPM_DIRECT_WITHDRAW_ENGINE = "npm-direct-v3" as const;
+export const NPM_DIRECT_WITHDRAW_ENGINE = "npm-direct-v4" as const;
 
 /** ERC20 + ERC721 share this selector — wallets label both as “approves ERC20…”. */
 export const APPROVE_SELECTOR = "0x095ea7b3";
@@ -105,6 +107,50 @@ export function assertNotApproveCalldata(data: Hex): void {
       "Refusing withdraw: calldata is approve() — INDEXLA never requests token/NFT approve on Withdraw",
     );
   }
+}
+
+/**
+ * eth_call decreaseLiquidity with 0 mins → actual amount0/amount1 the NPM would return,
+ * then apply slippage. Fixes Uniswap "Price slippage check" from stale adapter estimates.
+ */
+export async function quoteNpmDecreaseMins(params: {
+  publicClient: Pick<PublicClient, "simulateContract">;
+  npm: Address;
+  account: Address;
+  tokenId: bigint;
+  liquidity: bigint;
+  deadline: bigint;
+  slippageBps: bigint;
+}): Promise<{ amount0Min: bigint; amount1Min: bigint; amount0: bigint; amount1: bigint }> {
+  const npm = assertAllowedNpm(params.npm);
+  const { result } = await params.publicClient.simulateContract({
+    address: npm,
+    abi: npmPositionManagerAbi,
+    functionName: "decreaseLiquidity",
+    args: [
+      {
+        tokenId: params.tokenId,
+        liquidity: params.liquidity,
+        amount0Min: BigInt(0),
+        amount1Min: BigInt(0),
+        deadline: params.deadline,
+      },
+    ],
+    account: params.account,
+  });
+  const amount0 = result[0];
+  const amount1 = result[1];
+  if (amount0 <= BigInt(0) && amount1 <= BigInt(0)) {
+    throw new Error(
+      `NPM decreaseLiquidity simulation returned 0/0 for tokenId ${params.tokenId.toString()}`,
+    );
+  }
+  return {
+    amount0,
+    amount1,
+    amount0Min: applyNpmExitSlippageMin(amount0, params.slippageBps),
+    amount1Min: applyNpmExitSlippageMin(amount1, params.slippageBps),
+  };
 }
 
 export function buildNpmWithdrawMulticallCalls(params: {

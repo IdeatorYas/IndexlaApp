@@ -487,12 +487,12 @@ export function StableClubPositionDashboard({
             aria-label="Confirm Withdraw"
             className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
           >
-            <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw to your wallet</h2>
+            <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw · Receive USDC</h2>
             <p className="mt-2 text-sm text-[#5b6b7c]">
-              Engine <span className="font-mono text-[11px]">npm-direct-v3</span>: one Uniswap /
-              Aerodrome multicall per LP (decrease + collect). Tokens go to your wallet. Your wallet
-              must show <span className="font-semibold">multicall</span> on the position manager —
-              reject if it shows Approve or any INDEXLA contract.
+              Atomic INDEXLA executor exit: close remaining LP liquidity → unwind non-USDC → send{" "}
+              <span className="font-semibold">USDC only</span> to your wallet. One executor
+              transaction (NFT adapter approvals first if still needed). Never calls Uniswap/Aerodrome
+              NPM from your wallet. Reverts on failure.
             </p>
 
             <div className="mt-4 grid grid-cols-2 gap-2">
@@ -539,36 +539,24 @@ export function StableClubPositionDashboard({
               <p className="mt-2 text-sm text-[#b42318]" role="alert">
                 Enter a percent between 1 and 100.
               </p>
-            ) : withdrawIsFull ? (
-              <p className="mt-2 text-sm text-[#5b6b7c]">
-                Closes all open LP legs in one transaction. Underlying pool tokens return to your
-                wallet.
+            ) : !withdrawIsFull ? (
+              <p className="mt-2 text-sm text-amber-800" role="status">
+                Live contracts only support atomic USDC exit at <strong>100% of remaining</strong>{" "}
+                liquidity. Select 100% to withdraw now. Partial % requires a Safe
+                executor/adapter upgrade.
               </p>
             ) : (
               <p className="mt-2 text-sm text-[#5b6b7c]">
-                Withdraws {Math.round(withdrawPercent)}% of liquidity from each open leg. Underlying
-                pool tokens return to your wallet (you may receive USDC + other pool assets).
+                Exits 100% of remaining liquidity on every open LP leg → USDC only to your wallet.
               </p>
             )}
 
             {usdValue.totalUsdc != null && usdValue.totalUsdc > BigInt(0) ? (
               <ul className="mt-3 space-y-1.5 text-sm">
                 <li className="flex justify-between">
-                  <span className="text-[#5b6b7c]">Est. position value</span>
+                  <span className="text-[#5b6b7c]">Est. remaining LP (USDC)</span>
                   <span className="font-semibold">${formatUnits(usdValue.totalUsdc, 6)}</span>
                 </li>
-                {withdrawPercentValid ? (
-                  <li className="flex justify-between">
-                    <span className="text-[#5b6b7c]">Est. withdraw (~{Math.round(withdrawPercent)}%)</span>
-                    <span className="font-semibold">
-                      $
-                      {formatUnits(
-                        (usdValue.totalUsdc * BigInt(Math.round(withdrawPercent))) / BigInt(100),
-                        6,
-                      )}
-                    </span>
-                  </li>
-                ) : null}
               </ul>
             ) : null}
             <div className="mt-4 grid grid-cols-2 gap-2">
@@ -581,17 +569,27 @@ export function StableClubPositionDashboard({
               </button>
               <button
                 type="button"
-                disabled={p.busy || !withdrawPercentValid}
+                disabled={p.busy || !withdrawIsFull}
                 onClick={() => {
-                  const pct = withdrawPercent;
                   setConfirmOpen(false);
-                  void afterAction(() => p.withdrawPercent(pct));
+                  void afterAction(() => p.withdrawPercent(100));
                 }}
                 className="h-10 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white disabled:opacity-45"
               >
-                Confirm {withdrawPercentValid ? `${Math.round(withdrawPercent)}%` : ""}
+                Confirm USDC
               </button>
             </div>
+            <button
+              type="button"
+              disabled={p.busy}
+              onClick={() => {
+                setConfirmOpen(false);
+                void afterAction(() => p.recoverLooseAssetsToUsdc());
+              }}
+              className="mt-2 h-10 w-full rounded-xl border border-[#d7e0ec] text-sm font-semibold text-[#0b1f3a] disabled:opacity-45"
+            >
+              Recover loose cbBTC/WETH → USDC
+            </button>
           </div>
         </div>
       ) : null}
