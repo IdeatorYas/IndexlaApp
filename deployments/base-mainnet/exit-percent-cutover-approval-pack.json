@@ -1,0 +1,306 @@
+{
+  "status": "CALLDATA_ONLY_NO_BROADCAST",
+  "purpose": "Exit-percent cutover: wire new CL executor+adapters (decreaseLiquidityTo) into live shared stack",
+  "safe": "0x356A4A432EE57F31F5cF8Fdd55F95c1FF6Cd5910",
+  "safeThresholdNote": "2-of-3 — founder + second owner must confirm; agent will not broadcast",
+  "compatibility": {
+    "existingPositions": "OLD adapters remain required for strategies registered against previous clExecutor bindings. Users must complete 100% exitAllToUsdc on the previous stack, then register a NEW strategy (IDs non-recyclable) targeting the new adapters before partial % is available.",
+    "strategyIdsNonRecyclable": true
+  },
+  "doNotEnableUntil": [
+    "Safe MultiSend executed on-chain",
+    "Basescan verify new executor + 5 adapters",
+    "Fork + tiny Base E2E: deposit → exitAllToUsdc 20% → 50% → 100%",
+    "Pin trusted manifest addresses + features.exitPercentToUsdc=true"
+  ],
+  "sourceArtifact": "deployments/base-mainnet/exit-percent-cutover-create.json",
+  "addresses": {
+    "newClExecutor": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+    "previousClExecutor": "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+    "shared": {
+      "permissionRegistry": "0xF75423289baA42A44981533152c81E16f1aFa069",
+      "strategyRegistry": "0xf6696C45A1A186712c530696a5B392Ed9E18ae24",
+      "feeRouter": "0xf33239712875a7BD9d171cdD4d782c8FC022154C",
+      "swapRouter": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "oracleGuard": "0x0cD087927F590B28737dFd9c7AAeB73B8ede70Ba",
+      "mevGuard": "0xa524506a21a9a5105c535a45c55Fe5dF9970c540",
+      "safetyController": "0x429df0c70eEfCC5CD6b8B8FB94Ca8eDe226feDe5"
+    },
+    "adapters": [
+      {
+        "poolId": "0xb51b99144079a80e7d705d0dbef80a3e5e0b55eba8199486dc8d3770c3c14c11",
+        "adapter": "0x426dF92067335e3B5Df01a8e0165Ac7BFCA27E8D"
+      },
+      {
+        "poolId": "0xa72adbe1cdd7bb579a7f6915e7a89382f5a6640b29420fca351c0e1324dfbfcd",
+        "adapter": "0x6d81BC4748483D61a16dDB9F44C2F4C98301e3ae"
+      },
+      {
+        "poolId": "0xab4b5c2fb326832537b899664425f8ea62c5385ea66ed996cfcb1a88471ed35f",
+        "adapter": "0x60DD0546b4816DAaEb864F1A3EbF3619D60646d3"
+      },
+      {
+        "poolId": "0x1749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db",
+        "adapter": "0x76C480a97589f4384E20d35F08436FA2758CE58b"
+      },
+      {
+        "poolId": "0xbce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af",
+        "adapter": "0x5831Dbc39a336e22A54F828fDcd3d75CfE26Ef1D"
+      }
+    ]
+  },
+  "safeTransactions": [
+    {
+      "label": "PermissionRegistry.setOperator(newClExecutor)",
+      "to": "0xF75423289baA42A44981533152c81E16f1aFa069",
+      "value": "0",
+      "data": "0x558a7297000000000000000000000000455cc33194f82e253f41d91c1201eb4095c9d1fa0000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setOperator",
+        "args": [
+          "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+          true
+        ]
+      }
+    },
+    {
+      "label": "StrategyRegistry.setOperator(newClExecutor)",
+      "to": "0xf6696C45A1A186712c530696a5B392Ed9E18ae24",
+      "value": "0",
+      "data": "0x558a7297000000000000000000000000455cc33194f82e253f41d91c1201eb4095c9d1fa0000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setOperator",
+        "args": [
+          "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+          true
+        ]
+      }
+    },
+    {
+      "label": "FeeRouter.setExecutorApproved(newClExecutor)",
+      "to": "0xf33239712875a7BD9d171cdD4d782c8FC022154C",
+      "value": "0",
+      "data": "0x3f851c34000000000000000000000000455cc33194f82e253f41d91c1201eb4095c9d1fa0000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setExecutorApproved",
+        "args": [
+          "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+          true
+        ]
+      }
+    },
+    {
+      "label": "SwapRouter.setExecutorApproved(newClExecutor)",
+      "to": "0x56c6c76B4d5997754988d3C26083af315BfFa98F",
+      "value": "0",
+      "data": "0x3f851c34000000000000000000000000455cc33194f82e253f41d91c1201eb4095c9d1fa0000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setExecutorApproved",
+        "args": [
+          "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+          true
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.setPermit2",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0x101ec30a000000000000000000000000000000000022d473030f116ddee9f6b43ac78ba3",
+      "operation": 0,
+      "decoded": {
+        "method": "setPermit2",
+        "args": [
+          "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.setTokenApproval(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913)",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0x14d91c84000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda029130000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setTokenApproval",
+        "args": [
+          "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          true
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.setTokenApproval(0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf)",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0x14d91c84000000000000000000000000cbb7c0000ab88b473b1f5afd9ef808440eed33bf0000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setTokenApproval",
+        "args": [
+          "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+          true
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.setTokenApproval(0x4200000000000000000000000000000000000006)",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0x14d91c8400000000000000000000000042000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setTokenApproval",
+        "args": [
+          "0x4200000000000000000000000000000000000006",
+          true
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.setAdapterApproval[0]",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0xf6cd4c00000000000000000000000000426df92067335e3b5df01a8e0165ac7bfca27e8d0000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setAdapterApproval",
+        "args": [
+          "0x426dF92067335e3B5Df01a8e0165Ac7BFCA27E8D",
+          true
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.registerPool[0]",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0x39df8a51b51b99144079a80e7d705d0dbef80a3e5e0b55eba8199486dc8d3770c3c14c11000000000000000000000000426df92067335e3b5df01a8e0165ac7bfca27e8d",
+      "operation": 0,
+      "decoded": {
+        "method": "registerPool",
+        "args": [
+          "0xb51b99144079a80e7d705d0dbef80a3e5e0b55eba8199486dc8d3770c3c14c11",
+          "0x426dF92067335e3B5Df01a8e0165Ac7BFCA27E8D"
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.setAdapterApproval[1]",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0xf6cd4c000000000000000000000000006d81bc4748483d61a16ddb9f44c2f4c98301e3ae0000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setAdapterApproval",
+        "args": [
+          "0x6d81BC4748483D61a16dDB9F44C2F4C98301e3ae",
+          true
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.registerPool[1]",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0x39df8a51a72adbe1cdd7bb579a7f6915e7a89382f5a6640b29420fca351c0e1324dfbfcd0000000000000000000000006d81bc4748483d61a16ddb9f44c2f4c98301e3ae",
+      "operation": 0,
+      "decoded": {
+        "method": "registerPool",
+        "args": [
+          "0xa72adbe1cdd7bb579a7f6915e7a89382f5a6640b29420fca351c0e1324dfbfcd",
+          "0x6d81BC4748483D61a16dDB9F44C2F4C98301e3ae"
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.setAdapterApproval[2]",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0xf6cd4c0000000000000000000000000060dd0546b4816daaeb864f1a3ebf3619d60646d30000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setAdapterApproval",
+        "args": [
+          "0x60DD0546b4816DAaEb864F1A3EbF3619D60646d3",
+          true
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.registerPool[2]",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0x39df8a51ab4b5c2fb326832537b899664425f8ea62c5385ea66ed996cfcb1a88471ed35f00000000000000000000000060dd0546b4816daaeb864f1a3ebf3619d60646d3",
+      "operation": 0,
+      "decoded": {
+        "method": "registerPool",
+        "args": [
+          "0xab4b5c2fb326832537b899664425f8ea62c5385ea66ed996cfcb1a88471ed35f",
+          "0x60DD0546b4816DAaEb864F1A3EbF3619D60646d3"
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.setAdapterApproval[3]",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0xf6cd4c0000000000000000000000000076c480a97589f4384e20d35f08436fa2758ce58b0000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setAdapterApproval",
+        "args": [
+          "0x76C480a97589f4384E20d35F08436FA2758CE58b",
+          true
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.registerPool[3]",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0x39df8a511749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db00000000000000000000000076c480a97589f4384e20d35f08436fa2758ce58b",
+      "operation": 0,
+      "decoded": {
+        "method": "registerPool",
+        "args": [
+          "0x1749006c0f94a576f9ebaf7247b101875ca44fcc89e31ed9e52283a4d2e2e7db",
+          "0x76C480a97589f4384E20d35F08436FA2758CE58b"
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.setAdapterApproval[4]",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0xf6cd4c000000000000000000000000005831dbc39a336e22a54f828fdcd3d75cfe26ef1d0000000000000000000000000000000000000000000000000000000000000001",
+      "operation": 0,
+      "decoded": {
+        "method": "setAdapterApproval",
+        "args": [
+          "0x5831Dbc39a336e22A54F828fDcd3d75CfE26Ef1D",
+          true
+        ]
+      }
+    },
+    {
+      "label": "NewClExecutor.registerPool[4]",
+      "to": "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
+      "value": "0",
+      "data": "0x39df8a51bce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af0000000000000000000000005831dbc39a336e22a54f828fdcd3d75cfe26ef1d",
+      "operation": 0,
+      "decoded": {
+        "method": "registerPool",
+        "args": [
+          "0xbce3446eaf96f286e047b7bed5939761058ea9d7ddcf21a40abb53a9d93a89af",
+          "0x5831Dbc39a336e22A54F828fDcd3d75CfE26Ef1D"
+        ]
+      }
+    }
+  ],
+  "txCount": 18
+}
