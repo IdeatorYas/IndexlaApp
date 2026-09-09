@@ -65,7 +65,11 @@ describe.runIf(hasRpc)("failed live deposit OOG regression (0x5bab6b53)", () => 
       assertSuccessfulTransactionReceipt(
         { status: "reverted", gasUsed: receipt.gasUsed, transactionHash: TX },
         TX,
-        { gasLimit: FIVE_POOL_DEPOSIT_GAS_FLOOR, minedGasLimit: tx.gas },
+        {
+          gasLimit: FIVE_POOL_DEPOSIT_GAS_FLOOR,
+          minedGasLimit: tx.gas,
+          outOfGasMessage: FIVE_POOL_DEPOSIT_OOG_USER_MESSAGE,
+        },
       );
       expect.unreachable("expected OOG TransactionRevertedError");
     } catch (err) {

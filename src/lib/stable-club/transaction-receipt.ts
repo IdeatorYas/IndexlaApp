@@ -4,10 +4,11 @@
  */
 import type { Hex } from "viem";
 import {
-  FIVE_POOL_DEPOSIT_OOG_USER_MESSAGE,
   isOutOfGasReceipt,
   resolveOutOfGasGasLimit,
 } from "@/lib/stable-club/five-pool-deposit-gas";
+
+export { FIVE_POOL_DEPOSIT_OOG_USER_MESSAGE } from "@/lib/stable-club/five-pool-deposit-gas";
 
 export type TransactionReceiptStatus = "success" | "reverted" | string;
 
@@ -40,11 +41,17 @@ export function isSuccessfulTransactionReceipt(
   return receipt?.status === "success";
 }
 
+/** Generic OOG copy — never say "Deposit" unless the caller opts in. */
+export const GENERIC_OUT_OF_GAS_USER_MESSAGE =
+  "Transaction ran out of gas. Retry with a higher gas limit (do not accept a bare eth_estimateGas limit).";
+
 export type AssertSuccessfulReceiptOpts = {
   /** App-requested gas limit (may differ from what the wallet mined). */
   gasLimit?: bigint;
   /** Mined transaction.gas — preferred for wallet-substituted OOG detection. */
   minedGasLimit?: bigint;
+  /** Flow-specific OOG message (deposit / NPM withdraw / recover). */
+  outOfGasMessage?: string;
 };
 
 /**
@@ -77,7 +84,7 @@ export function assertSuccessfulTransactionReceipt(
       throw new TransactionRevertedError(
         String(receipt.status),
         hash ?? receipt.transactionHash,
-        FIVE_POOL_DEPOSIT_OOG_USER_MESSAGE,
+        opts?.outOfGasMessage ?? GENERIC_OUT_OF_GAS_USER_MESSAGE,
       );
     }
     throw new TransactionRevertedError(
@@ -98,7 +105,7 @@ type PublicClientWithReceipt = {
 export async function waitForSuccessfulTransactionReceipt(
   publicClient: PublicClientWithReceipt,
   hash: Hex,
-  opts?: { gasLimit?: bigint },
+  opts?: { gasLimit?: bigint; outOfGasMessage?: string },
 ): Promise<TransactionReceiptLike & { status: "success" }> {
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   let minedGasLimit: bigint | undefined;
@@ -115,6 +122,7 @@ export async function waitForSuccessfulTransactionReceipt(
   assertSuccessfulTransactionReceipt(receipt, hash, {
     gasLimit: opts?.gasLimit,
     minedGasLimit,
+    outOfGasMessage: opts?.outOfGasMessage,
   });
   return receipt as TransactionReceiptLike & { status: "success" };
 }

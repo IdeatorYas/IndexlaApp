@@ -47,6 +47,10 @@ import {
   recoverLooseAssetToUsdcFully,
 } from "@/lib/stable-club/recover-loose-assets";
 import {
+  applyOwnerNpmMulticallGasBuffer,
+  OWNER_NPM_MULTICALL_OOG_USER_MESSAGE,
+} from "@/lib/stable-club/owner-npm-multicall-gas";
+import {
   clearWithdrawCheckpoint,
   isCheckpointIncomplete,
   readWithdrawCheckpoint,
@@ -1864,6 +1868,12 @@ export function useFivePoolPositions() {
           existingCp &&
           isCheckpointIncomplete(existingCp) &&
           existingCp.percent === pct;
+        /** NPM already finished — only sell withdrawal residue to USDC (never re-apply %). */
+        const resumeRecoverOnly =
+          Boolean(resumeSame) &&
+          (existingCp!.phase === "recover" ||
+            existingCp!.phase === "failed_incomplete") &&
+          existingCp!.completedNpmKeys.length > 0;
 
         const usdcBefore = resumeSame
           ? BigInt(existingCp!.baseline.usdc)
@@ -1915,7 +1925,12 @@ export function useFivePoolPositions() {
               },
               completedNpmKeys: [],
             };
-        if (resumeSame) {
+        if (resumeRecoverOnly) {
+          checkpoint.phase = "recover";
+          setStatusMessage(
+            `Resuming residue→USDC only (skipping ${checkpoint.completedNpmKeys.length} completed NPM batch(es); will not re-apply ${pct}%)…`,
+          );
+        } else if (resumeSame) {
           setStatusMessage(
             `Resuming incomplete ${pct}% withdraw (skipping ${checkpoint.completedNpmKeys.length} completed NPM batch(es))…`,
           );
@@ -1929,6 +1944,7 @@ export function useFivePoolPositions() {
         };
         const prepared: PreparedLeg[] = [];
 
+        if (!resumeRecoverOnly) {
         for (const position of open) {
           if (
             checkpoint.completedNpmKeys.includes(position.npm.toLowerCase())
@@ -2011,6 +2027,7 @@ export function useFivePoolPositions() {
           });
           prepared.push({ position, calls });
         }
+        } // !resumeRecoverOnly
 
         // One multicall per NPM contract (legs sharing Aero/Uni NPM share one tx).
         const batches = new Map<
@@ -2073,16 +2090,28 @@ export function useFivePoolPositions() {
             );
           }
 
+          // Buffer gas — live OOG at estimate==limit 565311 (0x80fa91ef…).
+          const gasEstimate = await discoveryClient.estimateGas({
+            account,
+            to: batch.npm,
+            data: multicallData,
+          });
+          const npmGas = applyOwnerNpmMulticallGasBuffer(gasEstimate);
+
           const hash = await walletClient.sendTransaction({
             account,
             to: batch.npm,
             data: multicallData,
             chain: walletClient.chain ?? undefined,
+            gas: npmGas,
             maxFeePerGas,
             maxPriorityFeePerGas,
           } as never);
           setLastTxHash(hash);
-          await waitForSuccessfulTransactionReceipt(publicClient, hash);
+          await waitForSuccessfulTransactionReceipt(publicClient, hash, {
+            gasLimit: npmGas,
+            outOfGasMessage: OWNER_NPM_MULTICALL_OOG_USER_MESSAGE,
+          });
           for (const legIndex of batch.legIndexes) {
             setLegResults((prev) =>
               prev.map((r) =>
@@ -2108,7 +2137,7 @@ export function useFivePoolPositions() {
         writeWithdrawCheckpoint(checkpoint);
         setIncompleteWithdraw({ ...checkpoint });
 
-          setStatusMessage(
+        setStatusMessage(
           "Converting withdrawal residue (cbBTC/WETH) → USDC via Uniswap…",
         );
         // HTTP read client — wallet eth_call is stale after approve and caused live STF.
@@ -2215,6 +2244,20 @@ export function useFivePoolPositions() {
           args: [account],
         })) as bigint;
         if (usdcAfter <= usdcBefore) {
+          if (resumeRecoverOnly) {
+            // Residue already swept (e.g. external LiFi) — treat as complete.
+            checkpoint.phase = "complete";
+            writeWithdrawCheckpoint(checkpoint);
+            clearWithdrawCheckpoint(account, expectedChainId);
+            setIncompleteWithdraw(null);
+            setProgress("confirmed");
+            setStatusMessage(
+              "Withdrawal residue already cleared — no stranded cbBTC/WETH",
+            );
+            await refreshPositions();
+            await refreshStrandedAssets();
+            return;
+          }
           throw new Error("Owner NPM percent withdraw completed but USDC balance did not increase");
         }
 

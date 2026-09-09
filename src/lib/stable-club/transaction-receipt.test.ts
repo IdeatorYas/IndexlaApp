@@ -63,6 +63,38 @@ describe("transaction-receipt (SC-F01)", () => {
     ).rejects.toThrow(/out of gas/i);
   });
 
+  it("default OOG message must not say Deposit", async () => {
+    const publicClient = {
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: "reverted",
+        transactionHash: HASH,
+        gasUsed: BigInt(565_311),
+      }),
+    };
+    const err = await waitForSuccessfulTransactionReceipt(publicClient, HASH, {
+      gasLimit: BigInt(565_311),
+    }).catch((e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toMatch(/out of gas/i);
+    expect(err.message).not.toMatch(/Deposit/i);
+  });
+
+  it("uses caller outOfGasMessage for withdraw NPM OOG copy", async () => {
+    const publicClient = {
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: "reverted",
+        transactionHash: HASH,
+        gasUsed: BigInt(565_311),
+      }),
+    };
+    await expect(
+      waitForSuccessfulTransactionReceipt(publicClient, HASH, {
+        gasLimit: BigInt(565_311),
+        outOfGasMessage: "Owner NPM multicall ran out of gas",
+      }),
+    ).rejects.toThrow(/Owner NPM multicall ran out of gas/);
+  });
+
   it("detects wallet-substituted OOG via mined tx.gas even when requested was 10M", async () => {
     const publicClient = {
       waitForTransactionReceipt: vi.fn().mockResolvedValue({

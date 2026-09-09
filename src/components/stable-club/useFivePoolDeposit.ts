@@ -941,6 +941,8 @@ export function useFivePoolDeposit() {
       setLastTxHash(depositHash);
       await waitForSuccessfulTransactionReceipt(publicClient, depositHash, {
         gasLimit: depositGas,
+        outOfGasMessage:
+          "Deposit ran out of gas. Your wallet likely lowered the gas limit below 10,000,000. Retry, and if the wallet shows Edit/Gas limit, set it to 10000000.",
       });
       setExecutionNonce(nextNonce + BigInt(1));
       setProgress("confirmed");
