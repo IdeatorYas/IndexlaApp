@@ -1,9 +1,9 @@
 /**
  * Recover loose cbBTC / WETH into USDC via Uniswap V3 SwapRouter02 on Base.
  *
- * Live OOG (0xd48ff77b…): second approve after swap zeroed allowance used stale
- * warm-slot gas (43,216) while cold slot needed ~60,761. Fix: approve amountIn+1
- * keepalive, buffered gas floors, pin reads to confirmed blocks, OOG retry once.
+ * Failure mode (post-9e3d55e): per-token rounds + pinned historical reads missed
+ * WETH; wallet stripped dapp gas. Fix: read residue at HTTP head, maxUint256
+ * approve once per token, one SwapRouter02 multicall(deadline, exactInputSingle[]).
  */
 import {
   encodeFunctionData,
@@ -22,12 +22,14 @@ import {
   applyRecoverGasBuffer,
   isOutOfGasError,
   isWalletGasEstimateStale,
-  RECOVER_ALLOWANCE_KEEPALIVE_WEI,
   RECOVER_APPROVE_GAS_FLOOR,
   RECOVER_APPROVE_OOG_USER_MESSAGE,
   RECOVER_DUST_EPSILON_BY_SYMBOL,
+  RECOVER_MAX_APPROVE_AMOUNT,
   RECOVER_SWAP_GAS_FLOOR,
   RECOVER_SWAP_OOG_USER_MESSAGE,
+  RECOVER_SWEEP_GAS_FLOOR,
+  RECOVER_SWEEP_OOG_USER_MESSAGE,
 } from "@/lib/stable-club/recover-swap-gas";
 
 export const RECOVER_LOOSE_ASSETS_ENGINE = "uni-router-recover-v1" as const;
@@ -56,6 +58,19 @@ const uniExactInputSingleAbi = [
       },
     ],
     outputs: [{ name: "amountOut", type: "uint256" }],
+  },
+] as const;
+
+const uniMulticallDeadlineAbi = [
+  {
+    type: "function",
+    name: "multicall",
+    stateMutability: "payable",
+    inputs: [
+      { name: "deadline", type: "uint256" },
+      { name: "data", type: "bytes[]" },
+    ],
+    outputs: [{ name: "results", type: "bytes[]" }],
   },
 ] as const;
 
@@ -204,13 +219,164 @@ export function buildUniExactInputSingleCalldata(params: {
   });
 }
 
+/** SwapRouter02 multicall(uint256 deadline, bytes[] data) — selector 0x5ae401dc. */
+export function buildUniResidueSweepMulticallData(params: {
+  legs: { tokenIn: Address; amountIn: bigint; minOut: bigint }[];
+  recipient: Address;
+  deadline: bigint;
+}): Hex {
+  if (params.legs.length === 0) {
+    throw new Error("Residue sweep multicall requires at least one leg");
+  }
+  const calls = params.legs.map((leg) =>
+    buildUniExactInputSingleCalldata({
+      tokenIn: leg.tokenIn,
+      amountIn: leg.amountIn,
+      recipient: params.recipient,
+      minOut: leg.minOut,
+    }),
+  );
+  return encodeFunctionData({
+    abi: uniMulticallDeadlineAbi,
+    functionName: "multicall",
+    args: [params.deadline, calls],
+  });
+}
+
+async function maxApproveTokenIfNeeded(params: {
+  publicClient: Pick<
+    PublicClient,
+    "readContract" | "estimateContractGas"
+  >;
+  walletClient: WalletClient;
+  account: Address;
+  token: Address;
+  amountIn: bigint;
+  router: Address;
+  chain: typeof base;
+  walletEstimateGas?: (args: {
+    to: Address;
+    data: Hex;
+  }) => Promise<bigint | null>;
+  waitReceipt: (
+    hash: Hex,
+    opts?: { gasLimit?: bigint; outOfGasMessage?: string },
+  ) => Promise<unknown>;
+}): Promise<{ approveHash: Hex | null; receiptBlock: bigint | null }> {
+  const { balance, allowance } = await readTokenBalanceAndRouterAllowance({
+    publicClient: params.publicClient,
+    token: params.token,
+    owner: params.account,
+    router: params.router,
+  });
+  if (balance < params.amountIn) {
+    throw new Error(
+      `Recover balance ${balance.toString()} < amountIn ${params.amountIn.toString()}`,
+    );
+  }
+  if (allowance >= params.amountIn) {
+    return { approveHash: null, receiptBlock: null };
+  }
+
+  const approveAmount = RECOVER_MAX_APPROVE_AMOUNT;
+  const approveData = encodeFunctionData({
+    abi: erc20Abi,
+    functionName: "approve",
+    args: [params.router, approveAmount],
+  });
+
+  const freshApproveEstimate = await params.publicClient.estimateContractGas({
+    address: params.token,
+    abi: erc20Abi,
+    functionName: "approve",
+    args: [params.router, approveAmount],
+    account: params.account,
+  });
+
+  if (params.walletEstimateGas) {
+    for (let i = 0; i < 24; i += 1) {
+      const walletEstimate = await params
+        .walletEstimateGas({ to: params.token, data: approveData })
+        .catch(() => null);
+      if (
+        walletEstimate == null ||
+        !isWalletGasEstimateStale({
+          walletEstimate,
+          freshEstimate: freshApproveEstimate,
+        })
+      ) {
+        break;
+      }
+      await sleep(500);
+    }
+  }
+
+  const submitApprove = async (gas: bigint): Promise<{ hash: Hex; receipt: unknown }> => {
+    const hash = await params.walletClient.writeContract({
+      address: params.token,
+      abi: erc20Abi,
+      functionName: "approve",
+      args: [params.router, approveAmount],
+      account: params.account,
+      chain: params.chain,
+      gas,
+    });
+    const receipt = await params.waitReceipt(hash, {
+      gasLimit: gas,
+      outOfGasMessage: RECOVER_APPROVE_OOG_USER_MESSAGE,
+    });
+    return { hash, receipt };
+  };
+
+  const approveGas = applyRecoverGasBuffer({
+    estimateGas: freshApproveEstimate,
+    floor: RECOVER_APPROVE_GAS_FLOOR,
+  });
+
+  let approveHash: Hex;
+  let approveReceipt: unknown;
+  try {
+    ({ hash: approveHash, receipt: approveReceipt } =
+      await submitApprove(approveGas));
+  } catch (err) {
+    if (!isOutOfGasError(err)) throw err;
+    const retryEstimate = await params.publicClient.estimateContractGas({
+      address: params.token,
+      abi: erc20Abi,
+      functionName: "approve",
+      args: [params.router, approveAmount],
+      account: params.account,
+    });
+    ({ hash: approveHash, receipt: approveReceipt } = await submitApprove(
+      applyRecoverGasBuffer({
+        estimateGas: retryEstimate * BigInt(2),
+        floor: RECOVER_APPROVE_GAS_FLOOR,
+      }),
+    ));
+  }
+
+  await waitUntilRouterAllowance({
+    publicClient: params.publicClient,
+    token: params.token,
+    owner: params.account,
+    router: params.router,
+    minAmount: params.amountIn,
+  });
+
+  return {
+    approveHash,
+    receiptBlock: readBlockOf(approveReceipt),
+  };
+}
+
 function readBlockOf(receipt: unknown): bigint | null {
   const bn = (receipt as { blockNumber?: bigint | null } | null)?.blockNumber;
   return bn == null ? null : BigInt(bn);
 }
 
 /**
- * Approve (if needed) + exactInputSingle. publicClient MUST be HTTP for reads.
+ * Approve (maxUint256 if needed) + exactInputSingle. publicClient MUST be HTTP for reads.
+ * Prefer sweepAllResidueToUsdcOnce when both cbBTC and WETH remain.
  */
 export async function recoverLooseAssetToUsdcFully(params: {
   publicClient: Pick<
@@ -247,122 +413,27 @@ export async function recoverLooseAssetToUsdcFully(params: {
 
   const chain = params.walletClient.chain ?? base;
   let readBlock = params.minReadBlock ?? BigInt(0);
-  const readAt = () => (readBlock > BigInt(0) ? readBlock : undefined);
 
-  let { balance, allowance } = await readTokenBalanceAndRouterAllowance({
+  const approve = await maxApproveTokenIfNeeded({
+    publicClient: params.publicClient,
+    walletClient: params.walletClient,
+    account: params.account,
+    token: params.tokenIn,
+    amountIn: params.amountIn,
+    router,
+    chain,
+    walletEstimateGas: params.walletEstimateGas,
+    waitReceipt: params.waitReceipt,
+  });
+  const approveHash = approve.approveHash;
+  readBlock = maxBlock(readBlock, approve.receiptBlock);
+
+  const { balance, allowance } = await readTokenBalanceAndRouterAllowance({
     publicClient: params.publicClient,
     token: params.tokenIn,
     owner: params.account,
     router,
-    blockNumber: readAt(),
   });
-
-  if (balance < params.amountIn) {
-    throw new Error(
-      `Recover balance ${balance.toString()} < amountIn ${params.amountIn.toString()}`,
-    );
-  }
-
-  let approveHash: Hex | null = null;
-
-  if (allowance < params.amountIn) {
-    const approveAmount = params.amountIn + RECOVER_ALLOWANCE_KEEPALIVE_WEI;
-    const approveData = encodeFunctionData({
-      abi: erc20Abi,
-      functionName: "approve",
-      args: [router, approveAmount],
-    });
-
-    const freshApproveEstimate = await params.publicClient.estimateContractGas({
-      address: params.tokenIn,
-      abi: erc20Abi,
-      functionName: "approve",
-      args: [router, approveAmount],
-      account: params.account,
-    });
-
-    if (params.walletEstimateGas) {
-      for (let i = 0; i < 24; i += 1) {
-        const walletEstimate = await params
-          .walletEstimateGas({ to: params.tokenIn, data: approveData })
-          .catch(() => null);
-        if (
-          walletEstimate == null ||
-          !isWalletGasEstimateStale({
-            walletEstimate,
-            freshEstimate: freshApproveEstimate,
-          })
-        ) {
-          break;
-        }
-        await sleep(500);
-      }
-    }
-
-    const submitApprove = async (gas: bigint): Promise<unknown> => {
-      approveHash = await params.walletClient.writeContract({
-        address: params.tokenIn,
-        abi: erc20Abi,
-        functionName: "approve",
-        args: [router, approveAmount],
-        account: params.account,
-        chain,
-        gas,
-      });
-      return params.waitReceipt(approveHash, {
-        gasLimit: gas,
-        outOfGasMessage: RECOVER_APPROVE_OOG_USER_MESSAGE,
-      });
-    };
-
-    const approveGas = applyRecoverGasBuffer({
-      estimateGas: freshApproveEstimate,
-      floor: RECOVER_APPROVE_GAS_FLOOR,
-    });
-
-    let approveReceipt: unknown;
-    try {
-      approveReceipt = await submitApprove(approveGas);
-    } catch (err) {
-      if (!isOutOfGasError(err)) throw err;
-      const retryEstimate = await params.publicClient.estimateContractGas({
-        address: params.tokenIn,
-        abi: erc20Abi,
-        functionName: "approve",
-        args: [router, approveAmount],
-        account: params.account,
-      });
-      approveReceipt = await submitApprove(
-        applyRecoverGasBuffer({
-          estimateGas: retryEstimate * BigInt(2),
-          floor: RECOVER_APPROVE_GAS_FLOOR,
-        }),
-      );
-    }
-
-    readBlock = maxBlock(readBlock, readBlockOf(approveReceipt));
-    allowance = await waitUntilRouterAllowance({
-      publicClient: params.publicClient,
-      token: params.tokenIn,
-      owner: params.account,
-      router,
-      minAmount: params.amountIn,
-      blockNumber: readAt(),
-    });
-    ({ balance } = await readTokenBalanceAndRouterAllowance({
-      publicClient: params.publicClient,
-      token: params.tokenIn,
-      owner: params.account,
-      router,
-      blockNumber: readAt(),
-    }));
-    if (balance < params.amountIn) {
-      throw new Error(
-        `Recover balance ${balance.toString()} < amountIn ${params.amountIn.toString()}`,
-      );
-    }
-  }
-
   assertRecoverSpendable({
     balance,
     allowance,
@@ -388,7 +459,6 @@ export async function recoverLooseAssetToUsdcFully(params: {
       functionName: "exactInputSingle",
       args: swapArgs,
       account: params.account,
-      ...(readAt() == null ? {} : { blockNumber: readAt() }),
     });
   } catch (err) {
     const text = err instanceof Error ? err.message : String(err);
@@ -428,7 +498,149 @@ export async function recoverLooseAssetToUsdcFully(params: {
   return { swapHash, approveHash, blockNumber: readBlock };
 }
 
-/** @deprecated Prefer recoverLooseAssetToUsdcFully. */
+/**
+ * Max-approve each needed token, then one SwapRouter02 multicall of all
+ * exactInputSingle legs. Call after reading residue at HTTP head.
+ */
+export async function sweepAllResidueToUsdcOnce(params: {
+  publicClient: Pick<
+    PublicClient,
+    | "readContract"
+    | "simulateContract"
+    | "estimateContractGas"
+    | "estimateGas"
+    | "call"
+  >;
+  walletClient: WalletClient;
+  account: Address;
+  legs: {
+    tokenIn: Address;
+    symbol: "cbBTC" | "WETH";
+    amountIn: bigint;
+    quotedUsdcOut: bigint;
+  }[];
+  slippageBps?: bigint;
+  deadline?: bigint;
+  walletEstimateGas?: (args: {
+    to: Address;
+    data: Hex;
+  }) => Promise<bigint | null>;
+  waitReceipt: (
+    hash: Hex,
+    opts?: { gasLimit?: bigint; outOfGasMessage?: string },
+  ) => Promise<unknown>;
+}): Promise<{
+  sweepHash: Hex;
+  approveHashes: Hex[];
+  blockNumber: bigint;
+}> {
+  if (params.legs.length === 0) {
+    throw new Error("sweepAllResidueToUsdcOnce: no legs");
+  }
+
+  const router = getAddress(BASE_DEX_UNISWAP_V3.swapRouter);
+  const chain = params.walletClient.chain ?? base;
+  const deadline =
+    params.deadline ?? BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+  const slippage = params.slippageBps ?? BigInt(300);
+
+  const swapLegs = params.legs.map((leg) => {
+    const minOut = applySlippageMin(leg.quotedUsdcOut, slippage);
+    if (minOut <= BigInt(0)) {
+      throw new Error(
+        `Recover quote minOut is zero for ${leg.symbol} — refresh and retry`,
+      );
+    }
+    if (leg.amountIn <= BigInt(0)) {
+      throw new Error(`Recover amountIn is zero for ${leg.symbol}`);
+    }
+    return {
+      tokenIn: leg.tokenIn,
+      amountIn: leg.amountIn,
+      minOut,
+      symbol: leg.symbol,
+    };
+  });
+
+  let readBlock = BigInt(0);
+  const approveHashes: Hex[] = [];
+  for (const leg of swapLegs) {
+    const approve = await maxApproveTokenIfNeeded({
+      publicClient: params.publicClient,
+      walletClient: params.walletClient,
+      account: params.account,
+      token: leg.tokenIn,
+      amountIn: leg.amountIn,
+      router,
+      chain,
+      walletEstimateGas: params.walletEstimateGas,
+      waitReceipt: params.waitReceipt,
+    });
+    if (approve.approveHash) approveHashes.push(approve.approveHash);
+    readBlock = maxBlock(readBlock, approve.receiptBlock);
+  }
+
+  for (const leg of swapLegs) {
+    const { balance, allowance } = await readTokenBalanceAndRouterAllowance({
+      publicClient: params.publicClient,
+      token: leg.tokenIn,
+      owner: params.account,
+      router,
+    });
+    assertRecoverSpendable({
+      balance,
+      allowance,
+      amountIn: leg.amountIn,
+    });
+  }
+
+  const multicallData = buildUniResidueSweepMulticallData({
+    legs: swapLegs,
+    recipient: params.account,
+    deadline,
+  });
+
+  try {
+    await params.publicClient.call({
+      account: params.account,
+      to: router,
+      data: multicallData,
+    });
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    if (/\bSTF\b/i.test(text) || /SafeTransferFrom/i.test(text)) {
+      throw new Error(UNI_SWAP_ROUTER02_STF_MESSAGE);
+    }
+    throw err;
+  }
+
+  const sweepEstimate = await params.publicClient.estimateGas({
+    account: params.account,
+    to: router,
+    data: multicallData,
+  });
+  const sweepGas = applyRecoverGasBuffer({
+    estimateGas: sweepEstimate,
+    floor: RECOVER_SWEEP_GAS_FLOOR,
+  });
+
+  const sweepHash = await params.walletClient.sendTransaction({
+    account: params.account,
+    to: router,
+    data: multicallData,
+    chain,
+    gas: sweepGas,
+  } as never);
+  const sweepReceipt = await params.waitReceipt(sweepHash, {
+    gasLimit: sweepGas,
+    outOfGasMessage: RECOVER_SWEEP_OOG_USER_MESSAGE,
+  });
+  readBlock = maxBlock(readBlock, readBlockOf(sweepReceipt));
+
+  return { sweepHash, approveHashes, blockNumber: readBlock };
+}
+
+/** @deprecated Prefer recoverLooseAssetToUsdcFully / sweepAllResidueToUsdcOnce. */
 export async function recoverOneLooseAssetToUsdc(params: {
   publicClient: Pick<PublicClient, "readContract" | "simulateContract">;
   walletClient: WalletClient;
@@ -463,7 +675,7 @@ export async function recoverOneLooseAssetToUsdc(params: {
       address: params.tokenIn,
       abi: erc20Abi,
       functionName: "approve",
-      args: [router, params.amountIn + RECOVER_ALLOWANCE_KEEPALIVE_WEI],
+      args: [router, RECOVER_MAX_APPROVE_AMOUNT],
       account: params.account,
       chain,
     });
