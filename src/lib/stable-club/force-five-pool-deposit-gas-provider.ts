@@ -29,7 +29,7 @@ function forceTxGas(tx: Record<string, unknown>): Record<string, unknown> {
   );
   const forced = forceDepositFivePoolStrategyGasLimit(fromGas);
   const hex = toHexGasQuantity(forced);
-  const next = { ...tx, gas: hex };
+  const next: Record<string, unknown> = { ...tx, gas: hex };
   delete next.gasLimit;
   return next;
 }
