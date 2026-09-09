@@ -16,6 +16,8 @@ export type TransactionReceiptLike = {
   status?: TransactionReceiptStatus | null;
   transactionHash?: Hex;
   gasUsed?: bigint | null;
+  /** Used by withdraw/recover to pin later reads at >= this block. */
+  blockNumber?: bigint | null;
 };
 
 export class TransactionRevertedError extends Error {

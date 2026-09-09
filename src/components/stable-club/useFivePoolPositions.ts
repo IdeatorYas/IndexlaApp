@@ -51,6 +51,14 @@ import {
   OWNER_NPM_MULTICALL_OOG_USER_MESSAGE,
 } from "@/lib/stable-club/owner-npm-multicall-gas";
 import {
+  RECOVER_APPROVE_OOG_USER_MESSAGE,
+  RECOVER_SWAP_OOG_USER_MESSAGE,
+} from "@/lib/stable-club/recover-swap-gas";
+import {
+  maxBlock,
+  waitForReadClientBlock,
+} from "@/lib/stable-club/read-block-floor";
+import {
   clearWithdrawCheckpoint,
   isCheckpointIncomplete,
   readWithdrawCheckpoint,
@@ -1864,6 +1872,15 @@ export function useFivePoolPositions() {
         const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
 
         const existingCp = readWithdrawCheckpoint(account, expectedChainId);
+        if (
+          existingCp &&
+          isCheckpointIncomplete(existingCp) &&
+          existingCp.percent !== pct
+        ) {
+          throw new Error(
+            `An incomplete ${existingCp.percent}% withdraw is still pending (residue not yet sold to USDC). Tap “Resume incomplete withdraw” to finish it before starting a new ${pct}% withdraw.`,
+          );
+        }
         const resumeSame =
           existingCp &&
           isCheckpointIncomplete(existingCp) &&
@@ -1875,38 +1892,28 @@ export function useFivePoolPositions() {
             existingCp!.phase === "failed_incomplete") &&
           existingCp!.completedNpmKeys.length > 0;
 
+        const startBlock = await discoveryClient.getBlockNumber({
+          cacheTime: 0,
+        });
+        let readBlockFloor = startBlock;
+        const readBaseline = async (token: Address): Promise<bigint> =>
+          (await discoveryClient.readContract({
+            address: token,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [account],
+            blockNumber: startBlock,
+          })) as bigint;
+
         const usdcBefore = resumeSame
           ? BigInt(existingCp!.baseline.usdc)
-          : ((await publicClient.readContract({
-              address: BASE_TOKENS.USDC.address,
-              abi: erc20Abi,
-              functionName: "balanceOf",
-              args: [account],
-            })) as bigint);
+          : await readBaseline(BASE_TOKENS.USDC.address);
         const cbBtcBefore = resumeSame
           ? BigInt(existingCp!.baseline.cbBtc)
-          : ((await publicClient.readContract({
-              address: BASE_TOKENS.cbBTC.address,
-              abi: erc20Abi,
-              functionName: "balanceOf",
-              args: [account],
-            })) as bigint);
+          : await readBaseline(BASE_TOKENS.cbBTC.address);
         const wethBefore = resumeSame
           ? BigInt(existingCp!.baseline.weth)
-          : ((await publicClient.readContract({
-              address: BASE_TOKENS.WETH.address,
-              abi: erc20Abi,
-              functionName: "balanceOf",
-              args: [account],
-            })) as bigint);
-
-        const liveUsdcIgnored = (await publicClient.readContract({
-          address: BASE_TOKENS.USDC.address,
-          abi: erc20Abi,
-          functionName: "balanceOf",
-          args: [account],
-        })) as bigint;
-        void liveUsdcIgnored;
+          : await readBaseline(BASE_TOKENS.WETH.address);
 
         const checkpoint: WithdrawCheckpoint = resumeSame
           ? { ...existingCp! }
@@ -2108,10 +2115,18 @@ export function useFivePoolPositions() {
             maxPriorityFeePerGas,
           } as never);
           setLastTxHash(hash);
-          await waitForSuccessfulTransactionReceipt(publicClient, hash, {
-            gasLimit: npmGas,
-            outOfGasMessage: OWNER_NPM_MULTICALL_OOG_USER_MESSAGE,
-          });
+          const npmReceipt = await waitForSuccessfulTransactionReceipt(
+            publicClient,
+            hash,
+            {
+              gasLimit: npmGas,
+              outOfGasMessage: OWNER_NPM_MULTICALL_OOG_USER_MESSAGE,
+            },
+          );
+          readBlockFloor = maxBlock(
+            readBlockFloor,
+            npmReceipt.blockNumber ?? null,
+          );
           for (const legIndex of batch.legIndexes) {
             setLegResults((prev) =>
               prev.map((r) =>
@@ -2142,25 +2157,49 @@ export function useFivePoolPositions() {
         );
         // HTTP read client — wallet eth_call is stale after approve and caused live STF.
         const recoverReadClient = discoveryClient;
-        const waitReceipt = (hash: Hex) =>
-          waitForSuccessfulTransactionReceipt(recoverReadClient, hash);
+        const waitReceipt = (
+          hash: Hex,
+          opts?: { gasLimit?: bigint; outOfGasMessage?: string },
+        ) => waitForSuccessfulTransactionReceipt(recoverReadClient, hash, opts);
+        const walletEstimateGas = async (args: {
+          to: Address;
+          data: Hex;
+        }) => {
+          try {
+            return await publicClient.estimateGas({
+              account,
+              to: args.to,
+              data: args.data,
+            });
+          } catch {
+            return null;
+          }
+        };
 
-        for (let round = 0; round < 8; round += 1) {
+        const readResidueAt = async (block: bigint) => {
+          await waitForReadClientBlock({
+            client: recoverReadClient,
+            minBlock: block,
+          });
           const cbBal = (await recoverReadClient.readContract({
             address: BASE_TOKENS.cbBTC.address,
             abi: erc20Abi,
             functionName: "balanceOf",
             args: [account],
+            blockNumber: block,
           })) as bigint;
           const wethBal = (await recoverReadClient.readContract({
             address: BASE_TOKENS.WETH.address,
             abi: erc20Abi,
             functionName: "balanceOf",
             args: [account],
+            blockNumber: block,
           })) as bigint;
-          const planned = await planLooseAssetRecoveries({
+          return planLooseAssetRecoveries({
             publicClient: recoverReadClient,
             account,
+            blockNumber: block,
+            applyDustFilter: true,
             maxByToken: {
               cbBTC: residueFromBaseline({
                 current: cbBal,
@@ -2172,6 +2211,10 @@ export function useFivePoolPositions() {
               }),
             },
           });
+        };
+
+        for (let round = 0; round < 8; round += 1) {
+          const planned = await readResidueAt(readBlockFloor);
           if (planned.length === 0) break;
           const row = planned[0]!;
           const quoted = await quoteTokenToUsdcViaOracle({
@@ -2181,12 +2224,14 @@ export function useFivePoolPositions() {
             amountIn: row.amountIn,
           });
           if (quoted <= BigInt(0)) {
-            throw new Error(`OracleGuard returned zero USDC for ${row.symbol} recover`);
+            throw new Error(
+              `OracleGuard returned zero USDC for ${row.symbol} recover`,
+            );
           }
           setStatusMessage(
             `Approve+swap ${row.symbol} → USDC (residue ${row.amountIn.toString()} wei)…`,
           );
-          const hash = await recoverLooseAssetToUsdcFully({
+          const result = await recoverLooseAssetToUsdcFully({
             publicClient: recoverReadClient,
             walletClient: walletClient as never,
             account,
@@ -2194,38 +2239,16 @@ export function useFivePoolPositions() {
             amountIn: row.amountIn,
             quotedUsdcOut: quoted,
             slippageBps: EXIT_UNWIND_SLIPPAGE_BPS,
+            minReadBlock: readBlockFloor,
+            walletEstimateGas,
             waitReceipt,
           });
-          setLastTxHash(hash);
+          readBlockFloor = maxBlock(readBlockFloor, result.blockNumber);
+          setLastTxHash(result.swapHash);
         }
 
         {
-          const cbBal = (await recoverReadClient.readContract({
-            address: BASE_TOKENS.cbBTC.address,
-            abi: erc20Abi,
-            functionName: "balanceOf",
-            args: [account],
-          })) as bigint;
-          const wethBal = (await recoverReadClient.readContract({
-            address: BASE_TOKENS.WETH.address,
-            abi: erc20Abi,
-            functionName: "balanceOf",
-            args: [account],
-          })) as bigint;
-          const leftover = await planLooseAssetRecoveries({
-            publicClient: recoverReadClient,
-            account,
-            maxByToken: {
-              cbBTC: residueFromBaseline({
-                current: cbBal,
-                baseline: cbBtcBefore,
-              }),
-              WETH: residueFromBaseline({
-                current: wethBal,
-                baseline: wethBefore,
-              }),
-            },
-          });
+          const leftover = await readResidueAt(readBlockFloor);
           if (leftover.length > 0) {
             checkpoint.phase = "failed_incomplete";
             checkpoint.lastError = `Non-USDC withdrawal residue remains: ${leftover.map((r) => r.symbol).join(", ")}`;
@@ -2242,6 +2265,7 @@ export function useFivePoolPositions() {
           abi: erc20Abi,
           functionName: "balanceOf",
           args: [account],
+          blockNumber: readBlockFloor,
         })) as bigint;
         if (usdcAfter <= usdcBefore) {
           if (resumeRecoverOnly) {
@@ -2274,11 +2298,17 @@ export function useFivePoolPositions() {
         await refreshStrandedAssets();
       } catch (err) {
         const reject = userRejectMessage(err);
+        const isScopedRecoverCopy =
+          err instanceof Error &&
+          (err.message === RECOVER_APPROVE_OOG_USER_MESSAGE ||
+            err.message === RECOVER_SWAP_OOG_USER_MESSAGE);
         const message =
-        reject ??
-        (err instanceof Error
-          ? `${err.message} — owner NPM multicall/recover failed; incomplete withdraw can be resumed`
-          : "Owner NPM percent withdraw failed — incomplete withdraw can be resumed");
+          reject ??
+          (isScopedRecoverCopy
+            ? (err as Error).message
+            : err instanceof Error
+              ? `${err.message} — owner NPM multicall/recover failed; incomplete withdraw can be resumed`
+              : "Owner NPM percent withdraw failed — incomplete withdraw can be resumed");
         try {
           const { account } = ensureReady();
           const existing =

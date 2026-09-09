@@ -1,10 +1,9 @@
 /**
- * Recover loose cbBTC / WETH left in the user wallet (e.g. after failed npm-direct legs)
- * into USDC via the verified Uniswap V3 SwapRouter on Base — never INDEXLA contracts.
+ * Recover loose cbBTC / WETH into USDC via Uniswap V3 SwapRouter02 on Base.
  *
- * STF root cause (live 50% withdraw): approve mined for amountIn, but simulate/swap used a
- * wallet-provider eth_call that still saw allowance=0 → Uniswap TransferHelper "STF".
- * Always read/simulate on a fresh HTTP client and poll allowance after approve.
+ * Live OOG (0xd48ff77b…): second approve after swap zeroed allowance used stale
+ * warm-slot gas (43,216) while cold slot needed ~60,761. Fix: approve amountIn+1
+ * keepalive, buffered gas floors, pin reads to confirmed blocks, OOG retry once.
  */
 import {
   encodeFunctionData,
@@ -18,6 +17,18 @@ import {
 import { base } from "viem/chains";
 import { BASE_DEX_UNISWAP_V3, BASE_TOKENS } from "@/lib/stable-club/official-pools";
 import { applySlippageMin } from "@/lib/stable-club/exit-to-usdc";
+import { maxBlock } from "@/lib/stable-club/read-block-floor";
+import {
+  applyRecoverGasBuffer,
+  isOutOfGasError,
+  isWalletGasEstimateStale,
+  RECOVER_ALLOWANCE_KEEPALIVE_WEI,
+  RECOVER_APPROVE_GAS_FLOOR,
+  RECOVER_APPROVE_OOG_USER_MESSAGE,
+  RECOVER_DUST_EPSILON_BY_SYMBOL,
+  RECOVER_SWAP_GAS_FLOOR,
+  RECOVER_SWAP_OOG_USER_MESSAGE,
+} from "@/lib/stable-club/recover-swap-gas";
 
 export const RECOVER_LOOSE_ASSETS_ENGINE = "uni-router-recover-v1" as const;
 
@@ -48,7 +59,6 @@ const uniExactInputSingleAbi = [
   },
 ] as const;
 
-/** USDC/cbBTC and USDC/WETH Uni 0.05% pools on Base. */
 const UNI_FEE_005 = 500;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -58,31 +68,34 @@ export async function readTokenBalanceAndRouterAllowance(params: {
   token: Address;
   owner: Address;
   router: Address;
+  blockNumber?: bigint;
 }): Promise<{ balance: bigint; allowance: bigint }> {
+  const at =
+    params.blockNumber == null ? {} : { blockNumber: params.blockNumber };
   const balance = (await params.publicClient.readContract({
     address: params.token,
     abi: erc20Abi,
     functionName: "balanceOf",
     args: [params.owner],
+    ...at,
   })) as bigint;
   const allowance = (await params.publicClient.readContract({
     address: params.token,
     abi: erc20Abi,
     functionName: "allowance",
     args: [params.owner, params.router],
+    ...at,
   })) as bigint;
   return { balance, allowance };
 }
 
-/**
- * Poll HTTP/read client until allowance >= minAmount (wallet EIP-1193 eth_call is often stale).
- */
 export async function waitUntilRouterAllowance(params: {
   publicClient: Pick<PublicClient, "readContract">;
   token: Address;
   owner: Address;
   router: Address;
   minAmount: bigint;
+  blockNumber?: bigint;
   attempts?: number;
   delayMs?: number;
 }): Promise<bigint> {
@@ -90,14 +103,19 @@ export async function waitUntilRouterAllowance(params: {
   const delayMs = params.delayMs ?? 250;
   let last = BigInt(0);
   for (let i = 0; i < attempts; i += 1) {
-    const { allowance } = await readTokenBalanceAndRouterAllowance({
-      publicClient: params.publicClient,
-      token: params.token,
-      owner: params.owner,
-      router: params.router,
-    });
-    last = allowance;
-    if (allowance >= params.minAmount) return allowance;
+    try {
+      const { allowance } = await readTokenBalanceAndRouterAllowance({
+        publicClient: params.publicClient,
+        token: params.token,
+        owner: params.owner,
+        router: params.router,
+        blockNumber: params.blockNumber,
+      });
+      last = allowance;
+      if (allowance >= params.minAmount) return allowance;
+    } catch {
+      /* node not synced to blockNumber yet */
+    }
     await sleep(delayMs);
   }
   throw new Error(
@@ -128,10 +146,15 @@ export function assertRecoverSpendable(params: {
 export async function planLooseAssetRecoveries(params: {
   publicClient: Pick<PublicClient, "readContract">;
   account: Address;
-  /** When set, only recover up to these caps (withdrawal residue). Omit = full balance. */
   maxByToken?: Partial<Record<"cbBTC" | "WETH", bigint>>;
+  blockNumber?: bigint;
+  /** Drop dust that cannot profitably swap. */
+  applyDustFilter?: boolean;
 }): Promise<{ tokenIn: Address; symbol: "cbBTC" | "WETH"; amountIn: bigint }[]> {
-  const out: { tokenIn: Address; symbol: "cbBTC" | "WETH"; amountIn: bigint }[] = [];
+  const out: { tokenIn: Address; symbol: "cbBTC" | "WETH"; amountIn: bigint }[] =
+    [];
+  const at =
+    params.blockNumber == null ? {} : { blockNumber: params.blockNumber };
   for (const row of [
     { tokenIn: BASE_TOKENS.cbBTC.address, symbol: "cbBTC" as const },
     { tokenIn: BASE_TOKENS.WETH.address, symbol: "WETH" as const },
@@ -141,12 +164,19 @@ export async function planLooseAssetRecoveries(params: {
       abi: erc20Abi,
       functionName: "balanceOf",
       args: [params.account],
+      ...at,
     })) as bigint;
     if (bal <= BigInt(0)) continue;
     const cap = params.maxByToken?.[row.symbol];
-    const amountIn =
-      cap === undefined ? bal : bal < cap ? bal : cap;
-    if (amountIn > BigInt(0)) out.push({ ...row, amountIn });
+    const amountIn = cap === undefined ? bal : bal < cap ? bal : cap;
+    if (amountIn <= BigInt(0)) continue;
+    if (
+      params.applyDustFilter !== false &&
+      amountIn <= RECOVER_DUST_EPSILON_BY_SYMBOL[row.symbol]
+    ) {
+      continue;
+    }
+    out.push({ ...row, amountIn });
   }
   return out;
 }
@@ -174,22 +204,35 @@ export function buildUniExactInputSingleCalldata(params: {
   });
 }
 
+function readBlockOf(receipt: unknown): bigint | null {
+  const bn = (receipt as { blockNumber?: bigint | null } | null)?.blockNumber;
+  return bn == null ? null : BigInt(bn);
+}
+
 /**
- * Approve (if needed) + exactInputSingle in one helper. Caller supplies waitReceipt
- * so we never leave a token approved-but-unswapped as a "successful" recover step.
- *
- * publicClient MUST be an HTTP/read transport (not wallet EIP-1193) for allowance + simulate.
+ * Approve (if needed) + exactInputSingle. publicClient MUST be HTTP for reads.
  */
 export async function recoverLooseAssetToUsdcFully(params: {
-  publicClient: Pick<PublicClient, "readContract" | "simulateContract">;
+  publicClient: Pick<
+    PublicClient,
+    "readContract" | "simulateContract" | "estimateContractGas"
+  >;
   walletClient: WalletClient;
   account: Address;
   tokenIn: Address;
   amountIn: bigint;
   quotedUsdcOut: bigint;
   slippageBps?: bigint;
-  waitReceipt: (hash: Hex) => Promise<unknown>;
-}): Promise<Hex> {
+  minReadBlock?: bigint;
+  walletEstimateGas?: (args: {
+    to: Address;
+    data: Hex;
+  }) => Promise<bigint | null>;
+  waitReceipt: (
+    hash: Hex,
+    opts?: { gasLimit?: bigint; outOfGasMessage?: string },
+  ) => Promise<unknown>;
+}): Promise<{ swapHash: Hex; approveHash: Hex | null; blockNumber: bigint }> {
   const router = getAddress(BASE_DEX_UNISWAP_V3.swapRouter);
   const minOut = applySlippageMin(
     params.quotedUsdcOut,
@@ -203,11 +246,15 @@ export async function recoverLooseAssetToUsdcFully(params: {
   }
 
   const chain = params.walletClient.chain ?? base;
+  let readBlock = params.minReadBlock ?? BigInt(0);
+  const readAt = () => (readBlock > BigInt(0) ? readBlock : undefined);
+
   let { balance, allowance } = await readTokenBalanceAndRouterAllowance({
     publicClient: params.publicClient,
     token: params.tokenIn,
     owner: params.account,
     router,
+    blockNumber: readAt(),
   });
 
   if (balance < params.amountIn) {
@@ -216,29 +263,104 @@ export async function recoverLooseAssetToUsdcFully(params: {
     );
   }
 
+  let approveHash: Hex | null = null;
+
   if (allowance < params.amountIn) {
-    const approveHash = await params.walletClient.writeContract({
+    const approveAmount = params.amountIn + RECOVER_ALLOWANCE_KEEPALIVE_WEI;
+    const approveData = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: "approve",
+      args: [router, approveAmount],
+    });
+
+    const freshApproveEstimate = await params.publicClient.estimateContractGas({
       address: params.tokenIn,
       abi: erc20Abi,
       functionName: "approve",
-      args: [router, params.amountIn],
+      args: [router, approveAmount],
       account: params.account,
-      chain,
     });
-    await params.waitReceipt(approveHash);
+
+    if (params.walletEstimateGas) {
+      for (let i = 0; i < 24; i += 1) {
+        const walletEstimate = await params
+          .walletEstimateGas({ to: params.tokenIn, data: approveData })
+          .catch(() => null);
+        if (
+          walletEstimate == null ||
+          !isWalletGasEstimateStale({
+            walletEstimate,
+            freshEstimate: freshApproveEstimate,
+          })
+        ) {
+          break;
+        }
+        await sleep(500);
+      }
+    }
+
+    const submitApprove = async (gas: bigint): Promise<unknown> => {
+      approveHash = await params.walletClient.writeContract({
+        address: params.tokenIn,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [router, approveAmount],
+        account: params.account,
+        chain,
+        gas,
+      });
+      return params.waitReceipt(approveHash, {
+        gasLimit: gas,
+        outOfGasMessage: RECOVER_APPROVE_OOG_USER_MESSAGE,
+      });
+    };
+
+    const approveGas = applyRecoverGasBuffer({
+      estimateGas: freshApproveEstimate,
+      floor: RECOVER_APPROVE_GAS_FLOOR,
+    });
+
+    let approveReceipt: unknown;
+    try {
+      approveReceipt = await submitApprove(approveGas);
+    } catch (err) {
+      if (!isOutOfGasError(err)) throw err;
+      const retryEstimate = await params.publicClient.estimateContractGas({
+        address: params.tokenIn,
+        abi: erc20Abi,
+        functionName: "approve",
+        args: [router, approveAmount],
+        account: params.account,
+      });
+      approveReceipt = await submitApprove(
+        applyRecoverGasBuffer({
+          estimateGas: retryEstimate * BigInt(2),
+          floor: RECOVER_APPROVE_GAS_FLOOR,
+        }),
+      );
+    }
+
+    readBlock = maxBlock(readBlock, readBlockOf(approveReceipt));
     allowance = await waitUntilRouterAllowance({
       publicClient: params.publicClient,
       token: params.tokenIn,
       owner: params.account,
       router,
       minAmount: params.amountIn,
+      blockNumber: readAt(),
     });
     ({ balance } = await readTokenBalanceAndRouterAllowance({
       publicClient: params.publicClient,
       token: params.tokenIn,
       owner: params.account,
       router,
+      blockNumber: readAt(),
     }));
+    if (balance < params.amountIn) {
+      throw new Error(
+        `Recover balance ${balance.toString()} < amountIn ${params.amountIn.toString()}`,
+      );
+    }
   }
 
   assertRecoverSpendable({
@@ -247,23 +369,26 @@ export async function recoverLooseAssetToUsdcFully(params: {
     amountIn: params.amountIn,
   });
 
+  const swapArgs = [
+    {
+      tokenIn: getAddress(params.tokenIn),
+      tokenOut: getAddress(BASE_TOKENS.USDC.address),
+      fee: UNI_FEE_005,
+      recipient: getAddress(params.account),
+      amountIn: params.amountIn,
+      amountOutMinimum: minOut,
+      sqrtPriceLimitX96: BigInt(0),
+    },
+  ] as const;
+
   try {
     await params.publicClient.simulateContract({
       address: router,
       abi: uniExactInputSingleAbi,
       functionName: "exactInputSingle",
-      args: [
-        {
-          tokenIn: getAddress(params.tokenIn),
-          tokenOut: getAddress(BASE_TOKENS.USDC.address),
-          fee: UNI_FEE_005,
-          recipient: getAddress(params.account),
-          amountIn: params.amountIn,
-          amountOutMinimum: minOut,
-          sqrtPriceLimitX96: BigInt(0),
-        },
-      ],
+      args: swapArgs,
       account: params.account,
+      ...(readAt() == null ? {} : { blockNumber: readAt() }),
     });
   } catch (err) {
     const text = err instanceof Error ? err.message : String(err);
@@ -273,29 +398,37 @@ export async function recoverLooseAssetToUsdcFully(params: {
     throw err;
   }
 
+  const swapEstimate = await params.publicClient.estimateContractGas({
+    address: router,
+    abi: uniExactInputSingleAbi,
+    functionName: "exactInputSingle",
+    args: swapArgs,
+    account: params.account,
+  });
+  const swapGas = applyRecoverGasBuffer({
+    estimateGas: swapEstimate,
+    floor: RECOVER_SWAP_GAS_FLOOR,
+  });
+
   const swapHash = await params.walletClient.writeContract({
     address: router,
     abi: uniExactInputSingleAbi,
     functionName: "exactInputSingle",
-    args: [
-      {
-        tokenIn: getAddress(params.tokenIn),
-        tokenOut: getAddress(BASE_TOKENS.USDC.address),
-        fee: UNI_FEE_005,
-        recipient: getAddress(params.account),
-        amountIn: params.amountIn,
-        amountOutMinimum: minOut,
-        sqrtPriceLimitX96: BigInt(0),
-      },
-    ],
+    args: swapArgs,
     account: params.account,
     chain,
+    gas: swapGas,
   });
-  await params.waitReceipt(swapHash);
-  return swapHash;
+  const swapReceipt = await params.waitReceipt(swapHash, {
+    gasLimit: swapGas,
+    outOfGasMessage: RECOVER_SWAP_OOG_USER_MESSAGE,
+  });
+  readBlock = maxBlock(readBlock, readBlockOf(swapReceipt));
+
+  return { swapHash, approveHash, blockNumber: readBlock };
 }
 
-/** @deprecated Prefer recoverLooseAssetToUsdcFully — approve-only return left residue. */
+/** @deprecated Prefer recoverLooseAssetToUsdcFully. */
 export async function recoverOneLooseAssetToUsdc(params: {
   publicClient: Pick<PublicClient, "readContract" | "simulateContract">;
   walletClient: WalletClient;
@@ -313,7 +446,6 @@ export async function recoverOneLooseAssetToUsdc(params: {
   if (minOut <= BigInt(0)) {
     throw new Error("Recover quote minOut is zero — refresh and retry");
   }
-
   const { balance, allowance } = await readTokenBalanceAndRouterAllowance({
     publicClient: params.publicClient,
     token: params.tokenIn,
@@ -325,22 +457,18 @@ export async function recoverOneLooseAssetToUsdc(params: {
       `Recover balance ${balance.toString()} < amountIn ${params.amountIn.toString()}`,
     );
   }
-
   const chain = params.walletClient.chain ?? base;
-
   if (allowance < params.amountIn) {
     return params.walletClient.writeContract({
       address: params.tokenIn,
       abi: erc20Abi,
       functionName: "approve",
-      args: [router, params.amountIn],
+      args: [router, params.amountIn + RECOVER_ALLOWANCE_KEEPALIVE_WEI],
       account: params.account,
       chain,
     });
   }
-
   assertRecoverSpendable({ balance, allowance, amountIn: params.amountIn });
-
   await params.publicClient.simulateContract({
     address: router,
     abi: uniExactInputSingleAbi,
@@ -358,7 +486,6 @@ export async function recoverOneLooseAssetToUsdc(params: {
     ],
     account: params.account,
   });
-
   return params.walletClient.writeContract({
     address: router,
     abi: uniExactInputSingleAbi,
