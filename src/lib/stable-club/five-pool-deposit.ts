@@ -2,10 +2,18 @@
  * Five-pool deposit validation, preview, and contract-arg assembly.
  * Permit2 sequence (verified): USDC.approve(Permit2) → Permit2.approve(CL executor) → depositFivePoolStrategy.
  */
-import { parseUnits, type Hex } from "viem";
+import { parseUnits, type Address, type Hex } from "viem";
 import { STABLE_CLUB_EXECUTION_FEE_BPS, STABLE_CLUB_USDC_DECIMALS } from "@/lib/stable-club/constants";
 import { PRIVATE_BETA_LAUNCH_PARAMS } from "@/lib/stable-club/launch-params";
+import {
+  createOracleGuardQuoteAdapter,
+  type FivePoolQuoteBundle,
+  type OracleGuardTokenMap,
+  type QuoteSourceKind,
+  assertLiveQuoteSourceForSubmission,
+} from "@/lib/stable-club/five-pool-quotes";
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS, BASE_TOKENS } from "@/lib/stable-club/official-pools";
+import { readPoolSlot0States } from "@/lib/stable-club/pool-slot0";
 import {
   FIVE_POOL_ALLOCATION_BPS_PER_LEG,
   FIVE_POOL_LEG_COUNT,
@@ -14,16 +22,12 @@ import {
   QUOTE_PLAN_MAX_SLIPPAGE_BPS,
   QuotePlanError,
   allocateFivePoolBudgets,
+  buildFivePoolQuotePlan,
   type DepositLegParams,
   type FivePoolQuotePlan,
   type SwapQuoteInput,
   type FivePoolSwapSlotId,
 } from "@/lib/stable-club/quote-plan";
-import {
-  assertLiveQuoteSourceForSubmission,
-  type FivePoolQuoteBundle,
-  type QuoteSourceKind,
-} from "@/lib/stable-club/five-pool-quotes";
 import type { Phase2aAdapterDeployment } from "@/lib/stable-club/phase2a-deployments";
 
 export const FIVE_POOL_DEFAULT_SWAP_SLIPPAGE_BPS = BigInt(100);
@@ -367,6 +371,54 @@ export type DepositFivePoolStrategyArgs = {
   deadline: bigint;
   legs: DepositLegParams[];
 };
+
+/**
+ * Re-fetch OracleGuard + slot0 and rebuild the deposit plan immediately before
+ * estimateGas / wallet write. Prevents MevGuard ExcessiveSlippage (0x97c7f537)
+ * when the oracle ticks up slightly after the user first prepared quotes.
+ */
+export async function rebuildDepositExecutionPlan(params: {
+  grossUsdc: bigint;
+  adapters: readonly Address[];
+  swapSlippageBps: bigint;
+  lpSlippageBps: bigint;
+  deadline: bigint;
+  publicClient: Parameters<typeof createOracleGuardQuoteAdapter>[0]["publicClient"];
+  oracleGuard: Address;
+  tokens: OracleGuardTokenMap;
+  network: string;
+  chainId: number;
+  nowSec: number;
+  maxQuoteAgeSec: number;
+}): Promise<{ plan: FivePoolQuotePlan; quoteBundle: FivePoolQuoteBundle }> {
+  const quoteAdapter = createOracleGuardQuoteAdapter({
+    publicClient: params.publicClient,
+    oracleGuard: params.oracleGuard,
+    tokens: params.tokens,
+  });
+  const quoteBundle = await quoteAdapter.fetchQuotes({
+    grossUsdc: params.grossUsdc,
+    nowSec: params.nowSec,
+  });
+  const slot0States = await readPoolSlot0States(
+    params.publicClient as never,
+    params.network as "base",
+    params.chainId,
+  );
+  const plan = buildFivePoolQuotePlan({
+    grossUsdc: params.grossUsdc,
+    adapters: params.adapters,
+    currentTicks: slot0States.map((s) => s.tick),
+    sqrtPriceX96PerPool: slot0States.map((s) => s.sqrtPriceX96),
+    quotes: quoteBundle.quotes,
+    slippageBps: params.swapSlippageBps,
+    lpSlippageBps: params.lpSlippageBps,
+    deadline: params.deadline,
+    nowSec: params.nowSec,
+    maxQuoteAgeSec: params.maxQuoteAgeSec,
+  });
+  return { plan, quoteBundle };
+}
 
 export function buildDepositFivePoolStrategyArgs(params: {
   plan: FivePoolQuotePlan;

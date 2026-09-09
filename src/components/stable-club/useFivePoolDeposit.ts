@@ -46,6 +46,7 @@ import {
   assertExecutableQuotePlanValidity,
   buildDepositFivePoolStrategyArgs,
   buildDepositPreview,
+  rebuildDepositExecutionPlan,
   explorerTxUrl,
   formatUsdcUnits,
   parseUsdcDepositInput,
@@ -685,18 +686,6 @@ export function useFivePoolDeposit() {
       );
       setExecutionNonce(nextNonce);
 
-      const depositArgs = buildDepositFivePoolStrategyArgs({
-        plan: planRef.current,
-        adapters: stackAdapters,
-        strategyId: activeStrategyId,
-        executionNonce: nextNonce,
-        quoteBundle: activeQuoteBundle,
-        nowSec,
-        maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
-        minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
-        requireLiveQuotes: true,
-      });
-
       const walletClient = createWalletClient({
         account: ownerAddress,
         chain,
@@ -751,7 +740,7 @@ export function useFivePoolDeposit() {
       let allowances = await readDepositAllowances();
       const precheckNow = Math.floor(Date.now() / 1000);
       const readiness = evaluateClFivePoolPermit2Readiness({
-        requiredGrossUsdc: depositArgs.grossUsdc,
+        requiredGrossUsdc: planRef.current.grossUsdc,
         nowSec: precheckNow,
         allowances,
       });
@@ -779,7 +768,7 @@ export function useFivePoolDeposit() {
                 permit2: attestedDeployments.permit2,
                 token: attestedDeployments.usdc,
                 clExecutor,
-                grossUsdc: depositArgs.grossUsdc,
+                grossUsdc: planRef.current!.grossUsdc,
                 expiration: computeClFivePoolPermit2Expiration(approveNow),
                 nowSec: approveNow,
               });
@@ -801,7 +790,7 @@ export function useFivePoolDeposit() {
                 permit2: attestedDeployments.permit2,
                 token: attestedDeployments.usdc,
                 clExecutor,
-                grossUsdc: depositArgs.grossUsdc,
+                grossUsdc: planRef.current!.grossUsdc,
                 expiration: computeClFivePoolPermit2Expiration(approveNow),
                 nowSec: approveNow,
               });
@@ -822,27 +811,57 @@ export function useFivePoolDeposit() {
       setStatusMessage("Refreshing allowances…");
       allowances = await refetchClFivePoolPermit2AllowancesUntilReady({
         readAllowances: readDepositAllowances,
-        requiredGrossUsdc: depositArgs.grossUsdc,
+        requiredGrossUsdc: planRef.current.grossUsdc,
         nowSec: () => Math.floor(Date.now() / 1000),
         permit2: attestedDeployments.permit2,
         clExecutor,
       });
 
-      // SC-F10 — recheck remaining validity immediately before deposit write
+      // Refresh oracle quotes + LP mins immediately before estimateGas / write —
+      // avoids MevGuard ExcessiveSlippage when oracle moved after Prepare Quotes.
       const depositNowSec = Math.floor(Date.now() / 1000);
-      assertExecutableQuotePlanValidity({
-        quotes: activeQuoteBundle.quotes,
+      const swapSlip = validateSlippageBps(swapSlippageInput, "Swap slippage");
+      const lpSlip = validateSlippageBps(lpSlippageInput, "LP slippage");
+      if (!swapSlip.ok || !lpSlip.ok) {
+        throw new Error(swapSlip.ok ? lpSlip.message : swapSlip.message);
+      }
+      setStatusMessage("Refreshing live oracle quotes for deposit…");
+      const refreshed = await rebuildDepositExecutionPlan({
+        grossUsdc: planRef.current.grossUsdc,
+        adapters: stackAdapters.map((a) => a.adapter),
+        swapSlippageBps: swapSlip.bps,
+        lpSlippageBps: lpSlip.bps,
         deadline: planRef.current.deadline,
+        publicClient: allowanceReadClient,
+        oracleGuard: attestedDeployments.oracleGuard,
+        tokens: {
+          usdc: attestedDeployments.usdc,
+          cbbtc: attestedDeployments.cbbtc,
+          weth: attestedDeployments.weth,
+        },
+        network: attestedDeployments.network,
+        chainId: attestedDeployments.chainId,
         nowSec: depositNowSec,
         maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
-        minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
       });
-      buildDepositFivePoolStrategyArgs({
-        plan: planRef.current,
+      planRef.current = refreshed.plan;
+      quoteBundleRef.current = refreshed.quoteBundle;
+      setQuoteBundle(refreshed.quoteBundle);
+      setPreview(
+        buildDepositPreview({
+          plan: refreshed.plan,
+          quotedAtSec: refreshed.quoteBundle.quotedAtSec,
+          maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
+          quoteSource: refreshed.quoteBundle.source,
+        }),
+      );
+
+      const depositArgs = buildDepositFivePoolStrategyArgs({
+        plan: refreshed.plan,
         adapters: stackAdapters,
         strategyId: activeStrategyId,
         executionNonce: nextNonce,
-        quoteBundle: activeQuoteBundle,
+        quoteBundle: refreshed.quoteBundle,
         nowSec: depositNowSec,
         maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
         minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
@@ -962,8 +981,10 @@ export function useFivePoolDeposit() {
     publicClient,
     quoteBundle,
     refreshBalancesAndStrategy,
+    lpSlippageInput,
     strategyId,
     strategyRegistered,
+    swapSlippageInput,
     wallet.address,
     wallet.provider,
   ]);

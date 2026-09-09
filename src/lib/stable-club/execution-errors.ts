@@ -90,12 +90,24 @@ export function formatStableClubExecutionError(err: unknown): string | null {
         if (named.errorName === "CanonicalLegMismatch") {
           return "Deposit rejected: leg adapter/token binding does not match the registered strategy.";
         }
+        if (named.errorName === "ExcessiveSlippage") {
+          return (
+            "Deposit swap guard rejected minOut as too tight vs the live oracle (ExcessiveSlippage). " +
+            "Quotes were stale — refresh and retry deposit."
+          );
+        }
       }
     }
   }
 
   const data = extractRevertData(err);
   if (data) {
+    if (data.slice(0, 10).toLowerCase() === "0x97c7f537") {
+      return (
+        "Deposit swap guard rejected minOut as too tight vs the live oracle (ExcessiveSlippage). " +
+        "Refresh quotes and retry deposit."
+      );
+    }
     const msg = decodeErrorString(data);
     if (msg === "PSC" || msg === "Price slippage check") {
       return formatPscMessage();

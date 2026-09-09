@@ -129,6 +129,13 @@ describe("quote-plan helpers", () => {
     expect(minOutFromQuote(BigInt(100), BigInt(100))).toBe(BigInt(99));
     expect(() => minOutFromQuote(BigInt(1), BigInt(10000))).toThrow(QuotePlanError);
     expect(() => minOutFromQuote(BigInt(0), BigInt(100))).toThrow(QuotePlanError);
+    // MevGuard slipFloor uses fresh oracle — stale minOut fails when oracle ticks up 1 wei.
+    const staleQuoted = BigInt(2521);
+    const staleMin = minOutFromQuote(staleQuoted, BigInt(100));
+    const freshExpected = BigInt(2522);
+    const slipFloor = (freshExpected * BigInt(9900)) / BigInt(10000);
+    expect(staleMin).toBe((staleQuoted * BigInt(9900)) / BigInt(10000));
+    expect(staleMin < slipFloor).toBe(true);
   });
 
   it("netUsdcAfterSwapFee applies 1% floor fee", () => {
