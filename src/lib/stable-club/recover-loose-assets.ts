@@ -1,6 +1,10 @@
 /**
  * Recover loose cbBTC / WETH left in the user wallet (e.g. after failed npm-direct legs)
  * into USDC via the verified Uniswap V3 SwapRouter on Base — never INDEXLA contracts.
+ *
+ * STF root cause (live 50% withdraw): approve mined for amountIn, but simulate/swap used a
+ * wallet-provider eth_call that still saw allowance=0 → Uniswap TransferHelper "STF".
+ * Always read/simulate on a fresh HTTP client and poll allowance after approve.
  */
 import {
   encodeFunctionData,
@@ -16,6 +20,9 @@ import { BASE_DEX_UNISWAP_V3, BASE_TOKENS } from "@/lib/stable-club/official-poo
 import { applySlippageMin } from "@/lib/stable-club/exit-to-usdc";
 
 export const RECOVER_LOOSE_ASSETS_ENGINE = "uni-router-recover-v1" as const;
+
+export const UNI_SWAP_ROUTER02_STF_MESSAGE =
+  "Uniswap swap reverted STF (SafeTransferFrom): router lacks allowance or balance for this exact amount. Approve the Uni router, wait for confirmation, then retry residue→USDC.";
 
 const uniExactInputSingleAbi = [
   {
@@ -43,6 +50,80 @@ const uniExactInputSingleAbi = [
 
 /** USDC/cbBTC and USDC/WETH Uni 0.05% pools on Base. */
 const UNI_FEE_005 = 500;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function readTokenBalanceAndRouterAllowance(params: {
+  publicClient: Pick<PublicClient, "readContract">;
+  token: Address;
+  owner: Address;
+  router: Address;
+}): Promise<{ balance: bigint; allowance: bigint }> {
+  const balance = (await params.publicClient.readContract({
+    address: params.token,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [params.owner],
+  })) as bigint;
+  const allowance = (await params.publicClient.readContract({
+    address: params.token,
+    abi: erc20Abi,
+    functionName: "allowance",
+    args: [params.owner, params.router],
+  })) as bigint;
+  return { balance, allowance };
+}
+
+/**
+ * Poll HTTP/read client until allowance >= minAmount (wallet EIP-1193 eth_call is often stale).
+ */
+export async function waitUntilRouterAllowance(params: {
+  publicClient: Pick<PublicClient, "readContract">;
+  token: Address;
+  owner: Address;
+  router: Address;
+  minAmount: bigint;
+  attempts?: number;
+  delayMs?: number;
+}): Promise<bigint> {
+  const attempts = params.attempts ?? 40;
+  const delayMs = params.delayMs ?? 250;
+  let last = BigInt(0);
+  for (let i = 0; i < attempts; i += 1) {
+    const { allowance } = await readTokenBalanceAndRouterAllowance({
+      publicClient: params.publicClient,
+      token: params.token,
+      owner: params.owner,
+      router: params.router,
+    });
+    last = allowance;
+    if (allowance >= params.minAmount) return allowance;
+    await sleep(delayMs);
+  }
+  throw new Error(
+    `${UNI_SWAP_ROUTER02_STF_MESSAGE} (allowance ${last.toString()} < ${params.minAmount.toString()} after approve)`,
+  );
+}
+
+export function assertRecoverSpendable(params: {
+  balance: bigint;
+  allowance: bigint;
+  amountIn: bigint;
+}): void {
+  if (params.amountIn <= BigInt(0)) {
+    throw new Error("Recover amountIn is zero");
+  }
+  if (params.balance < params.amountIn) {
+    throw new Error(
+      `Recover balance ${params.balance.toString()} < amountIn ${params.amountIn.toString()}`,
+    );
+  }
+  if (params.allowance < params.amountIn) {
+    throw new Error(
+      `${UNI_SWAP_ROUTER02_STF_MESSAGE} (allowance ${params.allowance.toString()} < amountIn ${params.amountIn.toString()})`,
+    );
+  }
+}
 
 export async function planLooseAssetRecoveries(params: {
   publicClient: Pick<PublicClient, "readContract">;
@@ -96,6 +177,8 @@ export function buildUniExactInputSingleCalldata(params: {
 /**
  * Approve (if needed) + exactInputSingle in one helper. Caller supplies waitReceipt
  * so we never leave a token approved-but-unswapped as a "successful" recover step.
+ *
+ * publicClient MUST be an HTTP/read transport (not wallet EIP-1193) for allowance + simulate.
  */
 export async function recoverLooseAssetToUsdcFully(params: {
   publicClient: Pick<PublicClient, "readContract" | "simulateContract">;
@@ -120,12 +203,18 @@ export async function recoverLooseAssetToUsdcFully(params: {
   }
 
   const chain = params.walletClient.chain ?? base;
-  const allowance = (await params.publicClient.readContract({
-    address: params.tokenIn,
-    abi: erc20Abi,
-    functionName: "allowance",
-    args: [params.account, router],
-  })) as bigint;
+  let { balance, allowance } = await readTokenBalanceAndRouterAllowance({
+    publicClient: params.publicClient,
+    token: params.tokenIn,
+    owner: params.account,
+    router,
+  });
+
+  if (balance < params.amountIn) {
+    throw new Error(
+      `Recover balance ${balance.toString()} < amountIn ${params.amountIn.toString()}`,
+    );
+  }
 
   if (allowance < params.amountIn) {
     const approveHash = await params.walletClient.writeContract({
@@ -137,25 +226,52 @@ export async function recoverLooseAssetToUsdcFully(params: {
       chain,
     });
     await params.waitReceipt(approveHash);
+    allowance = await waitUntilRouterAllowance({
+      publicClient: params.publicClient,
+      token: params.tokenIn,
+      owner: params.account,
+      router,
+      minAmount: params.amountIn,
+    });
+    ({ balance } = await readTokenBalanceAndRouterAllowance({
+      publicClient: params.publicClient,
+      token: params.tokenIn,
+      owner: params.account,
+      router,
+    }));
   }
 
-  await params.publicClient.simulateContract({
-    address: router,
-    abi: uniExactInputSingleAbi,
-    functionName: "exactInputSingle",
-    args: [
-      {
-        tokenIn: getAddress(params.tokenIn),
-        tokenOut: getAddress(BASE_TOKENS.USDC.address),
-        fee: UNI_FEE_005,
-        recipient: getAddress(params.account),
-        amountIn: params.amountIn,
-        amountOutMinimum: minOut,
-        sqrtPriceLimitX96: BigInt(0),
-      },
-    ],
-    account: params.account,
+  assertRecoverSpendable({
+    balance,
+    allowance,
+    amountIn: params.amountIn,
   });
+
+  try {
+    await params.publicClient.simulateContract({
+      address: router,
+      abi: uniExactInputSingleAbi,
+      functionName: "exactInputSingle",
+      args: [
+        {
+          tokenIn: getAddress(params.tokenIn),
+          tokenOut: getAddress(BASE_TOKENS.USDC.address),
+          fee: UNI_FEE_005,
+          recipient: getAddress(params.account),
+          amountIn: params.amountIn,
+          amountOutMinimum: minOut,
+          sqrtPriceLimitX96: BigInt(0),
+        },
+      ],
+      account: params.account,
+    });
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    if (/\bSTF\b/i.test(text) || /SafeTransferFrom/i.test(text)) {
+      throw new Error(UNI_SWAP_ROUTER02_STF_MESSAGE);
+    }
+    throw err;
+  }
 
   const swapHash = await params.walletClient.writeContract({
     address: router,
@@ -198,17 +314,22 @@ export async function recoverOneLooseAssetToUsdc(params: {
     throw new Error("Recover quote minOut is zero — refresh and retry");
   }
 
-  const allowance = (await params.publicClient.readContract({
-    address: params.tokenIn,
-    abi: erc20Abi,
-    functionName: "allowance",
-    args: [params.account, router],
-  })) as bigint;
+  const { balance, allowance } = await readTokenBalanceAndRouterAllowance({
+    publicClient: params.publicClient,
+    token: params.tokenIn,
+    owner: params.account,
+    router,
+  });
+  if (balance < params.amountIn) {
+    throw new Error(
+      `Recover balance ${balance.toString()} < amountIn ${params.amountIn.toString()}`,
+    );
+  }
 
   const chain = params.walletClient.chain ?? base;
 
   if (allowance < params.amountIn) {
-    const approveHash = await params.walletClient.writeContract({
+    return params.walletClient.writeContract({
       address: params.tokenIn,
       abi: erc20Abi,
       functionName: "approve",
@@ -216,8 +337,9 @@ export async function recoverOneLooseAssetToUsdc(params: {
       account: params.account,
       chain,
     });
-    return approveHash;
   }
+
+  assertRecoverSpendable({ balance, allowance, amountIn: params.amountIn });
 
   await params.publicClient.simulateContract({
     address: router,

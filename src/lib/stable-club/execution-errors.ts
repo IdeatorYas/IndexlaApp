@@ -121,6 +121,12 @@ export function formatStableClubExecutionError(err: unknown): string | null {
       "Retry, and if the wallet shows Edit/Gas limit, set it to 10000000."
     );
   }
+  if (/\bSTF\b/.test(text) || /SafeTransferFrom/i.test(text)) {
+    return (
+      "Token→USDC swap failed: Uniswap router missing allowance (STF). " +
+      "Resume incomplete withdraw — the app re-checks allowance on HTTP RPC after approve."
+    );
+  }
   if (/\bPSC\b/.test(text) || /Price slippage check/i.test(text)) {
     return formatPscMessage();
   }

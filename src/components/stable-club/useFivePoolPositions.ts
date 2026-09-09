@@ -2108,27 +2108,29 @@ export function useFivePoolPositions() {
         writeWithdrawCheckpoint(checkpoint);
         setIncompleteWithdraw({ ...checkpoint });
 
-        setStatusMessage(
+          setStatusMessage(
           "Converting withdrawal residue (cbBTC/WETH) → USDC via Uniswap…",
         );
+        // HTTP read client — wallet eth_call is stale after approve and caused live STF.
+        const recoverReadClient = discoveryClient;
         const waitReceipt = (hash: Hex) =>
-          waitForSuccessfulTransactionReceipt(publicClient, hash);
+          waitForSuccessfulTransactionReceipt(recoverReadClient, hash);
 
         for (let round = 0; round < 8; round += 1) {
-          const cbBal = (await publicClient.readContract({
+          const cbBal = (await recoverReadClient.readContract({
             address: BASE_TOKENS.cbBTC.address,
             abi: erc20Abi,
             functionName: "balanceOf",
             args: [account],
           })) as bigint;
-          const wethBal = (await publicClient.readContract({
+          const wethBal = (await recoverReadClient.readContract({
             address: BASE_TOKENS.WETH.address,
             abi: erc20Abi,
             functionName: "balanceOf",
             args: [account],
           })) as bigint;
           const planned = await planLooseAssetRecoveries({
-            publicClient,
+            publicClient: recoverReadClient,
             account,
             maxByToken: {
               cbBTC: residueFromBaseline({
@@ -2144,7 +2146,7 @@ export function useFivePoolPositions() {
           if (planned.length === 0) break;
           const row = planned[0]!;
           const quoted = await quoteTokenToUsdcViaOracle({
-            publicClient,
+            publicClient: recoverReadClient,
             oracleGuard: d.oracleGuard as Address,
             tokenIn: row.tokenIn,
             amountIn: row.amountIn,
@@ -2152,9 +2154,11 @@ export function useFivePoolPositions() {
           if (quoted <= BigInt(0)) {
             throw new Error(`OracleGuard returned zero USDC for ${row.symbol} recover`);
           }
-          setStatusMessage(`Swap ${row.symbol} → USDC (${row.amountIn.toString()} wei)…`);
+          setStatusMessage(
+            `Approve+swap ${row.symbol} → USDC (residue ${row.amountIn.toString()} wei)…`,
+          );
           const hash = await recoverLooseAssetToUsdcFully({
-            publicClient,
+            publicClient: recoverReadClient,
             walletClient: walletClient as never,
             account,
             tokenIn: row.tokenIn,
@@ -2167,20 +2171,20 @@ export function useFivePoolPositions() {
         }
 
         {
-          const cbBal = (await publicClient.readContract({
+          const cbBal = (await recoverReadClient.readContract({
             address: BASE_TOKENS.cbBTC.address,
             abi: erc20Abi,
             functionName: "balanceOf",
             args: [account],
           })) as bigint;
-          const wethBal = (await publicClient.readContract({
+          const wethBal = (await recoverReadClient.readContract({
             address: BASE_TOKENS.WETH.address,
             abi: erc20Abi,
             functionName: "balanceOf",
             args: [account],
           })) as bigint;
           const leftover = await planLooseAssetRecoveries({
-            publicClient,
+            publicClient: recoverReadClient,
             account,
             maxByToken: {
               cbBTC: residueFromBaseline({
@@ -2204,7 +2208,7 @@ export function useFivePoolPositions() {
           }
         }
 
-        const usdcAfter = (await publicClient.readContract({
+        const usdcAfter = (await recoverReadClient.readContract({
           address: BASE_TOKENS.USDC.address,
           abi: erc20Abi,
           functionName: "balanceOf",
@@ -2221,7 +2225,7 @@ export function useFivePoolPositions() {
 
         setProgress("confirmed");
         setStatusMessage(
-          `Received ${(Number(usdcAfter - usdcBefore) / 1e6).toFixed(4)} USDC (owner NPM + Uni unwind)`,
+          `Received ${(Number(usdcAfter - usdcBefore) / 1e6).toFixed(4)} USDC — residue cleared (owner NPM + Uni unwind)`,
         );
         await refreshPositions();
         await refreshStrandedAssets();
@@ -2259,6 +2263,7 @@ export function useFivePoolPositions() {
       }
     },
     [
+      discoveryClient,
       ensureReady,
       expectedChainId,
       positions,
