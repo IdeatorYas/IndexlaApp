@@ -289,7 +289,17 @@ async function runHundredPercent() {
     .trim()
     .split(/\r?\n/)
     .find((l) => l.includes("SUCCESS"));
+  const usdcLine = out
+    .trim()
+    .split(/\r?\n/)
+    .find((l) => l.startsWith("USDC_RECEIVED"));
+  const usdcParts = usdcLine ? usdcLine.split(/\s+/) : [];
+  const usdcReceived = usdcParts[1] || null;
+  const usdcReceivedFormatted = usdcParts[2] || null;
   if (!ok) throw new Error("diag-mc-exit failed for 100%");
+  if (!usdcReceived || BigInt(usdcReceived) <= 0n) {
+    throw new Error("diag-mc-exit succeeded but USDC did not increase");
+  }
   return {
     ok: true,
     feRoute: "withdrawPercent(100) → exitAllToUsdc + NFT permit",
@@ -297,6 +307,8 @@ async function runHundredPercent() {
     permitPrompts,
     exitEngine: "diag-mc-exit (FE production mins/unwind)",
     successLine,
+    usdcReceived,
+    usdcReceivedFormatted,
     note: "Permit proven on fork impersonation; exit proven via diag child on fresh fork. No live broadcast.",
   };
 }

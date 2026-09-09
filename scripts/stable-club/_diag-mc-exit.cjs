@@ -132,13 +132,18 @@ async function main() {
   }
 
   const executor = await ethers.getContractAt(EXECUTOR_ABI, LEGACY_CL_EXECUTOR);
+  const usdc = await ethers.getContractAt(["function balanceOf(address) view returns (uint256)"], USDC);
   try {
     const data = executor.interface.encodeFunctionData("exitAllToUsdc", [strategyId, exitLegs, swaps, swapCount, 1n, nonceBase]);
   require("fs").writeFileSync("scripts/stable-club/_calldata-diag.txt", data);
   console.log("ENCODED_EXIT_CALLDATA diag", data.slice(0, 74), "len", data.length);
+  const usdcBefore = await usdc.balanceOf(WALLET);
   const tx = await executor.connect(owner).exitAllToUsdc(strategyId, exitLegs, swaps, swapCount, 1n, nonceBase);
     const rc = await tx.wait();
+    const usdcAfter = await usdc.balanceOf(WALLET);
+    const usdcReceived = usdcAfter - usdcBefore;
     console.log("SUCCESS", rc.hash);
+    console.log("USDC_RECEIVED", usdcReceived.toString(), (Number(usdcReceived) / 1e6).toFixed(6));
   } catch (e) {
     console.log("FAIL", e.reason || e.shortMessage || e.message);
     console.log("data", e.data || null);

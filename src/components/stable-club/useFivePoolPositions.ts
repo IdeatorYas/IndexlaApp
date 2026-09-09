@@ -1355,11 +1355,39 @@ export function useFivePoolPositions() {
         { amountAMin: bigint; amountBMin: bigint; liquidityCalldata: bigint }
       >();
       for (const position of open) {
-        const liqNow =
-          position.liquidity > BigInt(0)
-            ? position.liquidity
-            : (await readLiveExitAmountsForPosition(publicClient, position, account)).liquidity;
+        // Live NPM liquidity only — never trust stale discovery/adapter cache for calldata.
+        const isAero =
+          position.protocol === "aerodrome-slipstream" ||
+          position.protocol === "aerodrome";
+        const posAbi = isAero ? aeroNpmPositionsAbi : uniV3NpmPositionsAbi;
+        let liqNow = BigInt(0);
+        try {
+          const posRow = await publicClient.readContract({
+            address: position.npm,
+            abi: posAbi,
+            functionName: "positions",
+            args: [position.positionTokenId],
+          });
+          liqNow = BigInt(posRow[7] as bigint);
+        } catch {
+          const live = await readLiveExitAmountsForPosition(
+            publicClient,
+            position,
+            account,
+          );
+          liqNow = live.liquidity;
+        }
+        if (liqNow <= BigInt(0) && !fullExit) {
+          throw new Error(
+            `No live liquidity for tokenId ${position.positionTokenId.toString()} — refresh positions`,
+          );
+        }
         const liqOut = fullExit ? liqNow : (liqNow * BigInt(percentBps)) / BigInt(10_000);
+        if (!fullExit && liqOut > liqNow) {
+          throw new Error(
+            `Exit liquidity ${liqOut.toString()} exceeds live ${liqNow.toString()} for tokenId ${position.positionTokenId.toString()}`,
+          );
+        }
         const q = await quoteNpmExecutorExit({
           publicClient,
           npm: position.npm,
@@ -1378,6 +1406,12 @@ export function useFivePoolPositions() {
           amount0: q.collect0,
           amount1: q.collect1,
         });
+        // Keep collect amounts for unwind; liquidity for legs is live NPM-derived.
+        liveAmountsByLeg.set(position.legIndex, {
+          amountA: collect.amountA,
+          amountB: collect.amountB,
+          liquidity: liqNow,
+        });
         const mins = mapAmountsToLegOrder({
           tokenA: position.tokenA,
           tokenB: position.tokenB,
@@ -1385,11 +1419,6 @@ export function useFivePoolPositions() {
           token1: q.token1,
           amount0: q.amount0Min,
           amount1: q.amount1Min,
-        });
-        liveAmountsByLeg.set(position.legIndex, {
-          amountA: collect.amountA,
-          amountB: collect.amountB,
-          liquidity: liqNow,
         });
         npmMinsByLeg.set(position.legIndex, {
           amountAMin: mins.amountA,
@@ -1806,6 +1835,9 @@ export function useFivePoolPositions() {
             position.protocol === "aerodrome-slipstream" ||
             position.protocol === "aerodrome";
           const posAbi = isAero ? aeroNpmPositionsAbi : uniV3NpmPositionsAbi;
+          // Always re-read live NPM liquidity immediately before building calldata.
+          // Stale discovery/cache liq (e.g. after a prior partial) → decreaseLiquidity
+          // with liquidity > position.liquidity → CALL_EXCEPTION with null revert data.
           const posRow = await publicClient.readContract({
             address: position.npm,
             abi: posAbi,
@@ -1823,9 +1855,14 @@ export function useFivePoolPositions() {
             );
             continue;
           }
-          const liqOut = fullExit
+          let liqOut = fullExit
             ? liqNow
             : (liqNow * percentBps) / BigInt(10_000);
+          if (liqOut > liqNow) {
+            throw new Error(
+              `NPM decrease liquidity ${liqOut.toString()} exceeds live position liquidity ${liqNow.toString()} for tokenId ${position.positionTokenId.toString()} — refresh and retry`,
+            );
+          }
           if (liqOut <= BigInt(0)) {
             throw new Error(
               `Partial liquidity rounds to zero for tokenId ${position.positionTokenId.toString()}`,
@@ -1852,6 +1889,21 @@ export function useFivePoolPositions() {
             recipient: account,
             burnAfter,
           });
+
+          // Preflight the exact NPM multicall so wallet/RPC null-data reverts become explicit.
+          try {
+            await publicClient.call({
+              account,
+              to: position.npm,
+              data: multicallData,
+            });
+          } catch (simErr) {
+            const detail =
+              simErr instanceof Error ? simErr.message : String(simErr);
+            throw new Error(
+              `Owner NPM multicall simulation failed for tokenId ${position.positionTokenId.toString()} (liquidity ${liqOut.toString()} of ${liqNow.toString()}): ${detail.slice(0, 280)}`,
+            );
+          }
 
           const hash = await walletClient.sendTransaction({
             account,
@@ -1927,8 +1979,10 @@ export function useFivePoolPositions() {
       } catch (err) {
         const reject = userRejectMessage(err);
         const message =
-          reject ??
-          (err instanceof Error ? err.message : "Owner NPM percent withdraw failed");
+        reject ??
+        (err instanceof Error
+          ? `${err.message} — owner NPM multicall/recover failed; no positions marked exited`
+          : "Owner NPM percent withdraw failed — no positions marked exited");
         setError(message);
         setProgress("failed");
         setLegResults((prev) =>
