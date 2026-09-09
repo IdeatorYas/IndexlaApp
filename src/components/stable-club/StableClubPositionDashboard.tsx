@@ -593,18 +593,17 @@ export function StableClubPositionDashboard({
                     Custom % is not available on this deployment. Choose{" "}
                     <span className="font-semibold">100%</span> for atomic USDC exit.
                   </p>
-                ) : withdrawStackKind === "legacy" && Math.round(withdrawPercent) !== 100 ? (
+                ) : withdrawStackKind === "legacy" ? (
                   <p className="mt-2 text-sm text-[#5b6b7c]">
                     Removes {Math.round(withdrawPercent)}% of remaining LP liquidity as NFT
-                    owner (no permit) → sells non-USDC on Uniswap → USDC to your wallet
-                    (multiple txs). 100% still uses one atomic INDEXLA exit with NFT permit.
+                    owner (no permit) → sells non-USDC on Uniswap → USDC to your wallet.
+                    NPM calls are batched per position manager to save gas. Needs a small
+                    amount of Base ETH for gas (~a few thousandths).
                   </p>
                 ) : (
                   <p className="mt-2 text-sm text-[#5b6b7c]">
                     Removes {Math.round(withdrawPercent)}% of remaining LP liquidity → sells
-                    non-USDC → sends USDC only to your wallet
-                    {withdrawStackKind === "legacy" ? " (one atomic INDEXLA tx)" : " (one atomic tx)"}
-                    .
+                    non-USDC → sends USDC only to your wallet (one atomic tx).
                   </p>
                 )}
               </>
@@ -629,15 +628,16 @@ export function StableClubPositionDashboard({
                 Authority step · Base
               </p>
               <p className="mt-2 text-[#5b6b7c]">
-                {withdrawStackKind === "legacy" && Math.round(withdrawPercent) !== 100 ? (
+                {withdrawStackKind === "legacy" ? (
                   <>
-                    Custom % on legacy adapters calls each protocol NPM as NFT owner (
+                    Legacy positions call each protocol NPM as NFT owner (
                     <span className="font-mono text-[#0b1f3a]">decreaseLiquidity</span> /{" "}
-                    <span className="font-mono text-[#0b1f3a]">collect</span>) — no{" "}
-                    <span className="font-mono text-[#0b1f3a]">approve</span> /{" "}
-                    <span className="font-mono text-[#0b1f3a]">permit</span>. Then Uniswap
-                    SwapRouter sells cbBTC/WETH → USDC. Registry is non-proxy; Safe ownership
-                    alone cannot rebind adapters.
+                    <span className="font-mono text-[#0b1f3a]">collect</span>), batched per NPM —
+                    no <span className="font-mono text-[#0b1f3a]">approve</span> /{" "}
+                    <span className="font-mono text-[#0b1f3a]">permit</span> to IndexLa adapters
+                    (those adapters are not Basescan-verified yet, which triggered wallet
+                    “approves ERC20 to an unverified contract”). Then Uniswap SwapRouter sells
+                    cbBTC/WETH → USDC. Top up Base ETH if the app reports a gas shortfall.
                   </>
                 ) : (
                   <>
@@ -647,11 +647,9 @@ export function StableClubPositionDashboard({
                     selector{" "}
                     <span className="font-mono font-semibold text-[#0b1f3a]">0x7ac2ff7b</span>) —
                     not ERC20/ERC721 <span className="font-mono text-[#0b1f3a]">approve</span>{" "}
-                    (<span className="font-mono text-[#0b1f3a]">0x095ea7b3</span>). That removes the
-                    wallet false-positive “approves ERC20 tokens to an unverified contract.”
-                    Authority is one tokenId → one Basescan-verified IndexLa adapter; funds stay in
-                    the LP until the atomic exit tx (reverts on failure). Wallet/Blockaid clearance
-                    is not guaranteed by selector alone — recheck the live permit prompt.
+                    (<span className="font-mono text-[#0b1f3a]">0x095ea7b3</span>). Authority is one
+                    tokenId → one IndexLa adapter; funds stay in the LP until the atomic exit tx
+                    (reverts on failure).
                   </>
                 )}
               </p>

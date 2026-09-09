@@ -85,8 +85,10 @@ import { FIVE_POOL_LEG_COUNT } from "@/lib/stable-club/five-pool-strategy";
 import { erc721PositionAbi } from "@/lib/stable-club/nft-approval";
 import {
   buildNpmWithdrawMulticallCalls,
+  encodeNpmMulticall,
   quoteNpmDecreaseMins,
   quoteNpmExecutorExit,
+  requireNativeEthForOwnerWithdraw,
 } from "@/lib/stable-club/npm-direct-withdraw";
 import {
   BASE_NPM_PERMIT_DOMAINS,
@@ -1765,9 +1767,10 @@ export function useFivePoolPositions() {
 
   /**
    * Legacy adapters lack decreaseLiquidityTo. Registry is non-proxy — Safe cannot add
-   * rebindStrategyLegAdapters to live bytecode. Supported custom-% route: owner calls
-   * each position's NPM (decreaseLiquidity → collect) then Uni SwapRouter → USDC.
-   * No NFT permit/approve. LP mins use configured slippageBps (default 500 = 5%).
+   * rebindStrategyLegAdapters to live bytecode. Supported route for ANY % (incl. 100%):
+   * owner calls each NPM (batched per NPM contract) then Uni SwapRouter → USDC.
+   * No NFT permit/approve — avoids wallet “ERC20 approve to unverified adapter” blocks.
+   * LP mins use configured slippageBps (default 500 = 5%).
    */
   const withdrawLegacyPercentViaOwnerNpm = useCallback(
     async (percent: number) => {
@@ -1812,16 +1815,17 @@ export function useFivePoolPositions() {
           args: [account],
         })) as bigint;
 
+        type PreparedLeg = {
+          position: (typeof open)[number];
+          calls: Hex[];
+        };
+        const prepared: PreparedLeg[] = [];
+
         for (const position of open) {
           setStatusMessage(
-            `Owner NPM decrease ${pct}% · leg ${position.legIndex + 1}/${FIVE_POOL_LEG_COUNT} (no NFT permit)…`,
+            `Preparing owner NPM decrease ${pct}% · leg ${position.legIndex + 1}/${FIVE_POOL_LEG_COUNT}…`,
           );
           setProgress("awaiting-exit");
-          setLegResults((prev) =>
-            prev.map((r) =>
-              r.legIndex === position.legIndex ? { ...r, status: "submitting" } : r,
-            ),
-          );
 
           const owner = (await publicClient.readContract({
             address: position.npm,
@@ -1835,9 +1839,6 @@ export function useFivePoolPositions() {
             position.protocol === "aerodrome-slipstream" ||
             position.protocol === "aerodrome";
           const posAbi = isAero ? aeroNpmPositionsAbi : uniV3NpmPositionsAbi;
-          // Always re-read live NPM liquidity immediately before building calldata.
-          // Stale discovery/cache liq (e.g. after a prior partial) → decreaseLiquidity
-          // with liquidity > position.liquidity → CALL_EXCEPTION with null revert data.
           const posRow = await publicClient.readContract({
             address: position.npm,
             abi: posAbi,
@@ -1869,7 +1870,6 @@ export function useFivePoolPositions() {
             );
           }
 
-          // Preserve configured user LP tolerance (default 500 bps = 5%) — do not raise.
           const mins = await quoteNpmDecreaseMins({
             publicClient,
             npm: position.npm,
@@ -1880,7 +1880,7 @@ export function useFivePoolPositions() {
             slippageBps,
           });
           const burnAfter = fullExit || liqOut >= liqNow;
-          const { multicallData } = buildNpmWithdrawMulticallCalls({
+          const { calls } = buildNpmWithdrawMulticallCalls({
             tokenId: position.positionTokenId,
             liquidity: liqOut,
             amount0Min: mins.amount0Min,
@@ -1889,37 +1889,87 @@ export function useFivePoolPositions() {
             recipient: account,
             burnAfter,
           });
+          prepared.push({ position, calls });
+        }
 
-          // Preflight the exact NPM multicall so wallet/RPC null-data reverts become explicit.
+        // One multicall per NPM contract (legs sharing Aero/Uni NPM share one tx).
+        const batches = new Map<
+          string,
+          { npm: Address; legIndexes: number[]; calls: Hex[] }
+        >();
+        for (const row of prepared) {
+          const key = row.position.npm.toLowerCase();
+          const cur = batches.get(key) ?? {
+            npm: row.position.npm,
+            legIndexes: [] as number[],
+            calls: [] as Hex[],
+          };
+          cur.legIndexes.push(row.position.legIndex);
+          cur.calls.push(...row.calls);
+          batches.set(key, cur);
+        }
+
+        const plannedTxs = [...batches.values()].map((b) => ({
+          to: b.npm,
+          data: encodeNpmMulticall(b.calls),
+        }));
+
+        setStatusMessage("Checking Base ETH balance for batched NPM + Uni gas…");
+        const { maxFeePerGas, maxPriorityFeePerGas } =
+          await requireNativeEthForOwnerWithdraw({
+          publicClient,
+          account,
+          txs: plannedTxs,
+        });
+
+        let batchIndex = 0;
+        for (const batch of batches.values()) {
+          batchIndex += 1;
+          const multicallData = encodeNpmMulticall(batch.calls);
+          setStatusMessage(
+            `Owner NPM multicall ${batchIndex}/${batches.size} (${batch.legIndexes.length} leg(s), no NFT permit)…`,
+          );
+          for (const legIndex of batch.legIndexes) {
+            setLegResults((prev) =>
+              prev.map((r) =>
+                r.legIndex === legIndex ? { ...r, status: "submitting" } : r,
+              ),
+            );
+          }
+
           try {
             await publicClient.call({
               account,
-              to: position.npm,
+              to: batch.npm,
               data: multicallData,
             });
           } catch (simErr) {
             const detail =
               simErr instanceof Error ? simErr.message : String(simErr);
             throw new Error(
-              `Owner NPM multicall simulation failed for tokenId ${position.positionTokenId.toString()} (liquidity ${liqOut.toString()} of ${liqNow.toString()}): ${detail.slice(0, 280)}`,
+              `Owner NPM multicall simulation failed for legs [${batch.legIndexes.join(",")}]: ${detail.slice(0, 280)}`,
             );
           }
 
           const hash = await walletClient.sendTransaction({
             account,
-            to: position.npm,
+            to: batch.npm,
             data: multicallData,
             chain: walletClient.chain ?? undefined,
+            maxFeePerGas,
+            maxPriorityFeePerGas,
           } as never);
           setLastTxHash(hash);
           await waitForSuccessfulTransactionReceipt(publicClient, hash);
-          setLegResults((prev) =>
-            prev.map((r) =>
-              r.legIndex === position.legIndex
-                ? { ...r, status: "confirmed", txHash: hash }
-                : r,
-            ),
-          );
+          for (const legIndex of batch.legIndexes) {
+            setLegResults((prev) =>
+              prev.map((r) =>
+                r.legIndex === legIndex
+                  ? { ...r, status: "confirmed", txHash: hash }
+                  : r,
+              ),
+            );
+          }
         }
 
         setStatusMessage("Selling pool tokens → USDC via Uniswap SwapRouter…");
@@ -2020,8 +2070,8 @@ export function useFivePoolPositions() {
   /**
    * Product Withdraw:
    * - Primary stack: atomic INDEXLA exitAllToUsdc (100% or % when cutover allows).
-   * - Legacy stack 100%: atomic INDEXLA exitAllToUsdc + NFT permit.
-   * - Legacy stack custom %: owner NPM + Uni USDC unwind (registry cannot rebind adapters).
+   * - Legacy stack (any % incl. 100%): owner NPM batched multicall + Uni USDC unwind.
+   *   Avoids NFT permit to unverified adapters (wallet “ERC20 approve to unverified”).
    */
   const withdrawPercent = useCallback(
     async (percent: number) => {
@@ -2035,7 +2085,7 @@ export function useFivePoolPositions() {
           deployments,
           open.map((p) => p.adapter),
         );
-        if (stack.kind === "legacy" && pct !== 100) {
+        if (stack.kind === "legacy") {
           await withdrawLegacyPercentViaOwnerNpm(pct);
           return;
         }

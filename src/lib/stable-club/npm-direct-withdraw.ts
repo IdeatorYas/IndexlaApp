@@ -382,13 +382,73 @@ export function buildNpmWithdrawMulticallCalls(params: {
     calls.push(burn);
   }
 
+  return { calls, multicallData: encodeNpmMulticall(calls) };
+}
+
+/** Pack many per-position NPM call arrays into one multicall (same NPM only). */
+export function encodeNpmMulticall(calls: Hex[]): Hex {
+  for (const c of calls) assertNotApproveCalldata(c);
   const multicallData = encodeFunctionData({
     abi: npmPositionManagerAbi,
     functionName: "multicall",
     args: [calls],
   });
   assertNotApproveCalldata(multicallData);
-  return { calls, multicallData };
+  return multicallData;
+}
+
+/**
+ * Estimate native ETH needed for a list of NPM multicalls + a small buffer for
+ * subsequent Uni recover approve/swap txs. Throws a clear shortfall error.
+ */
+export async function requireNativeEthForOwnerWithdraw(params: {
+  publicClient: Pick<
+    PublicClient,
+    "getBalance" | "estimateGas" | "estimateFeesPerGas" | "getGasPrice"
+  >;
+  account: Address;
+  txs: { to: Address; data: Hex }[];
+  /** Extra synthetic gas units for post-NPM Uni approve+swap recoveries. */
+  recoverGasBuffer?: bigint;
+}): Promise<{
+  have: bigint;
+  need: bigint;
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+}> {
+  if (params.txs.length === 0) {
+    throw new Error("No NPM withdraw transactions to fund");
+  }
+  const fees = await params.publicClient.estimateFeesPerGas();
+  const maxFeePerGas =
+    fees.maxFeePerGas ?? (await params.publicClient.getGasPrice());
+  const maxPriorityFeePerGas =
+    fees.maxPriorityFeePerGas && fees.maxPriorityFeePerGas > BigInt(0)
+      ? fees.maxPriorityFeePerGas
+      : BigInt(1_000_000);
+  let gasSum = BigInt(0);
+  for (const tx of params.txs) {
+    const gas = await params.publicClient.estimateGas({
+      account: params.account,
+      to: tx.to,
+      data: tx.data,
+    });
+    gasSum += gas;
+  }
+  gasSum += params.recoverGasBuffer ?? BigInt(400_000);
+  // 25% headroom for fee spikes between estimate and wallet broadcast.
+  const need = (gasSum * maxFeePerGas * BigInt(125)) / BigInt(100);
+  const have = await params.publicClient.getBalance({ address: params.account });
+  if (have < need) {
+    const short = need - have;
+    const fmt = (w: bigint) => `${(Number(w) / 1e18).toFixed(6)} ETH`;
+    throw new Error(
+      `Not enough Base ETH for gas: have ${fmt(have)}, need ~${fmt(need)} (short ${fmt(short)}). ` +
+        `Owner withdraw batches ${params.txs.length} NPM multicall(s) then Uni recover — top up ETH and retry. ` +
+        `This is not an LP/NFT failure.`,
+    );
+  }
+  return { have, need, maxFeePerGas, maxPriorityFeePerGas };
 }
 
 /** @deprecated Prefer buildNpmWithdrawMulticallCalls */
