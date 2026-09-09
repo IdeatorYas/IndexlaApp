@@ -2294,10 +2294,11 @@ export function useFivePoolPositions() {
   );
 
   /**
-   * Product Withdraw:
-   * - Primary stack: atomic INDEXLA exitAllToUsdc (100% or % when cutover allows).
-   * - Legacy stack (any % incl. 100%): owner NPM batched multicall + Uni USDC unwind.
-   *   Avoids NFT permit to unverified adapters (wallet “ERC20 approve to unverified”).
+   * Product Withdraw (any % including 100%):
+   * Owner NPM batched multicall (per NPM) + residue-only Uni→USDC recover.
+   * Works for both primary and legacy adapters because the user owns the LP NFTs.
+   * Avoids cold NFT permit/approve to IndexLa adapters (≫2 wallet confirms + unverified warnings).
+   * Atomic exitAllToUsdc remains available via exitAllToUsdc() when NFT authority is already set.
    */
   const withdrawPercent = useCallback(
     async (percent: number) => {
@@ -2305,27 +2306,9 @@ export function useFivePoolPositions() {
       if (!Number.isFinite(percent) || pct < 1 || pct > 100) {
         throw new Error("Withdraw percent must be between 1 and 100");
       }
-      const open = [...positions];
-      if (open.length > 0 && deployments) {
-        const stack = resolveClStackForAdapters(
-          deployments,
-          open.map((p) => p.adapter),
-        );
-        if (stack.kind === "legacy") {
-          await withdrawLegacyPercentViaOwnerNpm(pct);
-          return;
-        }
-        if (pct !== 100 && !stack.percentExitAllowed) {
-          throw new Error("Partial % withdraw is not enabled on this deployment.");
-        }
-      } else if (pct !== 100 && !isExitPercentToUsdcAvailable(deployments)) {
-        throw new Error(
-          "Atomic USDC Withdraw on live INDEXLA contracts exits 100% of remaining LP liquidity only (single executor tx). Select 100%. Partial % needs a Safe executor/adapter upgrade.",
-        );
-      }
-      await exitAllToUsdc(pct);
+      await withdrawLegacyPercentViaOwnerNpm(pct);
     },
-    [deployments, exitAllToUsdc, positions, withdrawLegacyPercentViaOwnerNpm],
+    [withdrawLegacyPercentViaOwnerNpm],
   );
 
   const runManageAll = useCallback(
@@ -2757,20 +2740,8 @@ export function useFivePoolPositions() {
     exitAllToUsdcAvailable: isExitAllToUsdcAvailable(deployments),
     /** Feature flag only — % UI always shown when cutover is live. Stack gating is in exitAllToUsdc. */
     exitPercentToUsdcAvailable: isExitPercentToUsdcAvailable(deployments),
-    /** Legacy: owner NPM % → USDC. Primary: decreaseLiquidityTo when feature-flagged. */
-    exitPercentExecutable:
-      positions.length === 0 ||
-      !deployments ||
-      (() => {
-        const stack = resolveClStackForAdapters(
-          deployments,
-          positions.map((p) => p.adapter),
-        );
-        if (stack.kind === "legacy") return true;
-        return (
-          isExitPercentToUsdcAvailable(deployments) && stack.percentExitAllowed
-        );
-      })(),
+    /** Owner NPM path supports any % on both stacks (user owns LP NFTs). */
+    exitPercentExecutable: positions.length > 0,
     withdrawStackKind:
       positions.length === 0 || !deployments
         ? ("primary" as const)

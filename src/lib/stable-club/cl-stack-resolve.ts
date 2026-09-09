@@ -3,8 +3,9 @@
  * Primary (pinned) stack supports partial %; legacy stack is 100%-only for
  * strategies whose legs still pin pre-cutover adapters (IDs non-recyclable).
  */
-import type { Address } from "viem";
+import type { Address, Hex, PublicClient } from "viem";
 import { getAddress } from "viem";
+import { strategyPermissionRegistryAbi } from "@/lib/stable-club/abis";
 import type {
   Phase2aAdapterDeployment,
   StableClubPhase2aDeployments,
@@ -18,6 +19,10 @@ export type ResolvedClStack = {
   clExecutor: Address;
   /** Partial % USDC exit is only safe on the primary (decreaseLiquidityTo) stack. */
   percentExitAllowed: boolean;
+};
+
+export type ResolvedDepositStack = ResolvedClStack & {
+  adapters: readonly Phase2aAdapterDeployment[];
 };
 
 function norm(a: Address | string): string {
@@ -98,4 +103,42 @@ export function resolveClStackForAdapters(
   throw new Error(
     "Position adapters span unknown or mixed CL stacks. Contact IndexLa support before withdrawing.",
   );
+}
+
+/**
+ * Deposit stack = executor + adapter metadata that must match registered strategy legs.
+ * Empty legs (not registered yet) → primary stack for first-time registration.
+ */
+export function resolveDepositStack(
+  deployments: StableClubPhase2aPublicDeployments | StableClubPhase2aDeployments,
+  legAdapters: readonly Address[],
+): ResolvedDepositStack {
+  const stack = resolveClStackForAdapters(deployments, legAdapters);
+  if (stack.kind === "legacy") {
+    const adapters = deployments.legacyExitStack?.adapters;
+    if (!adapters?.length) {
+      throw new Error("Legacy deposit stack missing adapter metadata in deployments");
+    }
+    return { ...stack, adapters };
+  }
+  return { ...stack, adapters: deployments.adapters };
+}
+
+/** Read the five strategy leg adapter addresses from StrategyPermissionRegistry. */
+export async function readStrategyLegAdapters(params: {
+  publicClient: Pick<PublicClient, "readContract">;
+  strategyRegistry: Address;
+  strategyId: Hex;
+}): Promise<Address[]> {
+  const out: Address[] = [];
+  for (let i = 0; i < 5; i++) {
+    const leg = await params.publicClient.readContract({
+      address: params.strategyRegistry,
+      abi: strategyPermissionRegistryAbi,
+      functionName: "getLeg",
+      args: [params.strategyId, BigInt(i)],
+    });
+    out.push((leg as { adapter: Address }).adapter);
+  }
+  return out;
 }

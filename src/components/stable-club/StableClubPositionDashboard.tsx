@@ -294,18 +294,32 @@ export function StableClubPositionDashboard({
                 : ""}
             </p>
           </div>
-          <button
-            type="button"
-            disabled={p.busy || p.positionsLoading}
-            onClick={() =>
-              void refreshPositions().then(() => {
-                markRefreshed();
-              })
-            }
-            className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-semibold disabled:opacity-45"
-          >
-            Refresh
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!depositsEnabled || actionsBusy}
+              onClick={() => onAddFunds?.()}
+              className={
+                addFundsOpen
+                  ? "rounded-lg border border-white bg-white px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#0b1f3a]"
+                  : "rounded-lg border border-white/25 bg-[#0052FF] px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.08em] text-white shadow-[0_4px_14px_rgba(0,82,255,0.35)] disabled:opacity-45"
+              }
+            >
+              Add Funds
+            </button>
+            <button
+              type="button"
+              disabled={p.busy || p.positionsLoading}
+              onClick={() =>
+                void refreshPositions().then(() => {
+                  markRefreshed();
+                })
+              }
+              className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-semibold disabled:opacity-45"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
@@ -440,7 +454,7 @@ export function StableClubPositionDashboard({
           <button
             type="button"
             disabled={!depositsEnabled || actionsBusy}
-            onClick={onAddFunds}
+            onClick={() => onAddFunds?.()}
             className={
               addFundsOpen
                 ? "h-12 rounded-xl border-2 border-[#0b1f3a] bg-[#0b1f3a]/[0.06] text-[12px] font-extrabold uppercase tracking-[0.07em] text-[#0b1f3a] disabled:opacity-40"
@@ -479,7 +493,7 @@ export function StableClubPositionDashboard({
           </button>
         </div>
 
-        {p.incompleteWithdraw || p.strandedAssets.length > 0 ? (
+        {p.incompleteWithdraw || (p.strandedAssets?.length ?? 0) > 0 ? (
           <div
             className="mt-4 rounded-xl border border-[#d7e0ec] bg-[#f8fafc] px-3.5 py-3 text-sm text-[#0b1f3a]"
             role="status"
@@ -561,10 +575,11 @@ export function StableClubPositionDashboard({
           >
             <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw · Receive USDC</h2>
             <p className="mt-2 text-sm text-[#5b6b7c]">
-              Atomic INDEXLA executor exit: close remaining LP liquidity → unwind non-USDC → send{" "}
-              <span className="font-semibold">USDC only</span> to your wallet. One executor
-              transaction (NFT adapter approvals first if still needed). Never calls Uniswap/Aerodrome
-              NPM from your wallet. Reverts on failure.
+              Removes liquidity as NFT owner across all five pools (batched per NPM), then
+              automatically sells withdrawal residue (cbBTC + WETH) to{" "}
+              <span className="font-semibold">USDC only</span> in your wallet. Success is shown
+              only after USDC increases and residue is cleared. Interrupted exits can Resume
+              without re-doing completed NPM batches. At 100%, removes all remaining liquidity.
             </p>
 
             {exitPercentEnabled ? (
@@ -680,13 +695,16 @@ export function StableClubPositionDashboard({
                 )}
               </p>
               <p className="mt-2 text-[#5b6b7c]">
-                Stack:{" "}
+                Path:{" "}
                 <span className="font-semibold text-[#0b1f3a]">
-                  {withdrawStackKind === "legacy"
-                    ? "legacy adapters (100% = atomic INDEXLA; custom % = owner NPM)"
-                    : "current adapters (% exits enabled)"}
+                  owner NPM + auto Uni→USDC
                 </span>
-                .
+                {withdrawStackKind === "legacy" ? " (legacy adapters)" : " (primary adapters)"}.
+              </p>
+              <p className="mt-2 text-[11px] leading-snug text-[#8a9aab]">
+                Wallet confirms: one tx per NPM (3) plus Uni approve/swap for residue (typically
+                5–7 cold). ≤2 cold confirms require a new cross-NPM+Uni batch contract — not
+                available on live Base deployments yet.
               </p>
               <p className="mt-2 text-[#5b6b7c]">
                 Open Basescan for each adapter (green check = verified source):

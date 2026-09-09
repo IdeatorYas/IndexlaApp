@@ -73,6 +73,14 @@ let positionsState = {
   exitAll,
   exitAllToUsdc,
   exitAllToUsdcAvailable: true,
+  exitPercentToUsdcAvailable: true,
+  exitPercentExecutable: true,
+  withdrawStackKind: "primary" as const,
+  withdrawPercent: vi.fn(),
+  resumeIncompleteWithdraw: vi.fn(),
+  incompleteWithdraw: null,
+  strandedAssets: [] as unknown[],
+  refreshStrandedAssets: vi.fn(),
   harvestAll,
   compoundAll,
   emergencyExitLeg: vi.fn(),
@@ -243,7 +251,7 @@ describe("StableClubBetaView", () => {
       "true",
     );
 
-    expect(screen.getByRole("button", { name: "Add Funds" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Add Funds" }).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("button", { name: "Harvest" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Compound" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Withdraw" })).toBeInTheDocument();

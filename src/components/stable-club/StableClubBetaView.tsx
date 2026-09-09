@@ -24,6 +24,11 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
   const [tab, setTab] = useState<TabId>("position");
   const [addFundsOpen, setAddFundsOpen] = useState(false);
 
+  const openAddFunds = useCallback(() => {
+    setTab("position");
+    setAddFundsOpen(true);
+  }, []);
+
   const onDepositSuccess = useCallback(() => {
     setTab("position");
     setAddFundsOpen(false);
@@ -70,6 +75,16 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
     </button>
   );
 
+  const firstDepositForm = (
+    <StableClubCompactDeposit
+      depositsEnabled={depositsEnabled}
+      onDepositSuccess={onDepositSuccess}
+      title="Add Funds"
+      subtitle="Deposit USDC · equal 20% across all five Base pools"
+      compact
+    />
+  );
+
   return (
     <div className="space-y-3">
       <div
@@ -84,14 +99,13 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
       {tab === "pools" ? (
         <div className="space-y-3">
           <StableClubAvailablePools
+            depositsEnabled={depositsEnabled}
+            showDepositCta={hasPositions || positions.strategyRegistered}
+            onDepositClick={openAddFunds}
             depositSlot={
-              !hasPositions && !positions.strategyRegistered ? (
-                <StableClubCompactDeposit
-                  depositsEnabled={depositsEnabled}
-                  onDepositSuccess={onDepositSuccess}
-                  compact
-                />
-              ) : undefined
+              !hasPositions && !positions.strategyRegistered
+                ? firstDepositForm
+                : undefined
             }
           />
         </div>
@@ -172,6 +186,14 @@ function DevUiPreview({ mode }: { mode: "deposit" | "positions" | "pools" }) {
     exitAll: async () => undefined,
     exitAllToUsdc: async () => undefined,
     exitAllToUsdcAvailable: true,
+    exitPercentToUsdcAvailable: true,
+    exitPercentExecutable: true,
+    withdrawStackKind: "primary" as const,
+    withdrawPercent: async () => undefined,
+    resumeIncompleteWithdraw: async () => undefined,
+    incompleteWithdraw: null,
+    strandedAssets: [],
+    refreshStrandedAssets: async () => undefined,
     harvestAll: async () => undefined,
     compoundAll: async () => undefined,
     emergencyExitLeg: async () => undefined,

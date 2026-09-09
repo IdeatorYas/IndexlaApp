@@ -249,6 +249,18 @@ async function main() {
       "Legacy 100% no longer prompts NFT permit. Ensure wallet has enough Base ETH for ~3 NPM batches + Uni recover.",
   };
 
+  report.walletConfirmationCounts = {
+    pct20: report.results.pct20.prompts.length,
+    custom37: report.results.custom37.prompts.length,
+    pct100: report.results.pct100.prompts.length,
+  };
+  report.maxTwoTarget = {
+    target: 2,
+    achieved: false,
+    blocker:
+      "3 NPM multicalls (one per NPM contract) + Uni ERC20 approve/swap for residue — typically 5–7 cold wallet confirms. No cross-NPM+Uni batch contract on live Base.",
+  };
+
   report.allPassed =
     report.results.pct20.ok &&
     report.results.custom37.ok &&

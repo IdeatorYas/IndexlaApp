@@ -223,8 +223,11 @@ export function StableClubAvailablePools({
             onClick={onDepositClick}
             className="flex h-12 w-full items-center justify-center rounded-xl bg-[#0b1f3a] text-sm font-bold uppercase tracking-[0.08em] text-white shadow-[0_8px_24px_rgba(11,31,58,0.22)] transition hover:brightness-110 disabled:opacity-45"
           >
-            {depositsEnabled ? "Deposit USDC" : "Deposit unavailable"}
+            {depositsEnabled ? "Add Funds" : "Add Funds unavailable"}
           </button>
+          <p className="mt-2 text-center text-[12px] text-[#5b6b7c]">
+            Deposit USDC into My Position · equal 20% across all five pools
+          </p>
         </div>
       ) : null}
     </section>

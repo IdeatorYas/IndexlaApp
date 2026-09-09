@@ -31,6 +31,10 @@ import {
 import {
   assertChainEnvironmentMatch,
 } from "@/lib/stable-club/chain-isolation";
+import {
+  resolveDepositStack,
+  readStrategyLegAdapters,
+} from "@/lib/stable-club/cl-stack-resolve";
 import { isExitAllToUsdcAvailable } from "@/lib/stable-club/exit-to-usdc";
 import { readPoolSlot0States } from "@/lib/stable-club/pool-slot0";
 import {
@@ -425,7 +429,19 @@ export function useFivePoolDeposit() {
       );
       const currentTicks = slot0States.map((s) => s.tick);
       const sqrtPriceX96PerPool = slot0States.map((s) => s.sqrtPriceX96);
-      const adapters = deployments.adapters.map((a) => a.adapter) as readonly Address[];
+      // Match deposit adapters to registered strategy legs (legacy-pinned users
+      // cannot use primary adapters — strategy IDs are non-recyclable).
+      let legAdapters: Address[] = [];
+      const sid = strategyIdRef.current;
+      if (sid && strategyRegisteredRef.current) {
+        legAdapters = await readStrategyLegAdapters({
+          publicClient,
+          strategyRegistry: deployments.strategyRegistry,
+          strategyId: sid,
+        });
+      }
+      const depositStack = resolveDepositStack(deployments, legAdapters);
+      const adapters = depositStack.adapters.map((a) => a.adapter) as readonly Address[];
       const plan = buildFivePoolQuotePlan({
         grossUsdc: parsed.grossUsdc,
         adapters,
@@ -651,6 +667,15 @@ export function useFivePoolDeposit() {
         throw new Error("Register the five-pool strategy before depositing");
       }
 
+      const legAdapters = await readStrategyLegAdapters({
+        publicClient,
+        strategyRegistry: attestedDeployments.strategyRegistry,
+        strategyId: activeStrategyId,
+      });
+      const depositStack = resolveDepositStack(attestedDeployments, legAdapters);
+      const clExecutor = depositStack.clExecutor;
+      const stackAdapters = depositStack.adapters;
+
       const nowSec = Math.floor(Date.now() / 1000);
       // Always resolve from chain — local retries / prior deposits must not reuse a nonce.
       const nextNonce = await resolveNextDepositExecutionNonce(
@@ -662,7 +687,7 @@ export function useFivePoolDeposit() {
 
       const depositArgs = buildDepositFivePoolStrategyArgs({
         plan: planRef.current,
-        adapters: attestedDeployments.adapters,
+        adapters: stackAdapters,
         strategyId: activeStrategyId,
         executionNonce: nextNonce,
         quoteBundle: activeQuoteBundle,
@@ -679,7 +704,11 @@ export function useFivePoolDeposit() {
       });
 
       setProgress("awaiting-approval");
-      setStatusMessage("Checking USDC + Permit2 allowances…");
+      setStatusMessage(
+        depositStack.kind === "legacy"
+          ? "Checking USDC + Permit2 allowances (legacy stack)…"
+          : "Checking USDC + Permit2 allowances…",
+      );
 
       const readDepositAllowancesRaw =
         async (): Promise<ClFivePoolPermit2LiveAllowances> => {
@@ -698,7 +727,7 @@ export function useFivePoolDeposit() {
             args: [
               ownerAddress,
               attestedDeployments.usdc,
-              attestedDeployments.clExecutor,
+              clExecutor,
             ],
             blockTag: "latest",
           });
@@ -715,7 +744,7 @@ export function useFivePoolDeposit() {
           owner: ownerAddress,
           token: attestedDeployments.usdc,
           permit2: attestedDeployments.permit2,
-          clExecutor: attestedDeployments.clExecutor,
+          clExecutor,
           readAllowances: readDepositAllowancesRaw,
         });
 
@@ -749,7 +778,7 @@ export function useFivePoolDeposit() {
                 chainId: expectedChainId,
                 permit2: attestedDeployments.permit2,
                 token: attestedDeployments.usdc,
-                clExecutor: attestedDeployments.clExecutor,
+                clExecutor,
                 grossUsdc: depositArgs.grossUsdc,
                 expiration: computeClFivePoolPermit2Expiration(approveNow),
                 nowSec: approveNow,
@@ -771,7 +800,7 @@ export function useFivePoolDeposit() {
                 chainId: expectedChainId,
                 permit2: attestedDeployments.permit2,
                 token: attestedDeployments.usdc,
-                clExecutor: attestedDeployments.clExecutor,
+                clExecutor,
                 grossUsdc: depositArgs.grossUsdc,
                 expiration: computeClFivePoolPermit2Expiration(approveNow),
                 nowSec: approveNow,
@@ -796,7 +825,7 @@ export function useFivePoolDeposit() {
         requiredGrossUsdc: depositArgs.grossUsdc,
         nowSec: () => Math.floor(Date.now() / 1000),
         permit2: attestedDeployments.permit2,
-        clExecutor: attestedDeployments.clExecutor,
+        clExecutor,
       });
 
       // SC-F10 — recheck remaining validity immediately before deposit write
@@ -810,7 +839,7 @@ export function useFivePoolDeposit() {
       });
       buildDepositFivePoolStrategyArgs({
         plan: planRef.current,
-        adapters: attestedDeployments.adapters,
+        adapters: stackAdapters,
         strategyId: activeStrategyId,
         executionNonce: nextNonce,
         quoteBundle: activeQuoteBundle,
@@ -848,7 +877,7 @@ export function useFivePoolDeposit() {
       // HTTP estimate + buffer — wallet eth_estimateGas alone OOGed at ~6.59M
       // (tx 0x1e76759c… / 0xac64ff1b…); same calldata succeeds at ≥10M.
       const gasEstimate = await allowanceReadClient.estimateContractGas({
-        address: attestedDeployments.clExecutor,
+        address: clExecutor,
         abi: concentratedLiquidityExecutorAbi,
         functionName: "depositFivePoolStrategy",
         args: depositWriteArgs as never,
@@ -869,7 +898,7 @@ export function useFivePoolDeposit() {
         call: ({ gas }) =>
           allowanceReadClient.call({
             account: ownerAddress,
-            to: attestedDeployments.clExecutor,
+            to: clExecutor,
             data: depositCalldata,
             gas,
           }),
@@ -878,7 +907,7 @@ export function useFivePoolDeposit() {
       setStatusMessage("Confirm depositFivePoolStrategy…");
 
       const depositHash = await walletClient.writeContract({
-        address: attestedDeployments.clExecutor,
+        address: clExecutor,
         abi: concentratedLiquidityExecutorAbi,
         functionName: "depositFivePoolStrategy",
         args: depositWriteArgs as never,
