@@ -168,9 +168,9 @@ describe("resolvePhase2aDeploymentsApiResponse", () => {
         chainId: 8453,
         network: "base",
         isTestOnly: false,
-        clExecutor: "0x488f0680ff28908F49CC85C05b9E4813e657FcD2",
+        clExecutor: "0x455cc33194f82E253F41d91C1201eB4095c9D1Fa",
         discoveryStartBlock: 50968399,
-        features: { exitAllToUsdc: true },
+        features: { exitAllToUsdc: true, exitPercentToUsdc: true },
       },
     });
     if ("deployments" in result.body && result.body.configured) {
@@ -178,5 +178,25 @@ describe("resolvePhase2aDeploymentsApiResponse", () => {
       expect(result.body.deployments.adapters).toHaveLength(5);
       expect(result.body.deployments.routes).toHaveLength(8);
     }
+  });
+
+  it("next dev without Hardhat panel serves trusted Base deployments for product UI", () => {
+    const loadLocal = vi.fn(() => localFixture());
+    const result = resolvePhase2aDeploymentsApiResponse({
+      nodeEnv: "development",
+      host: "localhost:3456",
+      devFlagEnabled: false,
+      loadLocalDeployments: loadLocal,
+    });
+    expect(loadLocal).not.toHaveBeenCalled();
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      configured: true,
+      deployments: {
+        chainId: 8453,
+        network: "base",
+        isTestOnly: false,
+      },
+    });
   });
 });

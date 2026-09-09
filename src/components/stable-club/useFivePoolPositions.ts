@@ -5,6 +5,7 @@ import {
   createPublicClient,
   createWalletClient,
   custom,
+  erc20Abi,
   http,
   parseAbiItem,
   type Address,
@@ -30,6 +31,7 @@ import { explorerTxUrl } from "@/lib/stable-club/five-pool-deposit";
 import {
   aggregateExitProceeds,
   buildExitToUsdcPreview,
+  EXIT_UNWIND_SLIPPAGE_BPS,
   isExitAllToUsdcAvailable,
   isExitPercentToUsdcAvailable,
   padExitUnwindSwaps,
@@ -40,7 +42,10 @@ import {
 } from "@/lib/stable-club/cl-stack-resolve";
 import { BASE_TOKENS } from "@/lib/stable-club/official-pools";
 import { quoteTokenToUsdcViaOracle } from "@/components/stable-club/usePositionUsdValue";
-import { planLooseAssetRecoveries } from "@/lib/stable-club/recover-loose-assets";
+import {
+  planLooseAssetRecoveries,
+  recoverOneLooseAssetToUsdc,
+} from "@/lib/stable-club/recover-loose-assets";
 import {
   FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS,
   aeroFactoryGetPoolAbi,
@@ -53,10 +58,12 @@ import {
   buildFullExitLegParams,
   buildPartialExitLegParams,
   buildPositionDiscoveryBlockRanges,
+  buildSkippedExitLeg,
   collectOwnedNftTokenIdsWithRetry,
   collectTokenIdsFromTransferLogs,
   erc721EnumerableAbi,
   mapLegMinsToToken01,
+  mapAmountsToLegOrder,
   exactPoolBindingExpectations,
   FIVE_POOL_LEG_DISCOVERY_TIMEOUT_MS,
   interpretLiveExitAmounts,
@@ -76,6 +83,16 @@ import {
 } from "@/lib/stable-club/five-pool-positions";
 import { FIVE_POOL_LEG_COUNT } from "@/lib/stable-club/five-pool-strategy";
 import { erc721PositionAbi } from "@/lib/stable-club/nft-approval";
+import {
+  buildNpmWithdrawMulticallCalls,
+  quoteNpmDecreaseMins,
+  quoteNpmExecutorExit,
+} from "@/lib/stable-club/npm-direct-withdraw";
+import {
+  BASE_NPM_PERMIT_DOMAINS,
+  npmErc721PermitAbi,
+  signAndBuildNpmPermitTx,
+} from "@/lib/stable-club/npm-erc721-permit";
 import {
   FIVE_POOL_POSITIONS_REFRESH_EVENT,
 } from "@/lib/stable-club/positions-refresh";
@@ -946,6 +963,10 @@ export function useFivePoolPositions() {
     wallet.provider,
   ]);
 
+  /**
+   * Grant per-tokenId adapter authority without ERC721.approve (0x095ea7b3).
+   * On Base: EIP-712 ERC721Permit → npm.permit (0x7ac2ff7b). Local mocks: approve.
+   */
   const approveNftIfNeeded = useCallback(
     async (
       walletClient: ReturnType<typeof createWalletClient>,
@@ -959,23 +980,75 @@ export function useFivePoolPositions() {
         args: [position.positionTokenId],
       });
       if (approved.toLowerCase() === position.adapter.toLowerCase()) return null;
-      const hash = await walletClient.writeContract({
-        address: position.nftContract,
-        abi: erc721PositionAbi,
-        functionName: "approve",
-        args: [position.adapter, position.positionTokenId],
-      } as never);
+
+      const account = walletClient.account?.address;
+      if (!account) throw new Error("Wallet account required for NFT permit");
+
+      const npmKey = position.nftContract.toLowerCase();
+      const usePermit =
+        expectedChainId === 8453 && Boolean(BASE_NPM_PERMIT_DOMAINS[npmKey]);
+
+      let hash: Hex;
+      if (usePermit) {
+        const posAbi =
+          position.protocol.toLowerCase().includes("uni")
+            ? uniV3NpmPositionsAbi
+            : aeroNpmPositionsAbi;
+        const pos = await publicClient.readContract({
+          address: position.nftContract,
+          abi: posAbi,
+          functionName: "positions",
+          args: [position.positionTokenId],
+        });
+        const nonce = BigInt(pos[0]);
+        const permitTx = await signAndBuildNpmPermitTx({
+          walletClient,
+          npm: position.nftContract,
+          chainId: expectedChainId,
+          spender: position.adapter,
+          tokenId: position.positionTokenId,
+          nonce,
+          account,
+        });
+        hash = await walletClient.sendTransaction({
+          account,
+          to: permitTx.to,
+          data: permitTx.data,
+          value: permitTx.value,
+          chain: walletClient.chain ?? undefined,
+        } as never);
+      } else {
+        // Hardhat / local mock NFTs — no ERC721Permit domain.
+        hash = await walletClient.writeContract({
+          address: position.nftContract,
+          abi: erc721PositionAbi,
+          functionName: "approve",
+          args: [position.adapter, position.positionTokenId],
+        } as never);
+      }
+
       if (opts?.waitForReceipt !== false) {
         await waitForSuccessfulTransactionReceipt(publicClient, hash);
+        const after = await publicClient.readContract({
+          address: position.nftContract,
+          abi: npmErc721PermitAbi,
+          functionName: "getApproved",
+          args: [position.positionTokenId],
+        });
+        if (after.toLowerCase() !== position.adapter.toLowerCase()) {
+          throw new Error(
+            `NFT adapter authority not set after ${usePermit ? "permit" : "approve"} for tokenId ${position.positionTokenId}`,
+          );
+        }
       }
       return hash;
     },
-    [publicClient],
+    [expectedChainId, publicClient],
   );
 
   /**
-   * Sign all missing NFT approvals first (no per-tx mining wait), then confirm receipts in parallel.
-   * Cuts withdraw latency from ~5 serial mine-waits to one parallel confirm batch.
+   * Sign EIP-712 permits (Base) or local approves, broadcast without per-tx waits,
+   * then confirm receipts in parallel.
    */
   const approveOpenPositionsFast = useCallback(
     async (
@@ -985,11 +1058,14 @@ export function useFivePoolPositions() {
       const hashes: Hex[] = [];
       let signIndex = 0;
       const needCount = open.length;
+      const onBase = expectedChainId === 8453;
       for (const position of open) {
         signIndex += 1;
         const adapterShort = `${position.adapter.slice(0, 6)}…${position.adapter.slice(-4)}`;
         setStatusMessage(
-          `Sign ERC721 NFT approve ${signIndex}/${needCount} to IndexLa adapter ${adapterShort} (Basescan: https://basescan.org/address/${position.adapter})…`,
+          onBase
+            ? `Sign NFT permit ${signIndex}/${needCount} for IndexLa adapter ${adapterShort} (not ERC20 approve)…`
+            : `Sign NFT approve ${signIndex}/${needCount} to adapter ${adapterShort}…`,
         );
         setLegResults((prev) =>
           prev.map((r) =>
@@ -1003,7 +1079,9 @@ export function useFivePoolPositions() {
       }
       if (hashes.length > 0) {
         setStatusMessage(
-          `Confirming ${hashes.length} ERC721 NFT approve(s) to IndexLa adapter on Base…`,
+          onBase
+            ? `Confirming ${hashes.length} NFT permit(s) on Base (selector 0x7ac2ff7b)…`
+            : `Confirming ${hashes.length} NFT approve(s)…`,
         );
         await Promise.all(
           hashes.map((h) => waitForSuccessfulTransactionReceipt(publicClient, h)),
@@ -1011,7 +1089,7 @@ export function useFivePoolPositions() {
       }
       return hashes;
     },
-    [approveNftIfNeeded, publicClient],
+    [approveNftIfNeeded, expectedChainId, publicClient],
   );
 
   const exitIndividual = useCallback(
@@ -1252,7 +1330,7 @@ export function useFivePoolPositions() {
       if (pct !== 100 && !stack.percentExitAllowed) {
         throw new Error(
           stack.kind === "legacy"
-            ? "This strategy uses the pre-cutover adapters. Withdraw 100% USDC on the legacy stack, then open a new strategy for partial % exits."
+            ? "Legacy custom % uses owner NPM withdraw — call withdrawPercent instead of exitAllToUsdc."
             : "Atomic USDC Withdraw on live INDEXLA contracts exits 100% of remaining LP liquidity only. Partial % requires exitPercentToUsdc after Safe cutover.",
         );
       }
@@ -1266,23 +1344,103 @@ export function useFivePoolPositions() {
       });
 
       const byLeg = new Map(open.map((p) => [p.legIndex, p]));
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+      const fullExit = percentBps === 10_000;
       const liveAmountsByLeg = new Map<
         number,
         { amountA: bigint; amountB: bigint; liquidity: bigint }
       >();
+      const npmMinsByLeg = new Map<
+        number,
+        { amountAMin: bigint; amountBMin: bigint; liquidityCalldata: bigint }
+      >();
       for (const position of open) {
-        const live = await readLiveExitAmountsForPosition(publicClient, position, account);
+        const liqNow =
+          position.liquidity > BigInt(0)
+            ? position.liquidity
+            : (await readLiveExitAmountsForPosition(publicClient, position, account)).liquidity;
+        const liqOut = fullExit ? liqNow : (liqNow * BigInt(percentBps)) / BigInt(10_000);
+        const q = await quoteNpmExecutorExit({
+          publicClient,
+          npm: position.npm,
+          account,
+          tokenId: position.positionTokenId,
+          liquidity: liqOut > BigInt(0) ? liqOut : liqNow,
+          deadline,
+          slippageBps,
+          fullExit,
+        });
+        const collect = mapAmountsToLegOrder({
+          tokenA: position.tokenA,
+          tokenB: position.tokenB,
+          token0: q.token0,
+          token1: q.token1,
+          amount0: q.collect0,
+          amount1: q.collect1,
+        });
+        const mins = mapAmountsToLegOrder({
+          tokenA: position.tokenA,
+          tokenB: position.tokenB,
+          token0: q.token0,
+          token1: q.token1,
+          amount0: q.amount0Min,
+          amount1: q.amount1Min,
+        });
         liveAmountsByLeg.set(position.legIndex, {
-          amountA: live.amountA,
-          amountB: live.amountB,
-          liquidity: live.liquidity > BigInt(0) ? live.liquidity : position.liquidity,
+          amountA: collect.amountA,
+          amountB: collect.amountB,
+          liquidity: liqNow,
+        });
+        npmMinsByLeg.set(position.legIndex, {
+          amountAMin: mins.amountA,
+          amountBMin: mins.amountB,
+          liquidityCalldata: q.liquidityCalldata,
         });
       }
-      const legs = buildExitAllToUsdcLegs(byLeg, liveAmountsByLeg, slippageBps, percentBps);
+      // Build legs from NPM decrease mins (not adapter positionAmounts — that triggers PSC/ID).
+      const legs = Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
+        const pos = byLeg.get(i);
+        if (!pos) {
+          return buildSkippedExitLeg(i);
+        }
+        const mins = npmMinsByLeg.get(i)!;
+        const live = liveAmountsByLeg.get(i)!;
+        if (fullExit) {
+          return {
+            ...buildFullExitLegParams({
+              legIndex: i,
+              adapter: pos.adapter,
+              tokenA: pos.tokenA,
+              tokenB: pos.tokenB,
+              positionTokenId: pos.positionTokenId,
+              amountA: live.amountA,
+              amountB: live.amountB,
+              slippageBps,
+            }),
+            amountAMin: mins.amountAMin,
+            amountBMin: mins.amountBMin,
+            liquidity: mins.liquidityCalldata,
+          };
+        }
+        return {
+          ...buildPartialExitLegParams({
+            legIndex: i,
+            adapter: pos.adapter,
+            tokenA: pos.tokenA,
+            tokenB: pos.tokenB,
+            positionTokenId: pos.positionTokenId,
+            liquidity: live.liquidity,
+            amountA: live.amountA,
+            amountB: live.amountB,
+            percentBps,
+            slippageBps,
+          }),
+          amountAMin: mins.amountAMin,
+          amountBMin: mins.amountBMin,
+          liquidity: mins.liquidityCalldata,
+        };
+      });
 
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
-      const scaleAmount = (amt: bigint) =>
-        percentBps === 10_000 ? amt : (amt * BigInt(percentBps)) / BigInt(10_000);
       const exitPositions = open.map((p) => {
         const live = liveAmountsByLeg.get(p.legIndex)!;
         return {
@@ -1290,28 +1448,34 @@ export function useFivePoolPositions() {
           tokenB: p.tokenB,
           tokenASymbol: p.tokenASymbol,
           tokenBSymbol: p.tokenBSymbol,
-          amountA: scaleAmount(live.amountA),
-          amountB: scaleAmount(live.amountB),
+          amountA: live.amountA,
+          amountB: live.amountB,
         };
       });
       const proceeds = aggregateExitProceeds(exitPositions);
+      const amountInPadPercent = stack.kind === "legacy" ? 100 : 125;
       const quoteCache = new Map<string, bigint>();
       for (const [tokenIn, amountIn] of [
         [BASE_TOKENS.cbBTC.address, proceeds.cbBtc],
         [BASE_TOKENS.WETH.address, proceeds.weth],
       ] as const) {
         if (amountIn <= BigInt(0)) continue;
-        const amountInMax = (amountIn * BigInt(125)) / BigInt(100) + BigInt(1);
-        const quoted = await quoteTokenToUsdcViaOracle({
-          publicClient,
-          oracleGuard: d.oracleGuard as Address,
-          tokenIn,
-          amountIn: amountInMax,
-        });
-        if (quoted <= BigInt(0)) {
-          throw new Error("OracleGuard returned zero USDC for exit unwind");
+        const amountInMax =
+          amountInPadPercent === 100
+            ? amountIn
+            : (amountIn * BigInt(amountInPadPercent)) / BigInt(100) + BigInt(1);
+        for (const amt of amountInMax === amountIn ? [amountIn] : [amountIn, amountInMax]) {
+          const quoted = await quoteTokenToUsdcViaOracle({
+            publicClient,
+            oracleGuard: d.oracleGuard as Address,
+            tokenIn,
+            amountIn: amt,
+          });
+          if (quoted <= BigInt(0)) {
+            throw new Error("OracleGuard returned zero USDC for exit unwind");
+          }
+          quoteCache.set(`${tokenIn.toLowerCase()}:${amt.toString()}`, quoted);
         }
-        quoteCache.set(`${tokenIn.toLowerCase()}:${amountInMax.toString()}`, quoted);
       }
       const preview = buildExitToUsdcPreview({
         positions: exitPositions,
@@ -1326,6 +1490,7 @@ export function useFivePoolPositions() {
           return hit;
         },
         deadline,
+        amountInPadPercent,
       });
 
       setProgress("awaiting-approval");
@@ -1570,19 +1735,239 @@ export function useFivePoolPositions() {
   );
 
   /**
-   * @deprecated Product Withdraw must never call NPM from the wallet.
+   * Legacy adapters lack decreaseLiquidityTo. Registry is non-proxy — Safe cannot add
+   * rebindStrategyLegAdapters to live bytecode. Supported custom-% route: owner calls
+   * each position's NPM (decreaseLiquidity → collect) then Uni SwapRouter → USDC.
+   * No NFT permit/approve. LP mins use configured slippageBps (default 500 = 5%).
    */
-  const exitDirectNpmPercent = useCallback(async (_percent: number) => {
-    throw new Error(
-      "Direct NPM withdraw is disabled. Use Withdraw → 100% (atomic INDEXLA exitAllToUsdc → USDC only).",
-    );
-  }, []);
+  const withdrawLegacyPercentViaOwnerNpm = useCallback(
+    async (percent: number) => {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      setError(null);
+      setApprovalTxHashes([]);
+      setDirectPlan(null);
+
+      const open = [...positions].sort((a, b) => a.legIndex - b.legIndex);
+      setLegResults(
+        Array.from({ length: FIVE_POOL_LEG_COUNT }, (_, i) => {
+          const hit = open.find((p) => p.legIndex === i);
+          return {
+            legIndex: i,
+            status: hit ? ("pending" as const) : ("skipped" as const),
+          };
+        }),
+      );
+
+      try {
+        const { d, account, walletClient } = ensureReady();
+        if (open.length === 0) throw new Error("No open positions to exit");
+        if (d.network === "hardhat-local" || expectedChainId !== 8453) {
+          throw new Error(
+            "Owner NPM percent withdraw is only available on Base mainnet positions.",
+          );
+        }
+
+        const pct = Math.round(percent);
+        if (!Number.isFinite(percent) || pct < 1 || pct > 100) {
+          throw new Error("Withdraw percent must be between 1 and 100");
+        }
+        const percentBps = BigInt(pct * 100);
+        const fullExit = pct === 100;
+        const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+
+        const usdcBefore = (await publicClient.readContract({
+          address: BASE_TOKENS.USDC.address,
+          abi: erc20Abi,
+          functionName: "balanceOf",
+          args: [account],
+        })) as bigint;
+
+        for (const position of open) {
+          setStatusMessage(
+            `Owner NPM decrease ${pct}% · leg ${position.legIndex + 1}/${FIVE_POOL_LEG_COUNT} (no NFT permit)…`,
+          );
+          setProgress("awaiting-exit");
+          setLegResults((prev) =>
+            prev.map((r) =>
+              r.legIndex === position.legIndex ? { ...r, status: "submitting" } : r,
+            ),
+          );
+
+          const owner = (await publicClient.readContract({
+            address: position.npm,
+            abi: erc721PositionAbi,
+            functionName: "ownerOf",
+            args: [position.positionTokenId],
+          })) as Address;
+          assertWalletOwnsPosition(account, owner, position.positionTokenId);
+
+          const isAero =
+            position.protocol === "aerodrome-slipstream" ||
+            position.protocol === "aerodrome";
+          const posAbi = isAero ? aeroNpmPositionsAbi : uniV3NpmPositionsAbi;
+          const posRow = await publicClient.readContract({
+            address: position.npm,
+            abi: posAbi,
+            functionName: "positions",
+            args: [position.positionTokenId],
+          });
+          const liqNow = BigInt(posRow[7] as bigint);
+          if (liqNow <= BigInt(0)) {
+            setLegResults((prev) =>
+              prev.map((r) =>
+                r.legIndex === position.legIndex
+                  ? { ...r, status: "skipped" as const }
+                  : r,
+              ),
+            );
+            continue;
+          }
+          const liqOut = fullExit
+            ? liqNow
+            : (liqNow * percentBps) / BigInt(10_000);
+          if (liqOut <= BigInt(0)) {
+            throw new Error(
+              `Partial liquidity rounds to zero for tokenId ${position.positionTokenId.toString()}`,
+            );
+          }
+
+          // Preserve configured user LP tolerance (default 500 bps = 5%) — do not raise.
+          const mins = await quoteNpmDecreaseMins({
+            publicClient,
+            npm: position.npm,
+            account,
+            tokenId: position.positionTokenId,
+            liquidity: liqOut,
+            deadline,
+            slippageBps,
+          });
+          const burnAfter = fullExit || liqOut >= liqNow;
+          const { multicallData } = buildNpmWithdrawMulticallCalls({
+            tokenId: position.positionTokenId,
+            liquidity: liqOut,
+            amount0Min: mins.amount0Min,
+            amount1Min: mins.amount1Min,
+            deadline,
+            recipient: account,
+            burnAfter,
+          });
+
+          const hash = await walletClient.sendTransaction({
+            account,
+            to: position.npm,
+            data: multicallData,
+            chain: walletClient.chain ?? undefined,
+          } as never);
+          setLastTxHash(hash);
+          await waitForSuccessfulTransactionReceipt(publicClient, hash);
+          setLegResults((prev) =>
+            prev.map((r) =>
+              r.legIndex === position.legIndex
+                ? { ...r, status: "confirmed", txHash: hash }
+                : r,
+            ),
+          );
+        }
+
+        setStatusMessage("Selling pool tokens → USDC via Uniswap SwapRouter…");
+        for (let round = 0; round < 8; round += 1) {
+          const planned = await planLooseAssetRecoveries({
+            publicClient,
+            account,
+          });
+          if (planned.length === 0) break;
+          const row = planned[0]!;
+          const quoted = await quoteTokenToUsdcViaOracle({
+            publicClient,
+            oracleGuard: d.oracleGuard as Address,
+            tokenIn: row.tokenIn,
+            amountIn: row.amountIn,
+          });
+          if (quoted <= BigInt(0)) {
+            throw new Error(`OracleGuard returned zero USDC for ${row.symbol} recover`);
+          }
+          setStatusMessage(`Swap ${row.symbol} → USDC…`);
+          const hash = await recoverOneLooseAssetToUsdc({
+            publicClient,
+            walletClient: walletClient as never,
+            account,
+            tokenIn: row.tokenIn,
+            amountIn: row.amountIn,
+            quotedUsdcOut: quoted,
+            slippageBps: EXIT_UNWIND_SLIPPAGE_BPS,
+          });
+          setLastTxHash(hash);
+          await waitForSuccessfulTransactionReceipt(publicClient, hash);
+        }
+
+        const leftover = await planLooseAssetRecoveries({ publicClient, account });
+        if (leftover.length > 0) {
+          throw new Error(
+            `Non-USDC remains after recover: ${leftover.map((r) => r.symbol).join(", ")}`,
+          );
+        }
+
+        const usdcAfter = (await publicClient.readContract({
+          address: BASE_TOKENS.USDC.address,
+          abi: erc20Abi,
+          functionName: "balanceOf",
+          args: [account],
+        })) as bigint;
+        if (usdcAfter <= usdcBefore) {
+          throw new Error("Owner NPM percent withdraw completed but USDC balance did not increase");
+        }
+
+        setProgress("confirmed");
+        setStatusMessage(
+          `Received ${(Number(usdcAfter - usdcBefore) / 1e6).toFixed(4)} USDC (owner NPM + Uni unwind)`,
+        );
+        await refreshPositions();
+        await refreshStrandedAssets();
+      } catch (err) {
+        const reject = userRejectMessage(err);
+        const message =
+          reject ??
+          (err instanceof Error ? err.message : "Owner NPM percent withdraw failed");
+        setError(message);
+        setProgress("failed");
+        setLegResults((prev) =>
+          prev.map((r) =>
+            r.status === "skipped" || r.status === "confirmed"
+              ? r
+              : { ...r, status: "failed", error: message },
+          ),
+        );
+      } finally {
+        submittingRef.current = false;
+      }
+    },
+    [
+      ensureReady,
+      expectedChainId,
+      positions,
+      publicClient,
+      refreshPositions,
+      refreshStrandedAssets,
+      slippageBps,
+    ],
+  );
 
   /**
-   * Product Withdraw — atomic INDEXLA `exitAllToUsdc` only.
-   * Never calls Uniswap/Aerodrome NPM from the wallet.
-   * Live executor requires fullExit on every open leg → 100% of remaining liquidity → USDC only
-   * unless `features.exitPercentToUsdc` is enabled.
+   * @deprecated Product Withdraw uses withdrawPercent. Kept for API compatibility.
+   */
+  const exitDirectNpmPercent = useCallback(
+    async (percent: number) => {
+      await withdrawLegacyPercentViaOwnerNpm(percent);
+    },
+    [withdrawLegacyPercentViaOwnerNpm],
+  );
+
+  /**
+   * Product Withdraw:
+   * - Primary stack: atomic INDEXLA exitAllToUsdc (100% or % when cutover allows).
+   * - Legacy stack 100%: atomic INDEXLA exitAllToUsdc + NFT permit.
+   * - Legacy stack custom %: owner NPM + Uni USDC unwind (registry cannot rebind adapters).
    */
   const withdrawPercent = useCallback(
     async (percent: number) => {
@@ -1591,17 +1976,17 @@ export function useFivePoolPositions() {
         throw new Error("Withdraw percent must be between 1 and 100");
       }
       const open = [...positions];
-      if (open.length > 0) {
+      if (open.length > 0 && deployments) {
         const stack = resolveClStackForAdapters(
-          deployments!,
+          deployments,
           open.map((p) => p.adapter),
         );
+        if (stack.kind === "legacy" && pct !== 100) {
+          await withdrawLegacyPercentViaOwnerNpm(pct);
+          return;
+        }
         if (pct !== 100 && !stack.percentExitAllowed) {
-          throw new Error(
-            stack.kind === "legacy"
-              ? "This strategy uses pre-cutover adapters — withdraw 100% USDC only, then open a new strategy for partial %."
-              : "Partial % withdraw is not enabled on this deployment.",
-          );
+          throw new Error("Partial % withdraw is not enabled on this deployment.");
         }
       } else if (pct !== 100 && !isExitPercentToUsdcAvailable(deployments)) {
         throw new Error(
@@ -1610,7 +1995,7 @@ export function useFivePoolPositions() {
       }
       await exitAllToUsdc(pct);
     },
-    [deployments, exitAllToUsdc, positions],
+    [deployments, exitAllToUsdc, positions, withdrawLegacyPercentViaOwnerNpm],
   );
 
   const runManageAll = useCallback(
@@ -2042,14 +2427,20 @@ export function useFivePoolPositions() {
     exitAllToUsdcAvailable: isExitAllToUsdcAvailable(deployments),
     /** Feature flag only — % UI always shown when cutover is live. Stack gating is in exitAllToUsdc. */
     exitPercentToUsdcAvailable: isExitPercentToUsdcAvailable(deployments),
-    /** True when open positions can safely use decreaseLiquidityTo partial exits. */
+    /** Legacy: owner NPM % → USDC. Primary: decreaseLiquidityTo when feature-flagged. */
     exitPercentExecutable:
-      isExitPercentToUsdcAvailable(deployments) &&
-      (positions.length === 0 ||
-        resolveClStackForAdapters(
-          deployments!,
+      positions.length === 0 ||
+      !deployments ||
+      (() => {
+        const stack = resolveClStackForAdapters(
+          deployments,
           positions.map((p) => p.adapter),
-        ).percentExitAllowed),
+        );
+        if (stack.kind === "legacy") return true;
+        return (
+          isExitPercentToUsdcAvailable(deployments) && stack.percentExitAllowed
+        );
+      })(),
     withdrawStackKind:
       positions.length === 0 || !deployments
         ? ("primary" as const)

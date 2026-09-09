@@ -1,6 +1,7 @@
 /**
  * Per-position ERC721 approval helpers for Stable Club automation.
- * Protocol requires `npm.approve(adapter, tokenId)` — never `setApprovalForAll`.
+ * Product Withdraw uses NPM ERC721Permit (see npm-erc721-permit.ts) — never
+ * `approve` (0x095ea7b3) and never `setApprovalForAll`.
  */
 import type { Address, Hex } from "viem";
 
@@ -152,7 +153,10 @@ export function resolveStatusAfterApproveConfirmation(params: {
   });
 }
 
-/** Build the only allowed approval tx: ERC721 approve(adapter, tokenId). */
+/**
+ * @deprecated Product Withdraw must use ERC721Permit (`signAndBuildNpmPermitTx`).
+ * Kept for tests that assert the forbidden approve shape.
+ */
 export function buildPerTokenApproveTx(params: {
   npm: Address;
   adapter: Address;
@@ -170,6 +174,11 @@ export function buildPerTokenApproveTx(params: {
     functionName: "approve" as const,
     args: [params.adapter, params.tokenId] as const,
   };
+}
+
+/** Product gate: withdraw path must never submit approve(selector 0x095ea7b3). */
+export function isWithdrawForbiddenApprovalMethod(method: string): boolean {
+  return method === "approve" || method === "setApprovalForAll";
 }
 
 /** Gate harvest / compound / rebalance until per-token approval is present. */

@@ -115,10 +115,21 @@ export function buildExitToUsdcPreview(params: {
   deadline: bigint;
   preferredRoute?: "uni" | "aero";
   depositedUsdc?: bigint | null;
+  /**
+   * Pad unwind amountIn as % of estimate (100 = exact).
+   * Primary executor delta-caps padded calldata (use 125).
+   * Legacy executor spends calldata amountIn exactly (use 100).
+   */
+  amountInPadPercent?: number;
 }): ExitToUsdcPreview {
   const { usdc, cbBtc, weth } = aggregateExitProceeds(params.positions);
   const preferred = params.preferredRoute ?? "uni";
+  const padPercent = params.amountInPadPercent ?? 125;
+  if (!Number.isFinite(padPercent) || padPercent < 100 || padPercent > 200) {
+    throw new Error("amountInPadPercent must be in [100, 200]");
+  }
   const unwindSwaps: ExitUnwindSwapPlan[] = [];
+  let minUsdcFromUnwind = BigInt(0);
 
   const push = (
     symbol: "cbBTC" | "WETH",
@@ -128,9 +139,11 @@ export function buildExitToUsdcPreview(params: {
     routeAero: Hex,
   ) => {
     if (amountIn <= BigInt(0)) return;
-    // Pad amountIn as a max estimate so the executor can swap the true LP delta
-    // (partial exits) and scale minOut/quotedOut without leaving ResidualNonUsdc.
-    const amountInMax = (amountIn * BigInt(125)) / BigInt(100) + BigInt(1);
+    // Primary: pad calldata amountIn (executor delta-caps). Legacy: exact.
+    const amountInMax =
+      padPercent === 100
+        ? amountIn
+        : (amountIn * BigInt(padPercent)) / BigInt(100) + BigInt(1);
     const routeId = preferred === "aero" ? routeAero : routeUni;
     const quotedOut = params.quoteTokenToUsdc(tokenIn, amountInMax);
     if (quotedOut <= BigInt(0)) {
@@ -145,6 +158,13 @@ export function buildExitToUsdcPreview(params: {
       minOut: applySlippageMin(quotedOut),
       deadline: params.deadline,
     });
+    // Total minUsdcOut uses expected (unpadded) proceeds so pad does not inflate the floor.
+    const quotedExact =
+      amountInMax === amountIn ? quotedOut : params.quoteTokenToUsdc(tokenIn, amountIn);
+    if (quotedExact <= BigInt(0)) {
+      throw new Error(`No exact USDC quote for ${symbol} unwind floor`);
+    }
+    minUsdcFromUnwind += applySlippageMin(quotedExact);
   };
 
   push(
@@ -168,7 +188,7 @@ export function buildExitToUsdcPreview(params: {
 
   const unwindUsdc = unwindSwaps.reduce((acc, s) => acc + s.quotedOut, BigInt(0));
   const estimatedUsdcOut = usdc + unwindUsdc;
-  const minUsdcOut = usdc + unwindSwaps.reduce((acc, s) => acc + s.minOut, BigInt(0));
+  const minUsdcOut = usdc + minUsdcFromUnwind;
 
   let priceImpactBps = 0;
   if (

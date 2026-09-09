@@ -65,6 +65,12 @@ contract StrategyPermissionRegistry {
     event StrategyUnpaused(bytes32 indexed strategyId, address indexed user);
     event OwnerTransferred(address indexed previous, address indexed next);
     event OperatorSet(address indexed operator, bool allowed);
+    event StrategyAdaptersRebound(
+        bytes32 indexed strategyId,
+        address indexed caller,
+        address[5] previousAdapters,
+        address[5] newAdapters
+    );
 
     error Unauthorized();
     error UnauthorizedUser();
@@ -132,6 +138,31 @@ contract StrategyPermissionRegistry {
         if (operator_ == address(0)) revert Unauthorized();
         isOperator[operator_] = allowed;
         emit OperatorSet(operator_, allowed);
+    }
+
+    /**
+     * @notice Cutover-only: rebind strategy legs to new adapters for the same poolIds.
+     * @dev Required for exit-percent on pre-cutover strategies (strategy IDs are non-recyclable).
+     *      New adapter.poolId() must equal the registered leg poolId. Owner = protocol Safe.
+     */
+    function rebindStrategyLegAdapters(bytes32 strategyId, address[5] calldata newAdapters)
+        external
+        onlyOwner
+    {
+        StrategyPermission storage strategy = strategies[strategyId];
+        if (strategy.user == address(0)) revert StrategyNotFound();
+        if (strategy.revoked) revert RevokedStrategy();
+
+        address[5] memory previous;
+        for (uint256 i = 0; i < LEG_COUNT; i++) {
+            PoolLegBinding storage leg = strategyLegs[strategyId][i];
+            if (newAdapters[i] == address(0)) revert InvalidAdapter();
+            bytes32 adapterPoolId = IConcentratedLiquidityAdapter(newAdapters[i]).poolId();
+            if (adapterPoolId == bytes32(0) || adapterPoolId != leg.poolId) revert AdapterPoolIdMismatch();
+            previous[i] = leg.adapter;
+            leg.adapter = newAdapters[i];
+        }
+        emit StrategyAdaptersRebound(strategyId, msg.sender, previous, newAdapters);
     }
 
     function strategyIdFor(

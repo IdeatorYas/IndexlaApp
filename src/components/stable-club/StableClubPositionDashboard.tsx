@@ -590,14 +590,21 @@ export function StableClubPositionDashboard({
                   </p>
                 ) : !exitPercentExecutable && Math.round(withdrawPercent) !== 100 ? (
                   <p className="mt-2 text-sm text-[#b42318]" role="alert">
-                    These LPs are on the previous adapter set. Choose{" "}
-                    <span className="font-semibold">100%</span> to receive USDC now. After you
-                    deposit again, 20% / 50% / custom will execute on-chain.
+                    Custom % is not available on this deployment. Choose{" "}
+                    <span className="font-semibold">100%</span> for atomic USDC exit.
+                  </p>
+                ) : withdrawStackKind === "legacy" && Math.round(withdrawPercent) !== 100 ? (
+                  <p className="mt-2 text-sm text-[#5b6b7c]">
+                    Removes {Math.round(withdrawPercent)}% of remaining LP liquidity as NFT
+                    owner (no permit) → sells non-USDC on Uniswap → USDC to your wallet
+                    (multiple txs). 100% still uses one atomic INDEXLA exit with NFT permit.
                   </p>
                 ) : (
                   <p className="mt-2 text-sm text-[#5b6b7c]">
                     Removes {Math.round(withdrawPercent)}% of remaining LP liquidity → sells
-                    non-USDC → sends USDC only to your wallet (one atomic tx).
+                    non-USDC → sends USDC only to your wallet
+                    {withdrawStackKind === "legacy" ? " (one atomic INDEXLA tx)" : " (one atomic tx)"}
+                    .
                   </p>
                 )}
               </>
@@ -619,28 +626,46 @@ export function StableClubPositionDashboard({
 
             <div className="mt-4 rounded-xl border border-[#d7e0ec] bg-[#f8fafc] px-3.5 py-3 text-[12px] leading-snug text-[#0b1f3a]">
               <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-[#5b6b7c]">
-                Approval disclosure · Base
+                Authority step · Base
               </p>
               <p className="mt-2 text-[#5b6b7c]">
-                Wallets often mislabel NFT{" "}
-                <span className="font-mono font-semibold text-[#0b1f3a]">approve</span> as
-                “ERC20 approve” because both use selector{" "}
-                <span className="font-mono font-semibold text-[#0b1f3a]">0x095ea7b3</span>. This is
-                a <span className="font-semibold text-[#0b1f3a]">per-tokenId NFT approval</span>{" "}
-                to a Basescan-verified IndexLa adapter — not unlimited USDC spend. Your funds stay
-                in the LP NFT until the exit tx; that tx reverts on failure.
+                {withdrawStackKind === "legacy" && Math.round(withdrawPercent) !== 100 ? (
+                  <>
+                    Custom % on legacy adapters calls each protocol NPM as NFT owner (
+                    <span className="font-mono text-[#0b1f3a]">decreaseLiquidity</span> /{" "}
+                    <span className="font-mono text-[#0b1f3a]">collect</span>) — no{" "}
+                    <span className="font-mono text-[#0b1f3a]">approve</span> /{" "}
+                    <span className="font-mono text-[#0b1f3a]">permit</span>. Then Uniswap
+                    SwapRouter sells cbBTC/WETH → USDC. Registry is non-proxy; Safe ownership
+                    alone cannot rebind adapters.
+                  </>
+                ) : (
+                  <>
+                    Withdraw asks for an{" "}
+                    <span className="font-semibold text-[#0b1f3a]">LP NFT permit</span> (EIP-712
+                    signature + on-chain <span className="font-mono text-[#0b1f3a]">permit</span>{" "}
+                    selector{" "}
+                    <span className="font-mono font-semibold text-[#0b1f3a]">0x7ac2ff7b</span>) —
+                    not ERC20/ERC721 <span className="font-mono text-[#0b1f3a]">approve</span>{" "}
+                    (<span className="font-mono text-[#0b1f3a]">0x095ea7b3</span>). That removes the
+                    wallet false-positive “approves ERC20 tokens to an unverified contract.”
+                    Authority is one tokenId → one Basescan-verified IndexLa adapter; funds stay in
+                    the LP until the atomic exit tx (reverts on failure). Wallet/Blockaid clearance
+                    is not guaranteed by selector alone — recheck the live permit prompt.
+                  </>
+                )}
               </p>
               <p className="mt-2 text-[#5b6b7c]">
                 Stack:{" "}
                 <span className="font-semibold text-[#0b1f3a]">
                   {withdrawStackKind === "legacy"
-                    ? "legacy adapters (use 100% now)"
+                    ? "legacy adapters (100% = atomic INDEXLA; custom % = owner NPM)"
                     : "current adapters (% exits enabled)"}
                 </span>
                 .
               </p>
               <p className="mt-2 text-[#5b6b7c]">
-                Open Basescan for each spender below (green check = verified source):
+                Open Basescan for each adapter (green check = verified source):
               </p>
               {uniqueAdapters.length > 0 ? (
                 <ul className="mt-2 space-y-1">

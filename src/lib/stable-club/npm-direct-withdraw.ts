@@ -4,6 +4,7 @@
  */
 import {
   encodeFunctionData,
+  decodeFunctionResult,
   getAddress,
   type Address,
   type Hex,
@@ -32,6 +33,26 @@ const allowedNpmSet = new Set(
 );
 
 export const npmPositionManagerAbi = [
+  {
+    type: "function",
+    name: "positions",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [
+      { name: "nonce", type: "uint96" },
+      { name: "operator", type: "address" },
+      { name: "token0", type: "address" },
+      { name: "token1", type: "address" },
+      { name: "feeOrTickSpacing", type: "uint24" },
+      { name: "tickLower", type: "int24" },
+      { name: "tickUpper", type: "int24" },
+      { name: "liquidity", type: "uint128" },
+      { name: "feeGrowthInside0LastX128", type: "uint256" },
+      { name: "feeGrowthInside1LastX128", type: "uint256" },
+      { name: "tokensOwed0", type: "uint128" },
+      { name: "tokensOwed1", type: "uint128" },
+    ],
+  },
   {
     type: "function",
     name: "decreaseLiquidity",
@@ -150,6 +171,165 @@ export async function quoteNpmDecreaseMins(params: {
     amount1,
     amount0Min: applyNpmExitSlippageMin(amount0, params.slippageBps),
     amount1Min: applyNpmExitSlippageMin(amount1, params.slippageBps),
+  };
+}
+
+const MAX_UINT128 = BigInt("0xffffffffffffffffffffffffffffffff");
+
+/**
+ * Executor exit quote: multicall decreaseLiquidity(0 mins) + collect.
+ * Mins bind only to decrease outputs at the caller-configured slippageBps
+ * (product default FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS = 500 = 5% — do not raise).
+ * Unwind amounts use collect (includes unpoked fee growth that adapter.positionAmounts misses).
+ * Always pass the position's own NPM — wrong NPM yields Slipstream require(..., "ID").
+ */
+export async function quoteNpmExecutorExit(params: {
+  publicClient: Pick<PublicClient, "simulateContract" | "readContract">;
+  npm: Address;
+  account: Address;
+  tokenId: bigint;
+  /** Liquidity to remove; full exit passes current position liquidity. */
+  liquidity: bigint;
+  deadline: bigint;
+  slippageBps: bigint;
+  /** When true, liquidity calldata for the executor leg is 0 (closePosition). */
+  fullExit: boolean;
+}): Promise<{
+  amount0: bigint;
+  amount1: bigint;
+  amount0Min: bigint;
+  amount1Min: bigint;
+  collect0: bigint;
+  collect1: bigint;
+  liquidityCalldata: bigint;
+  token0: Address;
+  token1: Address;
+}> {
+  const npm = assertAllowedNpm(params.npm);
+  const liqOut = params.liquidity;
+  if (!params.fullExit && liqOut <= BigInt(0)) {
+    throw new Error(`Partial exit liquidity is zero for tokenId ${params.tokenId.toString()}`);
+  }
+
+  let amount0 = BigInt(0);
+  let amount1 = BigInt(0);
+  let collect0 = BigInt(0);
+  let collect1 = BigInt(0);
+
+  if (liqOut > BigInt(0)) {
+    const decreaseData = encodeFunctionData({
+      abi: npmPositionManagerAbi,
+      functionName: "decreaseLiquidity",
+      args: [
+        {
+          tokenId: params.tokenId,
+          liquidity: liqOut,
+          amount0Min: BigInt(0),
+          amount1Min: BigInt(0),
+          deadline: params.deadline,
+        },
+      ],
+    });
+    const collectData = encodeFunctionData({
+      abi: npmPositionManagerAbi,
+      functionName: "collect",
+      args: [
+        {
+          tokenId: params.tokenId,
+          recipient: getAddress(params.account),
+          amount0Max: MAX_UINT128,
+          amount1Max: MAX_UINT128,
+        },
+      ],
+    });
+    const { result } = await params.publicClient.simulateContract({
+      address: npm,
+      abi: npmPositionManagerAbi,
+      functionName: "multicall",
+      args: [[decreaseData, collectData]],
+      account: params.account,
+    });
+    const dec = decodeFunctionResult({
+      abi: npmPositionManagerAbi,
+      functionName: "decreaseLiquidity",
+      data: result[0]!,
+    });
+    const col = decodeFunctionResult({
+      abi: npmPositionManagerAbi,
+      functionName: "collect",
+      data: result[1]!,
+    });
+    amount0 = dec[0];
+    amount1 = dec[1];
+    collect0 = col[0];
+    collect1 = col[1];
+  } else {
+    const { result } = await params.publicClient.simulateContract({
+      address: npm,
+      abi: npmPositionManagerAbi,
+      functionName: "collect",
+      args: [
+        {
+          tokenId: params.tokenId,
+          recipient: getAddress(params.account),
+          amount0Max: MAX_UINT128,
+          amount1Max: MAX_UINT128,
+        },
+      ],
+      account: params.account,
+    });
+    collect0 = result[0];
+    collect1 = result[1];
+  }
+
+  if (collect0 <= BigInt(0) && collect1 <= BigInt(0)) {
+    throw new Error(
+      `NPM collect simulation returned 0/0 for tokenId ${params.tokenId.toString()}`,
+    );
+  }
+
+  let amount0Min = applyNpmExitSlippageMin(amount0, params.slippageBps);
+  let amount1Min = applyNpmExitSlippageMin(amount1, params.slippageBps);
+  if (amount0Min === BigInt(0) && amount1Min === BigInt(0)) {
+    amount0Min = applyNpmExitSlippageMin(collect0, params.slippageBps);
+    amount1Min = applyNpmExitSlippageMin(collect1, params.slippageBps);
+  }
+  if (amount0Min === BigInt(0) && amount1Min === BigInt(0)) {
+    throw new Error(
+      `Exit mins are both zero for tokenId ${params.tokenId.toString()} — refusing calldata`,
+    );
+  }
+
+  const pos = (await params.publicClient.readContract({
+    address: npm,
+    abi: npmPositionManagerAbi,
+    functionName: "positions",
+    args: [params.tokenId],
+  })) as readonly [
+    bigint,
+    Address,
+    Address,
+    Address,
+    number,
+    number,
+    number,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+  ];
+
+  return {
+    amount0,
+    amount1,
+    amount0Min,
+    amount1Min,
+    collect0,
+    collect1,
+    liquidityCalldata: params.fullExit ? BigInt(0) : liqOut,
+    token0: getAddress(pos[2]),
+    token1: getAddress(pos[3]),
   };
 }
 

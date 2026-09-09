@@ -21,6 +21,16 @@ const networks = {
     // FORK_CHAIN_ID=8453 for live-state Base forks (strategy.chainId checks).
     chainId: process.env.FORK_CHAIN_ID ? Number(process.env.FORK_CHAIN_ID) : 31337,
     hardfork: "cancun",
+    // Required whenever hardhat_reset forks Base; without this EDR rejects historical blocks.
+    chains: {
+      8453: {
+        hardforkHistory: {
+          london: 0,
+          shanghai: 0,
+          cancun: 0,
+        },
+      },
+    },
   },
   localhost: {
     url: "http://127.0.0.1:8545",

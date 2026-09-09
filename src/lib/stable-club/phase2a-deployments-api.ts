@@ -140,16 +140,16 @@ export function mapTrustedPhase2aBaseManifestToPublicDeployments(
 
 /**
  * Resolve the Phase 2a deployments API response.
- * - Production: trusted manifest only; local JSON is never read.
- * - Dev/E2E (localhost + flag): optional local Hardhat JSON at runtime.
+ * - Production: trusted Base manifest only; local JSON is never read.
+ * - Dev panel (localhost + STABLE_CLUB_DEV_ENABLED): optional local Hardhat JSON.
+ * - Local product UI (`next dev` without dev panel): trusted Base manifest (same as production).
  */
 export function resolvePhase2aDeploymentsApiResponse(
   input: ResolvePhase2aDeploymentsApiInput,
 ): Phase2aDeploymentsApiResult {
   const getTrusted = input.getTrustedManifest ?? getTrustedPhase2aBaseManifest;
 
-  if (input.nodeEnv === "production") {
-    // Fail closed: never call loadLocalDeployments in production.
+  const serveTrustedBase = (): Phase2aDeploymentsApiResult => {
     const trusted = getTrusted();
     if (trusted == null) {
       return {
@@ -178,6 +178,11 @@ export function resolvePhase2aDeploymentsApiResponse(
         },
       };
     }
+  };
+
+  if (input.nodeEnv === "production") {
+    // Fail closed: never call loadLocalDeployments in production.
+    return serveTrustedBase();
   }
 
   const access: StableClubDevPanelAccessInput = {
@@ -185,26 +190,27 @@ export function resolvePhase2aDeploymentsApiResponse(
     host: input.host,
     devFlagEnabled: input.devFlagEnabled,
   };
-  if (!canExposeStableClubDevPanel(access)) {
-    return { status: 404, body: { error: "Not found" } };
-  }
+  if (canExposeStableClubDevPanel(access)) {
+    const local = input.loadLocalDeployments?.() ?? null;
+    if (!local || !isLocalTestOnlyDeployments(local) || !isValidPhase2aDeployments(local)) {
+      return {
+        status: 200,
+        body: {
+          configured: false,
+          message: PHASE2A_LOCAL_UNAVAILABLE_MESSAGE,
+        },
+      };
+    }
 
-  const local = input.loadLocalDeployments?.() ?? null;
-  if (!local || !isLocalTestOnlyDeployments(local) || !isValidPhase2aDeployments(local)) {
     return {
       status: 200,
       body: {
-        configured: false,
-        message: PHASE2A_LOCAL_UNAVAILABLE_MESSAGE,
+        configured: true,
+        deployments: toPublicPhase2aDeploymentsPayload(local),
       },
     };
   }
 
-  return {
-    status: 200,
-    body: {
-      configured: true,
-      deployments: toPublicPhase2aDeploymentsPayload(local),
-    },
-  };
+  // next dev / product Surface against live Base — not Hardhat.
+  return serveTrustedBase();
 }
