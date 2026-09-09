@@ -822,9 +822,8 @@ export function useFivePoolDeposit() {
       const depositNowSec = Math.floor(Date.now() / 1000);
       const swapSlip = validateSlippageBps(swapSlippageInput, "Swap slippage");
       const lpSlip = validateSlippageBps(lpSlippageInput, "LP slippage");
-      if (!swapSlip.ok || !lpSlip.ok) {
-        throw new Error(swapSlip.ok ? lpSlip.message : swapSlip.message);
-      }
+      if (!swapSlip.ok) throw new Error(swapSlip.message);
+      if (!lpSlip.ok) throw new Error(lpSlip.message);
       setStatusMessage("Refreshing live oracle quotes for deposit…");
       const refreshed = await rebuildDepositExecutionPlan({
         grossUsdc: planRef.current.grossUsdc,
