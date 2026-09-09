@@ -11,17 +11,10 @@ import {
   toHexGasQuantity,
 } from "@/lib/stable-club/five-pool-deposit-gas";
 
-type Eip1193RequestArguments = {
+type RequestFn = (args: {
   method: string;
   params?: unknown;
-};
-
-export type Eip1193ProviderLike = {
-  request: (args: Eip1193RequestArguments) => Promise<unknown>;
-  on?: (...args: unknown[]) => unknown;
-  removeListener?: (...args: unknown[]) => unknown;
-  [key: string]: unknown;
-};
+}) => Promise<unknown>;
 
 function readTxData(tx: Record<string, unknown> | null | undefined): string | null {
   if (!tx || typeof tx !== "object") return null;
@@ -41,16 +34,21 @@ function forceTxGas(tx: Record<string, unknown>): Record<string, unknown> {
   return next;
 }
 
-export function wrapProviderForceFivePoolDepositGas<T extends Eip1193ProviderLike>(
-  provider: T,
-): T {
-  const request = async (args: Eip1193RequestArguments): Promise<unknown> => {
+/**
+ * Wrap any EIP-1193-like provider. Preserves the input type for viem `custom()`.
+ */
+export function wrapProviderForceFivePoolDepositGas<T>(provider: T): T {
+  const baseRequest = (provider as { request: RequestFn }).request.bind(
+    provider,
+  ) as RequestFn;
+
+  const request: RequestFn = async (args) => {
     const method = args.method;
     const params = Array.isArray(args.params) ? [...args.params] : args.params;
 
     if (method === "eth_estimateGas" && Array.isArray(params) && params[0]) {
       const tx = params[0] as Record<string, unknown>;
-      const result = await provider.request({ method, params });
+      const result = await baseRequest({ method, params });
       if (
         isDepositFivePoolStrategyCalldata(readTxData(tx)) &&
         typeof result === "string"
@@ -69,14 +67,14 @@ export function wrapProviderForceFivePoolDepositGas<T extends Eip1193ProviderLik
       const tx = params[0] as Record<string, unknown>;
       if (isDepositFivePoolStrategyCalldata(readTxData(tx))) {
         const forcedTx = forceTxGas(tx);
-        return provider.request({ method, params: [forcedTx, ...params.slice(1)] });
+        return baseRequest({ method, params: [forcedTx, ...params.slice(1)] });
       }
     }
 
-    return provider.request(args);
+    return baseRequest(args);
   };
 
-  return new Proxy(provider, {
+  return new Proxy(provider as object, {
     get(target, prop, receiver) {
       if (prop === "request") return request;
       return Reflect.get(target, prop, receiver);
