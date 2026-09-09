@@ -1855,7 +1855,7 @@ export function useFivePoolPositions() {
             );
             continue;
           }
-          let liqOut = fullExit
+          const liqOut = fullExit
             ? liqNow
             : (liqNow * percentBps) / BigInt(10_000);
           if (liqOut > liqNow) {
