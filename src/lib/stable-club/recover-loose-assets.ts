@@ -47,6 +47,8 @@ const UNI_FEE_005 = 500;
 export async function planLooseAssetRecoveries(params: {
   publicClient: Pick<PublicClient, "readContract">;
   account: Address;
+  /** When set, only recover up to these caps (withdrawal residue). Omit = full balance. */
+  maxByToken?: Partial<Record<"cbBTC" | "WETH", bigint>>;
 }): Promise<{ tokenIn: Address; symbol: "cbBTC" | "WETH"; amountIn: bigint }[]> {
   const out: { tokenIn: Address; symbol: "cbBTC" | "WETH"; amountIn: bigint }[] = [];
   for (const row of [
@@ -59,7 +61,11 @@ export async function planLooseAssetRecoveries(params: {
       functionName: "balanceOf",
       args: [params.account],
     })) as bigint;
-    if (bal > BigInt(0)) out.push({ ...row, amountIn: bal });
+    if (bal <= BigInt(0)) continue;
+    const cap = params.maxByToken?.[row.symbol];
+    const amountIn =
+      cap === undefined ? bal : bal < cap ? bal : cap;
+    if (amountIn > BigInt(0)) out.push({ ...row, amountIn });
   }
   return out;
 }
@@ -87,6 +93,93 @@ export function buildUniExactInputSingleCalldata(params: {
   });
 }
 
+/**
+ * Approve (if needed) + exactInputSingle in one helper. Caller supplies waitReceipt
+ * so we never leave a token approved-but-unswapped as a "successful" recover step.
+ */
+export async function recoverLooseAssetToUsdcFully(params: {
+  publicClient: Pick<PublicClient, "readContract" | "simulateContract">;
+  walletClient: WalletClient;
+  account: Address;
+  tokenIn: Address;
+  amountIn: bigint;
+  quotedUsdcOut: bigint;
+  slippageBps?: bigint;
+  waitReceipt: (hash: Hex) => Promise<unknown>;
+}): Promise<Hex> {
+  const router = getAddress(BASE_DEX_UNISWAP_V3.swapRouter);
+  const minOut = applySlippageMin(
+    params.quotedUsdcOut,
+    params.slippageBps ?? BigInt(300),
+  );
+  if (minOut <= BigInt(0)) {
+    throw new Error("Recover quote minOut is zero — refresh and retry");
+  }
+  if (params.amountIn <= BigInt(0)) {
+    throw new Error("Recover amountIn is zero");
+  }
+
+  const chain = params.walletClient.chain ?? base;
+  const allowance = (await params.publicClient.readContract({
+    address: params.tokenIn,
+    abi: erc20Abi,
+    functionName: "allowance",
+    args: [params.account, router],
+  })) as bigint;
+
+  if (allowance < params.amountIn) {
+    const approveHash = await params.walletClient.writeContract({
+      address: params.tokenIn,
+      abi: erc20Abi,
+      functionName: "approve",
+      args: [router, params.amountIn],
+      account: params.account,
+      chain,
+    });
+    await params.waitReceipt(approveHash);
+  }
+
+  await params.publicClient.simulateContract({
+    address: router,
+    abi: uniExactInputSingleAbi,
+    functionName: "exactInputSingle",
+    args: [
+      {
+        tokenIn: getAddress(params.tokenIn),
+        tokenOut: getAddress(BASE_TOKENS.USDC.address),
+        fee: UNI_FEE_005,
+        recipient: getAddress(params.account),
+        amountIn: params.amountIn,
+        amountOutMinimum: minOut,
+        sqrtPriceLimitX96: BigInt(0),
+      },
+    ],
+    account: params.account,
+  });
+
+  const swapHash = await params.walletClient.writeContract({
+    address: router,
+    abi: uniExactInputSingleAbi,
+    functionName: "exactInputSingle",
+    args: [
+      {
+        tokenIn: getAddress(params.tokenIn),
+        tokenOut: getAddress(BASE_TOKENS.USDC.address),
+        fee: UNI_FEE_005,
+        recipient: getAddress(params.account),
+        amountIn: params.amountIn,
+        amountOutMinimum: minOut,
+        sqrtPriceLimitX96: BigInt(0),
+      },
+    ],
+    account: params.account,
+    chain,
+  });
+  await params.waitReceipt(swapHash);
+  return swapHash;
+}
+
+/** @deprecated Prefer recoverLooseAssetToUsdcFully — approve-only return left residue. */
 export async function recoverOneLooseAssetToUsdc(params: {
   publicClient: Pick<PublicClient, "readContract" | "simulateContract">;
   walletClient: WalletClient;
@@ -123,7 +216,7 @@ export async function recoverOneLooseAssetToUsdc(params: {
       account: params.account,
       chain,
     });
-    return approveHash; // caller waits then retries swap
+    return approveHash;
   }
 
   await params.publicClient.simulateContract({

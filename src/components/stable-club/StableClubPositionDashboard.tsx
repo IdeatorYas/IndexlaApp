@@ -479,29 +479,55 @@ export function StableClubPositionDashboard({
           </button>
         </div>
 
-        {p.strandedAssets.length > 0 ? (
+        {p.incompleteWithdraw || p.strandedAssets.length > 0 ? (
           <div
             className="mt-4 rounded-xl border border-[#d7e0ec] bg-[#f8fafc] px-3.5 py-3 text-sm text-[#0b1f3a]"
             role="status"
           >
             <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-[#5b6b7c]">
-              Stranded wallet assets
+              {p.incompleteWithdraw
+                ? "Incomplete withdraw"
+                : "Stranded wallet assets"}
             </p>
-            <ul className="mt-2 space-y-1 font-mono text-[13px] font-semibold">
-              {p.strandedAssets.map((row) => (
-                <li key={`${row.tokenIn}-${row.amountIn.toString()}`} className="flex justify-between gap-3">
-                  <span>{row.symbol}</span>
-                  <span>
-                    {formatUnits(row.amountIn, tokenDecimals(row.symbol))}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            {p.strandedAssets.length > 0 ? (
+              <ul className="mt-2 space-y-1 font-mono text-[13px] font-semibold">
+                {p.strandedAssets.map((row) => (
+                  <li key={`${row.tokenIn}-${row.amountIn.toString()}`} className="flex justify-between gap-3">
+                    <span>{row.symbol}</span>
+                    <span>
+                      {formatUnits(row.amountIn, tokenDecimals(row.symbol))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-[12px] text-[#5b6b7c]">
+                Remaining LP batch(es) still need to exit, then residue converts to USDC.
+              </p>
+            )}
             <p className="mt-2 text-[12px] leading-snug text-[#5b6b7c]">
-              These balances are in your wallet and are <strong>not</strong> auto-swept by
-              Withdraw. Recovery is manual only — contact IndexLa support if you need help
-              converting them to USDC.
+              {p.incompleteWithdraw ? (
+                <>
+                  Withdrawal residue from an interrupted exit (cbBTC is often shown as WBTC in
+                  wallets, plus WETH). Resume converts <strong>only</strong> this residue to USDC
+                  and finishes any remaining LP — it does not re-exit completed batches or touch
+                  pre-withdraw balances.
+                </>
+              ) : (
+                <>
+                  These balances are in your wallet. Resume appears when an interrupted Withdraw
+                  checkpoint exists so unrelated holdings stay untouched.
+                </>
+              )}
             </p>
+            <button
+              type="button"
+              disabled={actionsBusy || !p.incompleteWithdraw}
+              onClick={() => void p.resumeIncompleteWithdraw()}
+              className="mt-3 h-10 w-full rounded-xl bg-[#0b1f3a] text-[11px] font-extrabold uppercase tracking-[0.07em] text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Resume incomplete withdraw → USDC
+            </button>
           </div>
         ) : null}
 

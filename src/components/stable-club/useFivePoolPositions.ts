@@ -44,8 +44,16 @@ import { BASE_TOKENS } from "@/lib/stable-club/official-pools";
 import { quoteTokenToUsdcViaOracle } from "@/components/stable-club/usePositionUsdValue";
 import {
   planLooseAssetRecoveries,
-  recoverOneLooseAssetToUsdc,
+  recoverLooseAssetToUsdcFully,
 } from "@/lib/stable-club/recover-loose-assets";
+import {
+  clearWithdrawCheckpoint,
+  isCheckpointIncomplete,
+  readWithdrawCheckpoint,
+  residueFromBaseline,
+  writeWithdrawCheckpoint,
+  type WithdrawCheckpoint,
+} from "@/lib/stable-club/withdraw-checkpoint";
 import {
   FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS,
   aeroFactoryGetPoolAbi,
@@ -331,6 +339,8 @@ export function useFivePoolPositions() {
   const [strandedAssets, setStrandedAssets] = useState<
     { symbol: string; tokenIn: Address; amountIn: bigint }[]
   >([]);
+  const [incompleteWithdraw, setIncompleteWithdraw] =
+    useState<WithdrawCheckpoint | null>(null);
 
   const chain = useMemo(
     () =>
@@ -437,10 +447,12 @@ export function useFivePoolPositions() {
   const refreshStrandedAssets = useCallback(async () => {
     if (!deployments || !wallet.address) {
       setStrandedAssets([]);
+      setIncompleteWithdraw(null);
       return;
     }
     if (deployments.network === "hardhat-local" || deployments.chainId !== 8453) {
       setStrandedAssets([]);
+      setIncompleteWithdraw(null);
       return;
     }
     if (!onExpectedChain) {
@@ -448,10 +460,42 @@ export function useFivePoolPositions() {
       return;
     }
     try {
-      const planned = await planLooseAssetRecoveries({
-        publicClient,
-        account: wallet.address,
-      });
+      const cp = readWithdrawCheckpoint(wallet.address, expectedChainId);
+      setIncompleteWithdraw(isCheckpointIncomplete(cp) ? cp : null);
+      let planned;
+      if (cp && isCheckpointIncomplete(cp)) {
+        const cbBal = (await publicClient.readContract({
+          address: BASE_TOKENS.cbBTC.address,
+          abi: erc20Abi,
+          functionName: "balanceOf",
+          args: [wallet.address],
+        })) as bigint;
+        const wethBal = (await publicClient.readContract({
+          address: BASE_TOKENS.WETH.address,
+          abi: erc20Abi,
+          functionName: "balanceOf",
+          args: [wallet.address],
+        })) as bigint;
+        planned = await planLooseAssetRecoveries({
+          publicClient,
+          account: wallet.address,
+          maxByToken: {
+            cbBTC: residueFromBaseline({
+              current: cbBal,
+              baseline: BigInt(cp.baseline.cbBtc),
+            }),
+            WETH: residueFromBaseline({
+              current: wethBal,
+              baseline: BigInt(cp.baseline.weth),
+            }),
+          },
+        });
+      } else {
+        planned = await planLooseAssetRecoveries({
+          publicClient,
+          account: wallet.address,
+        });
+      }
       setStrandedAssets(
         planned.map((row) => ({
           symbol: row.symbol,
@@ -464,6 +508,7 @@ export function useFivePoolPositions() {
     }
   }, [
     deployments,
+    expectedChainId,
     onExpectedChain,
     publicClient,
     wallet.address,
@@ -1793,7 +1838,13 @@ export function useFivePoolPositions() {
 
       try {
         const { d, account, walletClient } = ensureReady();
-        if (open.length === 0) throw new Error("No open positions to exit");
+        if (open.length === 0) {
+          // Allow recover-only when resuming an incomplete withdraw with no LPs left.
+          const cp = readWithdrawCheckpoint(account, expectedChainId);
+          if (!isCheckpointIncomplete(cp)) {
+            throw new Error("No open positions to exit");
+          }
+        }
         if (d.network === "hardhat-local" || expectedChainId !== 8453) {
           throw new Error(
             "Owner NPM percent withdraw is only available on Base mainnet positions.",
@@ -1808,12 +1859,69 @@ export function useFivePoolPositions() {
         const fullExit = pct === 100;
         const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
 
-        const usdcBefore = (await publicClient.readContract({
+        const existingCp = readWithdrawCheckpoint(account, expectedChainId);
+        const resumeSame =
+          existingCp &&
+          isCheckpointIncomplete(existingCp) &&
+          existingCp.percent === pct;
+
+        const usdcBefore = resumeSame
+          ? BigInt(existingCp!.baseline.usdc)
+          : ((await publicClient.readContract({
+              address: BASE_TOKENS.USDC.address,
+              abi: erc20Abi,
+              functionName: "balanceOf",
+              args: [account],
+            })) as bigint);
+        const cbBtcBefore = resumeSame
+          ? BigInt(existingCp!.baseline.cbBtc)
+          : ((await publicClient.readContract({
+              address: BASE_TOKENS.cbBTC.address,
+              abi: erc20Abi,
+              functionName: "balanceOf",
+              args: [account],
+            })) as bigint);
+        const wethBefore = resumeSame
+          ? BigInt(existingCp!.baseline.weth)
+          : ((await publicClient.readContract({
+              address: BASE_TOKENS.WETH.address,
+              abi: erc20Abi,
+              functionName: "balanceOf",
+              args: [account],
+            })) as bigint);
+
+        const liveUsdcIgnored = (await publicClient.readContract({
           address: BASE_TOKENS.USDC.address,
           abi: erc20Abi,
           functionName: "balanceOf",
           args: [account],
         })) as bigint;
+        void liveUsdcIgnored;
+
+        const checkpoint: WithdrawCheckpoint = resumeSame
+          ? { ...existingCp! }
+          : {
+              version: 1,
+              wallet: account,
+              chainId: expectedChainId,
+              percent: pct,
+              startedAt: Date.now(),
+              updatedAt: Date.now(),
+              phase: "npm",
+              baseline: {
+                usdc: usdcBefore.toString(),
+                cbBtc: cbBtcBefore.toString(),
+                weth: wethBefore.toString(),
+              },
+              completedNpmKeys: [],
+            };
+        if (resumeSame) {
+          setStatusMessage(
+            `Resuming incomplete ${pct}% withdraw (skipping ${checkpoint.completedNpmKeys.length} completed NPM batch(es))…`,
+          );
+        }
+        writeWithdrawCheckpoint(checkpoint);
+        setIncompleteWithdraw(checkpoint);
 
         type PreparedLeg = {
           position: (typeof open)[number];
@@ -1822,6 +1930,18 @@ export function useFivePoolPositions() {
         const prepared: PreparedLeg[] = [];
 
         for (const position of open) {
+          if (
+            checkpoint.completedNpmKeys.includes(position.npm.toLowerCase())
+          ) {
+            setLegResults((prev) =>
+              prev.map((r) =>
+                r.legIndex === position.legIndex
+                  ? { ...r, status: "confirmed" as const }
+                  : r,
+              ),
+            );
+            continue;
+          }
           setStatusMessage(
             `Preparing owner NPM decrease ${pct}% · leg ${position.legIndex + 1}/${FIVE_POOL_LEG_COUNT}…`,
           );
@@ -1899,6 +2019,7 @@ export function useFivePoolPositions() {
         >();
         for (const row of prepared) {
           const key = row.position.npm.toLowerCase();
+          if (checkpoint.completedNpmKeys.includes(key)) continue;
           const cur = batches.get(key) ?? {
             npm: row.position.npm,
             legIndexes: [] as number[],
@@ -1914,6 +2035,7 @@ export function useFivePoolPositions() {
           data: encodeNpmMulticall(b.calls),
         }));
 
+        if (plannedTxs.length > 0) {
         setStatusMessage("Checking Base ETH balance for batched NPM + Uni gas…");
         const { maxFeePerGas, maxPriorityFeePerGas } =
           await requireNativeEthForOwnerWithdraw({
@@ -1970,13 +2092,54 @@ export function useFivePoolPositions() {
               ),
             );
           }
+          checkpoint.completedNpmKeys = [
+            ...new Set([
+              ...checkpoint.completedNpmKeys,
+              batch.npm.toLowerCase(),
+            ]),
+          ];
+          checkpoint.phase = "npm";
+          writeWithdrawCheckpoint(checkpoint);
+          setIncompleteWithdraw({ ...checkpoint });
         }
+        } // plannedTxs.length > 0
 
-        setStatusMessage("Selling pool tokens → USDC via Uniswap SwapRouter…");
+        checkpoint.phase = "recover";
+        writeWithdrawCheckpoint(checkpoint);
+        setIncompleteWithdraw({ ...checkpoint });
+
+        setStatusMessage(
+          "Converting withdrawal residue (cbBTC/WETH) → USDC via Uniswap…",
+        );
+        const waitReceipt = (hash: Hex) =>
+          waitForSuccessfulTransactionReceipt(publicClient, hash);
+
         for (let round = 0; round < 8; round += 1) {
+          const cbBal = (await publicClient.readContract({
+            address: BASE_TOKENS.cbBTC.address,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [account],
+          })) as bigint;
+          const wethBal = (await publicClient.readContract({
+            address: BASE_TOKENS.WETH.address,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [account],
+          })) as bigint;
           const planned = await planLooseAssetRecoveries({
             publicClient,
             account,
+            maxByToken: {
+              cbBTC: residueFromBaseline({
+                current: cbBal,
+                baseline: cbBtcBefore,
+              }),
+              WETH: residueFromBaseline({
+                current: wethBal,
+                baseline: wethBefore,
+              }),
+            },
           });
           if (planned.length === 0) break;
           const row = planned[0]!;
@@ -1989,8 +2152,8 @@ export function useFivePoolPositions() {
           if (quoted <= BigInt(0)) {
             throw new Error(`OracleGuard returned zero USDC for ${row.symbol} recover`);
           }
-          setStatusMessage(`Swap ${row.symbol} → USDC…`);
-          const hash = await recoverOneLooseAssetToUsdc({
+          setStatusMessage(`Swap ${row.symbol} → USDC (${row.amountIn.toString()} wei)…`);
+          const hash = await recoverLooseAssetToUsdcFully({
             publicClient,
             walletClient: walletClient as never,
             account,
@@ -1998,16 +2161,47 @@ export function useFivePoolPositions() {
             amountIn: row.amountIn,
             quotedUsdcOut: quoted,
             slippageBps: EXIT_UNWIND_SLIPPAGE_BPS,
+            waitReceipt,
           });
           setLastTxHash(hash);
-          await waitForSuccessfulTransactionReceipt(publicClient, hash);
         }
 
-        const leftover = await planLooseAssetRecoveries({ publicClient, account });
-        if (leftover.length > 0) {
-          throw new Error(
-            `Non-USDC remains after recover: ${leftover.map((r) => r.symbol).join(", ")}`,
-          );
+        {
+          const cbBal = (await publicClient.readContract({
+            address: BASE_TOKENS.cbBTC.address,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [account],
+          })) as bigint;
+          const wethBal = (await publicClient.readContract({
+            address: BASE_TOKENS.WETH.address,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [account],
+          })) as bigint;
+          const leftover = await planLooseAssetRecoveries({
+            publicClient,
+            account,
+            maxByToken: {
+              cbBTC: residueFromBaseline({
+                current: cbBal,
+                baseline: cbBtcBefore,
+              }),
+              WETH: residueFromBaseline({
+                current: wethBal,
+                baseline: wethBefore,
+              }),
+            },
+          });
+          if (leftover.length > 0) {
+            checkpoint.phase = "failed_incomplete";
+            checkpoint.lastError = `Non-USDC withdrawal residue remains: ${leftover.map((r) => r.symbol).join(", ")}`;
+            writeWithdrawCheckpoint(checkpoint);
+            setIncompleteWithdraw({ ...checkpoint });
+            throw new Error(
+              `${checkpoint.lastError}. Tap Resume incomplete withdraw to finish USDC conversion without re-exiting completed LPs.`,
+            );
+          }
         }
 
         const usdcAfter = (await publicClient.readContract({
@@ -2020,6 +2214,11 @@ export function useFivePoolPositions() {
           throw new Error("Owner NPM percent withdraw completed but USDC balance did not increase");
         }
 
+        checkpoint.phase = "complete";
+        writeWithdrawCheckpoint(checkpoint);
+        clearWithdrawCheckpoint(account, expectedChainId);
+        setIncompleteWithdraw(null);
+
         setProgress("confirmed");
         setStatusMessage(
           `Received ${(Number(usdcAfter - usdcBefore) / 1e6).toFixed(4)} USDC (owner NPM + Uni unwind)`,
@@ -2031,8 +2230,21 @@ export function useFivePoolPositions() {
         const message =
         reject ??
         (err instanceof Error
-          ? `${err.message} — owner NPM multicall/recover failed; no positions marked exited`
-          : "Owner NPM percent withdraw failed — no positions marked exited");
+          ? `${err.message} — owner NPM multicall/recover failed; incomplete withdraw can be resumed`
+          : "Owner NPM percent withdraw failed — incomplete withdraw can be resumed");
+        try {
+          const { account } = ensureReady();
+          const existing =
+            readWithdrawCheckpoint(account, expectedChainId) ?? null;
+          if (existing && existing.phase !== "complete") {
+            existing.phase = "failed_incomplete";
+            existing.lastError = message.slice(0, 400);
+            writeWithdrawCheckpoint(existing);
+            setIncompleteWithdraw({ ...existing });
+          }
+        } catch {
+          // ensureReady may fail if wallet disconnected mid-flight
+        }
         setError(message);
         setProgress("failed");
         setLegResults((prev) =>
@@ -2056,6 +2268,20 @@ export function useFivePoolPositions() {
       slippageBps,
     ],
   );
+
+  /**
+   * Finish an interrupted legacy withdraw: remaining open LPs + residue→USDC only
+   * (does not reset baseline; skips completed NPM batches).
+   */
+  const resumeIncompleteWithdraw = useCallback(async () => {
+    const { account } = ensureReady();
+    const cp = readWithdrawCheckpoint(account, expectedChainId);
+    if (!isCheckpointIncomplete(cp)) {
+      setError("No incomplete withdraw to resume.");
+      return;
+    }
+    await withdrawLegacyPercentViaOwnerNpm(cp!.percent);
+  }, [ensureReady, expectedChainId, withdrawLegacyPercentViaOwnerNpm]);
 
   /**
    * @deprecated Product Withdraw uses withdrawPercent. Kept for API compatibility.
@@ -2554,6 +2780,8 @@ export function useFivePoolPositions() {
           ).kind,
     exitPartialPercentToWallet,
     withdrawPercent,
+    resumeIncompleteWithdraw,
+    incompleteWithdraw,
     strandedAssets,
     refreshStrandedAssets,
     harvestAll,
