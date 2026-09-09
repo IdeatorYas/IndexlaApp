@@ -69,6 +69,7 @@ import {
   preflightDepositFivePoolStrategyCall,
   requireFivePoolDepositGasLimit,
 } from "@/lib/stable-club/five-pool-deposit-gas";
+import { wrapProviderForceFivePoolDepositGas } from "@/lib/stable-club/force-five-pool-deposit-gas-provider";
 import {
   assertRegistrationAllowsDeposit,
   isStrategyAlreadyExistsError,
@@ -689,7 +690,9 @@ export function useFivePoolDeposit() {
       const walletClient = createWalletClient({
         account: ownerAddress,
         chain,
-        transport: custom(walletProvider),
+        // Inflate deposit estimateGas + force ≥10M gas on send — wallets often
+        // substitute raw eth_estimateGas (~6.2M) and OOG (tx 0x5bab6b53…).
+        transport: custom(wrapProviderForceFivePoolDepositGas(walletProvider)),
       });
 
       setProgress("awaiting-approval");
@@ -922,14 +925,18 @@ export function useFivePoolDeposit() {
           }),
       });
 
-      setStatusMessage("Confirm depositFivePoolStrategy…");
+      setStatusMessage(
+        "Confirm deposit — keep gas limit ≥ 10,000,000 (do not accept a ~6M wallet estimate)…",
+      );
 
-      const depositHash = await walletClient.writeContract({
-        address: clExecutor,
-        abi: concentratedLiquidityExecutorAbi,
-        functionName: "depositFivePoolStrategy",
-        args: depositWriteArgs as never,
+      // sendTransaction + provider wrapper: writeContract gas is often replaced
+      // by wallet eth_estimateGas (~6.22M on 0x5bab6b53…).
+      const depositHash = await walletClient.sendTransaction({
+        account: ownerAddress,
+        to: clExecutor,
+        data: depositCalldata,
         gas: depositGas,
+        chain: walletClient.chain ?? undefined,
       });
       setLastTxHash(depositHash);
       await waitForSuccessfulTransactionReceipt(publicClient, depositHash, {

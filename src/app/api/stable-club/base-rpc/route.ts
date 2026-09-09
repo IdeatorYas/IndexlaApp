@@ -3,6 +3,10 @@ import {
   resolveStableClubBaseUpstreamRpcUrls,
   STABLE_CLUB_BASE_RPC_ALLOWED_METHODS,
 } from "@/lib/stable-club/base-rpc-server";
+import {
+  inflateDepositFivePoolEstimateGasHex,
+  isDepositFivePoolStrategyCalldata,
+} from "@/lib/stable-club/five-pool-deposit-gas";
 
 type JsonRpcBody = {
   jsonrpc?: string;
@@ -10,6 +14,38 @@ type JsonRpcBody = {
   method?: string;
   params?: unknown;
 };
+
+function depositEstimateCalldataFromParams(params: unknown): string | null {
+  if (!Array.isArray(params) || !params[0] || typeof params[0] !== "object") {
+    return null;
+  }
+  const tx = params[0] as { data?: unknown; input?: unknown };
+  const data = tx.data ?? tx.input;
+  return typeof data === "string" ? data : null;
+}
+
+function maybeInflateDepositEstimateGasResponse(
+  method: string,
+  params: unknown,
+  upstreamText: string,
+): string {
+  if (method !== "eth_estimateGas") return upstreamText;
+  const data = depositEstimateCalldataFromParams(params);
+  if (!isDepositFivePoolStrategyCalldata(data)) return upstreamText;
+  try {
+    const parsed = JSON.parse(upstreamText) as {
+      result?: unknown;
+      error?: unknown;
+    };
+    if (parsed.error || typeof parsed.result !== "string") return upstreamText;
+    return JSON.stringify({
+      ...parsed,
+      result: inflateDepositFivePoolEstimateGasHex(parsed.result),
+    });
+  } catch {
+    return upstreamText;
+  }
+}
 
 async function forwardToUpstream(
   upstream: string,
@@ -90,7 +126,12 @@ export async function POST(request: Request) {
         lastText = text;
         continue;
       }
-      return new NextResponse(text, {
+      const bodyText = maybeInflateDepositEstimateGasResponse(
+        method,
+        body.params,
+        text,
+      );
+      return new NextResponse(bodyText, {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });

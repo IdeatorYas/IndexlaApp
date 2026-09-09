@@ -117,7 +117,8 @@ export function formatStableClubExecutionError(err: unknown): string | null {
   const text = err instanceof Error ? err.message : String(err);
   if (/out of gas|ran out of gas/i.test(text)) {
     return (
-      "Deposit ran out of gas. Retry the deposit — the app buffers gas above eth_estimateGas for five-pool deposits."
+      "Deposit ran out of gas. Your wallet likely lowered the gas limit below 10,000,000. " +
+      "Retry, and if the wallet shows Edit/Gas limit, set it to 10000000."
     );
   }
   if (/\bPSC\b/.test(text) || /Price slippage check/i.test(text)) {

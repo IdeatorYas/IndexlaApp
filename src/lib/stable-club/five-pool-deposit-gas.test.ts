@@ -1,13 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  DEPOSIT_FIVE_POOL_STRATEGY_SELECTOR,
   FIVE_POOL_DEPOSIT_GAS_CEILING,
   FIVE_POOL_DEPOSIT_GAS_FLOOR,
   FIVE_POOL_DEPOSIT_OOG_USER_MESSAGE,
   applyFivePoolDepositGasBuffer,
+  forceDepositFivePoolStrategyGasLimit,
+  inflateDepositFivePoolEstimateGasHex,
+  isDepositFivePoolStrategyCalldata,
   isOutOfGasReceipt,
   preflightDepositFivePoolStrategyCall,
   requireFivePoolDepositGasLimit,
   resolveOutOfGasGasLimit,
+  toHexGasQuantity,
 } from "@/lib/stable-club/five-pool-deposit-gas";
 
 describe("five-pool-deposit-gas", () => {
@@ -27,6 +32,18 @@ describe("five-pool-deposit-gas", () => {
     expect(applyFivePoolDepositGasBuffer(estimate)).toBe(FIVE_POOL_DEPOSIT_GAS_FLOOR);
     expect(requireFivePoolDepositGasLimit(applyFivePoolDepositGasBuffer(estimate))).toBe(
       FIVE_POOL_DEPOSIT_GAS_FLOOR,
+    );
+  });
+
+  it("floors the 0x5bab6b53 raw estimate (6_221_050) to 10M", () => {
+    const estimate = BigInt(6_221_050);
+    expect(applyFivePoolDepositGasBuffer(estimate)).toBe(FIVE_POOL_DEPOSIT_GAS_FLOOR);
+    expect(forceDepositFivePoolStrategyGasLimit(estimate)).toBe(FIVE_POOL_DEPOSIT_GAS_FLOOR);
+    expect(inflateDepositFivePoolEstimateGasHex("0x5eecfa")).toBe(
+      toHexGasQuantity(FIVE_POOL_DEPOSIT_GAS_FLOOR),
+    );
+    expect(isDepositFivePoolStrategyCalldata(`${DEPOSIT_FIVE_POOL_STRATEGY_SELECTOR}00`)).toBe(
+      true,
     );
   });
 

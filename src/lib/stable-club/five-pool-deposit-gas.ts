@@ -6,6 +6,7 @@
  * - 0x1e76759c… gasLimit=gasUsed≈6588409 (out of gas)
  * - 0xac64ff1b… gasLimit=6561716 gasUsed=6554393 (wallet substituted below 10M floor;
  *   eth_call with 10M at block-1 succeeds)
+ * - 0x5bab6b53… gasLimit=gasUsed≈6221050 (wallet used raw eth_estimateGas; ignored 10M)
  */
 
 /** Extra headroom over eth_estimateGas (basis points). 4000 = +40%. */
@@ -13,6 +14,12 @@ export const FIVE_POOL_DEPOSIT_GAS_BUFFER_BPS = 4_000;
 
 /** Minimum gas limit for depositFivePoolStrategy on Base. */
 export const FIVE_POOL_DEPOSIT_GAS_FLOOR = BigInt(10_000_000);
+
+/**
+ * depositFivePoolStrategy(bytes32,uint256,uint256,bytes32[5],uint256,(...)[5])
+ * — first 4 bytes of live Base txs (legacy + primary executors share ABI).
+ */
+export const DEPOSIT_FIVE_POOL_STRATEGY_SELECTOR = "0x7d02458b";
 
 /**
  * Soft ceiling — refuse absurd limits (mis-estimate / RPC glitch) without
@@ -35,6 +42,68 @@ export function applyFivePoolDepositGasBuffer(estimateGas: bigint): bigint {
     );
   }
   return withFloor;
+}
+
+export function isDepositFivePoolStrategyCalldata(
+  data: string | null | undefined,
+): boolean {
+  if (!data || typeof data !== "string") return false;
+  const normalized = data.trim().toLowerCase();
+  return normalized.startsWith(DEPOSIT_FIVE_POOL_STRATEGY_SELECTOR);
+}
+
+/** Parse hex gas quantity; returns null when missing/invalid. */
+export function parseHexGasQuantity(
+  value: string | number | bigint | null | undefined,
+): bigint | null {
+  if (value == null) return null;
+  try {
+    if (typeof value === "bigint") return value > BigInt(0) ? value : null;
+    if (typeof value === "number") {
+      if (!Number.isFinite(value) || value <= 0) return null;
+      return BigInt(Math.floor(value));
+    }
+    const raw = value.trim().toLowerCase();
+    if (!raw) return null;
+    const n = BigInt(raw);
+    return n > BigInt(0) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+export function toHexGasQuantity(gas: bigint): `0x${string}` {
+  return `0x${gas.toString(16)}` as `0x${string}`;
+}
+
+/**
+ * Force depositFivePoolStrategy submissions to the buffered floor when a wallet
+ * re-estimates or strips the dapp gas field (MetaMask / WC common failure mode).
+ */
+export function forceDepositFivePoolStrategyGasLimit(
+  requested: bigint | null | undefined,
+): bigint {
+  const base =
+    requested != null && requested > BigInt(0)
+      ? requested
+      : FIVE_POOL_DEPOSIT_GAS_FLOOR;
+  return requireFivePoolDepositGasLimit(
+    base < FIVE_POOL_DEPOSIT_GAS_FLOOR ? FIVE_POOL_DEPOSIT_GAS_FLOOR : base,
+  );
+}
+
+/**
+ * Inflate an eth_estimateGas hex result for depositFivePoolStrategy so wallets
+ * that trust estimateGas (and ignore dapp gas) still submit ≥ floor.
+ */
+export function inflateDepositFivePoolEstimateGasHex(
+  estimateHex: string,
+): `0x${string}` {
+  const parsed = parseHexGasQuantity(estimateHex);
+  if (parsed == null) {
+    return toHexGasQuantity(FIVE_POOL_DEPOSIT_GAS_FLOOR);
+  }
+  return toHexGasQuantity(applyFivePoolDepositGasBuffer(parsed));
 }
 
 /**
@@ -100,7 +169,7 @@ export function isOutOfGasReceipt(params: {
 }
 
 export const FIVE_POOL_DEPOSIT_OOG_USER_MESSAGE =
-  "Deposit ran out of gas. The wallet may have used a lower gas limit than required (minimum 10M). Retry and approve the full gas limit.";
+  "Deposit ran out of gas. Your wallet likely lowered the gas limit below 10,000,000. Retry, and if the wallet shows Edit/Gas limit, set it to 10000000 (do not accept a ~6M estimate).";
 
 /**
  * Simulate depositFivePoolStrategy with the final submission gas before the
