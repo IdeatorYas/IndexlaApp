@@ -35,6 +35,11 @@ import {
   isExitPercentToUsdcAvailable,
   padExitUnwindSwaps,
 } from "@/lib/stable-club/exit-to-usdc";
+import { withdrawPercentViaOpsGateway } from "@/lib/stable-club/ops-gateway-withdraw";
+import {
+  coldWithdrawPromptClaim,
+  isOpsGatewayWithdrawAvailable,
+} from "@/lib/stable-club/ops-gateway";
 import {
   findDiscoveryAdapterMeta,
   resolveClStackForAdapters,
@@ -2258,9 +2263,7 @@ export function useFivePoolPositions() {
             await refreshStrandedAssets();
             return;
           }
-          throw new Error(
-            "Withdraw incomplete: USDC did not increase after LP exit. Residue conversion did not finish — tap Resume incomplete withdraw.",
-          );
+          throw new Error("Owner NPM percent withdraw completed but USDC balance did not increase");
         }
 
         checkpoint.phase = "complete";
@@ -2279,8 +2282,7 @@ export function useFivePoolPositions() {
         const isScopedRecoverCopy =
           err instanceof Error &&
           (err.message === RECOVER_APPROVE_OOG_USER_MESSAGE ||
-            err.message === RECOVER_SWAP_OOG_USER_MESSAGE ||
-            err.message === RECOVER_SWEEP_OOG_USER_MESSAGE);
+            err.message === RECOVER_SWAP_OOG_USER_MESSAGE);
         const message =
           reject ??
           (isScopedRecoverCopy
@@ -2315,16 +2317,16 @@ export function useFivePoolPositions() {
       }
     },
     [
-      chain,
       discoveryClient,
       ensureReady,
       expectedChainId,
+      chain,
       positions,
       publicClient,
       refreshPositions,
       refreshStrandedAssets,
       slippageBps,
-      wallet.provider,
+      wallet,
     ],
   );
 
@@ -2365,9 +2367,75 @@ export function useFivePoolPositions() {
       if (!Number.isFinite(percent) || pct < 1 || pct > 100) {
         throw new Error("Withdraw percent must be between 1 and 100");
       }
+
+      // Feature-flagged Ops Gateway path. After any gateway broadcast, do NOT fall back to
+      // owner-NPM exit (would re-decrease liquidity / double-spend). Fall back only when the
+      // gateway path never submitted a user tx (preflight / capability / quote failures).
+      if (isOpsGatewayWithdrawAvailable(deployments) && wallet.provider && wallet.address) {
+        let gatewayBroadcasted = false;
+        try {
+          const { d, account } = ensureReady();
+          setProgress("awaiting-exit");
+          setStatusMessage("Ops Gateway withdraw (USDC-only)…");
+          const open = [...positions].sort((a, b) => a.legIndex - b.legIndex);
+          const result = await withdrawPercentViaOpsGateway({
+            deployments: d,
+            account,
+            provider: wallet.provider,
+            publicClient: discoveryClient,
+            positions: open.map((p) => ({
+              npm: p.nftContract,
+              positionTokenId: p.positionTokenId,
+              liquidity: p.liquidity,
+              tokenA: p.tokenA,
+              tokenB: p.tokenB,
+            })),
+            percent: pct,
+            minUsdcOut: BigInt(1),
+            onStatus: setStatusMessage,
+            onBroadcast: () => {
+              gatewayBroadcasted = true;
+            },
+          });
+          setApprovalTxHashes(result.txHashes);
+          setLastTxHash(result.txHashes[result.txHashes.length - 1] ?? null);
+          if (result.txHashes.length > 0) gatewayBroadcasted = true;
+          setProgress("complete");
+          setStatusMessage(
+            result.promptClaim.mayClaimLe3
+              ? "Withdraw complete (USDC only)."
+              : `Withdraw complete (USDC only). ${result.promptClaim.copy}`,
+          );
+          await refreshPositions();
+          return;
+        } catch (err) {
+          if (gatewayBroadcasted) {
+            setProgress("failed");
+            setError(
+              `${err instanceof Error ? err.message : "Gateway withdraw failed"} — ` +
+                `a gateway transaction was already submitted. Do not retry owner-NPM exit; ` +
+                `use Resume incomplete withdraw / refresh positions to avoid double-exit.`,
+            );
+            return;
+          }
+          setStatusMessage(
+            `Gateway withdraw unavailable (${err instanceof Error ? err.message : "error"}) — using owner NPM + recover…`,
+          );
+        }
+      }
+
       await withdrawLegacyPercentViaOwnerNpm(pct);
     },
-    [withdrawLegacyPercentViaOwnerNpm],
+    [
+      deployments,
+      discoveryClient,
+      ensureReady,
+      positions,
+      refreshPositions,
+      wallet.address,
+      wallet.provider,
+      withdrawLegacyPercentViaOwnerNpm,
+    ],
   );
 
   const runManageAll = useCallback(
@@ -2799,6 +2867,8 @@ export function useFivePoolPositions() {
     exitAllToUsdcAvailable: isExitAllToUsdcAvailable(deployments),
     /** Feature flag only — % UI always shown when cutover is live. Stack gating is in exitAllToUsdc. */
     exitPercentToUsdcAvailable: isExitPercentToUsdcAvailable(deployments),
+    opsGatewayAvailable: isOpsGatewayWithdrawAvailable(deployments),
+    coldWithdrawPromptHint: coldWithdrawPromptClaim({ atomicBatchSupported: false }).copy,
     /** Owner NPM path supports any % on both stacks (user owns LP NFTs). */
     exitPercentExecutable: positions.length > 0,
     withdrawStackKind:

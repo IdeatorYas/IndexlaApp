@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const { ethers, network } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
+const { deployClExecutor } = require("../../scripts/stable-club/deploy-cl-executor.cjs");
 
 const ALL_ACTIONS =
   (1n << 0n) | (1n << 1n) | (1n << 2n) | (1n << 3n) | (1n << 4n) | (1n << 6n) | (1n << 7n);
@@ -58,7 +59,7 @@ async function deployClPermit2Stack() {
   const feeRouter = await ethers.deployContract("FeeRouter", [feeRecipient.address]);
   const swapRouter = await ethers.deployContract("MockSwapRouter");
   const safetyController = await ethers.deployContract("SafetyController");
-  const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
+  const clExecutor = await deployClExecutor(ethers, [
     await permissionRegistry.getAddress(),
     await strategyRegistry.getAddress(),
     await feeRouter.getAddress(),

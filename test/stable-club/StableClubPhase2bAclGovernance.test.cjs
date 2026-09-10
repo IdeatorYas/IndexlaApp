@@ -1,5 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { deployClExecutor } = require("../../scripts/stable-club/deploy-cl-executor.cjs");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 const STRATEGY_KIND = ethers.id("STABLE_CLUB_FIVE_POOL_V1");
@@ -204,7 +205,7 @@ describe("Phase 2b — Safe/Timelock-ready Phase 2a ownership", function () {
     const mevGuard = await ethers.deployContract("MevGuard");
     await mevGuard.setOracle(await oracleGuard.getAddress());
     const safetyController = await ethers.deployContract("SafetyController");
-    const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
+    const clExecutor = await deployClExecutor(ethers, [
       await permissionRegistry.getAddress(),
       await strategyRegistry.getAddress(),
       await feeRouter.getAddress(),

@@ -265,9 +265,16 @@ export const TRUSTED_PHASE2A_BASE_DEPLOYMENTS = {
   ],
   strategyKind: "0x6aa596a46004a6b2f72b8c68391496a8652d1d0b070918ccb9752fba243846c3" as Hex,
   discoveryStartBlock: 50968399,
+  /**
+   * Safe-owned withdraw Ops Gateway (NPM exitPercentToUsdc). Live deposits stay on
+   * clExecutor — opsGatewayDeposit remains false.
+   */
+  opsGateway: "0xE82d1602c2953D805ea8Ebe3056804e4f60d4316" as Address,
   features: {
     exitAllToUsdc: true,
     exitPercentToUsdc: true,
+    opsGatewayWithdraw: true,
+    opsGatewayDeposit: false,
   },
   legacyExitStack: {
     clExecutor: LEGACY_CL_EXECUTOR,

@@ -7,6 +7,10 @@ const fs = require("fs");
 const path = require("path");
 const { ethers } = require("hardhat");
 const {
+  deployClExecutor,
+  deployClExecutorLibraries,
+} = require("./deploy-cl-executor.cjs");
+const {
   validatePhase2aManifest,
   EXPECTED_ROUTE_IDS,
   CANONICAL_INFRA,
@@ -69,16 +73,27 @@ async function deployPhase2aLocalStack(opts = {}) {
   const feeRouter = await deployTracked("FeeRouter", [feeRecipient.address]);
   const swapRouter = await deployTracked("MockSwapRouter");
   const safetyController = await deployTracked("SafetyController");
-  const clExecutor = await deployTracked("StableClubConcentratedLiquidityExecutor", [
-    await permissionRegistry.getAddress(),
-    await strategyRegistry.getAddress(),
-    await feeRouter.getAddress(),
-    await swapRouter.getAddress(),
-    await mevGuard.getAddress(),
-    await oracleGuard.getAddress(),
-    await safetyController.getAddress(),
-    tokens.usdc,
-  ]);
+  const depositLib = await deployTracked("ClFivePoolDepositLib");
+  const exitLib = await deployTracked("ClFivePoolExitLib");
+  const clLibs = {
+    ClFivePoolDepositLib: await depositLib.getAddress(),
+    ClFivePoolExitLib: await exitLib.getAddress(),
+  };
+  const clExecutor = await deployClExecutor(
+    ethers,
+    [
+      await permissionRegistry.getAddress(),
+      await strategyRegistry.getAddress(),
+      await feeRouter.getAddress(),
+      await swapRouter.getAddress(),
+      await mevGuard.getAddress(),
+      await oracleGuard.getAddress(),
+      await safetyController.getAddress(),
+      tokens.usdc,
+    ],
+    clLibs,
+  );
+  deploymentReceiptBlocks.push(await collectDeploymentReceiptBlock(clExecutor));
 
   const clAddr = await clExecutor.getAddress();
   const strategyAddr = await strategyRegistry.getAddress();

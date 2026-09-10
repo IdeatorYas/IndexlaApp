@@ -74,7 +74,25 @@ export type StableClubPhase2aDeployments = {
     exitAllToUsdc?: boolean;
     /** Partial % USDC exit — enable only after Safe cutover. */
     exitPercentToUsdc?: boolean;
+    /**
+     * @deprecated Ignored for routing. Use opsGatewayWithdraw / opsGatewayDeposit.
+     */
+    opsGateway?: boolean;
+    /** Gateway NPM withdraw (exitPercentToUsdc). Independent of deposit. */
+    opsGatewayWithdraw?: boolean;
+    /** Gateway depositFirst/depositAgain. Requires matched registry+adapters. */
+    opsGatewayDeposit?: boolean;
   };
+  /**
+   * Withdraw gateway (NPM exit). Optional until Safe/Timelock unpause + pin.
+   * Not part of core attestation until pinned in the trusted Base manifest.
+   */
+  opsGateway?: Address;
+  /**
+   * Deposit-capable gateway (matched strategyRegistry + executor + adapters).
+   * May differ from `opsGateway` when withdraw gateway is bound to the live registry.
+   */
+  opsGatewayDeposit?: Address;
   /**
    * Pre-cutover CL executor + adapters. Strategies whose legs still pin these
    * adapters must deposit/exit via `legacyExitStack.clExecutor` (100% only).

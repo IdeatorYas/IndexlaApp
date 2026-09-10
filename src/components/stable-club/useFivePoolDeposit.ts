@@ -33,6 +33,12 @@ import {
   readStrategyLegAdapters,
 } from "@/lib/stable-club/cl-stack-resolve";
 import { isExitAllToUsdcAvailable } from "@/lib/stable-club/exit-to-usdc";
+import {
+  isOpsGatewayDepositAvailable,
+  resolveOpsGatewayDepositAddress,
+} from "@/lib/stable-club/ops-gateway";
+import { buildAndSignPermit2PermitSingle } from "@/lib/stable-club/ops-gateway-permit2";
+import { depositAgainViaOpsGateway } from "@/lib/stable-club/ops-gateway-withdraw";
 import { readPoolSlot0States } from "@/lib/stable-club/pool-slot0";
 import {
   FIVE_POOL_DEFAULT_DEADLINE_SEC,
@@ -958,6 +964,113 @@ export function useFivePoolDeposit() {
         setStatusMessage("Switched network — click Deposit again to continue");
         return;
       }
+
+      // Gateway warm path: strategy already registered → depositAgain (≤2 prompts with Permit2 sig).
+      // Requires explicit opsGatewayDeposit — withdraw flag alone must never enter this path.
+      const gatewayAddr = resolveOpsGatewayDepositAddress(deployments);
+      if (
+        gatewayAddr &&
+        isOpsGatewayDepositAvailable(deployments) &&
+        (strategyRegisteredRef.current || strategyRegistered) &&
+        wallet.provider
+      ) {
+        if (!planRef.current || !quoteBundleRef.current) {
+          setStatusMessage("Preparing quotes…");
+          await prepareQuotes();
+        }
+        if (!planRef.current || !quoteBundleRef.current) return;
+
+        const attested = requireAttestedPhase2aDeployments(deployments);
+        const ownerAddress = wallet.address;
+        const activeStrategyId = strategyIdRef.current ?? strategyId;
+        if (!activeStrategyId) throw new Error("Strategy id missing");
+
+        const legAdapters = await readStrategyLegAdapters({
+          publicClient,
+          strategyRegistry: attested.strategyRegistry,
+          strategyId: activeStrategyId,
+        });
+        const depositStack = resolveDepositStack(attested, legAdapters);
+        const nextNonce = await resolveNextDepositExecutionNonce(
+          publicClient,
+          attested.strategyRegistry,
+          activeStrategyId,
+        );
+        const walletClient = createWalletClient({
+          account: ownerAddress,
+          chain,
+          transport: custom(wrapProviderForceFivePoolDepositGas(wallet.provider)),
+        });
+
+        setProgress("awaiting-approval");
+        setStatusMessage("Sign Permit2 (exact USDC, ≤30m) for Ops Gateway deposit…");
+        const { permitSingle, signature } = await buildAndSignPermit2PermitSingle({
+          publicClient,
+          walletClient,
+          owner: ownerAddress,
+          permit2: attested.permit2,
+          token: attested.usdc,
+          spender: depositStack.clExecutor,
+          amount: planRef.current.grossUsdc,
+          chainId: expectedChainId,
+        });
+
+        // USDC → Permit2 ERC20 approve still required once if missing (cannot skip with AllowanceTransfer).
+        const erc20Allow = await publicClient.readContract({
+          address: attested.usdc,
+          abi: erc20Abi,
+          functionName: "allowance",
+          args: [ownerAddress, attested.permit2],
+        });
+        if (erc20Allow < planRef.current.grossUsdc) {
+          setStatusMessage("Approve USDC → Permit2 (exact amount)…");
+          const approveHash = await walletClient.writeContract({
+            address: attested.usdc,
+            abi: erc20Abi,
+            functionName: "approve",
+            args: [attested.permit2, planRef.current.grossUsdc],
+          });
+          setApprovalTxHashes((h) => [...h, approveHash]);
+          await waitForSuccessfulTransactionReceipt(publicClient, approveHash);
+        }
+
+        const depositNowSec = Math.floor(Date.now() / 1000);
+        const depositArgs = buildDepositFivePoolStrategyArgs({
+          plan: planRef.current,
+          adapters: depositStack.adapters,
+          strategyId: activeStrategyId,
+          executionNonce: nextNonce,
+          quoteBundle: quoteBundleRef.current,
+          nowSec: depositNowSec,
+          maxQuoteAgeSec: FIVE_POOL_DEFAULT_QUOTE_MAX_AGE_SEC,
+          minRemainingSec: FIVE_POOL_EXECUTABLE_QUOTE_MIN_REMAINING_SEC,
+          requireLiveQuotes: true,
+        });
+
+        setProgress("awaiting-deposit");
+        setStatusMessage("Confirm gateway.depositAgain…");
+        const hash = await depositAgainViaOpsGateway({
+          gateway: gatewayAddr,
+          walletClient,
+          account: ownerAddress,
+          publicClient,
+          permitSingle,
+          permitSignature: signature,
+          strategyId: depositArgs.strategyId,
+          executionNonce: nextNonce,
+          grossUsdc: depositArgs.grossUsdc,
+          poolIds: depositArgs.poolIds,
+          depositDeadline: depositArgs.deadline,
+          depositLegs: depositArgs.legs,
+        });
+        setLastTxHash(hash);
+        setProgress("complete");
+        setStatusMessage("Deposit complete via Ops Gateway");
+        await refreshBalancesAndStrategy();
+        requestFivePoolPositionsRefresh();
+        return;
+      }
+
       if (!strategyRegisteredRef.current && !strategyRegistered) {
         setStatusMessage("Registering five-pool strategy…");
         // registerStrategy rethrows on hard failure; StrategyAlreadyExists returns normally.
@@ -988,11 +1101,15 @@ export function useFivePoolDeposit() {
       setStatusMessage(null);
     }
   }, [
+    chain,
     deployments,
+    expectedChainId,
     onExpectedChain,
     prepareQuotes,
+    publicClient,
     refreshBalancesAndStrategy,
     registerStrategy,
+    strategyId,
     strategyRegistered,
     submitDeposit,
     wallet,
@@ -1030,6 +1147,7 @@ export function useFivePoolDeposit() {
     registerStrategy,
     refreshBalancesAndStrategy,
     invalidatePlan: clearPlan,
+    opsGatewayAvailable: isOpsGatewayDepositAvailable(deployments),
     wallet,
   };
 }

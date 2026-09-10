@@ -1,5 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { deployClExecutor } = require("../../scripts/stable-club/deploy-cl-executor.cjs");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 /**
@@ -34,7 +35,7 @@ describe("Permit2 zero-address hardening", function () {
       await usdc.getAddress(),
     ]);
     const swapRouter = await ethers.deployContract("MockSwapRouter");
-    const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
+    const clExecutor = await deployClExecutor(ethers, [
       await permissionRegistry.getAddress(),
       await strategyRegistry.getAddress(),
       await feeRouter.getAddress(),

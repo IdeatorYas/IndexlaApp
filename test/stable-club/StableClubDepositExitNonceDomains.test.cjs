@@ -3,6 +3,7 @@
  */
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { deployClExecutor } = require("../../scripts/stable-club/deploy-cl-executor.cjs");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 const ALL_ACTIONS =
@@ -62,7 +63,7 @@ async function deployStack() {
   const swapRouter = await ethers.deployContract("MockSwapRouter");
   const safetyController = await ethers.deployContract("SafetyController");
 
-  const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
+  const clExecutor = await deployClExecutor(ethers, [
     await permissionRegistry.getAddress(),
     await strategyRegistry.getAddress(),
     await feeRouter.getAddress(),

@@ -2,32 +2,30 @@
 pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {PermissionRegistry} from "./PermissionRegistry.sol";
 import {StrategyPermissionRegistry} from "./StrategyPermissionRegistry.sol";
 import {FeeRouter} from "./FeeRouter.sol";
-import {StableClubSwapRouter} from "./StableClubSwapRouter.sol";
 import {IStableClubSwapRouter} from "./interfaces/IStableClubSwapRouter.sol";
 import {MevGuard} from "./MevGuard.sol";
 import {IOracleGuard} from "./interfaces/IOracleGuard.sol";
 import {IConcentratedLiquidityAdapter} from "./interfaces/IConcentratedLiquidityAdapter.sol";
 import {IAllowanceTransfer} from "./interfaces/IAllowanceTransfer.sol";
 import {UserTokenPull} from "./libraries/UserTokenPull.sol";
+import {ClFivePoolDepositLib} from "./libraries/ClFivePoolDepositLib.sol";
+import {ClFivePoolExitLib} from "./libraries/ClFivePoolExitLib.sol";
 import {SafetyController} from "./SafetyController.sol";
 
 /// @title StableClubConcentratedLiquidityExecutor — atomic USDC-only five-pool CL deposit/exit (Phase 2a).
 /// @notice Stateless; mints position NFTs to the user. All five legs succeed or entire tx reverts.
 /// @dev SafetyController gates deposits/swaps only. Exits (individual, Exit All, emergency) never call it.
+///      Heavy deposit/exit bodies live in linked external libraries (not inlined).
 contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 private constant LEG_COUNT = 5;
-    uint256 private constant MAX_SWAPS_PER_LEG = 2;
-    /// @dev Max reverse swaps when unwinding exit proceeds to USDC (cbBTC/WETH → USDC).
-    uint256 private constant MAX_EXIT_UNWIND_SWAPS = 8;
     /// @dev SC-10: exit permission nonces occupy the high half of uint256; deposit legs stay below this flag.
     uint256 public constant EXIT_EXECUTION_NONCE_DOMAIN = uint256(1) << 255;
     /// @dev Harvest/compound nonces — disjoint from deposit (low) and exit (bit 255).
@@ -44,67 +42,19 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     address public immutable usdc;
     address public owner;
     IAllowanceTransfer public permit2;
+    /// @notice Non-custodial ops gateway allowed to deposit/exit on behalf of strategy.user.
+    address public opsGateway;
 
     mapping(address => bool) public approvedAdapters;
     mapping(address => bool) public approvedTokens;
     mapping(bytes32 => address) public poolAdapters;
 
-    struct SwapInstruction {
-        bytes32 routeId;
-        uint256 grossUsdcIn;
-        uint256 minOut;
-        uint256 quotedOut;
-        uint256 deadline;
-    }
-
-    struct DepositLegParams {
-        uint8 legIndex;
-        address adapter;
-        address tokenA;
-        address tokenB;
-        int24 tickLower;
-        int24 tickUpper;
-        uint256 retainUsdc;
-        SwapInstruction[2] swaps;
-        uint8 swapCount;
-        uint256 amountAMin;
-        uint256 amountBMin;
-        uint256 slippageBps;
-    }
-
-    struct ExitLegParams {
-        uint8 legIndex;
-        address adapter;
-        address tokenA;
-        address tokenB;
-        uint256 positionTokenId;
-        /// @dev Required for partial exits. Ignored when `fullExit` is true (closePosition burns NFT).
-        uint128 liquidity;
-        uint256 amountAMin;
-        uint256 amountBMin;
-        uint256 slippageBps;
-        /// @dev true → closePosition (remove all liquidity + burn NFT). false → partial decreaseLiquidity.
-        bool fullExit;
-    }
-
-    /// @dev Reverse swap instruction for exitAllToUsdc (non-USDC → USDC via allowlisted routes).
-    struct ExitUnwindSwap {
-        bytes32 routeId;
-        /// @dev Exact input; must be > 0.
-        uint256 amountIn;
-        uint256 minOut;
-        uint256 quotedOut;
-        uint256 deadline;
-    }
-
-    /// @dev Shared leg identity for harvestAll / compoundAll (user-owned CL NFT).
     struct PositionManageLegParams {
         uint8 legIndex;
         address adapter;
         address tokenA;
         address tokenB;
         uint256 positionTokenId;
-        /// @dev Compound only — mins for increaseLiquidity (harvest ignores).
         uint256 amountAMin;
         uint256 amountBMin;
         uint256 slippageBps;
@@ -114,6 +64,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     event TokenApproved(address indexed token, bool approved);
     event PoolRegistered(bytes32 indexed poolId, address indexed adapter);
     event Permit2Updated(address indexed permit2);
+    event OpsGatewayUpdated(address indexed previous, address indexed next);
     event OwnerTransferred(address indexed previous, address indexed next);
     event StrategyDepositCompleted(
         bytes32 indexed strategyId,
@@ -283,6 +234,12 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         emit Permit2Updated(permit2_);
     }
 
+    /// @notice Pin the StableClubOpsGateway (Safe/Timelock). Zero disables For-user entrypoints.
+    function setOpsGateway(address gateway_) external onlyOwner {
+        emit OpsGatewayUpdated(opsGateway, gateway_);
+        opsGateway = gateway_;
+    }
+
     /// @notice Atomic USDC-only deposit across exactly five canonical legs.
     function depositFivePoolStrategy(
         bytes32 strategyId,
@@ -290,26 +247,55 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         uint256 grossUsdc,
         bytes32[5] calldata poolIds,
         uint256 deadline,
-        DepositLegParams[5] calldata legs
+        ClFivePoolDepositLib.DepositLegParams[5] calldata legs
     ) external nonReentrant {
+        _depositFivePoolStrategy(msg.sender, strategyId, executionNonce, grossUsdc, poolIds, deadline, legs);
+    }
+
+    /// @notice Gateway-only deposit for `user` (Permit2 spender must already be this executor).
+    function depositFivePoolStrategyFor(
+        address user,
+        bytes32 strategyId,
+        uint256 executionNonce,
+        uint256 grossUsdc,
+        bytes32[5] calldata poolIds,
+        uint256 deadline,
+        ClFivePoolDepositLib.DepositLegParams[5] calldata legs
+    ) external nonReentrant {
+        if (msg.sender != opsGateway || opsGateway == address(0) || user == address(0)) {
+            revert Unauthorized();
+        }
+        _depositFivePoolStrategy(user, strategyId, executionNonce, grossUsdc, poolIds, deadline, legs);
+    }
+
+    function _depositFivePoolStrategy(
+        address user,
+        bytes32 strategyId,
+        uint256 executionNonce,
+        uint256 grossUsdc,
+        bytes32[5] calldata poolIds,
+        uint256 deadline,
+        ClFivePoolDepositLib.DepositLegParams[5] calldata legs
+    ) internal {
         StrategyPermissionRegistry.StrategyPermission memory strategy =
             strategyRegistry.getStrategy(strategyId);
-        if (strategy.user != msg.sender) revert StrategyUserMismatch();
+        if (strategy.user != user) revert StrategyUserMismatch();
         if (strategy.depositToken != usdc) revert InvalidDepositToken();
         if (grossUsdc == 0) revert InvalidAmount();
 
-        // SC-10: reject unencodable deposit nonces before consuming strategy or permission nonces.
         for (uint256 i = 0; i < LEG_COUNT; i++) {
             encodeDepositLegExecutionNonce(executionNonce, i);
         }
 
         strategyRegistry.validateAndConsumeStrategyDepositIntent(
-            strategyId, msg.sender, grossUsdc, poolIds, deadline, executionNonce
+            strategyId, user, grossUsdc, poolIds, deadline, executionNonce
         );
+
+        ClFivePoolDepositLib.DepositDeps memory deps = _depositDeps();
 
         uint256 budgetSum;
         for (uint256 i = 0; i < LEG_COUNT; i++) {
-            DepositLegParams calldata leg = legs[i];
+            ClFivePoolDepositLib.DepositLegParams calldata leg = legs[i];
             if (leg.legIndex != uint8(i)) revert LegIndexOutOfBounds();
 
             StrategyPermissionRegistry.PoolLegBinding memory binding = strategyRegistry.getLeg(strategyId, i);
@@ -321,7 +307,7 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
 
             uint256 legBudget = strategyRegistry.legAmount(grossUsdc, i);
             budgetSum += legBudget;
-            _validateLegSwapPlan(leg, legBudget);
+            ClFivePoolDepositLib.validateLegSwapPlan(deps, leg, legBudget);
             _assertDepositLegSafety(poolId, leg.tokenA, leg.tokenB);
 
             strategyRegistry.validateStrategyLegDeposit(
@@ -338,118 +324,18 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         strategyRegistry.validateStrategyDeposit(strategyId, grossUsdc, legs[0].slippageBps);
 
         uint256 preUsdc = IERC20(usdc).balanceOf(address(this));
-        UserTokenPull.pull(permit2, usdc, msg.sender, address(this), grossUsdc);
+        UserTokenPull.pull(permit2, usdc, user, address(this), grossUsdc);
 
         for (uint256 i = 0; i < LEG_COUNT; i++) {
-            _executeDepositLeg(strategyId, msg.sender, legs[i], strategyRegistry.legAmount(grossUsdc, i));
+            ClFivePoolDepositLib.executeDepositLeg(
+                deps, strategyId, user, legs[i], strategyRegistry.legAmount(grossUsdc, i)
+            );
         }
 
-        _refundExcess(msg.sender, usdc, preUsdc);
+        _refundExcess(user, usdc, preUsdc);
         _assertBalanceRestored(usdc, preUsdc);
 
-        emit StrategyDepositCompleted(strategyId, msg.sender, grossUsdc, executionNonce);
-    }
-
-    function _validateLegSwapPlan(DepositLegParams calldata leg, uint256 legBudget) internal view {
-        if (leg.swapCount > MAX_SWAPS_PER_LEG) revert InvalidSwapPlan();
-        if (leg.amountAMin == 0 && leg.amountBMin == 0) revert MinOutRequired();
-
-        uint256 plannedUsdc = leg.retainUsdc;
-        for (uint256 s = 0; s < leg.swapCount; s++) {
-            SwapInstruction calldata swap = leg.swaps[s];
-            if (swap.grossUsdcIn == 0 || swap.minOut == 0 || swap.quotedOut == 0) revert MinOutRequired();
-            if (swap.deadline < block.timestamp) revert InvalidSwapPlan();
-
-            StableClubSwapRouter.RouteConfig memory route = swapRouter.getRoute(swap.routeId);
-            if (!route.enabled || route.tokenIn != usdc) revert InvalidSwapPlan();
-            if (!approvedTokens[route.tokenOut]) revert TokenNotApproved();
-
-            plannedUsdc += swap.grossUsdcIn;
-        }
-        if (plannedUsdc != legBudget) revert LegBudgetMismatch();
-    }
-
-    function _executeDepositLeg(
-        bytes32 strategyId,
-        address user,
-        DepositLegParams calldata leg,
-        uint256 legBudget
-    ) internal {
-        // Defense-in-depth: re-check USDC plan equals the 20% leg budget before spending.
-        _validateLegSwapPlan(leg, legBudget);
-
-        bytes32 poolId = IConcentratedLiquidityAdapter(leg.adapter).poolId();
-        _assertDepositLegSafety(poolId, leg.tokenA, leg.tokenB);
-
-        _requireApprovedToken(leg.tokenA);
-        _requireApprovedToken(leg.tokenB);
-
-        uint256 preA = IERC20(leg.tokenA).balanceOf(address(this));
-        uint256 preB = IERC20(leg.tokenB).balanceOf(address(this));
-
-        uint256 amountA;
-        uint256 amountB;
-
-        if (leg.retainUsdc > 0) {
-            (amountA, amountB) = _allocateUsdcToPair(leg.tokenA, leg.tokenB, leg.retainUsdc, amountA, amountB);
-        }
-
-        for (uint256 s = 0; s < leg.swapCount; s++) {
-            SwapInstruction calldata swap = leg.swaps[s];
-            StableClubSwapRouter.RouteConfig memory route = swapRouter.getRoute(swap.routeId);
-
-            _assertSwapSafety(poolId, route.tokenOut);
-            oracleGuard.validatePrices(usdc, route.tokenOut, 0);
-
-            IERC20(usdc).forceApprove(address(feeRouter), swap.grossUsdcIn);
-            uint256 netUsdc = feeRouter.applySwapFeeOnHeld(usdc, user, swap.grossUsdcIn, strategyId);
-            _clearApproval(usdc, address(feeRouter));
-
-            mevGuard.assertSwapProtections(
-                usdc,
-                route.tokenOut,
-                netUsdc,
-                swap.minOut,
-                swap.quotedOut,
-                leg.slippageBps,
-                swap.deadline
-            );
-
-            IERC20(usdc).forceApprove(address(swapRouter), netUsdc);
-            uint256 outAmount =
-                swapRouter.executeExactInput(swap.routeId, netUsdc, swap.minOut, swap.deadline);
-            _clearApproval(usdc, address(swapRouter));
-
-            (amountA, amountB) =
-                _allocateTokenToPair(leg.tokenA, leg.tokenB, route.tokenOut, outAmount, amountA, amountB);
-        }
-
-        if (amountA > 0) IERC20(leg.tokenA).forceApprove(leg.adapter, amountA);
-        if (amountB > 0) IERC20(leg.tokenB).forceApprove(leg.adapter, amountB);
-
-        IConcentratedLiquidityAdapter(leg.adapter).mintPosition(
-            user,
-            leg.tokenA,
-            leg.tokenB,
-            leg.tickLower,
-            leg.tickUpper,
-            amountA,
-            amountB,
-            leg.amountAMin,
-            leg.amountBMin
-        );
-
-        _refundExcess(user, leg.tokenA, preA);
-        if (leg.tokenB != leg.tokenA) _refundExcess(user, leg.tokenB, preB);
-        // Gross USDC is consumed across legs from the single deposit pull; only assert intermediates.
-        if (leg.tokenA != usdc) {
-            _assertBalanceRestored(leg.tokenA, preA);
-        }
-        if (leg.tokenB != leg.tokenA && leg.tokenB != usdc) {
-            _assertBalanceRestored(leg.tokenB, preB);
-        }
-        _clearApproval(leg.tokenA, leg.adapter);
-        _clearApproval(leg.tokenB, leg.adapter);
+        emit StrategyDepositCompleted(strategyId, user, grossUsdc, executionNonce);
     }
 
     /// @notice Deposit-path circuit breakers: pause + depeg. Never called from exit paths.
@@ -460,122 +346,34 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         safetyController.assertTokenNotDepegged(tokenB);
     }
 
-    /// @notice Per-swap circuit breakers on the deposit path only.
-    function _assertSwapSafety(bytes32 poolId, address tokenOut) internal view {
-        safetyController.assertSwapAllowed(poolId);
-        safetyController.assertTokenNotDepegged(usdc);
-        safetyController.assertTokenNotDepegged(tokenOut);
-    }
-
-    function _exitLegInternal(
-        bytes32 strategyId,
-        address user,
-        ExitLegParams calldata leg,
-        uint256 executionNonce,
-        bool emergency,
-        address proceedsRecipient
-    ) internal {
-        bytes32 poolId = IConcentratedLiquidityAdapter(leg.adapter).poolId();
-        if (poolAdapters[poolId] != leg.adapter) revert PoolNotApproved();
-        if (IConcentratedLiquidityAdapter(leg.adapter).ownerOf(leg.positionTokenId) != user) {
-            revert StrategyUserMismatch();
-        }
-        // Adapter closePosition only allows recipient = lpOwner or msg.sender (this executor).
-        if (proceedsRecipient != user && proceedsRecipient != address(this)) {
-            revert InvalidExitUnwindPlan();
-        }
-        // SC-01: out-of-range CL may return only one token — allow a zero min on either side,
-        // but never allow both mins to be zero (normal and emergency share this path).
-        if (leg.amountAMin == 0 && leg.amountBMin == 0) revert MinOutRequired();
-
-        // SC-10: map caller nonce into the exit domain before any permission nonce consumption.
-        uint256 domainNonce = encodeExitExecutionNonce(executionNonce);
-
-        // Full exits never apply USDC value caps — users must always recover all funds.
-        // Ownership, pool/adapter binding, nonce, and minOut remain enforced.
-        if (emergency) {
-            strategyRegistry.validateStrategyLegEmergency(strategyId, leg.legIndex, domainNonce);
-        } else {
-            PermissionRegistry.Action action = leg.fullExit
-                ? PermissionRegistry.Action.WithdrawAll
-                : PermissionRegistry.Action.RemoveLiquidity;
-            strategyRegistry.validateStrategyLegExit(
-                strategyId,
-                leg.legIndex,
-                leg.adapter,
-                action,
-                0,
-                leg.slippageBps,
-                domainNonce
-            );
-        }
-
-        uint256 preA = IERC20(leg.tokenA).balanceOf(address(this));
-        uint256 preB = IERC20(leg.tokenB).balanceOf(address(this));
-
-        if (leg.fullExit || emergency) {
-            // Full / emergency recovery: closePosition removes all liquidity and burns the empty NFT.
-            IConcentratedLiquidityAdapter(leg.adapter).closePosition(
-                user,
-                leg.positionTokenId,
-                proceedsRecipient,
-                leg.tokenA,
-                leg.tokenB,
-                leg.amountAMin,
-                leg.amountBMin
-            );
-        } else {
-            if (leg.liquidity == 0) revert InvalidAmount();
-            // Partial: collect to proceedsRecipient (user for exitLeg; executor for exitAllToUsdc %).
-            IConcentratedLiquidityAdapter(leg.adapter).decreaseLiquidityTo(
-                user,
-                leg.positionTokenId,
-                proceedsRecipient,
-                leg.tokenA,
-                leg.tokenB,
-                leg.liquidity,
-                leg.amountAMin,
-                leg.amountBMin
-            );
-        }
-
-        // When proceeds go to the user, refund any accidental executor deltas.
-        // When proceeds go to this executor (USDC unwind), keep deltas for subsequent swaps.
-        if (proceedsRecipient == user) {
-            _refundExcess(user, leg.tokenA, preA);
-            if (leg.tokenB != leg.tokenA) _refundExcess(user, leg.tokenB, preB);
-            _assertBalanceRestored(leg.tokenA, preA);
-            if (leg.tokenB != leg.tokenA) _assertBalanceRestored(leg.tokenB, preB);
-        }
-
-        emit StrategyLegExited(strategyId, leg.legIndex, poolId, leg.positionTokenId, emergency);
-    }
-
     function exitLeg(
         bytes32 strategyId,
-        ExitLegParams calldata leg,
+        ClFivePoolExitLib.ExitLegParams calldata leg,
         uint256 executionNonce
     ) external nonReentrant onlyApprovedAdapter(leg.adapter) {
         if (strategyRegistry.getStrategy(strategyId).user != msg.sender) revert StrategyUserMismatch();
-        _exitLegInternal(strategyId, msg.sender, leg, executionNonce, false, msg.sender);
+        ClFivePoolExitLib.exitLegInternal(
+            _exitDeps(), strategyId, msg.sender, leg, executionNonce, false, msg.sender
+        );
     }
 
     function exitAll(
         bytes32 strategyId,
-        ExitLegParams[5] calldata legs,
+        ClFivePoolExitLib.ExitLegParams[5] calldata legs,
         uint256 executionNonceBase
     ) external nonReentrant {
         if (strategyRegistry.getStrategy(strategyId).user != msg.sender) revert StrategyUserMismatch();
 
+        ClFivePoolExitLib.ExitDeps memory deps = _exitDeps();
         for (uint256 i = 0; i < LEG_COUNT; i++) {
-            ExitLegParams calldata leg = legs[i];
+            ClFivePoolExitLib.ExitLegParams calldata leg = legs[i];
             if (leg.adapter == address(0)) continue;
             if (leg.legIndex != uint8(i)) revert LegIndexOutOfBounds();
-            // exitAll is a full recovery path — require fullExit so NFTs are burned.
             if (!leg.fullExit) revert InvalidAmount();
-            // Preflight overflow into exit domain before any leg consumes a nonce.
             encodeExitAllLegExecutionNonce(executionNonceBase, i);
-            _exitLegInternal(strategyId, msg.sender, leg, executionNonceBase + i, false, msg.sender);
+            ClFivePoolExitLib.exitLegInternal(
+                deps, strategyId, msg.sender, leg, executionNonceBase + i, false, msg.sender
+            );
         }
     }
 
@@ -587,134 +385,35 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
      */
     function exitAllToUsdc(
         bytes32 strategyId,
-        ExitLegParams[5] calldata legs,
-        ExitUnwindSwap[8] calldata swaps,
+        ClFivePoolExitLib.ExitLegParams[5] calldata legs,
+        ClFivePoolExitLib.ExitUnwindSwap[8] calldata swaps,
         uint8 swapCount,
         uint256 minUsdcOut,
         uint256 executionNonceBase
     ) external nonReentrant returns (uint256 usdcOut) {
         if (strategyRegistry.getStrategy(strategyId).user != msg.sender) revert StrategyUserMismatch();
-        if (minUsdcOut == 0) revert MinOutRequired();
-        if (swapCount > MAX_EXIT_UNWIND_SWAPS) revert InvalidExitUnwindPlan();
+        return ClFivePoolExitLib.exitAllToUsdc(
+            _exitDeps(), msg.sender, strategyId, legs, swaps, swapCount, minUsdcOut, executionNonceBase
+        );
+    }
 
-        address user = msg.sender;
-        uint256 preUsdc = IERC20(usdc).balanceOf(address(this));
-
-        // Snapshot non-USDC balances for every token that appears on open legs.
-        address[10] memory tracked;
-        uint256[10] memory preTracked;
-        uint256 trackedCount;
-
-        for (uint256 i = 0; i < LEG_COUNT; i++) {
-            ExitLegParams calldata leg = legs[i];
-            if (leg.adapter == address(0)) continue;
-            if (leg.legIndex != uint8(i)) revert LegIndexOutOfBounds();
-            // fullExit closes+burns; !fullExit requires liquidity > 0 (enforced in _exitLegInternal).
-            if (!leg.fullExit && leg.liquidity == 0) revert InvalidAmount();
-            encodeExitAllLegExecutionNonce(executionNonceBase, i);
-
-            trackedCount = _trackToken(tracked, preTracked, trackedCount, leg.tokenA);
-            trackedCount = _trackToken(tracked, preTracked, trackedCount, leg.tokenB);
-
-            _exitLegInternal(strategyId, user, leg, executionNonceBase + i, false, address(this));
+    /// @notice Gateway-only atomic exit-to-USDC for `user` (adapters still require NPM approval of adapter or gateway ops path).
+    function exitAllToUsdcFor(
+        address user,
+        bytes32 strategyId,
+        ClFivePoolExitLib.ExitLegParams[5] calldata legs,
+        ClFivePoolExitLib.ExitUnwindSwap[8] calldata swaps,
+        uint8 swapCount,
+        uint256 minUsdcOut,
+        uint256 executionNonceBase
+    ) external nonReentrant returns (uint256 usdcOut) {
+        if (msg.sender != opsGateway || opsGateway == address(0) || user == address(0)) {
+            revert Unauthorized();
         }
-
-        // Unwind non-USDC → USDC via allowlisted reverse swaps.
-        // Use actual executor balance deltas (not calldata estimates) so partial %
-        // decreaseLiquidity proceeds match ResidualNonUsdc exactly.
-        for (uint256 s = 0; s < swapCount; s++) {
-            ExitUnwindSwap calldata swap = swaps[s];
-            if (swap.amountIn == 0 || swap.minOut == 0 || swap.quotedOut == 0) revert MinOutRequired();
-            if (swap.deadline < block.timestamp) revert InvalidExitUnwindPlan();
-
-            StableClubSwapRouter.RouteConfig memory route = swapRouter.getRoute(swap.routeId);
-            if (!route.enabled || route.tokenOut != usdc || route.tokenIn == usdc) {
-                revert InvalidExitUnwindPlan();
-            }
-            if (!approvedTokens[route.tokenIn]) revert TokenNotApproved();
-
-            uint256 preBal = 0;
-            bool trackedToken = false;
-            for (uint256 t = 0; t < trackedCount; t++) {
-                if (tracked[t] == route.tokenIn) {
-                    preBal = preTracked[t];
-                    trackedToken = true;
-                    break;
-                }
-            }
-            if (!trackedToken) revert InvalidExitUnwindPlan();
-
-            uint256 available = IERC20(route.tokenIn).balanceOf(address(this));
-            if (available < preBal) revert InvalidAmount();
-            uint256 delta = available - preBal;
-            if (delta == 0) revert InvalidExitUnwindPlan();
-
-            // Calldata amountIn is an upper-bound estimate from the client.
-            // Always swap the full delta so ResidualNonUsdc can pass after partial exits.
-            uint256 amountIn = delta;
-            uint256 minOut = swap.minOut;
-            uint256 quotedOut = swap.quotedOut;
-            if (swap.amountIn > amountIn) {
-                // Re-quote for the true delta. Linear scale of a padded quote can
-                // undershoot MevGuard's oracle slipFloor via integer rounding.
-                uint8 decimalsIn = IERC20Metadata(route.tokenIn).decimals();
-                uint8 decimalsOut = IERC20Metadata(usdc).decimals();
-                quotedOut = oracleGuard.expectedAmountOut(
-                    route.tokenIn, usdc, amountIn, decimalsIn, decimalsOut
-                );
-                // Match MevGuard.assertSwapProtections(..., slippageBps=100) slipFloor,
-                // but keep a stricter (higher) caller minOut so fail-closed tests/UX work.
-                uint256 guardFloor = (quotedOut * 9_900) / 10_000;
-                uint256 scaledCallerMin = (swap.minOut * amountIn) / swap.amountIn;
-                minOut = scaledCallerMin > guardFloor ? scaledCallerMin : guardFloor;
-            } else if (swap.amountIn < amountIn) {
-                // Estimate too low would leave residual — reject rather than leave dust.
-                revert InvalidExitUnwindPlan();
-            }
-            if (minOut == 0 || quotedOut == 0) revert MinOutRequired();
-
-            bytes32 poolIdHint = bytes32(0);
-            // Use first open leg pool for safety context when available.
-            for (uint256 i = 0; i < LEG_COUNT; i++) {
-                if (legs[i].adapter == address(0)) continue;
-                poolIdHint = IConcentratedLiquidityAdapter(legs[i].adapter).poolId();
-                break;
-            }
-            if (poolIdHint != bytes32(0)) {
-                _assertSwapSafety(poolIdHint, route.tokenIn);
-            }
-            oracleGuard.validatePrices(route.tokenIn, usdc, 0);
-            mevGuard.assertSwapProtections(
-                route.tokenIn,
-                usdc,
-                amountIn,
-                minOut,
-                quotedOut,
-                100,
-                swap.deadline
-            );
-
-            IERC20(route.tokenIn).forceApprove(address(swapRouter), amountIn);
-            swapRouter.executeExactInput(swap.routeId, amountIn, minOut, swap.deadline);
-            _clearApproval(route.tokenIn, address(swapRouter));
-        }
-
-        // No residual non-USDC from this exit may remain on the executor.
-        for (uint256 t = 0; t < trackedCount; t++) {
-            address token = tracked[t];
-            if (token == usdc) continue;
-            if (IERC20(token).balanceOf(address(this)) != preTracked[t]) revert ResidualNonUsdc();
-        }
-
-        uint256 postUsdc = IERC20(usdc).balanceOf(address(this));
-        if (postUsdc < preUsdc) revert InvalidAmount();
-        usdcOut = postUsdc - preUsdc;
-        if (usdcOut < minUsdcOut) revert MinOutRequired();
-
-        IERC20(usdc).safeTransfer(user, usdcOut);
-        _assertBalanceRestored(usdc, preUsdc);
-
-        emit StrategyExitToUsdcCompleted(strategyId, user, usdcOut, executionNonceBase);
+        if (strategyRegistry.getStrategy(strategyId).user != user) revert StrategyUserMismatch();
+        return ClFivePoolExitLib.exitAllToUsdc(
+            _exitDeps(), user, strategyId, legs, swaps, swapCount, minUsdcOut, executionNonceBase
+        );
     }
 
     /**
@@ -778,7 +477,6 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         }
 
         uint256 domainNonce = encodeAutomationExecutionNonce(executionNonce);
-        // Harvest: slippage unused (pass 0). Compound: enforce strategy max via slippageBps.
         uint256 slippage = action == PermissionRegistry.Action.Harvest ? 0 : leg.slippageBps;
         strategyRegistry.validateStrategyLegExit(
             strategyId,
@@ -810,7 +508,6 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
     ) internal {
         _requireManageLeg(strategyId, user, leg, PermissionRegistry.Action.Compound, executionNonce);
 
-        // Rewards (e.g. AERO) go to the user — v1 does not auto-swap.
         IConcentratedLiquidityAdapter(leg.adapter).collectRewards(user, leg.positionTokenId, user);
 
         uint256 preA = IERC20(leg.tokenA).balanceOf(address(this));
@@ -842,64 +539,38 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         if (leg.tokenB != leg.tokenA) _assertBalanceRestored(leg.tokenB, preB);
     }
 
-    function _trackToken(
-        address[10] memory tracked,
-        uint256[10] memory preTracked,
-        uint256 trackedCount,
-        address token
-    ) internal view returns (uint256) {
-        if (token == address(0) || token == usdc) return trackedCount;
-        for (uint256 i = 0; i < trackedCount; i++) {
-            if (tracked[i] == token) return trackedCount;
-        }
-        if (trackedCount >= 10) revert InvalidExitUnwindPlan();
-        tracked[trackedCount] = token;
-        preTracked[trackedCount] = IERC20(token).balanceOf(address(this));
-        return trackedCount + 1;
-    }
-
     function emergencyExitLeg(
         bytes32 strategyId,
-        ExitLegParams calldata leg,
+        ClFivePoolExitLib.ExitLegParams calldata leg,
         uint256 executionNonce
     ) external nonReentrant onlyApprovedAdapter(leg.adapter) {
         if (strategyRegistry.getStrategy(strategyId).user != msg.sender) revert StrategyUserMismatch();
-        // Emergency is always a full recovery with NFT burn.
         if (!leg.fullExit) revert InvalidAmount();
-        _exitLegInternal(strategyId, msg.sender, leg, executionNonce, true, msg.sender);
+        ClFivePoolExitLib.exitLegInternal(
+            _exitDeps(), strategyId, msg.sender, leg, executionNonce, true, msg.sender
+        );
     }
 
-    function _allocateUsdcToPair(
-        address tokenA,
-        address tokenB,
-        uint256 usdcAmount,
-        uint256 amountA,
-        uint256 amountB
-    ) internal view returns (uint256 newA, uint256 newB) {
-        newA = amountA;
-        newB = amountB;
-        if (tokenA == usdc) newA += usdcAmount;
-        else if (tokenB == usdc) newB += usdcAmount;
-        else revert InvalidLegConfiguration();
+    function _depositDeps() private view returns (ClFivePoolDepositLib.DepositDeps memory) {
+        return ClFivePoolDepositLib.DepositDeps({
+            usdc: usdc,
+            feeRouter: address(feeRouter),
+            swapRouter: address(swapRouter),
+            mevGuard: address(mevGuard),
+            oracleGuard: address(oracleGuard),
+            safetyController: address(safetyController)
+        });
     }
 
-    function _allocateTokenToPair(
-        address tokenA,
-        address tokenB,
-        address token,
-        uint256 tokenAmount,
-        uint256 amountA,
-        uint256 amountB
-    ) internal pure returns (uint256 newA, uint256 newB) {
-        newA = amountA;
-        newB = amountB;
-        if (tokenA == token) newA += tokenAmount;
-        else if (tokenB == token) newB += tokenAmount;
-        else revert InvalidLegConfiguration();
-    }
-
-    function _requireApprovedToken(address token) internal view {
-        if (token == address(0) || !approvedTokens[token]) revert TokenNotApproved();
+    function _exitDeps() private view returns (ClFivePoolExitLib.ExitDeps memory) {
+        return ClFivePoolExitLib.ExitDeps({
+            usdc: usdc,
+            strategyRegistry: address(strategyRegistry),
+            swapRouter: address(swapRouter),
+            mevGuard: address(mevGuard),
+            oracleGuard: address(oracleGuard),
+            safetyController: address(safetyController)
+        });
     }
 
     /// @dev Forward only the balance delta created by this call; leave pre-existing dust untouched.
@@ -918,13 +589,5 @@ contract StableClubConcentratedLiquidityExecutor is ReentrancyGuard {
         if (IERC20(token).allowance(address(this), spender) != 0) {
             IERC20(token).forceApprove(spender, 0);
         }
-    }
-
-    function _cbbtc() internal pure returns (address) {
-        return 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf;
-    }
-
-    function _weth() internal pure returns (address) {
-        return 0x4200000000000000000000000000000000000006;
     }
 }

@@ -8,6 +8,7 @@ import {IAllowanceTransfer} from "../interfaces/IAllowanceTransfer.sol";
 
 /// @title MockPermit2 — TEST ONLY AllowanceTransfer stand-in.
 /// @dev Rejects unlimited (uint160.max) allowances to mirror INDEXLA policy in tests.
+///      `permit` skips ECDSA and applies the signed PermitSingle (unit-test convenience).
 contract MockPermit2 is IAllowanceTransfer {
     using SafeERC20 for IERC20;
 
@@ -23,6 +24,8 @@ contract MockPermit2 is IAllowanceTransfer {
     error InsufficientAllowance();
     error UnlimitedAllowanceForbidden();
     error ZeroSpender();
+    error PermitDeadlineExpired();
+    error InvalidNonce();
 
     function allowance(
         address user,
@@ -39,6 +42,21 @@ contract MockPermit2 is IAllowanceTransfer {
         PackedAllowance storage a = _allowances[msg.sender][token][spender];
         a.amount = amount;
         a.expiration = expiration;
+    }
+
+    function permit(address owner, PermitSingle memory permitSingle, bytes calldata) external {
+        if (block.timestamp > permitSingle.sigDeadline) revert PermitDeadlineExpired();
+        if (permitSingle.spender == address(0)) revert ZeroSpender();
+        if (permitSingle.details.amount == type(uint160).max) revert UnlimitedAllowanceForbidden();
+
+        PackedAllowance storage a =
+            _allowances[owner][permitSingle.details.token][permitSingle.spender];
+        if (a.nonce != permitSingle.details.nonce) revert InvalidNonce();
+        a.amount = permitSingle.details.amount;
+        a.expiration = permitSingle.details.expiration;
+        unchecked {
+            ++a.nonce;
+        }
     }
 
     function transferFrom(address from, address to, uint160 amount, address token) external {

@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const { ethers, network } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
+const { deployClExecutor } = require("../../scripts/stable-club/deploy-cl-executor.cjs");
 
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const CBBTC = "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf";
@@ -130,7 +131,7 @@ async function deployForkStack() {
   await oracleGuard.configurePegMonitor(CBBTC, BTC_USD, 100, 8, true);
 
   const safetyController = await ethers.deployContract("SafetyController");
-  const clExecutor = await ethers.deployContract("StableClubConcentratedLiquidityExecutor", [
+  const clExecutor = await deployClExecutor(ethers, [
     await permissionRegistry.getAddress(),
     await strategyRegistry.getAddress(),
     await feeRouter.getAddress(),

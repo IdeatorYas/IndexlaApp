@@ -1,6 +1,6 @@
 require("@nomicfoundation/hardhat-toolbox");
-require("dotenv").config({ path: ".env.local" });
-require("dotenv").config();
+const { loadLocalEnv } = require("./scripts/stable-club/load-local-env.cjs");
+loadLocalEnv();
 
 const {
   assertProductionBaseRpcUrl,
@@ -9,6 +9,7 @@ const {
 
 const baseRpcUrl = process.env.BASE_RPC_URL?.trim();
 const deployerPrivateKey = process.env.DEPLOYER_PRIVATE_KEY?.trim();
+const etherscanApiKey = process.env.ETHERSCAN_API_KEY?.trim() || "";
 
 /**
  * Base mainnet network is registered only when --network base is selected.
@@ -21,6 +22,7 @@ const networks = {
     // FORK_CHAIN_ID=8453 for live-state Base forks (strategy.chainId checks).
     chainId: process.env.FORK_CHAIN_ID ? Number(process.env.FORK_CHAIN_ID) : 31337,
     hardfork: "cancun",
+    allowUnlimitedContractSize: false,
     // Required whenever hardhat_reset forks Base; without this EDR rejects historical blocks.
     chains: {
       8453: {
@@ -69,6 +71,6 @@ module.exports = {
   networks,
   // Etherscan API v2 — single key covers Base (chainid 8453). Never commit the key.
   etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY?.trim() || "",
+    apiKey: etherscanApiKey,
   },
 };

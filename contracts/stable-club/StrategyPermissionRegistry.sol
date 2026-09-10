@@ -1,16 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+
 import {PermissionRegistry} from "./PermissionRegistry.sol";
 import {IConcentratedLiquidityAdapter} from "./interfaces/IConcentratedLiquidityAdapter.sol";
 
 /// @title StrategyPermissionRegistry — parent five-pool strategy + five bound leg permissions.
 /// @notice Canonical Stable Club strategy: exactly five legs, 2_000 bps each, 10_000 bps total.
-contract StrategyPermissionRegistry {
+contract StrategyPermissionRegistry is EIP712 {
+    using ECDSA for bytes32;
+
     uint256 public constant LEG_COUNT = 5;
     uint256 public constant ALLOCATION_BPS_PER_LEG = 2_000;
     uint256 public constant TOTAL_ALLOCATION_BPS = 10_000;
     uint256 public constant MAX_SLIPPAGE_BPS = 5_000;
+
+    bytes32 public constant REGISTER_TYPEHASH = keccak256(
+        "RegisterFivePool(address user,bytes32 strategyId,uint256 chainId,uint256 nonce,uint256 deadline)"
+    );
 
     /// @dev Base mainnet USDC — the only permitted strategy deposit token (Phase 2a).
     address public immutable usdc;
@@ -55,9 +64,12 @@ contract StrategyPermissionRegistry {
     mapping(bytes32 => uint256) public strategyDailyWindowStart;
     mapping(bytes32 => uint256) public strategyLastExecutionAt;
     mapping(bytes32 => mapping(uint256 => bool)) public strategyDepositNonceUsed;
+    mapping(address => uint256) public registerWithSigNonce;
 
     address public owner;
     mapping(address => bool) public isOperator;
+    /// @notice Non-custodial ops gateway allowed to register strategies for users (EIP-712 consent verified off-gateway).
+    address public opsGateway;
 
     event StrategyRegistered(bytes32 indexed strategyId, address indexed user, address depositToken);
     event StrategyRevoked(bytes32 indexed strategyId, address indexed user);
@@ -65,6 +77,7 @@ contract StrategyPermissionRegistry {
     event StrategyUnpaused(bytes32 indexed strategyId, address indexed user);
     event OwnerTransferred(address indexed previous, address indexed next);
     event OperatorSet(address indexed operator, bool allowed);
+    event OpsGatewayUpdated(address indexed previous, address indexed next);
     event StrategyAdaptersRebound(
         bytes32 indexed strategyId,
         address indexed caller,
@@ -102,6 +115,8 @@ contract StrategyPermissionRegistry {
     /// @dev SC-08: adapter.poolId() must equal the registered leg poolId (non-zero).
     error AdapterPoolIdMismatch();
     error InvalidAdapter();
+    error InvalidSignature();
+    error InvalidDeadline();
 
     event StrategyDepositNonceConsumed(bytes32 indexed strategyId, uint256 indexed executionNonce, address indexed user);
 
@@ -120,7 +135,9 @@ contract StrategyPermissionRegistry {
         _;
     }
 
-    constructor(address permissionRegistry_, bytes32 strategyKind_, address usdc_) {
+    constructor(address permissionRegistry_, bytes32 strategyKind_, address usdc_)
+        EIP712("StrategyPermissionRegistry", "1")
+    {
         permissionRegistry = PermissionRegistry(permissionRegistry_);
         strategyKind = strategyKind_;
         usdc = usdc_;
@@ -138,6 +155,12 @@ contract StrategyPermissionRegistry {
         if (operator_ == address(0)) revert Unauthorized();
         isOperator[operator_] = allowed;
         emit OperatorSet(operator_, allowed);
+    }
+
+    /// @notice Pin the StableClubOpsGateway (Safe/Timelock). Zero disables gateway registration.
+    function setOpsGateway(address gateway_) external onlyOwner {
+        emit OpsGatewayUpdated(opsGateway, gateway_);
+        opsGateway = gateway_;
     }
 
     /**
@@ -173,13 +196,57 @@ contract StrategyPermissionRegistry {
         return keccak256(abi.encode(user, chainId, strategyKind, depositToken));
     }
 
+    function registerConsentDigest(
+        address user,
+        bytes32 strategyId,
+        uint256 nonce,
+        uint256 deadline
+    ) public view returns (bytes32) {
+        return _hashTypedDataV4(
+            keccak256(abi.encode(REGISTER_TYPEHASH, user, strategyId, block.chainid, nonce, deadline))
+        );
+    }
+
     /// @notice Register canonical five-pool strategy and five leg permissions atomically.
+    /// @dev User self-registers, or opsGateway registers for `strategy.user` after off-chain EIP-712 consent.
     function registerFivePoolStrategy(
         StrategyPermission calldata strategy,
         PermissionRegistry.Permission[5] calldata legPermissions,
         PoolLegBinding[5] calldata legs
     ) external returns (bytes32 strategyId) {
-        if (strategy.user != msg.sender) revert UnauthorizedUser();
+        if (msg.sender == opsGateway) {
+            if (opsGateway == address(0) || strategy.user == address(0)) revert UnauthorizedUser();
+        } else if (strategy.user != msg.sender) {
+            revert UnauthorizedUser();
+        }
+        return _registerFivePoolStrategy(strategy, legPermissions, legs);
+    }
+
+    /// @notice Preferred audit path: anyone may submit a user-signed registration (EIP-712).
+    function registerFivePoolStrategyWithSig(
+        StrategyPermission calldata strategy,
+        PermissionRegistry.Permission[5] calldata legPermissions,
+        PoolLegBinding[5] calldata legs,
+        uint256 deadline,
+        bytes calldata signature
+    ) external returns (bytes32 strategyId) {
+        if (deadline < block.timestamp) revert InvalidDeadline();
+        if (strategy.user == address(0)) revert UnauthorizedUser();
+        strategyId = strategyIdFor(strategy.user, strategy.chainId, strategy.depositToken);
+        uint256 nonce = registerWithSigNonce[strategy.user];
+        address signer = registerConsentDigest(strategy.user, strategyId, nonce, deadline).recover(signature);
+        if (signer != strategy.user) revert InvalidSignature();
+        unchecked {
+            registerWithSigNonce[strategy.user] = nonce + 1;
+        }
+        return _registerFivePoolStrategy(strategy, legPermissions, legs);
+    }
+
+    function _registerFivePoolStrategy(
+        StrategyPermission calldata strategy,
+        PermissionRegistry.Permission[5] calldata legPermissions,
+        PoolLegBinding[5] calldata legs
+    ) internal returns (bytes32 strategyId) {
         if (strategy.chainId != block.chainid) revert UnauthorizedUser();
         if (strategy.depositToken != usdc) revert InvalidDepositToken();
         if (strategy.maxSlippageBps > MAX_SLIPPAGE_BPS) {

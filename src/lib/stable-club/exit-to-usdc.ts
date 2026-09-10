@@ -268,6 +268,13 @@ export function isExitPercentToUsdcAvailable(deployments: {
   );
 }
 
+/** Re-export — gateway paths are opt-in via split withdraw/deposit flags + address pin. */
+export {
+  isOpsGatewayAvailable,
+  isOpsGatewayWithdrawAvailable,
+  isOpsGatewayDepositAvailable,
+} from "@/lib/stable-club/ops-gateway";
+
 /** Re-export deposit route ids for symmetry checks in tests. */
 export const DEPOSIT_ROUTE_IDS = STABLE_CLUB_SWAP_ROUTE_IDS;
 export const DEPOSIT_ROUTE_LABELS = STABLE_CLUB_SWAP_ROUTE_LABELS;
