@@ -24,7 +24,6 @@ import {
   STABLE_CLUB_LOCAL_CHAIN_ID,
   STABLE_CLUB_LOCAL_RPC_URL,
 } from "@/lib/stable-club/constants";
-import { STABLE_CLUB_BASE_RPC_PROXY_PATH } from "@/lib/stable-club/base-rpc-client";
 import { createStableClubBaseReadTransport } from "@/lib/stable-club/base-rpc-transport";
 import { assertChainEnvironmentMatch } from "@/lib/stable-club/chain-isolation";
 import { explorerTxUrl } from "@/lib/stable-club/five-pool-deposit";
@@ -123,16 +122,11 @@ import {
 } from "@/lib/stable-club/positions-refresh";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
-  attestPhase2aDeployments,
-  isValidPhase2aPublicDeployments,
   requireAttestedPhase2aDeployments,
   type StableClubPhase2aPublicDeployments,
 } from "@/lib/stable-club/phase2a-deployments";
+import { usePhase2aBootstrap } from "@/components/stable-club/usePhase2aBootstrap";
 import { base } from "viem/chains";
-
-type Phase2aResponse =
-  | { configured: false; message: string }
-  | { configured: true; deployments: StableClubPhase2aPublicDeployments };
 
 function userRejectMessage(err: unknown): string | null {
   const msg = err instanceof Error ? err.message : String(err);
@@ -330,9 +324,10 @@ export function useFivePoolPositions() {
   const submittingRef = useRef(false);
   const refreshGenerationRef = useRef(0);
 
-  const [deployments, setDeployments] = useState<StableClubPhase2aPublicDeployments | null>(null);
-  const [deploymentsLoading, setDeploymentsLoading] = useState(true);
-  const [deploymentsError, setDeploymentsError] = useState<string | null>(null);
+  const bootstrap = usePhase2aBootstrap();
+  const deployments = bootstrap.deployments;
+  const deploymentsLoading = bootstrap.loading && !bootstrap.isSuccess;
+  const deploymentsError = bootstrap.error;
 
   const [strategyId, setStrategyId] = useState<Hex | null>(null);
   const [strategyRegistered, setStrategyRegistered] = useState(false);
@@ -401,63 +396,6 @@ export function useFivePoolPositions() {
 
   const expectedChainId = deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID;
   const onExpectedChain = wallet.chainId === expectedChainId;
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setDeploymentsLoading(true);
-      try {
-        const res = await fetch("/api/stable-club/phase2a-deployments");
-        const json = (await res.json()) as Phase2aResponse;
-        if (cancelled) return;
-        if (json.configured && isValidPhase2aPublicDeployments(json.deployments)) {
-          // SC-F09: shape-valid only — attest bytecode before exposing execution.
-          const candidate = json.deployments;
-          const attestChain =
-            candidate.network === "hardhat-local" ? STABLE_CLUB_LOCAL_CHAIN : base;
-          const attestTransport =
-            candidate.network === "hardhat-local"
-              ? http(candidate.rpcUrl)
-              : candidate.network === "base" ||
-                  candidate.rpcUrl === STABLE_CLUB_BASE_RPC_PROXY_PATH ||
-                  candidate.chainId === 8453
-                ? createStableClubBaseReadTransport()
-                : http(candidate.rpcUrl);
-          const attestClient = createPublicClient({
-            chain: attestChain,
-            transport: attestTransport,
-          });
-          await attestPhase2aDeployments({
-            client: {
-              getChainId: () => attestClient.getChainId(),
-              getBytecode: (args) => attestClient.getBytecode(args),
-            },
-            deployments: candidate,
-          });
-          if (cancelled) return;
-          setDeployments(candidate);
-          setDeploymentsError(null);
-        } else {
-          setDeployments(null);
-          setDeploymentsError(
-            !json.configured ? json.message : "Invalid phase 2a deployments payload",
-          );
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setDeployments(null);
-          setDeploymentsError(
-            err instanceof Error ? err.message : "Failed to load phase 2a deployments",
-          );
-        }
-      } finally {
-        if (!cancelled) setDeploymentsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const refreshStrandedAssets = useCallback(async () => {
     if (!deployments || !wallet.address) {
@@ -2160,14 +2098,6 @@ export function useFivePoolPositions() {
         );
         // HTTP read client — wallet eth_call is stale after approve and caused live STF.
         const recoverReadClient = discoveryClient;
-        if (!wallet.provider) {
-          throw new Error("Wallet provider required for residue→USDC");
-        }
-        const recoverWalletClient = createWalletClient({
-          account,
-          chain: walletClient.chain ?? chain,
-          transport: custom(wrapProviderForceRecoverGas(wallet.provider)),
-        });
         const waitReceipt = (
           hash: Hex,
           opts?: { gasLimit?: bigint; outOfGasMessage?: string },
@@ -2187,27 +2117,29 @@ export function useFivePoolPositions() {
           }
         };
 
-        /** Plan only withdrawal delta at HTTP head (never pinned historical floor). */
-        const readResidueAtHead = async () => {
+        const readResidueAt = async (block: bigint) => {
           await waitForReadClientBlock({
             client: recoverReadClient,
-            minBlock: readBlockFloor,
+            minBlock: block,
           });
           const cbBal = (await recoverReadClient.readContract({
             address: BASE_TOKENS.cbBTC.address,
             abi: erc20Abi,
             functionName: "balanceOf",
             args: [account],
+            blockNumber: block,
           })) as bigint;
           const wethBal = (await recoverReadClient.readContract({
             address: BASE_TOKENS.WETH.address,
             abi: erc20Abi,
             functionName: "balanceOf",
             args: [account],
+            blockNumber: block,
           })) as bigint;
           return planLooseAssetRecoveries({
             publicClient: recoverReadClient,
             account,
+            blockNumber: block,
             applyDustFilter: true,
             maxByToken: {
               cbBTC: residueFromBaseline({
@@ -2222,68 +2154,42 @@ export function useFivePoolPositions() {
           });
         };
 
-        for (let round = 0; round < 4; round += 1) {
-          const planned = await readResidueAtHead();
+        for (let round = 0; round < 8; round += 1) {
+          const planned = await readResidueAt(readBlockFloor);
           if (planned.length === 0) break;
-
-          const legs = [];
-          for (const row of planned) {
-            const quoted = await quoteTokenToUsdcViaOracle({
-              publicClient: recoverReadClient,
-              oracleGuard: d.oracleGuard as Address,
-              tokenIn: row.tokenIn,
-              amountIn: row.amountIn,
-            });
-            if (quoted <= BigInt(0)) {
-              throw new Error(
-                `OracleGuard returned zero USDC for ${row.symbol} recover`,
-              );
-            }
-            legs.push({
-              tokenIn: row.tokenIn,
-              symbol: row.symbol,
-              amountIn: row.amountIn,
-              quotedUsdcOut: quoted,
-            });
+          const row = planned[0]!;
+          const quoted = await quoteTokenToUsdcViaOracle({
+            publicClient: recoverReadClient,
+            oracleGuard: d.oracleGuard as Address,
+            tokenIn: row.tokenIn,
+            amountIn: row.amountIn,
+          });
+          if (quoted <= BigInt(0)) {
+            throw new Error(
+              `OracleGuard returned zero USDC for ${row.symbol} recover`,
+            );
           }
-
           setStatusMessage(
-            `Max-approve + Uni multicall sweep ${legs.map((l) => l.symbol).join("+")} → USDC…`,
+            `Approve+swap ${row.symbol} → USDC (residue ${row.amountIn.toString()} wei)…`,
           );
-
-          if (legs.length === 1) {
-            const row = legs[0]!;
-            const result = await recoverLooseAssetToUsdcFully({
-              publicClient: recoverReadClient,
-              walletClient: recoverWalletClient as never,
-              account,
-              tokenIn: row.tokenIn,
-              amountIn: row.amountIn,
-              quotedUsdcOut: row.quotedUsdcOut,
-              slippageBps: EXIT_UNWIND_SLIPPAGE_BPS,
-              walletEstimateGas,
-              waitReceipt,
-            });
-            readBlockFloor = maxBlock(readBlockFloor, result.blockNumber);
-            setLastTxHash(result.swapHash);
-          } else {
-            const result = await sweepAllResidueToUsdcOnce({
-              publicClient: recoverReadClient,
-              walletClient: recoverWalletClient as never,
-              account,
-              legs,
-              slippageBps: EXIT_UNWIND_SLIPPAGE_BPS,
-              deadline,
-              walletEstimateGas,
-              waitReceipt,
-            });
-            readBlockFloor = maxBlock(readBlockFloor, result.blockNumber);
-            setLastTxHash(result.sweepHash);
-          }
+          const result = await recoverLooseAssetToUsdcFully({
+            publicClient: recoverReadClient,
+            walletClient: walletClient as never,
+            account,
+            tokenIn: row.tokenIn,
+            amountIn: row.amountIn,
+            quotedUsdcOut: quoted,
+            slippageBps: EXIT_UNWIND_SLIPPAGE_BPS,
+            minReadBlock: readBlockFloor,
+            walletEstimateGas,
+            waitReceipt,
+          });
+          readBlockFloor = maxBlock(readBlockFloor, result.blockNumber);
+          setLastTxHash(result.swapHash);
         }
 
         {
-          const leftover = await readResidueAtHead();
+          const leftover = await readResidueAt(readBlockFloor);
           if (leftover.length > 0) {
             checkpoint.phase = "failed_incomplete";
             checkpoint.lastError = `Non-USDC withdrawal residue remains: ${leftover.map((r) => r.symbol).join(", ")}`;
@@ -2295,15 +2201,12 @@ export function useFivePoolPositions() {
           }
         }
 
-        await waitForReadClientBlock({
-          client: recoverReadClient,
-          minBlock: readBlockFloor,
-        });
         const usdcAfter = (await recoverReadClient.readContract({
           address: BASE_TOKENS.USDC.address,
           abi: erc20Abi,
           functionName: "balanceOf",
           args: [account],
+          blockNumber: readBlockFloor,
         })) as bigint;
         if (usdcAfter <= usdcBefore) {
           if (resumeRecoverOnly) {
@@ -2339,8 +2242,7 @@ export function useFivePoolPositions() {
         const isScopedRecoverCopy =
           err instanceof Error &&
           (err.message === RECOVER_APPROVE_OOG_USER_MESSAGE ||
-            err.message === RECOVER_SWAP_OOG_USER_MESSAGE ||
-            err.message === RECOVER_SWEEP_OOG_USER_MESSAGE);
+            err.message === RECOVER_SWAP_OOG_USER_MESSAGE);
         const message =
           reject ??
           (isScopedRecoverCopy
@@ -2375,7 +2277,6 @@ export function useFivePoolPositions() {
       }
     },
     [
-      chain,
       discoveryClient,
       ensureReady,
       expectedChainId,
@@ -2384,7 +2285,6 @@ export function useFivePoolPositions() {
       refreshPositions,
       refreshStrandedAssets,
       slippageBps,
-      wallet.provider,
     ],
   );
 

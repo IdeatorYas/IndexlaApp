@@ -18,9 +18,6 @@ import {
   strategyPermissionRegistryAbi,
 } from "@/lib/stable-club/abis";
 import { requireGasPriceWithinSafetyCeiling } from "@/lib/stable-club/gas-price-ceiling-preflight";
-import {
-  STABLE_CLUB_BASE_RPC_PROXY_PATH,
-} from "@/lib/stable-club/base-rpc-client";
 import { createStableClubBaseReadTransport } from "@/lib/stable-club/base-rpc-transport";
 import {
   STABLE_CLUB_LOCAL_CHAIN,
@@ -86,11 +83,10 @@ import { computeStableClubPermissionId } from "@/lib/stable-club/permission-id";
 import { formatPermit2UserError, permit2AllowanceAbi } from "@/lib/stable-club/permit2";
 import { formatStableClubExecutionError } from "@/lib/stable-club/execution-errors";
 import {
-  attestPhase2aDeployments,
-  isValidPhase2aPublicDeployments,
   requireAttestedPhase2aDeployments,
   type StableClubPhase2aPublicDeployments,
 } from "@/lib/stable-club/phase2a-deployments";
+import { usePhase2aBootstrap } from "@/components/stable-club/usePhase2aBootstrap";
 import { base } from "viem/chains";
 import { buildFivePoolQuotePlan, QuotePlanError } from "@/lib/stable-club/quote-plan";
 
@@ -110,10 +106,6 @@ const FIVE_POOL_ALLOWED_ACTIONS = BigInt(
     "compound",
   ]),
 );
-
-type Phase2aResponse =
-  | { configured: false; message: string }
-  | { configured: true; deployments: StableClubPhase2aPublicDeployments };
 
 function userRejectMessage(err: unknown): string | null {
   const msg = err instanceof Error ? err.message : String(err);
@@ -154,9 +146,10 @@ export function useFivePoolDeposit() {
   const wallet = useStableClubWallet();
   const submittingRef = useRef(false);
 
-  const [deployments, setDeployments] = useState<StableClubPhase2aPublicDeployments | null>(null);
-  const [deploymentsLoading, setDeploymentsLoading] = useState(true);
-  const [deploymentsError, setDeploymentsError] = useState<string | null>(null);
+  const bootstrap = usePhase2aBootstrap();
+  const deployments = bootstrap.deployments;
+  const deploymentsLoading = bootstrap.loading && !bootstrap.isSuccess;
+  const deploymentsError = bootstrap.error;
 
   const [amountInput, setAmountInput] = useState("20");
   const [swapSlippageInput, setSwapSlippageInput] = useState(
@@ -231,63 +224,6 @@ export function useFivePoolDeposit() {
 
   const expectedChainId = deployments?.chainId ?? STABLE_CLUB_LOCAL_CHAIN_ID;
   const onExpectedChain = wallet.chainId === expectedChainId;
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setDeploymentsLoading(true);
-      try {
-        const res = await fetch("/api/stable-club/phase2a-deployments");
-        const json = (await res.json()) as Phase2aResponse;
-        if (cancelled) return;
-        if (json.configured && isValidPhase2aPublicDeployments(json.deployments)) {
-          // SC-F09: shape-valid only — attest bytecode before exposing execution.
-          const candidate = json.deployments;
-          const attestChain =
-            candidate.network === "hardhat-local" ? STABLE_CLUB_LOCAL_CHAIN : base;
-          const attestTransport =
-            candidate.network === "hardhat-local"
-              ? http(candidate.rpcUrl)
-              : candidate.network === "base" ||
-                  candidate.rpcUrl === STABLE_CLUB_BASE_RPC_PROXY_PATH ||
-                  candidate.chainId === 8453
-                ? createStableClubBaseReadTransport()
-                : http(candidate.rpcUrl);
-          const attestClient = createPublicClient({
-            chain: attestChain,
-            transport: attestTransport,
-          });
-          await attestPhase2aDeployments({
-            client: {
-              getChainId: () => attestClient.getChainId(),
-              getBytecode: (args) => attestClient.getBytecode(args),
-            },
-            deployments: candidate,
-          });
-          if (cancelled) return;
-          setDeployments(candidate);
-          setDeploymentsError(null);
-        } else {
-          setDeployments(null);
-          setDeploymentsError(
-            !json.configured ? json.message : "Invalid phase 2a deployments payload",
-          );
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setDeployments(null);
-          setDeploymentsError(
-            err instanceof Error ? err.message : "Failed to load phase 2a deployments",
-          );
-        }
-      } finally {
-        if (!cancelled) setDeploymentsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const refreshBalancesAndStrategy = useCallback(async () => {
     if (!deployments || !wallet.address) {

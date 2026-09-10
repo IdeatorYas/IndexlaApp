@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { StableClubBetaView } from "@/components/stable-club/StableClubBetaView";
 import { StableClubView } from "@/components/stable-club/StableClubView";
 import { StableClubWalletProvider } from "@/components/wallet/StableClubWalletProvider";
+import { LoadingSkeleton } from "@/components/states/AppStates";
 import { canExposeStableClubDevPanel } from "@/lib/stable-club/dev-panel-access";
 import { getStableClubServerConfig } from "@/lib/stable-club/config";
 
@@ -16,15 +17,24 @@ export default async function StableClubPage() {
   });
 
   if (!config.productEnabled && !devPanelAllowed) {
-    return null;
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-16 text-center">
+        <h1 className="text-xl font-semibold text-[#0b1f3a]">Stable Club</h1>
+        <p className="mt-2 text-sm text-[#5b6b7c]">
+          This product is not enabled in this environment.
+        </p>
+      </div>
+    );
   }
 
   return (
-    <StableClubWalletProvider preferLocalHardhat={devPanelAllowed}>
+    <StableClubWalletProvider preferLocalHardhat={false}>
       <Suspense
         fallback={
-          <div className="min-h-[70vh] bg-[#f4f7fb] px-4 py-8">
-            <p className="text-center text-base text-[#5b6b7c]">Loading…</p>
+          <div className="min-h-[70vh] bg-[#e8eef5] px-4 py-8">
+            <div className="mx-auto max-w-3xl">
+              <LoadingSkeleton title="Loading Stable Club" lines={6} />
+            </div>
           </div>
         }
       >

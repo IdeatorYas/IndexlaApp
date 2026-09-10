@@ -52,7 +52,7 @@ export function StableClubWalletProvider({
   preferLocalHardhat?: boolean;
 }) {
   const { open } = useAppKit();
-  const { address, isConnected, isConnecting, connector } = useAccount();
+  const { address, isConnected, isConnecting, isReconnecting, connector } = useAccount();
   const chainId = useChainId();
   const { connectAsync, connectors } = useConnect();
   const { disconnectAsync } = useDisconnect();
@@ -89,7 +89,7 @@ export function StableClubWalletProvider({
    * already has eth_accounts authorized — required for My Position discovery.
    */
   useEffect(() => {
-    if (preferLocalHardhat || isConnected || isConnecting) return;
+    if (preferLocalHardhat || isConnected || isConnecting || isReconnecting) return;
     let cancelled = false;
     (async () => {
       try {
@@ -117,13 +117,14 @@ export function StableClubWalletProvider({
     preferLocalHardhat,
     isConnected,
     isConnecting,
+    isReconnecting,
     connectors,
     connectAsync,
     expectedChainId,
   ]);
 
   const status: StableClubWalletState["status"] = !isConnected
-    ? isConnecting
+    ? isConnecting || isReconnecting
       ? "connecting"
       : "disconnected"
     : chainId === expectedChainId
@@ -133,7 +134,9 @@ export function StableClubWalletProvider({
   const connect = useCallback(async () => {
     setLocalError(null);
     if (!hasWalletConnectProjectId()) {
-      setLocalError("Wallet connection is unavailable.");
+      setLocalError(
+        "WalletConnect project ID is missing. Set NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID to connect.",
+      );
       return;
     }
     try {

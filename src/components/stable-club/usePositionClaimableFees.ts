@@ -78,52 +78,55 @@ export function usePositionClaimableFees(
         });
         const oracleGuard = TRUSTED_PHASE2A_BASE_MANIFEST.contracts
           .oracleGuard as Address;
-        const next: ClaimableFeeRow[] = [];
-        for (const p of positions) {
-          try {
-            const result = await client.readContract({
-              address: p.npm,
-              abi: npmPositionsAbi,
-              functionName: "positions",
-              args: [p.positionTokenId],
-            });
-            const token0 = result[2] as Address;
-            const token1 = result[3] as Address;
-            const amount0 = BigInt(result[10]);
-            const amount1 = BigInt(result[11]);
-            const usdc0 = await quoteTokenToUsdcViaOracle({
-              publicClient: client,
-              oracleGuard,
-              tokenIn: token0,
-              amountIn: amount0,
-            });
-            const usdc1 = await quoteTokenToUsdcViaOracle({
-              publicClient: client,
-              oracleGuard,
-              tokenIn: token1,
-              amountIn: amount1,
-            });
-            next.push({
-              legIndex: p.legIndex,
-              tokenId: p.positionTokenId.toString(),
-              amount0,
-              amount1,
-              token0,
-              token1,
-              approxUsdc: Number(formatUnits(usdc0 + usdc1, 6)),
-            });
-          } catch {
-            next.push({
-              legIndex: p.legIndex,
-              tokenId: p.positionTokenId.toString(),
-              amount0: BigInt(0),
-              amount1: BigInt(0),
-              token0: BASE_TOKENS.USDC.address,
-              token1: BASE_TOKENS.WETH.address,
-              approxUsdc: 0,
-            });
-          }
-        }
+        const next = await Promise.all(
+          positions.map(async (p) => {
+            try {
+              const result = await client.readContract({
+                address: p.npm,
+                abi: npmPositionsAbi,
+                functionName: "positions",
+                args: [p.positionTokenId],
+              });
+              const token0 = result[2] as Address;
+              const token1 = result[3] as Address;
+              const amount0 = BigInt(result[10]);
+              const amount1 = BigInt(result[11]);
+              const [usdc0, usdc1] = await Promise.all([
+                quoteTokenToUsdcViaOracle({
+                  publicClient: client,
+                  oracleGuard,
+                  tokenIn: token0,
+                  amountIn: amount0,
+                }),
+                quoteTokenToUsdcViaOracle({
+                  publicClient: client,
+                  oracleGuard,
+                  tokenIn: token1,
+                  amountIn: amount1,
+                }),
+              ]);
+              return {
+                legIndex: p.legIndex,
+                tokenId: p.positionTokenId.toString(),
+                amount0,
+                amount1,
+                token0,
+                token1,
+                approxUsdc: Number(formatUnits(usdc0 + usdc1, 6)),
+              };
+            } catch {
+              return {
+                legIndex: p.legIndex,
+                tokenId: p.positionTokenId.toString(),
+                amount0: BigInt(0),
+                amount1: BigInt(0),
+                token0: BASE_TOKENS.USDC.address,
+                token1: BASE_TOKENS.WETH.address,
+                approxUsdc: 0,
+              };
+            }
+          }),
+        );
         if (!cancelled) setRows(next);
       } finally {
         if (!cancelled) setLoading(false);

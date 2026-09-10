@@ -104,27 +104,28 @@ export function usePositionUsdValue(
         });
         const oracleGuard = TRUSTED_PHASE2A_BASE_MANIFEST.contracts
           .oracleGuard as Address;
-        const next: PositionUsdRow[] = [];
-        let sum = BigInt(0);
-        for (const p of positions) {
-          const a = await quoteTokenToUsdcViaOracle({
-            publicClient: client,
-            oracleGuard,
-            tokenIn: p.tokenA,
-            amountIn: p.amountA,
-          });
-          const b = await quoteTokenToUsdcViaOracle({
-            publicClient: client,
-            oracleGuard,
-            tokenIn: p.tokenB,
-            amountIn: p.amountB,
-          });
-          const valueUsdc = a + b;
-          next.push({ legIndex: p.legIndex, valueUsdc });
-          sum += valueUsdc;
-        }
+        const nextRows = await Promise.all(
+          positions.map(async (p) => {
+            const [a, b] = await Promise.all([
+              quoteTokenToUsdcViaOracle({
+                publicClient: client,
+                oracleGuard,
+                tokenIn: p.tokenA,
+                amountIn: p.amountA,
+              }),
+              quoteTokenToUsdcViaOracle({
+                publicClient: client,
+                oracleGuard,
+                tokenIn: p.tokenB,
+                amountIn: p.amountB,
+              }),
+            ]);
+            return { legIndex: p.legIndex, valueUsdc: a + b };
+          }),
+        );
+        const sum = nextRows.reduce((acc, row) => acc + row.valueUsdc, BigInt(0));
         if (!cancelled) {
-          setRows(next);
+          setRows(nextRows);
           setTotalUsdc(sum);
           setSource("oracle-guard");
         }

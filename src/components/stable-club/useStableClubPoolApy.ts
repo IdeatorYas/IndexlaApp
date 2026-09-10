@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { PoolApyQuote } from "@/lib/stable-club/pool-apy";
 
 export type StableClubPoolApyState = {
@@ -10,56 +10,48 @@ export type StableClubPoolApyState = {
   source: string | null;
 };
 
+const POOL_APY_QUERY_KEY = ["stable-club", "pool-apy"] as const;
+
+async function fetchPoolApyMap(): Promise<{
+  byPoolId: Record<string, PoolApyQuote>;
+  fetchedAt: string | null;
+  source: string | null;
+}> {
+  const res = await fetch("/api/stable-club/pool-apy", { cache: "no-store" });
+  if (!res.ok) {
+    return { byPoolId: {}, fetchedAt: null, source: null };
+  }
+  const json = (await res.json()) as {
+    quotes?: PoolApyQuote[];
+    fetchedAt?: string;
+    source?: string;
+  };
+  const map: Record<string, PoolApyQuote> = {};
+  for (const quote of json.quotes ?? []) {
+    map[quote.poolId] = quote;
+  }
+  return {
+    byPoolId: map,
+    fetchedAt: json.fetchedAt ?? null,
+    source: json.source ?? "defillama-yields",
+  };
+}
+
 export function useStableClubPoolApyMap(): StableClubPoolApyState {
-  const [byPoolId, setByPoolId] = useState<Record<string, PoolApyQuote>>({});
-  const [loading, setLoading] = useState(true);
-  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
-  const [source, setSource] = useState<string | null>(null);
+  const query = useQuery({
+    queryKey: POOL_APY_QUERY_KEY,
+    queryFn: fetchPoolApyMap,
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/stable-club/pool-apy", { cache: "no-store" });
-        if (!res.ok) {
-          if (!cancelled) {
-            setByPoolId({});
-            setFetchedAt(null);
-            setSource(null);
-          }
-          return;
-        }
-        const json = (await res.json()) as {
-          quotes?: PoolApyQuote[];
-          fetchedAt?: string;
-          source?: string;
-        };
-        const map: Record<string, PoolApyQuote> = {};
-        for (const quote of json.quotes ?? []) {
-          map[quote.poolId] = quote;
-        }
-        if (!cancelled) {
-          setByPoolId(map);
-          setFetchedAt(json.fetchedAt ?? null);
-          setSource(json.source ?? "defillama-yields");
-        }
-      } catch {
-        if (!cancelled) {
-          setByPoolId({});
-          setFetchedAt(null);
-          setSource(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return { byPoolId, loading, fetchedAt, source };
+  return {
+    byPoolId: query.data?.byPoolId ?? {},
+    loading: query.isPending || (query.isFetching && !query.data),
+    fetchedAt: query.data?.fetchedAt ?? null,
+    source: query.data?.source ?? null,
+  };
 }
 
 export function formatOfficialPoolFee(pool: {

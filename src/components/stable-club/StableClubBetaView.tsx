@@ -8,6 +8,7 @@ import { StableClubPositionDashboard } from "@/components/stable-club/StableClub
 import { useFivePoolPositions } from "@/components/stable-club/useFivePoolPositions";
 import { useStableClubBetaReadiness } from "@/components/stable-club/useStableClubBetaReadiness";
 import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
+import { LoadingSkeleton } from "@/components/states/AppStates";
 import {
   FIVE_POOL_POSITIONS_REFRESH_EVENT,
   type FivePoolPositionsRefreshDetail,
@@ -15,6 +16,15 @@ import {
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
 
 type TabId = "position" | "pools";
+
+function StableClubShellSkeleton({ label }: { label: string }) {
+  return (
+    <div className="space-y-3" role="status" aria-label={label}>
+      <div className="h-10 w-64 animate-pulse rounded-xl bg-[#d7e0ec]/70" />
+      <LoadingSkeleton title={label} lines={5} />
+    </div>
+  );
+}
 
 function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolean }) {
   const positions = useFivePoolPositions();
@@ -52,9 +62,21 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
   }, []);
 
   if (deploymentsBooting) {
+    return <StableClubShellSkeleton label="Loading Stable Club" />;
+  }
+
+  if (positions.deploymentsError && !positions.deployments) {
     return (
-      <section className="rounded-2xl border border-[#d7e0ec] bg-white p-8 text-center">
-        <p className="text-base text-[#5b6b7c]">Loading Stable Club…</p>
+      <section className="rounded-2xl border border-[#f3d2d0] bg-white p-6 shadow-sm">
+        <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-[#b42318]">
+          Unable to load Stable Club
+        </h2>
+        <p className="mt-2 text-sm text-[#5b6b7c]" role="alert">
+          {positions.deploymentsError}
+        </p>
+        <p className="mt-3 text-xs text-[#5b6b7c]">
+          Refresh the page to retry. Your wallet stays connected.
+        </p>
       </section>
     );
   }
@@ -214,6 +236,7 @@ function DevUiPreview({ mode }: { mode: "deposit" | "positions" | "pools" }) {
 export function StableClubBetaView({
   depositsEnabledOverride,
   loadingOverride,
+  errorOverride,
 }: {
   depositsEnabledOverride?: boolean;
   depositBlockersOverride?: readonly string[];
@@ -222,12 +245,14 @@ export function StableClubBetaView({
   devToolsEnabled?: boolean;
 } = {}) {
   const wallet = useStableClubWallet();
-  const { readiness, loading } = useStableClubBetaReadiness();
+  const { readiness, loading, error, refetchBootstrap } = useStableClubBetaReadiness();
   const searchParams = useSearchParams();
   const depositsEnabled = depositsEnabledOverride ?? readiness.depositsEnabled;
   const readinessLoading = loadingOverride ?? loading;
+  const readinessError = errorOverride !== undefined ? errorOverride : error;
   const connected = wallet.status === "connected" && Boolean(wallet.address);
   const connecting = wallet.status === "connecting";
+  const wrongNetwork = wallet.status === "wrong-network";
 
   const [allowUiPreview, setAllowUiPreview] = useState(false);
   useEffect(() => {
@@ -241,31 +266,81 @@ export function StableClubBetaView({
   }, []);
   const uiPreview = allowUiPreview ? searchParams.get("ui") : null;
 
+  const walletGate = (
+    <section className="rounded-2xl border border-[#d7e0ec] bg-white p-8 text-center shadow-sm sm:p-10">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#5b6b7c]">
+        Stable Club · Base
+      </p>
+      <h1 className="mt-2 text-2xl font-semibold tracking-tight text-[#0b1f3a]">
+        Five-pool USDC liquidity
+      </h1>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-[#5b6b7c]">
+        Connect your wallet to deposit, manage positions, and withdraw to USDC — non-custodial on Base.
+      </p>
+      {wrongNetwork ? (
+        <>
+          <button
+            type="button"
+            onClick={() => void wallet.switchToBase()}
+            className="mt-6 inline-flex h-12 min-w-[220px] items-center justify-center rounded-xl bg-[#0b1f3a] px-6 text-sm font-bold uppercase tracking-[0.06em] text-white"
+          >
+            Switch to Base
+          </button>
+          <p className="mt-3 text-sm text-[#b42318]" role="alert">
+            Wrong network — Stable Club runs on Base.
+          </p>
+        </>
+      ) : (
+        <button
+          type="button"
+          disabled={connecting}
+          onClick={() => void wallet.connect()}
+          className="mt-6 inline-flex h-12 min-w-[220px] items-center justify-center rounded-xl bg-[#0b1f3a] px-6 text-sm font-bold uppercase tracking-[0.06em] text-white disabled:opacity-50"
+        >
+          {connecting ? "Connecting…" : "Connect Wallet"}
+        </button>
+      )}
+      {wallet.error ? (
+        <p className="mt-4 text-sm text-[#b42318]" role="alert">
+          {wallet.error}
+        </p>
+      ) : null}
+    </section>
+  );
+
   return (
     <div className="min-h-[70vh] bg-[#e8eef5] px-3 py-6 sm:px-6 sm:py-8">
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="mx-auto w-full max-w-3xl space-y-3">
         {uiPreview === "positions" || uiPreview === "deposit" || uiPreview === "pools" ? (
           <DevUiPreview mode={uiPreview} />
+        ) : wrongNetwork ? (
+          walletGate
         ) : !connected ? (
-          <section className="rounded-2xl border border-[#d7e0ec] bg-white p-10 text-center shadow-sm">
+          <>
+            {walletGate}
+            <StableClubAvailablePools depositsEnabled={false} showDepositCta={false} />
+          </>
+        ) : readinessError ? (
+          <section className="rounded-2xl border border-[#f3d2d0] bg-white p-6 shadow-sm">
+            <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-[#b42318]">
+              Stable Club unavailable
+            </h2>
+            <p className="mt-2 text-sm text-[#5b6b7c]" role="alert">
+              {readinessError}
+            </p>
             <button
               type="button"
-              disabled={connecting}
-              onClick={() => void wallet.connect()}
-              className="inline-flex h-12 min-w-[220px] items-center justify-center rounded-xl bg-[#0b1f3a] px-6 text-sm font-bold uppercase tracking-[0.06em] text-white disabled:opacity-50"
+              onClick={() => void refetchBootstrap?.()}
+              className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-[#0b1f3a] px-4 text-xs font-bold uppercase tracking-[0.08em] text-white"
             >
-              {connecting ? "Connecting…" : "Connect Wallet"}
+              Retry
             </button>
-            {wallet.error ? (
-              <p className="mt-4 text-sm text-[#b42318]" role="alert">
-                {wallet.error}
-              </p>
-            ) : null}
           </section>
         ) : readinessLoading ? (
-          <section className="rounded-2xl border border-[#d7e0ec] bg-white p-8 text-center">
-            <p className="text-base text-[#5b6b7c]">Loading…</p>
-          </section>
+          <>
+            <StableClubAvailablePools depositsEnabled={false} showDepositCta={false} />
+            <StableClubShellSkeleton label="Preparing your position" />
+          </>
         ) : (
           <StableClubConnectedShell depositsEnabled={depositsEnabled} />
         )}

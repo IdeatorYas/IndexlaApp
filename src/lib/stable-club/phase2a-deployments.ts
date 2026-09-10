@@ -505,34 +505,39 @@ export async function attestPhase2aDeployments(params: {
   const addresses: Address[] = [];
   const codeHashes: Hex[] = [];
 
-  for (const target of targets) {
-    let code: Hex | undefined;
-    try {
-      code = await client.getBytecode({ address: target.address });
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      throw new Error(`Phase 2a attestation RPC error (${target.key}): ${detail}`);
-    }
-    if (!isNonEmptyBytecode(code)) {
-      throw new Error(`Phase 2a attestation failed: empty bytecode at ${target.key}`);
-    }
-    const hash = runtimeCodeHash(code!);
+  const attested = await Promise.all(
+    targets.map(async (target) => {
+      let code: Hex | undefined;
+      try {
+        code = await client.getBytecode({ address: target.address });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        throw new Error(`Phase 2a attestation RPC error (${target.key}): ${detail}`);
+      }
+      if (!isNonEmptyBytecode(code)) {
+        throw new Error(`Phase 2a attestation failed: empty bytecode at ${target.key}`);
+      }
+      const hash = runtimeCodeHash(code!);
+      if (isBase && trusted) {
+        const expected = lookupTrustedHash(trusted.runtimeCodeHashes, target.address);
+        if (!expected) {
+          throw new Error(
+            `Phase 2a Base attestation failed: missing trusted codehash for ${target.key}`,
+          );
+        }
+        if (expected.toLowerCase() !== hash.toLowerCase()) {
+          throw new Error(`Phase 2a Base runtime codehash mismatch for ${target.key}`);
+        }
+      }
+      return { target, hash };
+    }),
+  );
+
+  for (const { target, hash } of attested) {
     const addrKey = getAddress(target.address).toLowerCase();
     codeHashesByAddress[addrKey] = hash;
     addresses.push(target.address);
     codeHashes.push(hash);
-
-    if (isBase && trusted) {
-      const expected = lookupTrustedHash(trusted.runtimeCodeHashes, target.address);
-      if (!expected) {
-        throw new Error(
-          `Phase 2a Base attestation failed: missing trusted codehash for ${target.key}`,
-        );
-      }
-      if (expected.toLowerCase() !== hash.toLowerCase()) {
-        throw new Error(`Phase 2a Base runtime codehash mismatch for ${target.key}`);
-      }
-    }
   }
 
   const cacheKey = buildPhase2aAttestationCacheKey({

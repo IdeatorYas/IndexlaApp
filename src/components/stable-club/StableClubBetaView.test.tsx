@@ -15,7 +15,11 @@ const exitAllToUsdc = vi.fn();
 const refreshPositions = vi.fn();
 
 let walletState = {
-  status: "disconnected" as "disconnected" | "connecting" | "connected",
+  status: "disconnected" as
+    | "disconnected"
+    | "connecting"
+    | "connected"
+    | "wrong-network",
   chainId: null as number | null,
   address: null as string | null,
   error: null as string | null,
@@ -100,6 +104,7 @@ vi.mock("@/components/stable-club/useStableClubBetaReadiness", () => ({
     loading: false,
     error: null,
     isLocalHardhat: false,
+    refetchBootstrap: vi.fn(),
   }),
 }));
 
@@ -178,13 +183,30 @@ describe("StableClubBetaView", () => {
     };
   });
 
-  it("disconnected: shows only Connect Wallet", () => {
+  it("disconnected: Connect Wallet + pool catalogue (progressive shell)", () => {
     render(<StableClubBetaView />);
     expect(screen.getByRole("button", { name: "Connect Wallet" })).toBeInTheDocument();
+    expect(screen.getByText(/Five-pool USDC liquidity/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
     expect(screen.queryByText("My Stable Club Position")).toBeNull();
-    expect(screen.queryByText("Deposit USDC")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Connect Wallet" }));
     expect(connect).toHaveBeenCalled();
+  });
+
+  it("wrong-network: Switch to Base instead of Connect wall", () => {
+    walletState = {
+      status: "wrong-network",
+      chainId: 1,
+      address: "0xab4e242C5b489e8301408C93003903364214559F",
+      error: null,
+      connect,
+      switchToBase: vi.fn(),
+    };
+    render(<StableClubBetaView />);
+    expect(screen.getByRole("button", { name: "Switch to Base" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect Wallet" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Switch to Base" }));
+    expect(walletState.switchToBase).toHaveBeenCalled();
   });
 
   it("connected with no positions: defaults to My Position table (not Deposit USDC)", () => {
