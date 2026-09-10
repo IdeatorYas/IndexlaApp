@@ -1067,7 +1067,10 @@ export function useFivePoolDeposit() {
         setProgress("confirmed");
         setStatusMessage("Deposit complete via Ops Gateway");
         await refreshBalancesAndStrategy();
-        requestFivePoolPositionsRefresh();
+        requestFivePoolPositionsRefresh({
+          reason: "deposit-confirmed",
+          txHash: hash,
+        });
         return;
       }
 

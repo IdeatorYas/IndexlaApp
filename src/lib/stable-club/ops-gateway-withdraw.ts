@@ -8,6 +8,7 @@ import {
   erc20Abi,
   getAddress,
   type Address,
+  type EIP1193Provider,
   type Hex,
   type PublicClient,
   type WalletClient,
@@ -52,7 +53,7 @@ export async function withdrawPercentViaOpsGateway(params: {
     chainId: number;
   };
   account: Address;
-  provider: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
+  provider: EIP1193Provider;
   publicClient: Pick<
     PublicClient,
     "readContract" | "simulateContract" | "waitForTransactionReceipt" | "getBalance"

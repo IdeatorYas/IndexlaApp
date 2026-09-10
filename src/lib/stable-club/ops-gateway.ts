@@ -9,6 +9,7 @@ import {
   getAddress,
   isAddress,
   type Address,
+  type EIP1193Provider,
   type Hex,
   type WalletClient,
 } from "viem";
@@ -125,7 +126,7 @@ export type WalletAtomicBatchCapability = {
  * MetaMask/WC often sequentialize even when capabilities claim support.
  */
 export async function probeAtomicBatchCapability(params: {
-  provider: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
+  provider: EIP1193Provider;
   chainIdHex: Hex;
   account: Address;
 }): Promise<WalletAtomicBatchCapability> {
@@ -469,7 +470,7 @@ export function encodeGatewayExitPercentToUsdcCall(params: {
  * Try EIP-5792 wallet_sendCalls; return null if unsupported so caller can sequentialize.
  */
 export async function tryWalletSendCalls(params: {
-  provider: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
+  provider: EIP1193Provider;
   from: Address;
   chainIdHex: Hex;
   calls: Array<{ to: Address; data: Hex; value?: Hex }>;
