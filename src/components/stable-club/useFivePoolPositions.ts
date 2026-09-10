@@ -2098,6 +2098,14 @@ export function useFivePoolPositions() {
         );
         // HTTP read client — wallet eth_call is stale after approve and caused live STF.
         const recoverReadClient = discoveryClient;
+        if (!wallet.provider) {
+          throw new Error("Wallet provider required for residue→USDC");
+        }
+        const recoverWalletClient = createWalletClient({
+          account,
+          chain: walletClient.chain ?? chain,
+          transport: custom(wrapProviderForceRecoverGas(wallet.provider)),
+        });
         const waitReceipt = (
           hash: Hex,
           opts?: { gasLimit?: bigint; outOfGasMessage?: string },
@@ -2117,29 +2125,27 @@ export function useFivePoolPositions() {
           }
         };
 
-        const readResidueAt = async (block: bigint) => {
+        /** Plan only withdrawal delta at HTTP head (never pinned historical floor). */
+        const readResidueAtHead = async () => {
           await waitForReadClientBlock({
             client: recoverReadClient,
-            minBlock: block,
+            minBlock: readBlockFloor,
           });
           const cbBal = (await recoverReadClient.readContract({
             address: BASE_TOKENS.cbBTC.address,
             abi: erc20Abi,
             functionName: "balanceOf",
             args: [account],
-            blockNumber: block,
           })) as bigint;
           const wethBal = (await recoverReadClient.readContract({
             address: BASE_TOKENS.WETH.address,
             abi: erc20Abi,
             functionName: "balanceOf",
             args: [account],
-            blockNumber: block,
           })) as bigint;
           return planLooseAssetRecoveries({
             publicClient: recoverReadClient,
             account,
-            blockNumber: block,
             applyDustFilter: true,
             maxByToken: {
               cbBTC: residueFromBaseline({
@@ -2154,42 +2160,68 @@ export function useFivePoolPositions() {
           });
         };
 
-        for (let round = 0; round < 8; round += 1) {
-          const planned = await readResidueAt(readBlockFloor);
+        for (let round = 0; round < 4; round += 1) {
+          const planned = await readResidueAtHead();
           if (planned.length === 0) break;
-          const row = planned[0]!;
-          const quoted = await quoteTokenToUsdcViaOracle({
-            publicClient: recoverReadClient,
-            oracleGuard: d.oracleGuard as Address,
-            tokenIn: row.tokenIn,
-            amountIn: row.amountIn,
-          });
-          if (quoted <= BigInt(0)) {
-            throw new Error(
-              `OracleGuard returned zero USDC for ${row.symbol} recover`,
-            );
+
+          const legs = [];
+          for (const row of planned) {
+            const quoted = await quoteTokenToUsdcViaOracle({
+              publicClient: recoverReadClient,
+              oracleGuard: d.oracleGuard as Address,
+              tokenIn: row.tokenIn,
+              amountIn: row.amountIn,
+            });
+            if (quoted <= BigInt(0)) {
+              throw new Error(
+                `OracleGuard returned zero USDC for ${row.symbol} recover`,
+              );
+            }
+            legs.push({
+              tokenIn: row.tokenIn,
+              symbol: row.symbol,
+              amountIn: row.amountIn,
+              quotedUsdcOut: quoted,
+            });
           }
+
           setStatusMessage(
-            `Approve+swap ${row.symbol} → USDC (residue ${row.amountIn.toString()} wei)…`,
+            `Max-approve + Uni multicall sweep ${legs.map((l) => l.symbol).join("+")} → USDC…`,
           );
-          const result = await recoverLooseAssetToUsdcFully({
-            publicClient: recoverReadClient,
-            walletClient: walletClient as never,
-            account,
-            tokenIn: row.tokenIn,
-            amountIn: row.amountIn,
-            quotedUsdcOut: quoted,
-            slippageBps: EXIT_UNWIND_SLIPPAGE_BPS,
-            minReadBlock: readBlockFloor,
-            walletEstimateGas,
-            waitReceipt,
-          });
-          readBlockFloor = maxBlock(readBlockFloor, result.blockNumber);
-          setLastTxHash(result.swapHash);
+
+          if (legs.length === 1) {
+            const row = legs[0]!;
+            const result = await recoverLooseAssetToUsdcFully({
+              publicClient: recoverReadClient,
+              walletClient: recoverWalletClient as never,
+              account,
+              tokenIn: row.tokenIn,
+              amountIn: row.amountIn,
+              quotedUsdcOut: row.quotedUsdcOut,
+              slippageBps: EXIT_UNWIND_SLIPPAGE_BPS,
+              walletEstimateGas,
+              waitReceipt,
+            });
+            readBlockFloor = maxBlock(readBlockFloor, result.blockNumber);
+            setLastTxHash(result.swapHash);
+          } else {
+            const result = await sweepAllResidueToUsdcOnce({
+              publicClient: recoverReadClient,
+              walletClient: recoverWalletClient as never,
+              account,
+              legs,
+              slippageBps: EXIT_UNWIND_SLIPPAGE_BPS,
+              deadline,
+              walletEstimateGas,
+              waitReceipt,
+            });
+            readBlockFloor = maxBlock(readBlockFloor, result.blockNumber);
+            setLastTxHash(result.sweepHash);
+          }
         }
 
         {
-          const leftover = await readResidueAt(readBlockFloor);
+          const leftover = await readResidueAtHead();
           if (leftover.length > 0) {
             checkpoint.phase = "failed_incomplete";
             checkpoint.lastError = `Non-USDC withdrawal residue remains: ${leftover.map((r) => r.symbol).join(", ")}`;
@@ -2201,16 +2233,19 @@ export function useFivePoolPositions() {
           }
         }
 
+        await waitForReadClientBlock({
+          client: recoverReadClient,
+          minBlock: readBlockFloor,
+        });
         const usdcAfter = (await recoverReadClient.readContract({
           address: BASE_TOKENS.USDC.address,
           abi: erc20Abi,
           functionName: "balanceOf",
           args: [account],
-          blockNumber: readBlockFloor,
         })) as bigint;
         if (usdcAfter <= usdcBefore) {
           if (resumeRecoverOnly) {
-            // Residue already swept (e.g. external LiFi) — treat as complete.
+            // Leftover already empty at head — residue was zero or cleared externally.
             checkpoint.phase = "complete";
             writeWithdrawCheckpoint(checkpoint);
             clearWithdrawCheckpoint(account, expectedChainId);
@@ -2223,7 +2258,9 @@ export function useFivePoolPositions() {
             await refreshStrandedAssets();
             return;
           }
-          throw new Error("Owner NPM percent withdraw completed but USDC balance did not increase");
+          throw new Error(
+            "Withdraw incomplete: USDC did not increase after LP exit. Residue conversion did not finish — tap Resume incomplete withdraw.",
+          );
         }
 
         checkpoint.phase = "complete";
@@ -2242,7 +2279,8 @@ export function useFivePoolPositions() {
         const isScopedRecoverCopy =
           err instanceof Error &&
           (err.message === RECOVER_APPROVE_OOG_USER_MESSAGE ||
-            err.message === RECOVER_SWAP_OOG_USER_MESSAGE);
+            err.message === RECOVER_SWAP_OOG_USER_MESSAGE ||
+            err.message === RECOVER_SWEEP_OOG_USER_MESSAGE);
         const message =
           reject ??
           (isScopedRecoverCopy
@@ -2277,6 +2315,7 @@ export function useFivePoolPositions() {
       }
     },
     [
+      chain,
       discoveryClient,
       ensureReady,
       expectedChainId,
@@ -2285,6 +2324,7 @@ export function useFivePoolPositions() {
       refreshPositions,
       refreshStrandedAssets,
       slippageBps,
+      wallet.provider,
     ],
   );
 

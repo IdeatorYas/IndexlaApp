@@ -66,3 +66,7 @@ next-env.d.ts
 # Base mainnet deploy state/artifacts (addresses + hashes only; never secrets — still local)
 /deployments/base-mainnet/*.json
 !/deployments/base-mainnet/README.md
+
+# Local Stable Club scratch / deploy archives
+scripts/stable-club/_*
+

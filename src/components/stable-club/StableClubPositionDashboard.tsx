@@ -702,9 +702,10 @@ export function StableClubPositionDashboard({
                 {withdrawStackKind === "legacy" ? " (legacy adapters)" : " (primary adapters)"}.
               </p>
               <p className="mt-2 text-[11px] leading-snug text-[#8a9aab]">
-                Wallet confirms: one tx per NPM (3) plus Uni approve/swap for residue (typically
-                5–7 cold). ≤2 cold confirms require a new cross-NPM+Uni batch contract — not
-                available on live Base deployments yet.
+                Wallet confirms (cold): up to 3 NPM multicalls (one per NPM contract) + up to 2
+                Uni max-approves (skipped if already live) + 1 residue→USDC multicall sweep.
+                Resume after LP exit is recover-only (no re-exit). ≤3 total cold confirms need
+                wallet batching (EIP-5792) or a cross-NPM gateway — not on live Base yet.
               </p>
               <p className="mt-2 text-[#5b6b7c]">
                 Open Basescan for each adapter (green check = verified source):
