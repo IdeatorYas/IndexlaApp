@@ -322,6 +322,10 @@ export function toPublicPhase2aDeploymentsPayload(
       ? { discoveryStartBlock: deployments.discoveryStartBlock }
       : {}),
     ...(deployments.features !== undefined ? { features: deployments.features } : {}),
+    ...(deployments.opsGateway !== undefined ? { opsGateway: deployments.opsGateway } : {}),
+    ...(deployments.opsGatewayDeposit !== undefined
+      ? { opsGatewayDeposit: deployments.opsGatewayDeposit }
+      : {}),
     ...(deployments.legacyExitStack !== undefined
       ? { legacyExitStack: deployments.legacyExitStack }
       : {}),

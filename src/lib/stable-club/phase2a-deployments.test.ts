@@ -356,4 +356,21 @@ describe("SC-F09 — Phase 2a pin and verify deployments", () => {
     expect(pub.rpcUrl).toBe("/api/stable-club/base-rpc");
     expect(pub.rpcUrl).not.toMatch(/mainnet\.base\.org/i);
   });
+
+  it("passes through pinned opsGateway address and split feature flags", () => {
+    const pub = toPublicPhase2aDeploymentsPayload(
+      basePhase2aFixture({
+        opsGateway: "0xE82d1602c2953D805ea8Ebe3056804e4f60d4316",
+        features: {
+          exitAllToUsdc: true,
+          exitPercentToUsdc: true,
+          opsGatewayWithdraw: true,
+          opsGatewayDeposit: false,
+        },
+      }),
+    );
+    expect(pub.opsGateway).toBe("0xE82d1602c2953D805ea8Ebe3056804e4f60d4316");
+    expect(pub.features?.opsGatewayWithdraw).toBe(true);
+    expect(pub.features?.opsGatewayDeposit).toBe(false);
+  });
 });
