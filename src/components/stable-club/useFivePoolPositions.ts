@@ -2400,7 +2400,7 @@ export function useFivePoolPositions() {
           setApprovalTxHashes(result.txHashes);
           setLastTxHash(result.txHashes[result.txHashes.length - 1] ?? null);
           if (result.txHashes.length > 0) gatewayBroadcasted = true;
-          setProgress("complete");
+          setProgress("confirmed");
           setStatusMessage(
             result.promptClaim.mayClaimLe3
               ? "Withdraw complete (USDC only)."

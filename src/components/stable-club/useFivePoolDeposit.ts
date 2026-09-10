@@ -1064,7 +1064,7 @@ export function useFivePoolDeposit() {
           depositLegs: depositArgs.legs,
         });
         setLastTxHash(hash);
-        setProgress("complete");
+        setProgress("confirmed");
         setStatusMessage("Deposit complete via Ops Gateway");
         await refreshBalancesAndStrategy();
         requestFivePoolPositionsRefresh();
