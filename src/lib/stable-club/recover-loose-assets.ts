@@ -10,6 +10,7 @@ import {
   erc20Abi,
   getAddress,
   type Address,
+  type Chain,
   type Hex,
   type PublicClient,
   type WalletClient,
@@ -253,7 +254,7 @@ async function maxApproveTokenIfNeeded(params: {
   token: Address;
   amountIn: bigint;
   router: Address;
-  chain: typeof base;
+  chain: Chain;
   walletEstimateGas?: (args: {
     to: Address;
     data: Hex;

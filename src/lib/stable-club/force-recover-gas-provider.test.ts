@@ -114,7 +114,7 @@ describe("wrapProviderForceRecoverGas", () => {
       args: [BASE_DEX_UNISWAP_V3.swapRouter, RECOVER_MAX_APPROVE_AMOUNT],
     });
     const inner = {
-      request: vi.fn(async () => "0xa8d0"), // 43216 warm-slot OOG
+      request: vi.fn(async (_args: { method: string; params?: unknown }) => "0xa8d0"), // 43216 warm-slot OOG
     };
     const wrapped = wrapProviderForceRecoverGas(inner);
     const result = await wrapped.request({
