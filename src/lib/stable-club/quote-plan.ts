@@ -28,6 +28,7 @@ import { STABLE_CLUB_EXECUTION_FEE_BPS, STABLE_CLUB_USDC_DECIMALS } from "@/lib/
 import {
   getSqrtRatioAtTick,
   simulateClMintConsumedAmounts,
+  simulateClMintConsumedAmountsOverTickWindow,
 } from "@/lib/stable-club/cl-liquidity-math";
 import {
   EMPTY_SWAP_ROUTE_ID,
@@ -44,6 +45,13 @@ export const CL_MAX_TICK = 887_272;
 
 /** Fork-verified default half-width in tick spacings (+/- 10). */
 export const DEFAULT_TICK_RANGE_SPACINGS = 10;
+
+/**
+ * Extra tick-spacing half-width used when sizing LP amountMins.
+ * ±1 spacing (10 ticks on fee-500 Uni pools) covers typical Base inclusion drift
+ * on 200-tick ranges where ~2% token mix moves per tick.
+ */
+export const MINT_RATIO_DRIFT_TICK_SPACINGS = 1;
 
 /** Fee bps deducted from each swap's gross USDC before router execution. */
 export const SWAP_FEE_BPS = BigInt(STABLE_CLUB_EXECUTION_FEE_BPS);
@@ -385,6 +393,8 @@ export function applyLpSlippageMin(desiredAmount: bigint, lpSlippageBps: bigint)
  * ratio uses less of one token than the planned desired balance.
  *
  * `desiredA`/`desiredB` should already be worst-case post-swap balances (retain + minOut).
+ * When `currentTick` + `ratioDriftTicks` are set, mins use the worst-case consumed
+ * amounts over that tick band (plan→inclusion drift), then LP slippage.
  */
 export function computeClMintAmountMins(params: {
   tokenA: Address;
@@ -395,18 +405,37 @@ export function computeClMintAmountMins(params: {
   tickUpper: number;
   sqrtPriceX96: bigint;
   lpSlippageBps: bigint;
+  currentTick?: number;
+  ratioDriftTicks?: number;
 }): { amountAMin: bigint; amountBMin: bigint; consumedA: bigint; consumedB: bigint } {
   let consumed;
   try {
-    consumed = simulateClMintConsumedAmounts({
-      tokenA: params.tokenA,
-      tokenB: params.tokenB,
-      desiredA: params.desiredA,
-      desiredB: params.desiredB,
-      tickLower: params.tickLower,
-      tickUpper: params.tickUpper,
-      sqrtPriceX96: params.sqrtPriceX96,
-    });
+    const drift =
+      params.ratioDriftTicks !== undefined && Number.isFinite(params.ratioDriftTicks)
+        ? Math.max(0, Math.floor(params.ratioDriftTicks))
+        : 0;
+    consumed =
+      drift > 0 && params.currentTick !== undefined
+        ? simulateClMintConsumedAmountsOverTickWindow({
+            tokenA: params.tokenA,
+            tokenB: params.tokenB,
+            desiredA: params.desiredA,
+            desiredB: params.desiredB,
+            tickLower: params.tickLower,
+            tickUpper: params.tickUpper,
+            sqrtPriceX96: params.sqrtPriceX96,
+            currentTick: params.currentTick,
+            ratioDriftTicks: drift,
+          })
+        : simulateClMintConsumedAmounts({
+            tokenA: params.tokenA,
+            tokenB: params.tokenB,
+            desiredA: params.desiredA,
+            desiredB: params.desiredB,
+            tickLower: params.tickLower,
+            tickUpper: params.tickUpper,
+            sqrtPriceX96: params.sqrtPriceX96,
+          });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     throw new QuotePlanError("INVALID_AMOUNT_MIN", `CL mint simulation failed: ${detail}`);
@@ -827,6 +856,8 @@ export function buildFivePoolQuotePlan(input: BuildFivePoolQuotePlanInput): Five
       tickUpper,
       sqrtPriceX96: sqrtPrices[i]!,
       lpSlippageBps: input.lpSlippageBps,
+      currentTick: input.currentTicks[i]!,
+      ratioDriftTicks: MINT_RATIO_DRIFT_TICK_SPACINGS * spacing,
     });
     legDesiredAmounts.push(desired);
 

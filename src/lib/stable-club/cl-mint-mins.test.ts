@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { BaseError, ContractFunctionRevertedError, encodeAbiParameters, parseAbiParameters } from "viem";
 import { BASE_TOKENS } from "@/lib/stable-club/official-pools";
-import { getSqrtRatioAtTick, simulateClMintConsumedAmounts } from "@/lib/stable-club/cl-liquidity-math";
+import {
+  getSqrtRatioAtTick,
+  simulateClMintConsumedAmounts,
+} from "@/lib/stable-club/cl-liquidity-math";
 import { formatStableClubExecutionError } from "@/lib/stable-club/execution-errors";
-import { applyLpSlippageMin, computeClMintAmountMins } from "@/lib/stable-club/quote-plan";
+import {
+  applyLpSlippageMin,
+  computeClMintAmountMins,
+  MINT_RATIO_DRIFT_TICK_SPACINGS,
+} from "@/lib/stable-club/quote-plan";
 
 describe("CL mint amount mins (PSC prevention)", () => {
   it("sizes mins from consumed amounts, not raw desired (USDC/cbBTC ratio)", () => {
@@ -11,8 +18,8 @@ describe("CL mint amount mins (PSC prevention)", () => {
     const tickLower = -67800;
     const tickUpper = -65800;
     const sqrtPriceX96 = getSqrtRatioAtTick(tick);
-    const desiredA = 2_000_000n; // USDC
-    const desiredB = 2_486n; // cbBTC units
+    const desiredA = BigInt(2_000_000); // USDC
+    const desiredB = BigInt(2_486); // cbBTC units
     const consumed = simulateClMintConsumedAmounts({
       tokenA: BASE_TOKENS.USDC.address,
       tokenB: BASE_TOKENS.cbBTC.address,
@@ -33,11 +40,63 @@ describe("CL mint amount mins (PSC prevention)", () => {
       tickLower,
       tickUpper,
       sqrtPriceX96,
-      lpSlippageBps: 100n,
+      lpSlippageBps: BigInt(100),
     });
-    expect(mins.amountAMin).toBe(applyLpSlippageMin(consumed.amountA, 100n));
-    expect(mins.amountAMin).toBeLessThan(applyLpSlippageMin(desiredA, 100n));
-    expect(mins.amountAMin + mins.amountBMin).toBeGreaterThan(0n);
+    expect(mins.amountAMin).toBe(applyLpSlippageMin(consumed.amountA, BigInt(100)));
+    expect(mins.amountAMin).toBeLessThan(applyLpSlippageMin(desiredA, BigInt(100)));
+    expect(mins.amountAMin + mins.amountBMin).toBeGreaterThan(BigInt(0));
+  });
+
+  it("band mins survive tx 0x1cf401c6 plan→inclusion drift (leg1 Uni USDC/cbBTC)", () => {
+    // Live fail: plan tick -66438 → exec -66442; amount1Min 2197 vs consumed 2064.
+    const tickLower = -66530;
+    const tickUpper = -66330;
+    const planTick = -66438;
+    const execTick = -66442;
+    const desiredA = BigInt(2_000_000);
+    const desiredB = BigInt(2576);
+    const spacing = 10;
+    const drift = MINT_RATIO_DRIFT_TICK_SPACINGS * spacing;
+
+    const pointMins = computeClMintAmountMins({
+      tokenA: BASE_TOKENS.USDC.address,
+      tokenB: BASE_TOKENS.cbBTC.address,
+      desiredA,
+      desiredB,
+      tickLower,
+      tickUpper,
+      sqrtPriceX96: getSqrtRatioAtTick(planTick),
+      lpSlippageBps: BigInt(100),
+      currentTick: planTick,
+      ratioDriftTicks: 0,
+    });
+    const execConsumed = simulateClMintConsumedAmounts({
+      tokenA: BASE_TOKENS.USDC.address,
+      tokenB: BASE_TOKENS.cbBTC.address,
+      desiredA,
+      desiredB,
+      tickLower,
+      tickUpper,
+      sqrtPriceX96: getSqrtRatioAtTick(execTick),
+    });
+    // Point mins reproduce the live failure: amountBMin > exec consume.
+    expect(pointMins.amountBMin).toBeGreaterThan(execConsumed.amountB);
+
+    const bandMins = computeClMintAmountMins({
+      tokenA: BASE_TOKENS.USDC.address,
+      tokenB: BASE_TOKENS.cbBTC.address,
+      desiredA,
+      desiredB,
+      tickLower,
+      tickUpper,
+      sqrtPriceX96: getSqrtRatioAtTick(planTick),
+      lpSlippageBps: BigInt(100),
+      currentTick: planTick,
+      ratioDriftTicks: drift,
+    });
+    expect(bandMins.amountBMin).toBeLessThanOrEqual(execConsumed.amountB);
+    expect(bandMins.amountBMin).toBeLessThan(pointMins.amountBMin);
+    expect(bandMins.amountAMin).toBeLessThanOrEqual(pointMins.amountAMin);
   });
 });
 

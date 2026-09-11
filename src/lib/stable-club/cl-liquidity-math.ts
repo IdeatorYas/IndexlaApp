@@ -273,3 +273,90 @@ export function simulateClMintConsumedAmounts(params: {
     liquidity,
   };
 }
+
+/**
+ * Worst-case consumed amounts over a tick band around the live price.
+ * Used so LP amountMins survive short plan→inclusion tick drift on narrow ranges.
+ * Sweep stays strictly inside (tickLower, tickUpper) so mins never collapse to zero
+ * from a single-sided out-of-range simulation.
+ */
+export function simulateClMintConsumedAmountsOverTickWindow(params: {
+  tokenA: Address;
+  tokenB: Address;
+  desiredA: bigint;
+  desiredB: bigint;
+  tickLower: number;
+  tickUpper: number;
+  sqrtPriceX96: bigint;
+  currentTick: number;
+  ratioDriftTicks: number;
+}): { amountA: bigint; amountB: bigint; amount0: bigint; amount1: bigint; liquidity: bigint } {
+  if (!Number.isInteger(params.currentTick)) {
+    throw new Error("currentTick must be an integer");
+  }
+  if (!Number.isFinite(params.ratioDriftTicks) || params.ratioDriftTicks < 0) {
+    throw new Error("ratioDriftTicks must be a non-negative number");
+  }
+  const drift = Math.floor(params.ratioDriftTicks);
+  const center = simulateClMintConsumedAmounts({
+    tokenA: params.tokenA,
+    tokenB: params.tokenB,
+    desiredA: params.desiredA,
+    desiredB: params.desiredB,
+    tickLower: params.tickLower,
+    tickUpper: params.tickUpper,
+    sqrtPriceX96: params.sqrtPriceX96,
+  });
+  if (drift === 0) {
+    return center;
+  }
+
+  // Keep at least one in-range tick on each side of the bounds.
+  const lo = Math.max(params.tickLower + 1, params.currentTick - drift);
+  const hi = Math.min(params.tickUpper - 1, params.currentTick + drift);
+  if (lo > hi) {
+    return center;
+  }
+
+  let minA = center.amountA;
+  let minB = center.amountB;
+  let amount0 = center.amount0;
+  let amount1 = center.amount1;
+  let liquidity = center.liquidity;
+
+  for (let tick = lo; tick <= hi; tick += 1) {
+    const sample = simulateClMintConsumedAmounts({
+      tokenA: params.tokenA,
+      tokenB: params.tokenB,
+      desiredA: params.desiredA,
+      desiredB: params.desiredB,
+      tickLower: params.tickLower,
+      tickUpper: params.tickUpper,
+      sqrtPriceX96: getSqrtRatioAtTick(tick),
+    });
+    if (sample.amountA < minA) {
+      minA = sample.amountA;
+      amount0 = sample.amount0;
+      amount1 = sample.amount1;
+      liquidity = sample.liquidity;
+    }
+    if (sample.amountB < minB) {
+      minB = sample.amountB;
+      // Prefer liquidity/token0-1 from the sample that tightens B when A already set;
+      // amounts0/1 are informational — mins use amountA/amountB only.
+      if (sample.amountA === minA) {
+        amount0 = sample.amount0;
+        amount1 = sample.amount1;
+        liquidity = sample.liquidity;
+      }
+    }
+  }
+
+  return {
+    amountA: minA,
+    amountB: minB,
+    amount0,
+    amount1,
+    liquidity,
+  };
+}
