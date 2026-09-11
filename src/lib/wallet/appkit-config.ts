@@ -26,7 +26,7 @@ export const APPKIT_METADATA = {
   name: "INDEXLA",
   description: "INDEXLA — non-custodial portfolio automation",
   url: "https://app.indexla.tech",
-  icons: ["https://app.indexla.tech/logo/indexla-logo-hq.png"],
+  icons: ["https://app.indexla.tech/logo/indexla-logo-transparent.png"],
 } as const;
 
 /**

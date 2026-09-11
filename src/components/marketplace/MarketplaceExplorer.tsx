@@ -205,8 +205,8 @@ export function MarketplaceExplorer({
             />
           </div>
 
-          <div className="border-b border-app-line/35 py-0.5">
-            <SegmentedControl
+          <div className="border-b border-app-line/35 py-1.5">
+            <CategoryAccentTabs
               ariaLabel="Asset category"
               items={ASSET_CATEGORY_TABS}
               selected={state.assetCategory}
@@ -274,8 +274,8 @@ export function MarketplaceExplorer({
           onSelect={(id) => patchState({ productTab: id as ProductTab })}
         />
 
-        <FilterRow label="Asset category">
-          <SegmentedControl
+        <div className="flex justify-center py-1">
+          <CategoryAccentTabs
             ariaLabel="Asset category"
             items={ASSET_CATEGORY_TABS}
             selected={state.assetCategory}
@@ -283,7 +283,7 @@ export function MarketplaceExplorer({
               patchState({ assetCategory: id as AssetCategory })
             }
           />
-        </FilterRow>
+        </div>
 
         {showNarratives ? (
           <FilterRow label="Index narrative">
@@ -354,7 +354,22 @@ function FilterRow({
   );
 }
 
-function SegmentedControl<T extends string>({
+function categoryAccentClass(id: string): string {
+  switch (id) {
+    case "Crypto":
+      return "app-cat-crypto";
+    case "Tokenized Stocks":
+      return "app-cat-stocks";
+    case "Tokenized Commodities":
+      return "app-cat-commodities";
+    case "Hybrid":
+      return "app-cat-hybrid";
+    default:
+      return "app-cat-all";
+  }
+}
+
+function CategoryAccentTabs<T extends string>({
   ariaLabel,
   items,
   selected,
@@ -365,21 +380,18 @@ function SegmentedControl<T extends string>({
   items: { id: T; label: string }[];
   selected: T;
   onSelect: (id: T) => void;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md";
 }) {
-  const h =
-    size === "lg" ? "h-10 sm:h-11" : size === "sm" ? "h-7" : "h-8 sm:h-9";
+  const h = size === "sm" ? "h-8 sm:h-9" : "h-9 sm:h-10";
   const text =
-    size === "lg"
-      ? "text-[13px] sm:text-sm"
-      : size === "sm"
-        ? "text-[10px] sm:text-[11px]"
-        : "text-[11px] sm:text-xs";
-  const pad = size === "sm" ? "px-2 sm:px-2.5" : "px-3 sm:px-4";
+    size === "sm"
+      ? "text-[10px] sm:text-[11px]"
+      : "text-[11px] sm:text-xs";
+  const pad = size === "sm" ? "px-2.5 sm:px-3" : "px-3 sm:px-3.5";
 
   return (
     <div
-      className="inline-flex flex-wrap justify-center gap-0.5 rounded-full border border-app-line/60 bg-app-panel/90 p-0.5"
+      className="mx-auto flex w-full max-w-3xl flex-wrap items-stretch justify-center gap-1.5 sm:gap-2"
       role="tablist"
       aria-label={ariaLabel}
     >
@@ -393,13 +405,12 @@ function SegmentedControl<T extends string>({
             aria-selected={active}
             onClick={() => onSelect(item.id)}
             className={[
-              "rounded-full font-bold transition-all",
+              "app-cat-tab min-w-[4.5rem] flex-1 basis-[4.5rem] sm:min-w-[5.5rem] sm:flex-none sm:basis-auto",
               h,
               text,
               pad,
-              active
-                ? "app-filter-tab-active"
-                : "text-app-muted hover:bg-app-soft hover:text-app-ink",
+              categoryAccentClass(item.id),
+              active ? "is-active" : "",
             ].join(" ")}
           >
             {item.label}

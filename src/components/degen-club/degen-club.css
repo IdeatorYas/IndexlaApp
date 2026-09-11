@@ -1,28 +1,28 @@
-/* Scoped DEGEN CLUB hub — INDEXLA blue/cyan identity (no pink/magenta). */
+/* Scoped DEGEN CLUB hub — indexla.tech blue-purple base + cyan accents. */
 .degen-hub {
-  --degen-bg: #070b18;
-  --degen-bg-soft: #10172a;
-  --degen-panel: #10172a;
-  --degen-panel-border: rgba(56, 189, 248, 0.28);
-  --degen-ink: #f8fafc;
-  --degen-muted: rgba(248, 250, 252, 0.62);
+  --degen-bg: #0a0614;
+  --degen-bg-soft: #12081f;
+  --degen-panel: #1a0f2e;
+  --degen-panel-border: rgba(167, 139, 250, 0.28);
+  --degen-ink: #f4f1ff;
+  --degen-muted: rgba(168, 155, 196, 0.92);
   --degen-blue: #38bdf8;
   --degen-cyan: #22d3ee;
   --degen-neon-green: #39ff88;
   --degen-neon-magenta: #22d3ee; /* legacy alias → cyan */
   --degen-neon-orange: #38bdf8; /* legacy alias → blue (filters/accents) */
   --degen-neon-gold: #ffd166;
-  --degen-purple: #38bdf8; /* legacy alias → primary blue */
-  --degen-danger: #ff4d4d;
+  --degen-purple: #a78bfa;
+  --degen-danger: #f87171;
   --degen-glow-blue: rgba(56, 189, 248, 0.22);
   --degen-glow-cyan: rgba(34, 211, 238, 0.18);
 
   /* Scoped overrides so shared donut/chart components read correctly on dark hub. */
-  --color-bg-elevated: #10172a;
-  --color-ink: #f8fafc;
-  --color-muted: rgba(248, 250, 252, 0.62);
-  --color-success: #39ff88;
-  --color-panel: rgba(56, 189, 248, 0.12);
+  --color-bg-elevated: #22143a;
+  --color-ink: #f4f1ff;
+  --color-muted: rgba(168, 155, 196, 0.92);
+  --color-success: #34d399;
+  --color-panel: rgba(124, 58, 237, 0.14);
 
   position: relative;
   margin: -1rem -0.75rem;
@@ -31,9 +31,9 @@
   color: var(--degen-ink);
   position: relative;
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(56, 189, 248, 0.2), transparent 55%),
-    radial-gradient(ellipse 60% 40% at 100% 20%, rgba(34, 211, 238, 0.12), transparent 50%),
-    radial-gradient(ellipse 50% 35% at 0% 60%, rgba(57, 255, 136, 0.06), transparent 45%),
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124, 58, 237, 0.28), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 20%, rgba(56, 189, 248, 0.14), transparent 50%),
+    radial-gradient(ellipse 50% 35% at 0% 60%, rgba(167, 139, 250, 0.1), transparent 45%),
     var(--degen-bg);
   overflow-x: clip;
   overflow-y: visible;

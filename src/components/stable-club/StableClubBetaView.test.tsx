@@ -185,14 +185,13 @@ describe("StableClubBetaView", () => {
     };
   });
 
-  it("disconnected: Connect Wallet + pool catalogue (progressive shell)", () => {
+  it("disconnected: pool catalogue without intro / duplicate Connect Wallet", () => {
     render(<StableClubBetaView />);
-    expect(screen.getByRole("button", { name: "Connect Wallet" })).toBeInTheDocument();
-    expect(screen.getByText(/Five-pool USDC liquidity/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect Wallet" })).toBeNull();
+    expect(screen.queryByText(/Five-pool USDC liquidity/i)).toBeNull();
+    expect(screen.queryByText(/Stable Club · Base/i)).toBeNull();
     expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
     expect(screen.queryByText("My Stable Club Position")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Connect Wallet" }));
-    expect(connect).toHaveBeenCalled();
   });
 
   it("wrong-network: Switch to Base instead of Connect wall", () => {
@@ -208,6 +207,7 @@ describe("StableClubBetaView", () => {
     render(<StableClubBetaView />);
     expect(screen.getByRole("button", { name: "Switch to Base" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Connect Wallet" })).toBeNull();
+    expect(screen.queryByText(/Five-pool USDC liquidity/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Switch to Base" }));
     expect(walletState.switchToBase).toHaveBeenCalled();
   });

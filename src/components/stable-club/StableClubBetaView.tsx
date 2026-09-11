@@ -255,7 +255,6 @@ export function StableClubBetaView({
   const readinessLoading = loadingOverride ?? loading;
   const readinessError = errorOverride !== undefined ? errorOverride : error;
   const connected = wallet.status === "connected" && Boolean(wallet.address);
-  const connecting = wallet.status === "connecting";
   const wrongNetwork = wallet.status === "wrong-network";
 
   const [allowUiPreview, setAllowUiPreview] = useState(false);
@@ -270,43 +269,22 @@ export function StableClubBetaView({
   }, []);
   const uiPreview = allowUiPreview ? searchParams.get("ui") : null;
 
-  const walletGate = (
-    <section className="app-panel rounded-2xl p-8 text-center sm:p-10">
-      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--color-ink-dim)]">
-        Stable Club · Base
+  /** Compact network prompt only — no intro / duplicate Connect Wallet. */
+  const wrongNetworkBanner = (
+    <section className="app-panel rounded-xl px-4 py-3 text-center sm:px-5">
+      <p className="text-sm text-[var(--color-danger)]" role="alert">
+        Wrong network — Stable Club runs on Base.
       </p>
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight text-[var(--color-ink)]">
-        Five-pool USDC liquidity
-      </h1>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-[var(--color-ink-muted)]">
-        Connect your wallet to deposit, manage positions, and withdraw to USDC — non-custodial on Base.
-      </p>
-      {wrongNetwork ? (
-        <>
-          <button
-            type="button"
-            disabled={wallet.switchingNetwork}
-            onClick={() => void wallet.switchToBase()}
-            className="mt-6 inline-flex h-12 min-w-[220px] items-center justify-center rounded-xl bg-[var(--color-brand)] px-6 text-sm font-bold uppercase tracking-[0.06em] text-white disabled:opacity-60"
-          >
-            {wallet.switchingNetwork ? "Switching…" : "Switch to Base"}
-          </button>
-          <p className="mt-3 text-sm text-[var(--color-danger)]" role="alert">
-            Wrong network — Stable Club runs on Base.
-          </p>
-        </>
-      ) : (
-        <button
-          type="button"
-          disabled={connecting}
-          onClick={() => void wallet.connect()}
-          className="mt-6 inline-flex h-12 min-w-[220px] items-center justify-center rounded-xl bg-[var(--color-brand)] px-6 text-sm font-bold uppercase tracking-[0.06em] text-white disabled:opacity-50"
-        >
-          {connecting ? "Connecting…" : "Connect Wallet"}
-        </button>
-      )}
+      <button
+        type="button"
+        disabled={wallet.switchingNetwork}
+        onClick={() => void wallet.switchToBase()}
+        className="mt-3 inline-flex h-10 min-w-[180px] items-center justify-center rounded-lg bg-[var(--color-brand)] px-5 text-xs font-bold uppercase tracking-[0.06em] text-white disabled:opacity-60"
+      >
+        {wallet.switchingNetwork ? "Switching…" : "Switch to Base"}
+      </button>
       {wallet.error ? (
-        <p className="mt-4 text-sm text-[var(--color-danger)]" role="alert">
+        <p className="mt-2 text-sm text-[var(--color-danger)]" role="alert">
           {wallet.error}
         </p>
       ) : null}
@@ -314,17 +292,17 @@ export function StableClubBetaView({
   );
 
   return (
-    <div className="stable-club-hub min-h-[70vh] px-3 py-6 sm:px-6 sm:py-8">
+    <div className="stable-club-hub min-h-[70vh] px-3 py-4 sm:px-6 sm:py-6">
       <div className="mx-auto w-full max-w-3xl space-y-3">
         {uiPreview === "positions" || uiPreview === "deposit" || uiPreview === "pools" ? (
           <DevUiPreview mode={uiPreview} />
         ) : wrongNetwork ? (
-          walletGate
-        ) : !connected ? (
           <>
-            {walletGate}
+            {wrongNetworkBanner}
             <StableClubAvailablePools depositsEnabled={false} showDepositCta={false} />
           </>
+        ) : !connected ? (
+          <StableClubAvailablePools depositsEnabled={false} showDepositCta={false} />
         ) : readinessError ? (
           <section className="app-panel rounded-2xl p-6">
             <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-[var(--color-danger)]">

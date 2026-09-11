@@ -4,11 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NavIcon } from "@/components/shell/NavIcons";
-import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
-import { getClientFeatureFlags } from "@/lib/feature-flags";
-import { APP_ROUTES, NAV_ITEMS } from "@/lib/routes";
-import { formatUsd } from "@/lib/dashboard/data";
-import { getDexlaBalance } from "@/lib/data";
+import { NAV_ITEMS } from "@/lib/routes";
 
 function isActive(pathname: string, href: string) {
   if (href === "/app") return pathname === "/app";
@@ -17,14 +13,7 @@ function isActive(pathname: string, href: string) {
 
 export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const { wallet } = useDemoWallet();
-  const flags = getClientFeatureFlags();
   const navItems = NAV_ITEMS;
-  const dexla = getDexlaBalance().data;
-  const initials =
-    wallet.state === "connected"
-      ? (wallet.shortenedAddress?.slice(2, 4) ?? "IX").toUpperCase()
-      : "IX";
 
   return (
     <aside
@@ -37,13 +26,13 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           onClick={onNavigate}
           className="flex items-center gap-3"
         >
-          <span className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-visible">
+          <span className="relative flex h-11 w-[48px] shrink-0 items-center justify-center overflow-visible">
             <Image
-              src="/logo/indexla-logo-hq.png"
+              src="/logo/indexla-logo-transparent.png"
               alt="INDEXLA"
-              width={44}
+              width={48}
               height={44}
-              className="h-11 w-11 object-contain"
+              className="h-11 w-auto max-w-[48px] object-contain"
               priority
             />
           </span>
@@ -58,7 +47,10 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
         </Link>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2.5 py-3.5" aria-label="Primary">
+      <nav
+        className="flex-1 space-y-1 overflow-y-auto px-2.5 py-3.5"
+        aria-label="Primary"
+      >
         {navItems.map((item) => {
           const active = isActive(pathname, item.href);
           return (
@@ -96,43 +88,6 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </nav>
-
-      <div className="app-sidebar-wave relative mt-auto border-t border-app-line p-3">
-        <div className="rounded-[10px] border border-app-line bg-gradient-to-br from-app-panel/90 to-app-elevated/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[var(--color-brand-grad-from)] to-[var(--color-brand-grad-to)] text-[11px] font-bold text-white">
-              {initials}
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-[12px] font-bold text-app-ink">
-                {wallet.state === "connected"
-                  ? wallet.shortenedAddress
-                  : "Guest explorer"}
-              </p>
-              <p className="text-[10px] text-app-dim">
-                {wallet.state === "connected" ? "Connected" : "Browse freely"}
-              </p>
-            </div>
-          </div>
-          <div className="mt-2.5 border-t border-app-line pt-2.5">
-            <p className="app-label">$DEXLA</p>
-            <p className="app-metric mt-0.5 text-[17px] text-app-ink">
-              {dexla.balance.toLocaleString()}
-            </p>
-            <p className="text-[10px] text-app-dim">
-              ≈ {formatUsd(dexla.balance * 0.42)}
-              {flags.DEXLA_DEMO_MODE ? " · Demo" : ""}
-            </p>
-          </div>
-          <Link
-            href={`${APP_ROUTES.portfolio}?action=buy-dexla`}
-            onClick={onNavigate}
-            className="app-gradient-btn mt-2.5 flex w-full items-center justify-center rounded-[10px] px-3 py-2 text-[11px] font-bold"
-          >
-            Buy $DEXLA
-          </Link>
-        </div>
-      </div>
     </aside>
   );
 }
