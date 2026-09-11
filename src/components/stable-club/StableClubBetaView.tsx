@@ -32,10 +32,9 @@ function StableClubShellSkeleton({ label }: { label: string }) {
 
 function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolean }) {
   const positions = useFivePoolPositions();
-  const hasPositions = positions.positions.length > 0;
-  const deploymentsBooting = positions.deploymentsLoading && !hasPositions;
-  /** My Position always shows the five-row dashboard once deployments load — never replace with Deposit USDC. */
-  const [tab, setTab] = useState<TabId>("position");
+  const hasActiveLps = positions.positions.some((pos) => pos.liquidity > BigInt(0));
+  const deploymentsBooting = positions.deploymentsLoading && !hasActiveLps;
+  const [tab, setTab] = useState<TabId>("pools");
   const [addFundsOpen, setAddFundsOpen] = useState(false);
 
   const openAddFunds = useCallback(() => {
@@ -50,8 +49,12 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
   }, [positions]);
 
   useEffect(() => {
-    if (hasPositions || positions.strategyRegistered) setTab("position");
-  }, [hasPositions, positions.strategyRegistered]);
+    if (hasActiveLps) setTab("position");
+  }, [hasActiveLps]);
+
+  useEffect(() => {
+    if (!hasActiveLps) setAddFundsOpen(false);
+  }, [hasActiveLps]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -126,13 +129,9 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
         <div className="space-y-3">
           <StableClubAvailablePools
             depositsEnabled={depositsEnabled}
-            showDepositCta={hasPositions || positions.strategyRegistered}
+            showDepositCta={hasActiveLps}
             onDepositClick={openAddFunds}
-            depositSlot={
-              !hasPositions && !positions.strategyRegistered
-                ? firstDepositForm
-                : undefined
-            }
+            depositSlot={!hasActiveLps ? firstDepositForm : undefined}
           />
         </div>
       ) : (
@@ -143,7 +142,7 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
             onAddFunds={() => setAddFundsOpen((v) => !v)}
             addFundsOpen={addFundsOpen}
           />
-          {addFundsOpen ? (
+          {addFundsOpen && hasActiveLps ? (
             <StableClubCompactDeposit
               depositsEnabled={depositsEnabled}
               onDepositSuccess={onDepositSuccess}

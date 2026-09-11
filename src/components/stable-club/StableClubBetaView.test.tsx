@@ -226,7 +226,7 @@ describe("StableClubBetaView", () => {
     expect(screen.getByRole("button", { name: "Switching…" })).toBeDisabled();
   });
 
-  it("connected with no positions: clean empty state (not five fake rows)", () => {
+  it("connected with no positions: blank My Position body (no panel/actions)", () => {
     walletState = {
       status: "connected",
       chainId: 8453,
@@ -237,13 +237,27 @@ describe("StableClubBetaView", () => {
       switchToBase: vi.fn(),
     };
     render(<StableClubBetaView />);
+    // Empty wallets land on Available Pools; My Position is blank when selected.
+    expect(screen.getByRole("tab", { name: "Available Pools" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "My Position" }));
     expect(screen.getByRole("tab", { name: "My Position" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.getByRole("heading", { name: "My Position" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "My Position" })).toBeNull();
+    expect(screen.queryByLabelText("My Stable Club Position")).toBeNull();
+    expect(screen.queryByText("Total Position Value")).toBeNull();
     expect(screen.queryByText("No active positions")).toBeNull();
     expect(screen.queryByRole("columnheader", { name: "Pool" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add Funds" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Withdraw" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Harvest" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Compound" })).toBeNull();
     expect(screen.queryByText(/Stranded wallet assets/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /Resume incomplete withdraw/i })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Deposit USDC" })).toBeNull();

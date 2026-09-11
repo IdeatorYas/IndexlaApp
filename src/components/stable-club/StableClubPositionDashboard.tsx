@@ -187,6 +187,7 @@ export function StableClubPositionDashboard({
   const hasSettledDiscovery = !p.positionsLoading;
   const showRpcError =
     hasSettledDiscovery && Boolean(p.positionsError) && rows.length === 0;
+  /** Confirmed empty only — never treat RPC failure as zero positions. */
   const isEmpty = hasSettledDiscovery && rows.length === 0 && !showRpcError;
 
   const blendedApy = useMemo(() => {
@@ -256,6 +257,15 @@ export function StableClubPositionDashboard({
 
   const actionBtn =
     "h-12 rounded-xl border border-[var(--color-panel-border)] bg-[var(--color-bg-elevated)] text-[12px] font-extrabold uppercase tracking-[0.07em] text-[var(--color-ink)] transition hover:bg-[var(--color-panel)] disabled:cursor-not-allowed disabled:opacity-40";
+
+  /**
+   * Confirmed zero active LPs: render nothing under the My Position tab
+   * (no panel, metrics, table, or action buttons). Available Pools stays separate.
+   * RPC failures still show the error/retry UI above — never blank as “empty”.
+   */
+  if (isEmpty) {
+    return null;
+  }
 
   return (
     <section
