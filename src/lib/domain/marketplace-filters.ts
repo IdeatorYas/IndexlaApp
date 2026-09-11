@@ -5,8 +5,15 @@ import type {
   NarrativeId,
   ProductTab,
 } from "@/lib/domain/marketplace";
+import type { NetworkId } from "@/lib/domain/types";
 
 export type AssetCategory = IndexType | "All";
+
+/** Core discovery chain chips — shown under Crypto asset type. */
+export type ChainFilterId = "all" | Extract<
+  NetworkId,
+  "ethereum" | "solana" | "base" | "sui" | "robinhood" | "bnb"
+>;
 
 export const PRODUCT_TABS: { id: ProductTab; label: string }[] = [
   { id: "indexes", label: "Indexes" },
@@ -19,6 +26,16 @@ export const ASSET_CATEGORY_TABS: { id: AssetCategory; label: string }[] = [
   { id: "Tokenized Stocks", label: "Tokenized Stocks" },
   { id: "Tokenized Commodities", label: "Tokenized Commodities" },
   { id: "Hybrid", label: "Hybrid" },
+];
+
+export const CHAIN_FILTER_TABS: { id: ChainFilterId; label: string }[] = [
+  { id: "all", label: "All Chains" },
+  { id: "ethereum", label: "Ethereum" },
+  { id: "solana", label: "Solana" },
+  { id: "base", label: "Base" },
+  { id: "sui", label: "Sui" },
+  { id: "robinhood", label: "Robinhood Chain" },
+  { id: "bnb", label: "bSC" },
 ];
 
 export const NARRATIVES_BY_INDEX_TYPE: Record<
@@ -79,6 +96,8 @@ export const SORT_OPTIONS: { id: DiscoverSort; label: string }[] = [
 export interface MarketplaceFilterState {
   productTab: ProductTab;
   assetCategory: AssetCategory;
+  /** Applies with Crypto; ignored (treated as all) for other asset categories. */
+  chain: ChainFilterId;
   narrative: NarrativeId;
   query: string;
   sort: DiscoverSort;
@@ -88,6 +107,7 @@ export interface MarketplaceFilterState {
 export const DEFAULT_FILTER_STATE: MarketplaceFilterState = {
   productTab: "indexes",
   assetCategory: "All",
+  chain: "all",
   narrative: "all",
   query: "",
   sort: "trending",
@@ -109,6 +129,25 @@ function matchesAssetCategory(
 function matchesNarrative(product: MarketplaceProduct, narrative: NarrativeId) {
   if (narrative === "all") return true;
   return product.narrative === narrative;
+}
+
+function matchesChain(product: MarketplaceProduct, chain: ChainFilterId) {
+  if (chain === "all") return true;
+  return product.networkIds.includes(chain);
+}
+
+export function parseChainFilter(raw: string | null | undefined): ChainFilterId {
+  if (
+    raw === "ethereum" ||
+    raw === "solana" ||
+    raw === "base" ||
+    raw === "sui" ||
+    raw === "robinhood" ||
+    raw === "bnb"
+  ) {
+    return raw;
+  }
+  return "all";
 }
 
 function matchesSearch(product: MarketplaceProduct, query: string) {
@@ -153,9 +192,12 @@ export function filterMarketplaceProducts(
   products: MarketplaceProduct[],
   state: MarketplaceFilterState,
 ) {
+  const chainFilter =
+    state.assetCategory === "Crypto" ? state.chain : ("all" as const);
   const list = products.filter((product) => {
     if (!matchesProductTab(product, state.productTab)) return false;
     if (!matchesAssetCategory(product, state.assetCategory)) return false;
+    if (!matchesChain(product, chainFilter)) return false;
     if (
       state.productTab === "indexes" &&
       !matchesNarrative(product, state.narrative)

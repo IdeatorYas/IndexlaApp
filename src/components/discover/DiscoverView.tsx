@@ -8,6 +8,7 @@ import type {
   AssetCategory,
   MarketplaceFilterState,
 } from "@/lib/domain/marketplace-filters";
+import { parseChainFilter } from "@/lib/domain/marketplace-filters";
 import {
   EmptyState,
   ErrorState,
@@ -80,6 +81,7 @@ export function DiscoverView({
   const initialState: Partial<MarketplaceFilterState> = {
     productTab: parseProductTab(searchParams.get("tab")),
     assetCategory: parseAssetCategory(searchParams.get("type")),
+    chain: parseChainFilter(searchParams.get("chain")),
     narrative: parseNarrative(searchParams.get("narrative")),
     query: searchParams.get("q") ?? "",
     sort: parseSort(searchParams.get("sort")),
@@ -145,8 +147,8 @@ export function DiscoverView({
             {illustrative ? <IllustrativeBadge compact /> : null}
           </div>
           <p className="mt-1 max-w-2xl text-sm text-app-muted">
-            Full INDEXLA index and portfolio catalog with asset category and
-            index narrative filters.
+            Full INDEXLA index and portfolio catalog with asset category, chain,
+            and index narrative filters.
           </p>
         </div>
         <Link

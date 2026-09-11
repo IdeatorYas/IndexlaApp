@@ -5,11 +5,13 @@ import { useCallback, useMemo, useState } from "react";
 import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketplace";
 import {
   ASSET_CATEGORY_TABS,
+  CHAIN_FILTER_TABS,
   DEFAULT_FILTER_STATE,
   SORT_OPTIONS,
   filterMarketplaceProducts,
   narrativeOptionsForCategory,
   type AssetCategory,
+  type ChainFilterId,
   type MarketplaceFilterState,
 } from "@/lib/domain/marketplace-filters";
 import type { DiscoverSort, NarrativeId, ProductTab } from "@/lib/domain/marketplace";
@@ -26,6 +28,9 @@ function buildDiscoverHref(state: MarketplaceFilterState): string {
   const params = new URLSearchParams();
   params.set("tab", state.productTab);
   if (state.assetCategory !== "All") params.set("type", state.assetCategory);
+  if (state.assetCategory === "Crypto" && state.chain !== "all") {
+    params.set("chain", state.chain);
+  }
   if (state.productTab === "indexes" && state.narrative !== "all") {
     params.set("narrative", state.narrative);
   }
@@ -57,7 +62,8 @@ function ProductOriginSections({
   if (indexlaShown.length === 0 && creatorShown.length === 0) {
     return (
       <p className="app-panel px-3 py-3 text-center text-[12px] text-app-muted">
-        No products match these filters. Try another category or narrative.
+        No indexes match these filters yet. Try another chain, category, or
+        narrative.
       </p>
     );
   }
@@ -152,6 +158,9 @@ export function MarketplaceExplorer({
           patch.assetCategory !== prev.assetCategory
         ) {
           next.narrative = "all";
+          if (patch.assetCategory !== "Crypto") {
+            next.chain = "all";
+          }
         }
         if (patch.productTab && patch.productTab !== prev.productTab) {
           next.narrative = "all";
@@ -160,6 +169,10 @@ export function MarketplaceExplorer({
           syncUrl({
             tab: next.productTab,
             type: next.assetCategory === "All" ? null : next.assetCategory,
+            chain:
+              next.assetCategory === "Crypto" && next.chain !== "all"
+                ? next.chain
+                : null,
             narrative:
               next.productTab === "indexes" && next.narrative !== "all"
                 ? next.narrative
@@ -180,6 +193,7 @@ export function MarketplaceExplorer({
   );
 
   const narratives = narrativeOptionsForCategory(state.assetCategory);
+  const showChainFilter = state.assetCategory === "Crypto";
   const showNarratives =
     state.productTab === "indexes" && state.assetCategory !== "All";
   const discoverHref = buildDiscoverHref(state);
@@ -216,6 +230,17 @@ export function MarketplaceExplorer({
               size="sm"
             />
           </div>
+
+          {showChainFilter ? (
+            <div className="border-b border-app-line/35 py-0.5">
+              <ChipRow
+                items={CHAIN_FILTER_TABS}
+                selected={state.chain}
+                onSelect={(id) => patchState({ chain: id as ChainFilterId })}
+                compact
+              />
+            </div>
+          ) : null}
 
           {showNarratives ? (
             <div className="border-b border-app-line/35 py-0.5">
@@ -284,6 +309,16 @@ export function MarketplaceExplorer({
             }
           />
         </div>
+
+        {showChainFilter ? (
+          <FilterRow label="Chain">
+            <ChipRow
+              items={CHAIN_FILTER_TABS}
+              selected={state.chain}
+              onSelect={(id) => patchState({ chain: id as ChainFilterId })}
+            />
+          </FilterRow>
+        ) : null}
 
         {showNarratives ? (
           <FilterRow label="Index narrative">
