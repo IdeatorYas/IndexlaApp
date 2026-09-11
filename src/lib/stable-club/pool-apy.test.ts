@@ -88,6 +88,7 @@ describe("buildPoolApyQuotes", () => {
             "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
           ],
           apy: -5,
+          apyBase: -5,
         },
       ],
       new Date(),
@@ -109,6 +110,7 @@ describe("buildPoolApyQuotes", () => {
             "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
           ],
           apy: 5.5,
+          apyBase: 5.5,
           tvlUsd: 1_000_000,
         },
       ],
@@ -117,6 +119,32 @@ describe("buildPoolApyQuotes", () => {
     const uni = quotes.find((q) => q.poolId === "USDC-cbBTC-UNI-005");
     expect(uni?.status).toBe("available");
     expect(uni?.apyPercent).toBe(5.5);
+  });
+
+  it("uses fee APY only — excludes reward-inflated totals", () => {
+    const quotes = buildPoolApyQuotes(
+      [
+        {
+          chain: "Base",
+          pool: "uuid-weth-cbbtc-cl10",
+          project: "aerodrome-slipstream",
+          poolMeta: "CL10 - 0.055%",
+          underlyingTokens: [
+            "0x4200000000000000000000000000000000000006",
+            "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+          ],
+          apy: 812.08,
+          apyBase: 100.8,
+          apyReward: 711.28,
+        },
+      ],
+      new Date(),
+    );
+    const cl10 = quotes.find((q) => q.poolId === "cbBTC-WETH-AERO-CL10");
+    expect(cl10?.status).toBe("available");
+    expect(cl10?.apyPercent).toBe(100.8);
+    expect(cl10?.apyBasePercent).toBe(100.8);
+    expect(cl10?.apyRewardPercent).toBe(711.28);
   });
 
   it("does not match CL100 when looking for CL10 (prefix false-positive)", () => {
@@ -132,6 +160,7 @@ describe("buildPoolApyQuotes", () => {
             "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
           ],
           apy: 4.2,
+          apyBase: 4.2,
         },
         {
           chain: "Base",
@@ -143,6 +172,7 @@ describe("buildPoolApyQuotes", () => {
             "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
           ],
           apy: 12.5,
+          apyBase: 12.5,
         },
       ],
       new Date(),

@@ -188,14 +188,27 @@ export function buildPoolApyQuotes(rows: DefiLlamaPoolRow[], fetchedAt: Date): P
     }
 
     const match = matchDefiLlamaRow(rows, pool.poolAddress, pool.protocol, pool.id);
-    const apyPercent = sanitizeApyPercent(match?.apy);
+    const feeApy = sanitizeApyPercent(match?.apyBase);
+    const totalApy = sanitizeApyPercent(match?.apy);
+    const rewardApy = sanitizeApyPercent(match?.apyReward);
+    /**
+     * Display / basket APY = accessible trading-fee yield only.
+     * Prefer DefiLlama apyBase; fall back to total apy only when rewards are
+     * absent (null/0). Never use reward-inflated totals.
+     */
+    const apyPercent =
+      feeApy != null
+        ? feeApy
+        : rewardApy == null || rewardApy === 0
+          ? totalApy
+          : null;
     if (!match || apyPercent == null) {
       return {
         poolId: pool.id,
         poolAddress: pool.poolAddress,
         apyPercent: null,
-        apyBasePercent: null,
-        apyRewardPercent: null,
+        apyBasePercent: feeApy,
+        apyRewardPercent: rewardApy,
         tvlUsd:
           typeof match?.tvlUsd === "number" && Number.isFinite(match.tvlUsd) && match.tvlUsd >= 0
             ? match.tvlUsd
@@ -203,7 +216,10 @@ export function buildPoolApyQuotes(rows: DefiLlamaPoolRow[], fetchedAt: Date): P
         source: "defillama-yields",
         updatedAt: now,
         status: "unavailable",
-        unavailableReason: "No live APY from trusted source",
+        unavailableReason:
+          match && feeApy == null && rewardApy != null && rewardApy > 0
+            ? "Fee APY unavailable (reward-only quote excluded)"
+            : "No live fee APY from trusted source",
       };
     }
 
@@ -211,8 +227,8 @@ export function buildPoolApyQuotes(rows: DefiLlamaPoolRow[], fetchedAt: Date): P
       poolId: pool.id,
       poolAddress: pool.poolAddress,
       apyPercent,
-      apyBasePercent: sanitizeApyPercent(match.apyBase),
-      apyRewardPercent: sanitizeApyPercent(match.apyReward),
+      apyBasePercent: feeApy ?? apyPercent,
+      apyRewardPercent: rewardApy,
       tvlUsd:
         typeof match.tvlUsd === "number" && Number.isFinite(match.tvlUsd) && match.tvlUsd >= 0
           ? match.tvlUsd

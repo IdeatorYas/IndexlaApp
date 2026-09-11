@@ -3,7 +3,6 @@
 import { useMemo, type ReactNode } from "react";
 import {
   formatApyDisplay,
-  formatApyPartAllowZero,
   formatOfficialPoolFee,
   formatTvlUsd,
   protocolDisplayName,
@@ -12,6 +11,7 @@ import {
 import { DegenChainLogo } from "@/components/degen-club/DegenChainLogo";
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
 import { TOKEN_LOGO_URLS } from "@/lib/stable-club/pool-product-meta";
+import { computeBlendedStrategyApy } from "@/lib/stable-club/pool-apy";
 import { STAGE1_FIVE_POOL_BETA_POOL_IDS } from "@/lib/stable-club/stage1-launch";
 
 function tokenSymbol(symbol: string): string {
@@ -78,14 +78,14 @@ export function StableClubAvailablePools({
   );
 
   const blendedApy = useMemo(() => {
-    const vals = pools
-      .map((p) => byPoolId[p.id])
-      .filter((q) => q?.status === "available" && q.apyPercent != null)
-      .map((q) => q!.apyPercent as number);
     if (loading) return "…";
-    if (!vals.length) return "Unavailable";
-    return `${(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)}%`;
-  }, [byPoolId, loading, pools]);
+    const quotes = pools.map((p) => byPoolId[p.id]).filter((q) => q != null);
+    const blended = computeBlendedStrategyApy(quotes, fetchedAt);
+    if (blended.status !== "available" || blended.apyPercent == null) {
+      return "Unavailable";
+    }
+    return `${blended.apyPercent.toFixed(2)}%`;
+  }, [byPoolId, fetchedAt, loading, pools]);
 
   return (
     <section
@@ -119,7 +119,7 @@ export function StableClubAvailablePools({
           </div>
           <div className="rounded-2xl bg-white/10 px-4 py-3.5 text-left ring-1 ring-white/20 sm:min-w-[10.5rem] sm:text-right">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/55">
-              Live blended APY
+              Basket APY
             </p>
             <p className="mt-1 text-[1.75rem] font-extrabold tabular-nums tracking-tight text-teal-200">
               {blendedApy}
@@ -166,29 +166,13 @@ export function StableClubAvailablePools({
                 </span>
               </div>
 
-              <dl className="grid grid-cols-4 gap-2 sm:w-[22rem] sm:shrink-0">
+              <dl className="grid grid-cols-2 gap-4 sm:w-[14rem] sm:shrink-0">
                 <div>
                   <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--color-ink-dim)]">
-                    Live APY
+                    APY
                   </dt>
-                  <dd className="mt-0.5 text-[13px] font-extrabold tabular-nums text-emerald-700 sm:text-sm">
+                  <dd className="mt-0.5 text-[13px] font-extrabold tabular-nums text-emerald-700 dark:text-emerald-300 sm:text-sm">
                     {formatApyDisplay(quote, loading)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--color-ink-dim)]">
-                    Fee APY
-                  </dt>
-                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-[var(--color-ink)] sm:text-sm">
-                    {formatApyPartAllowZero(quote?.apyBasePercent, loading, Boolean(available))}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--color-ink-dim)]">
-                    Reward APY
-                  </dt>
-                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-[var(--color-ink)] sm:text-sm">
-                    {formatApyPartAllowZero(quote?.apyRewardPercent, loading, Boolean(available))}
                   </dd>
                 </div>
                 <div>
@@ -208,6 +192,11 @@ export function StableClubAvailablePools({
           );
         })}
       </div>
+
+      <p className="border-t border-[var(--color-panel-border)] px-4 py-3 text-[11px] leading-relaxed text-[var(--color-ink-dim)] sm:px-6">
+        Estimated annualized yield. Variable; excludes execution costs and impermanent
+        loss.
+      </p>
 
       {depositSlot ? (
         <div className="border-t border-[var(--color-panel-border)] bg-[var(--color-panel)] px-4 py-4 sm:px-6 sm:py-5">
