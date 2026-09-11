@@ -169,29 +169,37 @@ export const STABLE_CLUB_DEMO_POOL_COUNT = STABLE_CLUB_DEMO_PRODUCTS.reduce(
 );
 
 export const STABLE_CLUB_CATEGORY_COPY = {
-  heading: "Three Strategies. Built for Different Risk Levels.",
-  subheading:
-    "From stablecoin-focused liquidity to higher-growth blue-chip pools—choose the strategy that fits you.",
-  categories: [
-    {
-      id: "stable-to-stable",
-      title: "Stable → Stable",
-      riskLabel: "Lower Risk",
-      body: "Put stablecoins to work across five selected stable-to-stable pools. Designed for steadier returns, lower price volatility and reduced impermanent-loss exposure.",
-    },
-    {
-      id: "stable-to-eth-btc",
-      title: "Stable → ETH/BTC",
-      riskLabel: "Medium Risk",
-      body: "Pair stablecoins with ETH and Bitcoin to capture higher trading fees and growth potential. Offers greater upside than stable-only pools, with increased price and impermanent-loss risk.",
-    },
-    {
-      id: "bitcoin-to-blue-chips",
-      title: "Bitcoin → Other Blue Chips",
-      riskLabel: "Higher Risk",
-      body: "Provide Bitcoin liquidity alongside ETH, SOL and other leading crypto assets. Built for stronger yield potential, with higher volatility and greater impermanent-loss exposure.",
-    },
-  ],
-  activationNote:
-    "When these upcoming strategies are activated, INDEXLA will automatically harvest and compound their earned fees.",
+  chainBaskets: {
+    title: "Chain Baskets",
+    body:
+      "One deposit across selected LPs on one chain. Base is live beta; planned baskets include Ethereum, Robinhood, and other supported chains.",
+  },
+  riskBaskets: {
+    title: "Risk-Based Baskets",
+    intro: "Relative risk profiles for upcoming strategies — not guarantees.",
+    levels: [
+      {
+        id: "lower",
+        title: "Stablecoin / stablecoin",
+        riskLabel: "Lower risk",
+        body: "Stablecoin pairs designed for steadier liquidity provision.",
+      },
+      {
+        id: "medium",
+        title: "Stablecoin / blue-chip",
+        riskLabel: "Medium risk",
+        body: "Stablecoins paired with leading blue-chip assets.",
+      },
+      {
+        id: "higher",
+        title: "Altcoin / altcoin",
+        riskLabel: "Higher risk",
+        body: "Altcoin pairs with greater volatility and yield variability.",
+      },
+    ],
+    footnote:
+      "These labels describe relative risk only. Lower risk does not mean risk-free.",
+  },
+  disclaimer:
+    "Stable Club involves risk, including loss of principal, impermanent loss, smart-contract vulnerabilities, and changes in liquidity or incentives. APY is variable and not guaranteed. Risk labels are relative; lower risk does not mean risk-free. Not financial advice.",
 } as const;

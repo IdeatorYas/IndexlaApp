@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { StableClubAvailablePools } from "@/components/stable-club/StableClubAvailablePools";
 import { StableClubCompactDeposit } from "@/components/stable-club/StableClubCompactDeposit";
+import {
+  StableClubCategoryExplain,
+  StableClubRiskDisclaimer,
+} from "@/components/stable-club/StableClubCategoryExplain";
 import { StableClubPositionDashboard } from "@/components/stable-club/StableClubPositionDashboard";
 import { useFivePoolPositions } from "@/components/stable-club/useFivePoolPositions";
 import { useStableClubBetaReadiness } from "@/components/stable-club/useStableClubBetaReadiness";
@@ -345,6 +349,8 @@ export function StableClubBetaView({
         ) : (
           <StableClubConnectedShell depositsEnabled={depositsEnabled} />
         )}
+        <StableClubCategoryExplain />
+        <StableClubRiskDisclaimer />
       </div>
     </div>
   );

@@ -242,7 +242,7 @@ describe("StableClubBetaView", () => {
       "true",
     );
     expect(screen.getByRole("heading", { name: "My Position" })).toBeInTheDocument();
-    expect(screen.getByText("No active positions")).toBeInTheDocument();
+    expect(screen.queryByText("No active positions")).toBeNull();
     expect(screen.queryByRole("columnheader", { name: "Pool" })).toBeNull();
     expect(screen.queryByText(/Stranded wallet assets/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /Resume incomplete withdraw/i })).toBeNull();
@@ -298,7 +298,8 @@ describe("StableClubBetaView", () => {
     expect(screen.getByRole("button", { name: "Harvest" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Compound" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Withdraw" })).toBeInTheDocument();
-    expect(screen.queryByText(/Coming Soon/i)).toBeNull();
+    expect(screen.getByText("Coming Soon")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Chain Baskets" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Harvest All/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Withdraw All/i })).toBeNull();
 

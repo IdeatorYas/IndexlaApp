@@ -20,8 +20,7 @@ export const APP_ROUTES = {
 } as const;
 
 export const NAV_ITEMS = [
-  { href: APP_ROUTES.dashboard, label: "Dashboard", shortLabel: "Dashboard" },
-  { href: APP_ROUTES.discover, label: "Discover", shortLabel: "Discover" },
+  { href: APP_ROUTES.dashboard, label: "INDEXLA Core", shortLabel: "Core" },
   { href: APP_ROUTES.stableClub, label: "Stable Club", shortLabel: "Stable" },
   { href: APP_ROUTES.degenClub, label: "Degen Club", shortLabel: "Degen" },
   { href: APP_ROUTES.create, label: "Create Portfolio / Index", shortLabel: "Create" },

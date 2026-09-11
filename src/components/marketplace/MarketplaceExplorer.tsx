@@ -6,7 +6,6 @@ import type { DiscoverCatalog, MarketplaceProduct } from "@/lib/domain/marketpla
 import {
   ASSET_CATEGORY_TABS,
   DEFAULT_FILTER_STATE,
-  PRODUCT_TABS,
   SORT_OPTIONS,
   filterMarketplaceProducts,
   narrativeOptionsForCategory,
@@ -15,6 +14,10 @@ import {
 } from "@/lib/domain/marketplace-filters";
 import type { DiscoverSort, NarrativeId, ProductTab } from "@/lib/domain/marketplace";
 import { MarketplaceProductCard } from "@/components/product/MarketplaceProductCard";
+import {
+  MarketplaceTitle,
+  PrimaryProductTabs,
+} from "@/components/marketplace/MarketplaceNav";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { splitMarketplaceByOrigin } from "@/lib/product/product-type";
 import { APP_ROUTES } from "@/lib/routes";
@@ -30,33 +33,6 @@ function buildDiscoverHref(state: MarketplaceFilterState): string {
   if (state.sort !== "trending") params.set("sort", state.sort);
   const qs = params.toString();
   return `${APP_ROUTES.discover}${qs ? `?${qs}` : ""}`;
-}
-
-function MarketplaceTitle({ compact = false }: { compact?: boolean }) {
-  return (
-    <div
-      className={[
-        "mx-auto text-center",
-        compact ? "max-w-xl" : "max-w-2xl",
-      ].join(" ")}
-    >
-      <div
-        className={[
-          "rounded-[14px] border border-app-line/60 bg-gradient-to-b from-app-elevated via-app-panel to-app-soft/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_12px_36px_-16px_rgba(0,0,0,0.45)]",
-          compact ? "px-3 py-2" : "px-4 py-3 sm:px-5 sm:py-3.5",
-        ].join(" ")}
-      >
-        <h2
-          className={[
-            "app-display font-bold tracking-tight text-app-ink",
-            compact ? "text-lg sm:text-xl" : "text-2xl sm:text-[1.75rem]",
-          ].join(" ")}
-        >
-          Marketplace
-        </h2>
-      </div>
-    </div>
-  );
 }
 
 function ProductOriginSections({
@@ -356,49 +332,6 @@ export function MarketplaceExplorer({
 
       <ProductOriginSections products={filtered} />
     </section>
-  );
-}
-
-function PrimaryProductTabs({
-  selected,
-  onSelect,
-  compact = false,
-}: {
-  selected: ProductTab;
-  onSelect: (id: ProductTab) => void;
-  compact?: boolean;
-}) {
-  return (
-    <div
-      className={[
-        "grid grid-cols-2",
-        compact ? "gap-2" : "gap-2.5 sm:gap-3",
-      ].join(" ")}
-      role="tablist"
-      aria-label="Marketplace product type"
-    >
-      {PRODUCT_TABS.map((tab) => {
-        const active = tab.id === selected;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onSelect(tab.id)}
-            className={[
-              "app-marketplace-nav-tab rounded-[14px]",
-              compact
-                ? "min-h-[48px] px-3 py-3 text-[12px] sm:text-[13px]"
-                : "min-h-[64px] px-4 py-4 text-base sm:min-h-[72px] sm:text-lg",
-              active ? "app-marketplace-nav-tab-active scale-[1.02]" : "opacity-90",
-            ].join(" ")}
-          >
-            {tab.label}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 

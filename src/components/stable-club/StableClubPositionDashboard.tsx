@@ -42,7 +42,7 @@ function TokenPairMarks({ a, b }: { a: string; b: string }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={sa} alt="" className="h-8 w-8 rounded-full ring-1 ring-white" />
       ) : (
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-ink)] text-[10px] font-bold text-white">
+        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#0b1f3a] text-[10px] font-bold text-white">
           {sym(a).slice(0, 2)}
         </span>
       )}
@@ -50,7 +50,7 @@ function TokenPairMarks({ a, b }: { a: string; b: string }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={sb} alt="" className="-ml-2.5 h-8 w-8 rounded-full ring-1 ring-white" />
       ) : (
-        <span className="-ml-2.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-brand)] text-[10px] font-bold text-white">
+        <span className="-ml-2.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#1a4f8c] text-[10px] font-bold text-white">
           {sym(b).slice(0, 2)}
         </span>
       )}
@@ -409,18 +409,7 @@ export function StableClubPositionDashboard({
               Retry
             </button>
           </div>
-        ) : isEmpty ? (
-          <div
-            className="flex min-h-[140px] flex-col items-center justify-center gap-2 rounded-xl border border-[var(--color-panel-border)] bg-[var(--color-panel)] px-4 py-8 text-center"
-            role="status"
-          >
-            <p className="text-base font-bold text-[var(--color-ink)]">No active positions</p>
-            <p className="max-w-sm text-[13px] text-[var(--color-ink-muted)]">
-              This wallet has no open Stable Club LP NFTs. Deposit USDC to open five-pool
-              positions.
-            </p>
-          </div>
-        ) : (
+        ) : isEmpty ? null : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] border-collapse text-left text-[var(--color-ink)]">
               <thead>
@@ -525,7 +514,7 @@ export function StableClubPositionDashboard({
           <p className="mt-2 text-sm text-emerald-800 dark:text-emerald-300">{p.statusMessage}</p>
         ) : null}
         {p.error ? (
-          <p className="mt-2 text-sm text-[var(--color-danger)]" role="alert">
+          <p className="mt-2 text-sm text-[#b42318]" role="alert">
             {p.error}
           </p>
         ) : null}
@@ -535,7 +524,7 @@ export function StableClubPositionDashboard({
               href={p.explorerUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-[var(--color-brand)] underline-offset-2 hover:underline"
+              className="text-[#1a4f8c] underline-offset-2 hover:underline"
             >
               BaseScan {p.lastTxHash.slice(0, 10)}…
             </a>
@@ -604,30 +593,30 @@ export function StableClubPositionDashboard({
                   </label>
                 ) : null}
                 {!withdrawPercentValid ? (
-                  <p className="mt-2 text-sm text-[var(--color-danger)]" role="alert">
+                  <p className="mt-2 text-sm text-[#b42318]" role="alert">
                     Enter a percent between 1 and 100.
                   </p>
                 ) : !exitPercentExecutable && Math.round(withdrawPercent) !== 100 ? (
-                  <p className="mt-2 text-sm text-[var(--color-danger)]" role="alert">
+                  <p className="mt-2 text-sm text-[#b42318]" role="alert">
                     Custom % is not available on this deployment. Choose{" "}
                     <span className="font-semibold">100%</span> for atomic USDC exit.
                   </p>
                 ) : withdrawStackKind === "legacy" ? (
-                  <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
+                  <p className="mt-2 text-sm text-[#5b6b7c]">
                     Removes {Math.round(withdrawPercent)}% of remaining LP liquidity as NFT
                     owner (no permit) → sells non-USDC on Uniswap → USDC to your wallet.
                     NPM calls are batched per position manager to save gas. Needs a small
                     amount of Base ETH for gas (~a few thousandths).
                   </p>
                 ) : (
-                  <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
+                  <p className="mt-2 text-sm text-[#5b6b7c]">
                     Removes {Math.round(withdrawPercent)}% of remaining LP liquidity → sells
                     non-USDC → sends USDC only to your wallet (one atomic tx).
                   </p>
                 )}
               </>
             ) : (
-              <p className="mt-4 text-sm text-[var(--color-ink-muted)]">
+              <p className="mt-4 text-sm text-[#5b6b7c]">
                 Exits <span className="font-semibold">100%</span> of remaining LP liquidity →
                 sells non-USDC → sends USDC only to your wallet.
               </p>
@@ -636,24 +625,24 @@ export function StableClubPositionDashboard({
             {usdValue.totalUsdc != null && usdValue.totalUsdc > BigInt(0) ? (
               <ul className="mt-3 space-y-1.5 text-sm">
                 <li className="flex justify-between">
-                  <span className="text-[var(--color-ink-muted)]">Est. remaining LP (USDC)</span>
+                  <span className="text-[#5b6b7c]">Est. remaining LP (USDC)</span>
                   <span className="font-semibold">${formatUnits(usdValue.totalUsdc, 6)}</span>
                 </li>
               </ul>
             ) : null}
 
-            <div className="mt-4 rounded-xl border border-[var(--color-panel-border)] bg-[var(--color-panel)] px-3.5 py-3 text-[12px] leading-snug text-[var(--color-ink)]">
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-[var(--color-ink-muted)]">
+            <div className="mt-4 rounded-xl border border-[#d7e0ec] bg-[#f8fafc] px-3.5 py-3 text-[12px] leading-snug text-[#0b1f3a]">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-[#5b6b7c]">
                 Authority step · Base
               </p>
-              <p className="mt-2 text-[var(--color-ink-muted)]">
+              <p className="mt-2 text-[#5b6b7c]">
                 {withdrawStackKind === "legacy" ? (
                   <>
                     Legacy positions call each protocol NPM as NFT owner (
-                    <span className="font-mono text-[var(--color-ink)]">decreaseLiquidity</span> /{" "}
-                    <span className="font-mono text-[var(--color-ink)]">collect</span>), batched per NPM —
-                    no <span className="font-mono text-[var(--color-ink)]">approve</span> /{" "}
-                    <span className="font-mono text-[var(--color-ink)]">permit</span> to IndexLa adapters
+                    <span className="font-mono text-[#0b1f3a]">decreaseLiquidity</span> /{" "}
+                    <span className="font-mono text-[#0b1f3a]">collect</span>), batched per NPM —
+                    no <span className="font-mono text-[#0b1f3a]">approve</span> /{" "}
+                    <span className="font-mono text-[#0b1f3a]">permit</span> to IndexLa adapters
                     (those adapters are not Basescan-verified yet, which triggered wallet
                     “approves ERC20 to an unverified contract”). Then Uniswap SwapRouter sells
                     cbBTC/WETH → USDC. Top up Base ETH if the app reports a gas shortfall.
@@ -661,29 +650,31 @@ export function StableClubPositionDashboard({
                 ) : (
                   <>
                     Withdraw asks for an{" "}
-                    <span className="font-semibold text-[var(--color-ink)]">LP NFT permit</span> (EIP-712
-                    signature + on-chain <span className="font-mono text-[var(--color-ink)]">permit</span>{" "}
+                    <span className="font-semibold text-[#0b1f3a]">LP NFT permit</span> (EIP-712
+                    signature + on-chain <span className="font-mono text-[#0b1f3a]">permit</span>{" "}
                     selector{" "}
-                    <span className="font-mono font-semibold text-[var(--color-ink)]">0x7ac2ff7b</span>) —
-                    not ERC20/ERC721 <span className="font-mono text-[var(--color-ink)]">approve</span>{" "}
-                    (<span className="font-mono text-[var(--color-ink)]">0x095ea7b3</span>). Authority is one
+                    <span className="font-mono font-semibold text-[#0b1f3a]">0x7ac2ff7b</span>) —
+                    not ERC20/ERC721 <span className="font-mono text-[#0b1f3a]">approve</span>{" "}
+                    (<span className="font-mono text-[#0b1f3a]">0x095ea7b3</span>). Authority is one
                     tokenId → one IndexLa adapter; funds stay in the LP until the atomic exit tx
                     (reverts on failure).
                   </>
                 )}
               </p>
-              <p className="mt-2 text-[var(--color-ink-muted)]">
+              <p className="mt-2 text-[#5b6b7c]">
                 Path:{" "}
-                <span className="font-semibold text-[var(--color-ink)]">
+                <span className="font-semibold text-[#0b1f3a]">
                   owner NPM + auto Uni→USDC
                 </span>
                 {withdrawStackKind === "legacy" ? " (legacy adapters)" : " (primary adapters)"}.
               </p>
-              <p className="mt-2 text-[11px] leading-snug text-[var(--color-ink-dim)]">
+              <p className="mt-2 text-[11px] leading-snug text-[#8a9aab]">
                 Wallet confirms (cold): up to 3 NPM multicalls (one per NPM contract) + up to 2
                 Uni max-approves (skipped if already live) + 1 residue→USDC multicall sweep.
+                Resume after LP exit is recover-only (no re-exit). ≤3 total cold confirms need
+                wallet batching (EIP-5792) or a cross-NPM gateway — not on live Base yet.
               </p>
-              <p className="mt-2 text-[var(--color-ink-muted)]">
+              <p className="mt-2 text-[#5b6b7c]">
                 Open Basescan for each adapter (green check = verified source):
               </p>
               {uniqueAdapters.length > 0 ? (
@@ -694,7 +685,7 @@ export function StableClubPositionDashboard({
                         href={`https://basescan.org/address/${adapter}#code`}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-mono text-[var(--color-brand)] underline-offset-2 hover:underline"
+                        className="font-mono text-[#1a4f8c] underline-offset-2 hover:underline"
                       >
                         {adapter}
                       </a>
@@ -708,7 +699,7 @@ export function StableClubPositionDashboard({
               <button
                 type="button"
                 onClick={() => setConfirmOpen(false)}
-                className="h-10 rounded-xl border border-[var(--color-panel-border)] text-sm font-semibold"
+                className="h-10 rounded-xl border border-[#d7e0ec] text-sm font-semibold"
               >
                 Cancel
               </button>
@@ -726,7 +717,7 @@ export function StableClubPositionDashboard({
                   setConfirmOpen(false);
                   void afterAction(() => p.withdrawPercent(pct));
                 }}
-                className="h-10 rounded-xl bg-[var(--color-brand)] text-sm font-bold text-white disabled:opacity-45"
+                className="h-10 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white disabled:opacity-45"
               >
                 Confirm USDC
               </button>

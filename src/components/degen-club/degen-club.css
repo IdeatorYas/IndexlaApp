@@ -981,11 +981,12 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
-  border-radius: 14px;
+  gap: 0.2rem;
+  min-height: 2.75rem;
+  border-radius: 12px;
   border: 1px solid var(--degen-panel-border);
   background: var(--degen-bg-soft);
-  padding: 0.75rem 0.5rem;
+  padding: 0.4rem 0.35rem;
   transition: all 0.15s ease;
   color: var(--degen-muted);
 }
@@ -1004,8 +1005,8 @@
 
 .degen-chain-cat-icon {
   display: flex;
-  height: 2.5rem;
-  width: 2.5rem;
+  height: 1.5rem;
+  width: 1.5rem;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
@@ -1014,7 +1015,7 @@
 }
 
 .degen-chain-cat-label {
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   font-weight: 800;
   letter-spacing: 0.02em;
 }

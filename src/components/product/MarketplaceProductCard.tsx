@@ -9,11 +9,6 @@ import { InvestChoiceLink } from "@/components/product/InvestmentChoiceModal";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
-import {
-  getProductTypeStyle,
-  PRODUCT_NAME_BOX_CLASS,
-  productNameBoxStyle,
-} from "@/lib/product/product-type";
 import { APP_ROUTES } from "@/lib/routes";
 
 export function MarketplaceProductCard({
@@ -28,7 +23,6 @@ export function MarketplaceProductCard({
   const positive = product.performance30d >= 0;
   const showFeatured = featured || product.featured;
   const detailsHref = APP_ROUTES.product(product.id);
-  const typeStyle = getProductTypeStyle(product);
   const isIndex = product.kind === "Index";
 
   const shellClass = [
@@ -83,10 +77,8 @@ export function MarketplaceProductCard({
         <div
           className={[
             "mx-auto mt-2.5 w-full rounded-[12px] px-2.5 py-2.5 text-center",
-            PRODUCT_NAME_BOX_CLASS,
-            compact ? "mt-2 py-2" : "mt-3 py-3",
+            compact ? "mt-2 py-2" : "mt-3 min-h-[3.5rem] py-3",
           ].join(" ")}
-          style={productNameBoxStyle(typeStyle)}
         >
           <h3
             className={[

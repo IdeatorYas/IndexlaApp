@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { APP_ROUTES, APP_SCREENS, NAV_ITEMS } from "@/lib/routes";
 
 describe("routes", () => {
-  it("defines 9 primary navigation destinations with Stable Club above Degen Club", () => {
-    expect(NAV_ITEMS).toHaveLength(9);
+  it("defines 8 primary navigation destinations with Stable Club above Degen Club", () => {
+    expect(NAV_ITEMS).toHaveLength(8);
+    expect(NAV_ITEMS[0]?.label).toBe("INDEXLA Core");
+    expect(NAV_ITEMS.map((item) => item.label)).not.toContain("Discover");
     const stableIdx = NAV_ITEMS.findIndex((item) => item.href === APP_ROUTES.stableClub);
     const degenIdx = NAV_ITEMS.findIndex((item) => item.href === APP_ROUTES.degenClub);
     expect(stableIdx).toBeGreaterThanOrEqual(0);

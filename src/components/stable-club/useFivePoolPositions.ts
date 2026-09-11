@@ -553,6 +553,7 @@ export function useFivePoolPositions() {
       if (!registered) {
         setPositions([]);
         setStale(false);
+        setPositionsError(null);
         void refreshStrandedAssets();
         return;
       }
@@ -610,10 +611,11 @@ export function useFivePoolPositions() {
       };
 
       const legWork: LegWork[] = [];
-      let partial = false;
+      let rpcFailures = 0;
+      let configIssues = 0;
       for (const item of legSettled) {
         if (!item.ok) {
-          partial = true;
+          rpcFailures += 1;
           continue;
         }
         const { leg, legIndex } = item;
@@ -622,12 +624,12 @@ export function useFivePoolPositions() {
         }
         const adapterMeta = findDiscoveryAdapterMeta(deployments, leg.adapter);
         if (!adapterMeta) {
-          partial = true;
+          configIssues += 1;
           continue;
         }
         const binding = exactPoolBindingExpectations(leg.poolId);
         if (!binding) {
-          partial = true;
+          configIssues += 1;
           continue;
         }
         const nftContract =
@@ -690,7 +692,7 @@ export function useFivePoolPositions() {
             );
             candidatesByNft.set(nftKey, candidates);
           } catch (err) {
-            partial = true;
+            rpcFailures += 1;
             const msg = err instanceof Error ? err.message : String(err);
             enumErrors.push(msg);
             // Do not poison match with empty candidates on hard failure — leave unset
@@ -717,7 +719,7 @@ export function useFivePoolPositions() {
       for (const work of legWork.sort((a, b) => a.legIndex - b.legIndex)) {
         const { legIndex, leg, adapterMeta, binding, nftContract } = work;
         if (!candidatesByNft.has(nftContract.toLowerCase())) {
-          partial = true;
+          rpcFailures += 1;
           continue;
         }
         const candidates = candidatesByNft.get(nftContract.toLowerCase()) ?? [];
@@ -839,7 +841,7 @@ export function useFivePoolPositions() {
           );
 
           if (tokenId == null) {
-            partial = true;
+            // Successful enumeration with no matching NFT for this leg = empty, not RPC failure.
             continue;
           }
           claimedTokenIds.add(positionNftClaimKey(nftContract, tokenId));
@@ -851,7 +853,6 @@ export function useFivePoolPositions() {
             args: [tokenId],
           });
           if (owner.toLowerCase() !== wallet.address!.toLowerCase()) {
-            partial = true;
             continue;
           }
 
@@ -899,35 +900,37 @@ export function useFivePoolPositions() {
             }),
           );
         } catch {
-          partial = true;
+          rpcFailures += 1;
         }
       }
 
       if (generation !== refreshGenerationRef.current) return;
 
+      const discoveryDegraded = rpcFailures > 0 || configIssues > 0;
+
       // Never wipe a good table on partial discovery — merge/replace only when we found legs,
       // and keep prior rows when this pass found nothing but previous data exists.
       if (discovered.length > 0) {
         setPositions(discovered.sort((a, b) => a.legIndex - b.legIndex));
-        setStale(partial || discovered.length < FIVE_POOL_LEG_COUNT);
+        setStale(discoveryDegraded || discovered.length < FIVE_POOL_LEG_COUNT);
         setPositionsError(
-          partial || discovered.length < FIVE_POOL_LEG_COUNT
+          discoveryDegraded || discovered.length < FIVE_POOL_LEG_COUNT
             ? "Some LP legs are still syncing — showing discovered positions. Tap Refresh."
             : null,
         );
+      } else if (rpcFailures > 0 || (configIssues > 0 && legWork.length === 0)) {
+        setStale(true);
+        setPositionsError(
+          rpcFailures > 0
+            ? "Couldn’t load positions — LP discovery RPC failed. Tap Refresh."
+            : "Couldn’t load positions — pool binding/config incomplete. Tap Refresh.",
+        );
+        // Keep last-good positions (do not setPositions([])).
       } else {
-        // Clean empty wallet: discovery finished with zero LPs — not an RPC failure.
-        if (!partial) {
-          setPositions([]);
-          setStale(false);
-          setPositionsError(null);
-        } else {
-          setStale(true);
-          setPositionsError(
-            "Could not resolve LP NFTs yet — previous positions kept if shown. Tap Refresh.",
-          );
-          // Keep last-good positions (do not setPositions([])).
-        }
+        // Confirmed empty wallet: discovery finished with zero matching LPs — not an RPC failure.
+        setPositions([]);
+        setStale(false);
+        setPositionsError(null);
       }
       void refreshStrandedAssets();
     } catch (err) {

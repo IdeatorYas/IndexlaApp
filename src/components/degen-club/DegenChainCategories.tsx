@@ -50,7 +50,7 @@ export function DegenChainCategories({
             ].join(" ")}
           >
             <span className="degen-chain-cat-icon">
-              <DegenChainLogo chain={cat.chain} size={32} />
+              <DegenChainLogo chain={cat.chain} size={22} />
             </span>
             <span className="degen-chain-cat-label">{cat.label}</span>
           </button>

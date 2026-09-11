@@ -1,4 +1,5 @@
 export type NavIconName =
+  | "INDEXLA Core"
   | "Dashboard"
   | "Discover"
   | "Degen Club"
@@ -28,6 +29,7 @@ export function NavIcon({
   };
 
   switch (name) {
+    case "INDEXLA Core":
     case "Dashboard":
       return (
         <svg {...common}>

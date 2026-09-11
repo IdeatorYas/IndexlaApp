@@ -22,10 +22,10 @@ describe("Stable Club demo strategies catalogue", () => {
     expect(mid?.pools[0]?.liveDataUrl).toContain("ff82c362-dea1-4946-b3b1-92ebd5100b1e");
   });
 
-  it("keeps category explanations for upcoming strategies only", () => {
-    expect(STABLE_CLUB_CATEGORY_COPY.heading).toBe(
-      "Three Strategies. Built for Different Risk Levels.",
-    );
-    expect(STABLE_CLUB_CATEGORY_COPY.activationNote).toMatch(/upcoming strategies are activated/i);
+  it("keeps Chain Baskets and Coming Soon risk baskets copy", () => {
+    expect(STABLE_CLUB_CATEGORY_COPY.chainBaskets.title).toBe("Chain Baskets");
+    expect(STABLE_CLUB_CATEGORY_COPY.riskBaskets.title).toBe("Risk-Based Baskets");
+    expect(STABLE_CLUB_CATEGORY_COPY.riskBaskets.levels).toHaveLength(3);
+    expect(STABLE_CLUB_CATEGORY_COPY.disclaimer).toMatch(/Not financial advice/i);
   });
 });

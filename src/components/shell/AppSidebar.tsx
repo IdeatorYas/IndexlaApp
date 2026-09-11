@@ -35,30 +35,30 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
         <Link
           href="/app"
           onClick={onNavigate}
-          className="flex items-center gap-2.5"
+          className="flex items-center gap-3"
         >
-          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/95 ring-1 ring-app-line">
+          <span className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-visible">
             <Image
               src="/logo/indexla-logo-hq.png"
               alt="INDEXLA"
-              width={40}
-              height={40}
-              className="h-9 w-9 object-contain"
+              width={44}
+              height={44}
+              className="h-11 w-11 object-contain"
               priority
             />
           </span>
           <div className="min-w-0">
-            <p className="app-display text-[15px] font-bold leading-none tracking-tight text-app-ink">
+            <p className="app-display text-[16px] font-bold leading-none tracking-tight text-app-ink">
               INDEXLA
             </p>
-            <p className="mt-1 text-[9px] font-bold uppercase tracking-[0.14em] text-app-muted">
+            <p className="mt-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-app-muted">
               Invest in Everything
             </p>
           </div>
         </Link>
       </div>
 
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-2.5 py-3" aria-label="Primary">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-2.5 py-3.5" aria-label="Primary">
         {navItems.map((item) => {
           const active = isActive(pathname, item.href);
           return (
@@ -67,37 +67,29 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
               href={item.href}
               onClick={onNavigate}
               className={[
-                "group relative flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13px] font-semibold app-interactive",
+                "group relative flex items-center gap-3 rounded-[10px] px-2.5 py-2.5 text-[15px] font-semibold leading-snug app-interactive",
                 active
                   ? "bg-[var(--sidebar-active-bg)] text-app-brand shadow-[inset_3px_0_0_var(--sidebar-active-border)]"
-                  : "text-app-ink/75 hover:bg-app-panel hover:text-app-ink",
+                  : "text-app-ink/80 hover:bg-app-panel hover:text-app-ink",
               ].join(" ")}
             >
               <span
                 className={[
-                  "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
+                  "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
                   active
                     ? "bg-app-brand/15 text-app-brand"
                     : "text-app-muted group-hover:text-app-ink",
                 ].join(" ")}
               >
-                <NavIcon name={item.label} className="h-4 w-4" />
+                <NavIcon name={item.label} className="h-[18px] w-[18px]" />
               </span>
               <span className="truncate">{item.label}</span>
-              {item.label === "Degen Club" ? (
-                <span
-                  aria-hidden
-                  className="ml-auto rounded-full bg-app-brand/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-app-brand"
-                >
-                  New
-                </span>
-              ) : null}
               {item.label === "Stable Club" ? (
                 <span
                   aria-hidden
-                  className="ml-auto rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-300"
+                  className="ml-auto shrink-0 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-300"
                 >
-                  Beta
+                  Live Beta
                 </span>
               ) : null}
             </Link>

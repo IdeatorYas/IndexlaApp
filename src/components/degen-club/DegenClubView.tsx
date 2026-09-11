@@ -24,6 +24,10 @@ import {
   enrichDegenProduct,
   useDegenPrices,
 } from "@/components/degen-club/useDegenPrices";
+import {
+  MarketplaceTitle,
+  PrimaryProductTabs,
+} from "@/components/marketplace/MarketplaceNav";
 import { ProductAttribution } from "@/components/product/ProductIdentity";
 import {
   EmptyState,
@@ -31,11 +35,10 @@ import {
   LoadingSkeleton,
 } from "@/components/states/AppStates";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
+import { DEGEN_ASSETS } from "@/lib/fixtures/degen-asset-registry";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
 import { PreviewOnlyMessage } from "@/components/ui/PreviewOnlyMessage";
-import { DEGEN_ASSETS } from "@/lib/fixtures/degen-asset-registry";
-import { DEGEN_MARKET_TABS } from "@/lib/fixtures/degen-club";
 
 type ViewState = "loading" | "ready" | "error" | "empty";
 
@@ -188,36 +191,12 @@ export function DegenClubView({
 
       {/* Marketplace */}
       <section id="degen-marketplace" className="space-y-3">
-        <div>
-          <h2 className="degen-section-title">Marketplace</h2>
-          <p className="degen-section-sub mt-0.5">
-            Memecoin indexes and portfolios · Risk: Extreme · Product metrics
-            Illustrative
-          </p>
-        </div>
-
-        <div className="mx-auto max-w-lg">
-          <div className="degen-marketplace-tabs" role="tablist" aria-label="Marketplace category">
-            {DEGEN_MARKET_TABS.map((item) => {
-              const active = item.id === marketTab;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setMarketTab(item.id)}
-                  className={[
-                    "degen-marketplace-tab",
-                    active ? "degen-marketplace-tab-active" : "",
-                  ].join(" ")}
-                >
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <MarketplaceTitle compact />
+        <PrimaryProductTabs
+          selected={marketTab}
+          onSelect={setMarketTab}
+          compact
+        />
 
         {marketTab === "indexes" ? (
           <DegenChainCategories active={chainFilter} onSelect={setChainFilter} />
@@ -290,22 +269,30 @@ function ProductCard({
   const positive = product.performance30d >= 0;
 
   return (
-    <article className="degen-card">
+    <article className="app-marketplace-card app-marketplace-card-index group relative flex h-full flex-col overflow-hidden p-3.5 sm:p-4">
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="degen-badge-kind">{product.kind}</span>
-        <span className="degen-badge-extreme">Extreme</span>
-        <span className="degen-illustrative-tag">Illustrative</span>
+        <span className="app-product-kind-badge app-product-kind-badge-index px-1.5 py-0.5 text-[8px]">
+          {product.kind}
+        </span>
+        <span className="rounded-md border border-app-danger/30 bg-app-danger/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-app-danger">
+          Extreme
+        </span>
+        <span className="rounded-md border border-app-line bg-app-panel px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-app-muted">
+          Illustrative
+        </span>
       </div>
 
-      <h3 className="degen-card-title">{product.name}</h3>
+      <h3 className="app-display mt-3 text-[16px] font-bold leading-tight text-app-ink sm:text-[17px]">
+        {product.name}
+      </h3>
       <ProductAttribution
         creatorName={product.creatorName}
         creatorHandle={product.creatorHandle}
         verified={product.verified}
-        className="truncate text-[11px] font-semibold text-[var(--degen-muted)]"
+        className="mt-1 truncate text-[11px] font-semibold text-app-muted"
       />
 
-      <div className="degen-card-donut-wrap">
+      <div className="mx-auto my-3 flex justify-center">
         <DegenCardDonut
           segments={product.allocations.map((a) => ({
             assetKey: a.assetId,
@@ -313,15 +300,15 @@ function ProductCard({
             percent: a.percent,
             imageUrl: a.imageUrl,
           }))}
-          size={180}
+          size={160}
         />
       </div>
 
-      <p className="degen-card-chain">
+      <p className="text-[11px] font-semibold text-app-dim">
         {product.chainLabel} · Risk: Extreme
       </p>
 
-      <dl className="degen-card-metrics">
+      <dl className="mt-3 grid grid-cols-3 gap-2">
         <CardMetric
           label="30D · Illus."
           value={formatPercent(product.performance30d, true)}
@@ -334,17 +321,17 @@ function ProductCard({
         />
       </dl>
 
-      <div className="degen-card-actions">
+      <div className="mt-auto grid grid-cols-2 gap-2 pt-3">
         <button
           type="button"
           onClick={onTrade}
-          className="degen-btn-primary h-9 text-[11px] uppercase tracking-wide"
+          className="app-btn-invest flex h-9 items-center justify-center rounded-[10px] text-[11px] uppercase tracking-wide"
         >
           Trade
         </button>
         <Link
           href={APP_ROUTES.degenProduct(product.id)}
-          className="degen-btn-secondary flex h-9 items-center justify-center text-[11px] uppercase tracking-wide"
+          className="flex h-9 items-center justify-center rounded-[10px] border border-[var(--ctl-idle-border)] bg-[var(--ctl-idle-bg)] text-[11px] font-bold uppercase tracking-wide text-[var(--ctl-idle-ink)]"
         >
           View Details
         </Link>
@@ -363,13 +350,16 @@ function CardMetric({
   positive?: boolean;
 }) {
   return (
-    <div>
-      <dt className="degen-metric-label">{label}</dt>
+    <div className="app-marketplace-metric px-2 py-1.5">
+      <dt className="text-[8px] font-bold uppercase tracking-wider text-app-dim">{label}</dt>
       <dd
         className={[
-          "degen-metric-value",
-          positive === true ? "degen-metric-value-positive" : "",
-          positive === false ? "degen-metric-value-negative" : "",
+          "app-metric mt-0.5 text-[13px] font-bold tabular-nums",
+          positive === undefined
+            ? "text-app-ink"
+            : positive
+              ? "text-app-success"
+              : "text-app-danger",
         ].join(" ")}
       >
         {value}

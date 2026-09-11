@@ -3,36 +3,55 @@
 import { STABLE_CLUB_CATEGORY_COPY } from "@/lib/stable-club/demo-strategies";
 
 export function StableClubCategoryExplain() {
+  const { chainBaskets, riskBaskets } = STABLE_CLUB_CATEGORY_COPY;
+
   return (
-    <section className="mt-14 border-t border-sky-400/15 pt-10" aria-labelledby="sc-categories-heading">
-      <header className="mx-auto max-w-3xl text-center">
-        <h2
-          id="sc-categories-heading"
-          className="app-display text-2xl font-bold tracking-tight text-app-ink sm:text-3xl"
-        >
-          {STABLE_CLUB_CATEGORY_COPY.heading}
+    <section className="space-y-4" aria-label="Stable Club product explanation">
+      <article className="app-panel rounded-2xl p-5 sm:p-6">
+        <h2 className="app-display text-lg font-bold tracking-tight text-app-ink sm:text-xl">
+          {chainBaskets.title}
         </h2>
-        <p className="mt-3 text-sm leading-relaxed text-app-muted sm:text-base">
-          {STABLE_CLUB_CATEGORY_COPY.subheading}
+        <p className="mt-2 text-sm leading-relaxed text-app-muted sm:text-[15px]">
+          {chainBaskets.body}
         </p>
-      </header>
+      </article>
 
-      <div className="mt-8 grid gap-4 md:grid-cols-3">
-        {STABLE_CLUB_CATEGORY_COPY.categories.map((cat) => (
-          <article
-            key={cat.id}
-            className="rounded-[16px] border border-sky-400/20 bg-[rgba(10,28,54,0.55)] p-5 shadow-[inset_0_1px_0_rgba(147,197,253,0.08)]"
-          >
-            <h3 className="app-display text-lg font-bold text-app-ink">{cat.title}</h3>
-            <p className="mt-1 text-xs font-bold uppercase tracking-wide text-sky-300">{cat.riskLabel}</p>
-            <p className="mt-3 text-sm leading-relaxed text-app-muted">{cat.body}</p>
-          </article>
-        ))}
-      </div>
-
-      <p className="mx-auto mt-8 max-w-3xl text-center text-sm font-semibold leading-relaxed text-sky-100/90">
-        {STABLE_CLUB_CATEGORY_COPY.activationNote}
-      </p>
+      <article className="app-panel rounded-2xl p-5 sm:p-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="app-display text-lg font-bold tracking-tight text-app-ink sm:text-xl">
+            {riskBaskets.title}
+          </h2>
+          <span className="rounded-full bg-app-brand/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-app-brand">
+            Coming Soon
+          </span>
+        </div>
+        <p className="mt-2 text-sm leading-relaxed text-app-muted sm:text-[15px]">
+          {riskBaskets.intro}
+        </p>
+        <ul className="mt-4 space-y-3">
+          {riskBaskets.levels.map((level) => (
+            <li key={level.id} className="rounded-xl border border-app-line bg-app-elevated/70 px-3.5 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-app-brand">
+                {level.riskLabel}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-app-ink">{level.title}</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-app-muted">{level.body}</p>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-4 text-[12px] leading-relaxed text-app-dim">{riskBaskets.footnote}</p>
+      </article>
     </section>
+  );
+}
+
+export function StableClubRiskDisclaimer() {
+  return (
+    <p
+      role="note"
+      className="px-1 text-center text-[11px] leading-relaxed text-app-dim sm:text-[12px]"
+    >
+      {STABLE_CLUB_CATEGORY_COPY.disclaimer}
+    </p>
   );
 }
