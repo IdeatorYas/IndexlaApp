@@ -23,14 +23,14 @@ function TokenMark({ symbol }: { symbol: string }) {
   const src = TOKEN_LOGO_URLS[key];
   if (!src) {
     return (
-      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#0b1f3a] text-[10px] font-bold text-white">
+      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-ink)] text-[10px] font-bold text-white">
         {key.slice(0, 2)}
       </span>
     );
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt="" className="h-8 w-8 rounded-full bg-white ring-1 ring-[#d7e0ec]" />
+    <img src={src} alt="" className="h-8 w-8 rounded-full bg-[var(--color-bg-elevated)] ring-1 ring-[#d7e0ec]" />
   );
 }
 
@@ -89,10 +89,10 @@ export function StableClubAvailablePools({
 
   return (
     <section
-      className="overflow-hidden rounded-2xl border border-[#b8cce3] bg-white shadow-[0_12px_40px_rgba(11,31,58,0.10)]"
+      className="overflow-hidden rounded-2xl app-panel"
       aria-label="Available Pools"
     >
-      <header className="relative overflow-hidden bg-[linear-gradient(135deg,#04101f_0%,#0b1f3a_42%,#0052FF_155%)] px-5 py-7 text-white sm:px-7 sm:py-8">
+      <header className="relative overflow-hidden bg-[linear-gradient(135deg,#07111f_0%,#0d1b33_42%,#2563eb_155%)] px-5 py-7 text-white sm:px-7 sm:py-8">
         <div className="pointer-events-none absolute -right-12 -top-14 h-48 w-48 rounded-full bg-[#0052FF]/30 blur-3xl" />
         <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-4 sm:gap-5">
@@ -133,7 +133,7 @@ export function StableClubAvailablePools({
         </div>
       </header>
 
-      <div className="divide-y divide-[#e8eef5]">
+      <div className="divide-y divide-[var(--color-panel-border)]">
         {pools.map((pool) => {
           const quote = byPoolId[pool.id];
           const available = quote?.status === "available";
@@ -141,7 +141,7 @@ export function StableClubAvailablePools({
           return (
             <article
               key={pool.id}
-              className="flex flex-col gap-3 px-4 py-3 transition-colors duration-200 hover:bg-[#f5f9fc] sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-6 sm:py-3"
+              className="flex flex-col gap-3 px-4 py-3 transition-colors duration-200 hover:bg-[var(--color-panel)] sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-6 sm:py-3"
             >
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <div className="relative flex shrink-0 items-center">
@@ -149,26 +149,26 @@ export function StableClubAvailablePools({
                   <span className="-ml-2.5">
                     <TokenMark symbol={pool.tokenB.symbol} />
                   </span>
-                  <span className="absolute -bottom-1 -right-1 rounded-full bg-white p-0.5 shadow-sm ring-1 ring-[#e8eef5]">
+                  <span className="absolute -bottom-1 -right-1 rounded-full bg-[var(--color-bg-elevated)] p-0.5 shadow-sm ring-1 ring-[var(--color-panel-border)]">
                     <ProtocolLogo protocol={pool.protocol} />
                   </span>
                 </div>
                 <div className="min-w-0">
-                  <h3 className="truncate text-[15px] font-extrabold tracking-tight text-[#0b1f3a] sm:text-base">
+                  <h3 className="truncate text-[15px] font-extrabold tracking-tight text-[var(--color-ink)] sm:text-base">
                     {pair}
                   </h3>
-                  <p className="mt-0.5 text-[11px] font-semibold text-[#5b6b7c]">
+                  <p className="mt-0.5 text-[11px] font-semibold text-[var(--color-ink-muted)]">
                     {protocolDisplayName(pool.protocol)} · {formatOfficialPoolFee(pool)}
                   </p>
                 </div>
-                <span className="ml-auto shrink-0 rounded-full bg-[#0b1f3a]/[0.07] px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.1em] text-[#0b1f3a] sm:ml-2">
+                <span className="ml-auto shrink-0 rounded-full bg-[var(--color-ink)]/[0.07] px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.1em] text-[var(--color-ink)] sm:ml-2">
                   20%
                 </span>
               </div>
 
               <dl className="grid grid-cols-4 gap-2 sm:w-[22rem] sm:shrink-0">
                 <div>
-                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[#8a9aab]">
+                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--color-ink-dim)]">
                     Live APY
                   </dt>
                   <dd className="mt-0.5 text-[13px] font-extrabold tabular-nums text-emerald-700 sm:text-sm">
@@ -176,26 +176,26 @@ export function StableClubAvailablePools({
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[#8a9aab]">
+                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--color-ink-dim)]">
                     Fee APY
                   </dt>
-                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-[#0b1f3a] sm:text-sm">
+                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-[var(--color-ink)] sm:text-sm">
                     {formatApyPartAllowZero(quote?.apyBasePercent, loading, Boolean(available))}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[#8a9aab]">
+                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--color-ink-dim)]">
                     Reward APY
                   </dt>
-                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-[#0b1f3a] sm:text-sm">
+                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-[var(--color-ink)] sm:text-sm">
                     {formatApyPartAllowZero(quote?.apyRewardPercent, loading, Boolean(available))}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[#8a9aab]">
+                  <dt className="text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--color-ink-dim)]">
                     TVL
                   </dt>
-                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-[#0b1f3a] sm:text-sm">
+                  <dd className="mt-0.5 text-[13px] font-bold tabular-nums text-[var(--color-ink)] sm:text-sm">
                     {loading
                       ? "…"
                       : available && quote?.tvlUsd != null
@@ -210,22 +210,22 @@ export function StableClubAvailablePools({
       </div>
 
       {depositSlot ? (
-        <div className="border-t border-[#e8eef5] bg-[#f7fafc] px-4 py-4 sm:px-6 sm:py-5">
+        <div className="border-t border-[var(--color-panel-border)] bg-[var(--color-panel)] px-4 py-4 sm:px-6 sm:py-5">
           {depositSlot}
         </div>
       ) : null}
 
       {showDepositCta && !depositSlot ? (
-        <div className="border-t border-[#e8eef5] bg-[#f7fafc] px-5 py-5 sm:px-7">
+        <div className="border-t border-[var(--color-panel-border)] bg-[var(--color-panel)] px-5 py-5 sm:px-7">
           <button
             type="button"
             disabled={!depositsEnabled}
             onClick={onDepositClick}
-            className="flex h-12 w-full items-center justify-center rounded-xl bg-[#0b1f3a] text-sm font-bold uppercase tracking-[0.08em] text-white shadow-[0_8px_24px_rgba(11,31,58,0.22)] transition hover:brightness-110 disabled:opacity-45"
+            className="flex h-12 w-full items-center justify-center rounded-xl bg-[var(--color-brand)] text-sm font-bold uppercase tracking-[0.08em] text-white shadow-[0_8px_24px_rgba(11,31,58,0.22)] transition hover:brightness-110 disabled:opacity-45"
           >
             {depositsEnabled ? "Add Funds" : "Add Funds unavailable"}
           </button>
-          <p className="mt-2 text-center text-[12px] text-[#5b6b7c]">
+          <p className="mt-2 text-center text-[12px] text-[var(--color-ink-muted)]">
             Deposit USDC into My Position · equal 20% across all five pools
           </p>
         </div>

@@ -29,6 +29,7 @@ type StableClubWalletState = {
   address: Address | null;
   chainId: number | null;
   error: string | null;
+  switchingNetwork: boolean;
 };
 
 type StableClubWalletContextValue = StableClubWalletState & {
@@ -59,6 +60,7 @@ export function StableClubWalletProvider({
   const { switchChainAsync } = useSwitchChain();
   const [provider, setProvider] = useState<EIP1193Provider | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [switchingNetwork, setSwitchingNetwork] = useState(false);
 
   const expectedChainId = preferLocalHardhat
     ? STABLE_CLUB_LOCAL_CHAIN.id
@@ -155,16 +157,26 @@ export function StableClubWalletProvider({
     void disconnectAsync().catch(() => undefined);
   }, [disconnectAsync]);
 
+  useEffect(() => {
+    if (chainId === STABLE_CLUB_CHAIN_ID) {
+      setLocalError(null);
+      setSwitchingNetwork(false);
+    }
+  }, [chainId]);
+
   const switchToBase = useCallback(async () => {
     setLocalError(null);
+    setSwitchingNetwork(true);
     try {
       await switchChainAsync({ chainId: STABLE_CLUB_CHAIN_ID });
     } catch (err) {
       const message =
         err instanceof Error && /reject|denied|cancel/i.test(err.message)
-          ? "Network switch rejected."
+          ? "Network switch rejected. Tap Switch to Base to try again."
           : "Unable to switch to Base.";
       setLocalError(message);
+    } finally {
+      setSwitchingNetwork(false);
     }
   }, [switchChainAsync]);
 
@@ -208,6 +220,7 @@ export function StableClubWalletProvider({
       address: (address as Address | undefined) ?? null,
       chainId: chainId ?? null,
       error: localError,
+      switchingNetwork,
       provider,
       chain,
       connect,
@@ -220,6 +233,7 @@ export function StableClubWalletProvider({
       address,
       chainId,
       localError,
+      switchingNetwork,
       provider,
       chain,
       connect,

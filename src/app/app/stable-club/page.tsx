@@ -19,8 +19,8 @@ export default async function StableClubPage() {
   if (!config.productEnabled && !devPanelAllowed) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
-        <h1 className="text-xl font-semibold text-[#0b1f3a]">Stable Club</h1>
-        <p className="mt-2 text-sm text-[#5b6b7c]">
+        <h1 className="text-xl font-semibold text-[var(--color-ink)]">Stable Club</h1>
+        <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
           This product is not enabled in this environment.
         </p>
       </div>
@@ -31,7 +31,7 @@ export default async function StableClubPage() {
     <StableClubWalletProvider preferLocalHardhat={false}>
       <Suspense
         fallback={
-          <div className="min-h-[70vh] bg-[#e8eef5] px-4 py-8">
+          <div className="stable-club-hub min-h-[70vh] px-4 py-8">
             <div className="mx-auto max-w-3xl">
               <LoadingSkeleton title="Loading Stable Club" lines={6} />
             </div>

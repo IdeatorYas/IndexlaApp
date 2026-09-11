@@ -23,6 +23,7 @@ let walletState = {
   chainId: null as number | null,
   address: null as string | null,
   error: null as string | null,
+  switchingNetwork: false,
   connect,
   switchToBase: vi.fn(),
 };
@@ -167,6 +168,7 @@ describe("StableClubBetaView", () => {
       chainId: null,
       address: null,
       error: null,
+      switchingNetwork: false,
       connect,
       switchToBase: vi.fn(),
     };
@@ -199,6 +201,7 @@ describe("StableClubBetaView", () => {
       chainId: 1,
       address: "0xab4e242C5b489e8301408C93003903364214559F",
       error: null,
+      switchingNetwork: false,
       connect,
       switchToBase: vi.fn(),
     };
@@ -209,12 +212,27 @@ describe("StableClubBetaView", () => {
     expect(walletState.switchToBase).toHaveBeenCalled();
   });
 
-  it("connected with no positions: defaults to My Position table (not Deposit USDC)", () => {
+  it("wrong-network: shows Switching… while request pending", () => {
+    walletState = {
+      status: "wrong-network",
+      chainId: 1,
+      address: "0xab4e242C5b489e8301408C93003903364214559F",
+      error: null,
+      switchingNetwork: true,
+      connect,
+      switchToBase: vi.fn(),
+    };
+    render(<StableClubBetaView />);
+    expect(screen.getByRole("button", { name: "Switching…" })).toBeDisabled();
+  });
+
+  it("connected with no positions: clean empty state (not five fake rows)", () => {
     walletState = {
       status: "connected",
       chainId: 8453,
       address: "0xab4e242C5b489e8301408C93003903364214559F",
       error: null,
+      switchingNetwork: false,
       connect,
       switchToBase: vi.fn(),
     };
@@ -224,8 +242,10 @@ describe("StableClubBetaView", () => {
       "true",
     );
     expect(screen.getByRole("heading", { name: "My Position" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Pool" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Withdraw" })).toBeInTheDocument();
+    expect(screen.getByText("No active positions")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Pool" })).toBeNull();
+    expect(screen.queryByText(/Stranded wallet assets/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Resume incomplete withdraw/i })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Deposit USDC" })).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "Available Pools" }));
@@ -238,6 +258,7 @@ describe("StableClubBetaView", () => {
       chainId: 8453,
       address: "0xab4e242C5b489e8301408C93003903364214559F",
       error: null,
+      switchingNetwork: false,
       connect,
       switchToBase: vi.fn(),
     };

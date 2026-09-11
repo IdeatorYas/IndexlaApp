@@ -20,7 +20,7 @@ type TabId = "position" | "pools";
 function StableClubShellSkeleton({ label }: { label: string }) {
   return (
     <div className="space-y-3" role="status" aria-label={label}>
-      <div className="h-10 w-64 animate-pulse rounded-xl bg-[#d7e0ec]/70" />
+      <div className="h-10 w-64 animate-pulse rounded-xl bg-[var(--color-panel-border)]/70" />
       <LoadingSkeleton title={label} lines={5} />
     </div>
   );
@@ -67,14 +67,14 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
 
   if (positions.deploymentsError && !positions.deployments) {
     return (
-      <section className="rounded-2xl border border-[#f3d2d0] bg-white p-6 shadow-sm">
-        <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-[#b42318]">
+      <section className="app-panel rounded-2xl p-6">
+        <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-[var(--color-danger)]">
           Unable to load Stable Club
         </h2>
-        <p className="mt-2 text-sm text-[#5b6b7c]" role="alert">
+        <p className="mt-2 text-sm text-[var(--color-ink-muted)]" role="alert">
           {positions.deploymentsError}
         </p>
-        <p className="mt-3 text-xs text-[#5b6b7c]">
+        <p className="mt-3 text-xs text-[var(--color-ink-muted)]">
           Refresh the page to retry. Your wallet stays connected.
         </p>
       </section>
@@ -89,8 +89,8 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
       onClick={() => setTab(id)}
       className={
         tab === id
-          ? "rounded-lg bg-[#0b1f3a] px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-white"
-          : "rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-[#5b6b7c] hover:bg-[#f0f4f8]"
+          ? "rounded-lg bg-[var(--color-brand)] px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-white"
+          : "rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-[0.08em] text-[var(--color-ink-muted)] hover:bg-[var(--color-panel)]"
       }
     >
       {label}
@@ -112,7 +112,7 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
       <div
         role="tablist"
         aria-label="Stable Club sections"
-        className="inline-flex rounded-xl border border-[#d7e0ec] bg-white p-1 shadow-sm"
+        className="inline-flex rounded-xl border border-[var(--color-panel-border)] bg-[var(--color-bg-elevated)] p-1 shadow-sm"
       >
         {tabBtn("pools", "Available Pools")}
         {tabBtn("position", "My Position")}
@@ -267,26 +267,27 @@ export function StableClubBetaView({
   const uiPreview = allowUiPreview ? searchParams.get("ui") : null;
 
   const walletGate = (
-    <section className="rounded-2xl border border-[#d7e0ec] bg-white p-8 text-center shadow-sm sm:p-10">
-      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#5b6b7c]">
+    <section className="app-panel rounded-2xl p-8 text-center sm:p-10">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--color-ink-dim)]">
         Stable Club · Base
       </p>
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight text-[#0b1f3a]">
+      <h1 className="mt-2 text-2xl font-semibold tracking-tight text-[var(--color-ink)]">
         Five-pool USDC liquidity
       </h1>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-[#5b6b7c]">
+      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-[var(--color-ink-muted)]">
         Connect your wallet to deposit, manage positions, and withdraw to USDC — non-custodial on Base.
       </p>
       {wrongNetwork ? (
         <>
           <button
             type="button"
+            disabled={wallet.switchingNetwork}
             onClick={() => void wallet.switchToBase()}
-            className="mt-6 inline-flex h-12 min-w-[220px] items-center justify-center rounded-xl bg-[#0b1f3a] px-6 text-sm font-bold uppercase tracking-[0.06em] text-white"
+            className="mt-6 inline-flex h-12 min-w-[220px] items-center justify-center rounded-xl bg-[var(--color-brand)] px-6 text-sm font-bold uppercase tracking-[0.06em] text-white disabled:opacity-60"
           >
-            Switch to Base
+            {wallet.switchingNetwork ? "Switching…" : "Switch to Base"}
           </button>
-          <p className="mt-3 text-sm text-[#b42318]" role="alert">
+          <p className="mt-3 text-sm text-[var(--color-danger)]" role="alert">
             Wrong network — Stable Club runs on Base.
           </p>
         </>
@@ -295,13 +296,13 @@ export function StableClubBetaView({
           type="button"
           disabled={connecting}
           onClick={() => void wallet.connect()}
-          className="mt-6 inline-flex h-12 min-w-[220px] items-center justify-center rounded-xl bg-[#0b1f3a] px-6 text-sm font-bold uppercase tracking-[0.06em] text-white disabled:opacity-50"
+          className="mt-6 inline-flex h-12 min-w-[220px] items-center justify-center rounded-xl bg-[var(--color-brand)] px-6 text-sm font-bold uppercase tracking-[0.06em] text-white disabled:opacity-50"
         >
           {connecting ? "Connecting…" : "Connect Wallet"}
         </button>
       )}
       {wallet.error ? (
-        <p className="mt-4 text-sm text-[#b42318]" role="alert">
+        <p className="mt-4 text-sm text-[var(--color-danger)]" role="alert">
           {wallet.error}
         </p>
       ) : null}
@@ -309,7 +310,7 @@ export function StableClubBetaView({
   );
 
   return (
-    <div className="min-h-[70vh] bg-[#e8eef5] px-3 py-6 sm:px-6 sm:py-8">
+    <div className="stable-club-hub min-h-[70vh] px-3 py-6 sm:px-6 sm:py-8">
       <div className="mx-auto w-full max-w-3xl space-y-3">
         {uiPreview === "positions" || uiPreview === "deposit" || uiPreview === "pools" ? (
           <DevUiPreview mode={uiPreview} />
@@ -321,17 +322,17 @@ export function StableClubBetaView({
             <StableClubAvailablePools depositsEnabled={false} showDepositCta={false} />
           </>
         ) : readinessError ? (
-          <section className="rounded-2xl border border-[#f3d2d0] bg-white p-6 shadow-sm">
-            <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-[#b42318]">
+          <section className="app-panel rounded-2xl p-6">
+            <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-[var(--color-danger)]">
               Stable Club unavailable
             </h2>
-            <p className="mt-2 text-sm text-[#5b6b7c]" role="alert">
+            <p className="mt-2 text-sm text-[var(--color-ink-muted)]" role="alert">
               {readinessError}
             </p>
             <button
               type="button"
               onClick={() => void refetchBootstrap?.()}
-              className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-[#0b1f3a] px-4 text-xs font-bold uppercase tracking-[0.08em] text-white"
+              className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-[var(--color-brand)] px-4 text-xs font-bold uppercase tracking-[0.08em] text-white"
             >
               Retry
             </button>

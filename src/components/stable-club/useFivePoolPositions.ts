@@ -472,18 +472,38 @@ export function useFivePoolPositions() {
     wallet.address,
   ]);
 
-  const refreshPositions = useCallback(async () => {
+  // Drop prior wallet rows immediately so account switches never flash stale LPs.
+  useEffect(() => {
+    refreshGenerationRef.current += 1;
+    setPositions([]);
+    setStrategyId(null);
+    setStrategyRegistered(false);
+    setStrategyRevoked(false);
+    setStrategyExpired(false);
+    setPositionsError(null);
+    setStale(false);
+    setStrandedAssets([]);
+    setIncompleteWithdraw(null);
+    setPositionsLoading(Boolean(wallet.address));
+  }, [wallet.address]);
+
+  const refreshPositions = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!deployments || !wallet.address) {
       setPositions([]);
       setStrategyId(null);
       setStrategyRegistered(false);
       setStrandedAssets([]);
+      setPositionsLoading(false);
       return;
     }
 
     const generation = ++refreshGenerationRef.current;
-    setPositionsLoading(true);
-    setPositionsError(null);
+    const quiet = opts?.quiet === true;
+    // Quiet polls must not flip the loading flag (avoids empty/loading flicker).
+    if (!quiet) {
+      setPositionsLoading(true);
+      setPositionsError(null);
+    }
     try {
       const client = discoveryClient;
       const sid = await withDiscoveryTimeout(
@@ -896,11 +916,18 @@ export function useFivePoolPositions() {
             : null,
         );
       } else {
-        setStale(true);
-        setPositionsError(
-          "Could not resolve LP NFTs yet — previous positions kept if shown. Tap Refresh.",
-        );
-        // Keep last-good positions (do not setPositions([])).
+        // Clean empty wallet: discovery finished with zero LPs — not an RPC failure.
+        if (!partial) {
+          setPositions([]);
+          setStale(false);
+          setPositionsError(null);
+        } else {
+          setStale(true);
+          setPositionsError(
+            "Could not resolve LP NFTs yet — previous positions kept if shown. Tap Refresh.",
+          );
+          // Keep last-good positions (do not setPositions([])).
+        }
       }
       void refreshStrandedAssets();
     } catch (err) {

@@ -42,7 +42,7 @@ function TokenPairMarks({ a, b }: { a: string; b: string }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={sa} alt="" className="h-8 w-8 rounded-full ring-1 ring-white" />
       ) : (
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#0b1f3a] text-[10px] font-bold text-white">
+        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-ink)] text-[10px] font-bold text-white">
           {sym(a).slice(0, 2)}
         </span>
       )}
@@ -50,7 +50,7 @@ function TokenPairMarks({ a, b }: { a: string; b: string }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={sb} alt="" className="-ml-2.5 h-8 w-8 rounded-full ring-1 ring-white" />
       ) : (
-        <span className="-ml-2.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#1a4f8c] text-[10px] font-bold text-white">
+        <span className="-ml-2.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-brand)] text-[10px] font-bold text-white">
           {sym(b).slice(0, 2)}
         </span>
       )}
@@ -96,7 +96,7 @@ export function StableClubPositionDashboard({
   const [withdrawPreset, setWithdrawPreset] = useState<20 | 50 | 100 | "custom">(100);
   const [customPercent, setCustomPercent] = useState("50");
   const [now, setNow] = useState(() => Date.now());
-  const [lastRefreshAt, setLastRefreshAt] = useState(() => Date.now());
+  const [lastRefreshAt, setLastRefreshAt] = useState(0);
 
   const harvestCompoundReady = p.exitAllToUsdcAvailable;
   const exitPercentEnabled = p.exitPercentToUsdcAvailable;
@@ -112,7 +112,7 @@ export function StableClubPositionDashboard({
   useEffect(() => {
     const id = window.setInterval(() => {
       if (!p.busy) {
-        void refreshPositions().then(() => {
+        void refreshPositions({ quiet: true }).then(() => {
           setLastRefreshAt(Date.now());
           setRefreshEpoch((n) => n + 1);
         });
@@ -121,74 +121,59 @@ export function StableClubPositionDashboard({
     return () => window.clearInterval(id);
   }, [p.busy, refreshPositions]);
 
+  useEffect(() => {
+    if (!p.positionsLoading && lastRefreshAt === 0) {
+      setLastRefreshAt(Date.now());
+    }
+  }, [p.positionsLoading, lastRefreshAt]);
+
   /**
-   * Always render all five official catalogue pools.
-   * Live discovery fills value/claimable; missing legs stay visible (no disappearing rows).
+   * Only the connected wallet’s discovered LPs with liquidity.
+   * Catalogue placeholders are never shown as fake “Pending” positions.
    */
   const rows = useMemo(() => {
-    const positionsByPool = new Map<string, typeof p.positions>();
-    for (const pos of p.positions) {
-      const key = pos.poolId.toLowerCase();
-      const list = positionsByPool.get(key) ?? [];
-      list.push(pos);
-      positionsByPool.set(key, list);
-    }
-
-    return OFFICIAL_STABLE_CLUB_BASE_POOLS.map((catalogue) => {
-      const live = positionsByPool.get(catalogue.poolIdHash.toLowerCase()) ?? [];
-      const allocationBps =
-        live[0]?.allocationBps ?? FIVE_POOL_DEFAULT_ALLOCATION_BPS;
-      let amountA = BigInt(0);
-      let amountB = BigInt(0);
-      let claimableUsd = 0;
-      let valueUsdc: bigint | null = null;
-      let active = false;
-      for (const pos of live) {
-        amountA += pos.amountA;
-        amountB += pos.amountB;
-        const claim = claimable.rows.find((r) => r.legIndex === pos.legIndex);
-        claimableUsd += claim?.approxUsdc ?? 0;
-        const legUsd = usdValue.rows.find((r) => r.legIndex === pos.legIndex);
-        if (legUsd?.valueUsdc != null) {
-          valueUsdc = (valueUsdc ?? BigInt(0)) + legUsd.valueUsdc;
-        }
-        active =
-          active ||
-          (pos.liquidity > BigInt(0) && pos.rangeStatus !== "out-of-range");
-      }
-      const tokenASymbol = live[0]?.tokenASymbol ?? catalogue.tokenA.symbol;
-      const tokenBSymbol = live[0]?.tokenBSymbol ?? catalogue.tokenB.symbol;
-      const discovered = live.length > 0;
+    const catalogueByHash = new Map(
+      OFFICIAL_STABLE_CLUB_BASE_POOLS.map((c) => [c.poolIdHash.toLowerCase(), c]),
+    );
+    const active = p.positions.filter((pos) => pos.liquidity > BigInt(0));
+    return active.map((pos) => {
+      const catalogue = catalogueByHash.get(pos.poolId.toLowerCase());
+      const claim = claimable.rows.find((r) => r.legIndex === pos.legIndex);
+      const legUsd = usdValue.rows.find((r) => r.legIndex === pos.legIndex);
+      const tokenASymbol = pos.tokenASymbol;
+      const tokenBSymbol = pos.tokenBSymbol;
+      const allocationBps = pos.allocationBps ?? FIVE_POOL_DEFAULT_ALLOCATION_BPS;
       return {
-        key: catalogue.poolIdHash,
+        key: `${pos.poolId}-${pos.positionTokenId.toString()}`,
         pair: `${sym(tokenASymbol)}/${sym(tokenBSymbol)}`,
-        protocol: protocolDisplayName(catalogue.protocol),
-        feeLabel: formatOfficialPoolFee(catalogue),
+        protocol: catalogue
+          ? protocolDisplayName(catalogue.protocol)
+          : (pos.protocol ?? "CL"),
+        feeLabel: catalogue ? formatOfficialPoolFee(catalogue) : "",
         tokenASymbol,
         tokenBSymbol,
-        apy: formatApyDisplay(apyByPoolId[catalogue.id], apyLoading),
+        apy: catalogue
+          ? formatApyDisplay(apyByPoolId[catalogue.id], apyLoading)
+          : "—",
         allocation: allocationPercentFromBps(allocationBps),
         allocationPct: Number(allocationBps) / 100,
-        value: !discovered
-          ? p.positionsLoading
-            ? "…"
-            : "—"
-          : valueUsdc != null
-            ? `$${Number(formatUnits(valueUsdc, 6)).toLocaleString(undefined, {
+        value:
+          legUsd?.valueUsdc != null
+            ? `$${Number(formatUnits(legUsd.valueUsdc, 6)).toLocaleString(undefined, {
                 maximumFractionDigits: 2,
               })}`
             : formatPositionValueDisplay({
-                amountA,
-                amountB,
+                amountA: pos.amountA,
+                amountB: pos.amountB,
                 tokenASymbol: sym(tokenASymbol),
                 tokenBSymbol: sym(tokenBSymbol),
                 decimalsA: tokenDecimals(tokenASymbol),
                 decimalsB: tokenDecimals(tokenBSymbol),
               }),
-        claimableUsd: discovered ? claimableUsd : 0,
-        active: discovered ? active : false,
-        nftCount: live.length,
-        discovered,
+        claimableUsd: claim?.approxUsdc ?? 0,
+        active: pos.rangeStatus !== "out-of-range",
+        nftCount: 1,
+        discovered: true,
       };
     });
   }, [
@@ -196,30 +181,42 @@ export function StableClubPositionDashboard({
     apyLoading,
     claimable.rows,
     p.positions,
-    p.positionsLoading,
     usdValue.rows,
   ]);
 
+  const hasSettledDiscovery = !p.positionsLoading;
+  const showRpcError =
+    hasSettledDiscovery && Boolean(p.positionsError) && rows.length === 0;
+  const isEmpty = hasSettledDiscovery && rows.length === 0 && !showRpcError;
+
   const blendedApy = useMemo(() => {
     const nums = rows
-      .filter((r) => r.discovered)
       .map((r) => Number(r.apy.replace("%", "")))
       .filter((n) => Number.isFinite(n));
-    if (apyLoading) return "…";
-    if (!nums.length) return "Unavailable";
+    if (apyLoading && rows.length === 0) return "…";
+    if (!nums.length) return rows.length === 0 ? "—" : "Unavailable";
     return `${(nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(2)}%`;
   }, [apyLoading, rows]);
 
   const totalValue =
     usdValue.totalUsdc != null ? Number(formatUnits(usdValue.totalUsdc, 6)) : null;
   const secondsAgo = Math.max(0, Math.floor((now - lastRefreshAt) / 1000));
+  const updatedLabel = !hasSettledDiscovery
+    ? "Syncing LPs…"
+    : lastRefreshAt === 0
+      ? "Ready"
+      : secondsAgo < 5
+        ? "Updated just now"
+        : `Updated ${secondsAgo}s ago`;
 
-  const actionsBusy =
+  const withdrawBusy =
     p.busy ||
     p.positions.length === 0 ||
     p.strategyRevoked ||
     p.strategyExpired ||
     !p.onExpectedChain;
+
+  const addFundsBusy = p.busy || p.strategyRevoked || p.strategyExpired || !p.onExpectedChain;
 
   const withdrawPercent = !exitPercentEnabled
     ? 100
@@ -258,15 +255,15 @@ export function StableClubPositionDashboard({
   };
 
   const actionBtn =
-    "h-12 rounded-xl border border-[#0b1f3a]/18 bg-white text-[12px] font-extrabold uppercase tracking-[0.07em] text-[#0b1f3a] transition hover:bg-[#f5f9fc] disabled:cursor-not-allowed disabled:opacity-40";
+    "h-12 rounded-xl border border-[var(--color-panel-border)] bg-[var(--color-bg-elevated)] text-[12px] font-extrabold uppercase tracking-[0.07em] text-[var(--color-ink)] transition hover:bg-[var(--color-panel)] disabled:cursor-not-allowed disabled:opacity-40";
 
   return (
     <section
       id="my-stable-club-position"
-      className="overflow-hidden rounded-2xl border border-[#b8cce3] bg-gradient-to-b from-white to-[#f2f7fc] shadow-[0_12px_40px_rgba(11,31,58,0.10)]"
+      className="app-panel overflow-hidden rounded-2xl"
       aria-label="My Stable Club Position"
     >
-      <div className="bg-[linear-gradient(125deg,#071526_0%,#0b1f3a_40%,#1a4f8c_100%)] px-4 py-5 text-white sm:px-6 sm:py-6">
+      <div className="bg-[linear-gradient(125deg,#07111f_0%,#0d1b33_42%,#1d4ed8_100%)] px-4 py-5 text-white sm:px-6 sm:py-6">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">
@@ -284,11 +281,7 @@ export function StableClubPositionDashboard({
                 ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`
                 : "Wallet"}
               {" · "}
-              {p.positionsLoading
-                ? "Syncing LPs…"
-                : secondsAgo < 5
-                  ? "Updated just now"
-                  : `Updated ${secondsAgo}s ago`}
+              {updatedLabel}
               {fetchedAt
                 ? ` · APY ${source ?? "DefiLlama"} ${new Date(fetchedAt).toLocaleTimeString()}`
                 : ""}
@@ -297,12 +290,12 @@ export function StableClubPositionDashboard({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={!depositsEnabled || actionsBusy}
+              disabled={!depositsEnabled || addFundsBusy}
               onClick={() => onAddFunds?.()}
               className={
                 addFundsOpen
-                  ? "rounded-lg border border-white bg-white px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#0b1f3a]"
-                  : "rounded-lg border border-white/25 bg-[#0052FF] px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.08em] text-white shadow-[0_4px_14px_rgba(0,82,255,0.35)] disabled:opacity-45"
+                  ? "rounded-lg border border-white bg-white px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#07111f]"
+                  : "rounded-lg border border-white/25 bg-[#2563eb] px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.08em] text-white shadow-[0_4px_14px_rgba(37,99,235,0.35)] disabled:opacity-45"
               }
             >
               Add Funds
@@ -359,105 +352,140 @@ export function StableClubPositionDashboard({
 
         <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-white/15">
           <div className="flex h-full">
-            {rows.map((row, i) => (
+            {rows.length === 0 ? (
+              <div className="h-full w-full bg-white/10" />
+            ) : (
+              rows.map((row, i) => (
               <div
                 key={row.key}
                 style={{
-                  width: `${Math.max(row.allocationPct, 10)}%`,
+                  width: `${Math.max(100 / Math.max(rows.length, 1), row.allocationPct)}%`,
                   background: ["#2dd4bf", "#38bdf8", "#818cf8", "#34d399", "#22d3ee"][i % 5],
-                  opacity: row.discovered ? 1 : 0.35,
+                  opacity: 1,
                 }}
               />
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>
 
       <div className="px-3 py-3.5 sm:px-5 sm:py-4">
-        {p.stale || p.positionsError ? (
-          <p className="mb-2 text-sm text-amber-800" role="status">
+        {p.stale && rows.length > 0 ? (
+          <p className="mb-2 text-sm text-amber-800 dark:text-amber-300" role="status">
             {p.positionsError ??
               "Position data may be incomplete — tap Refresh if a pool looks missing."}
           </p>
         ) : null}
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-left text-[#0b1f3a]">
-            <thead>
-              <tr className="border-b border-[#e6edf5] text-[10px] font-extrabold uppercase tracking-[0.1em] text-[#5b6b7c]">
-                <th className="py-2.5 pr-2">Pool</th>
-                <th className="py-2.5 pr-2">Value</th>
-                <th className="py-2.5 pr-2">Alloc</th>
-                <th className="py-2.5 pr-2">APY</th>
-                <th className="py-2.5 pr-2">Claimable</th>
-                <th className="py-2.5">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.key} className="border-b border-[#eef3f8]">
-                  <td className="py-3 pr-2">
-                    <div className="flex items-center gap-2.5">
-                      <TokenPairMarks a={row.tokenASymbol} b={row.tokenBSymbol} />
-                      <div>
-                        <p className="text-[15px] font-extrabold leading-tight tracking-tight">
-                          {row.pair}
-                          {row.nftCount > 1 ? (
-                            <span className="ml-1.5 text-[10px] font-bold text-[#5b6b7c]">
-                              · {row.nftCount} LPs
-                            </span>
-                          ) : null}
-                        </p>
-                        <p className="mt-0.5 text-[11px] font-semibold text-[#5b6b7c]">
-                          {row.protocol}
-                          {row.feeLabel ? ` · ${row.feeLabel}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="py-3 pr-2 font-mono text-[14px] font-bold">{row.value}</td>
-                  <td className="py-3 pr-2 text-[14px] font-extrabold tabular-nums">
-                    {row.allocation}
-                  </td>
-                  <td className="py-3 pr-2 text-[14px] font-extrabold tabular-nums text-emerald-700">
-                    {row.apy}
-                  </td>
-                  <td className="py-3 pr-2 text-[14px] font-bold tabular-nums">
-                    {row.discovered ? `≈ $${row.claimableUsd.toFixed(2)}` : "—"}
-                  </td>
-                  <td className="py-3">
-                    <span
-                      className={
-                        !row.discovered
-                          ? "rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-600"
-                          : row.active
-                            ? "rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700"
-                            : "rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-extrabold text-amber-700"
-                      }
-                    >
-                      {!row.discovered
-                        ? p.positionsLoading
-                          ? "Syncing"
-                          : "Pending"
-                        : row.active
-                          ? "Active"
-                          : "Check"}
-                    </span>
-                  </td>
+        {!hasSettledDiscovery ? (
+          <div
+            className="flex min-h-[140px] flex-col items-center justify-center gap-2 rounded-xl border border-[var(--color-panel-border)] bg-[var(--color-panel)] px-4 py-8"
+            role="status"
+            aria-busy="true"
+          >
+            <div className="h-8 w-8 animate-pulse rounded-full bg-[var(--color-brand)]/30" />
+            <p className="text-sm font-semibold text-[var(--color-ink-muted)]">
+              Loading your LP positions…
+            </p>
+          </div>
+        ) : showRpcError ? (
+          <div
+            className="flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-panel)] px-4 py-8 text-center"
+            role="alert"
+          >
+            <p className="text-sm font-semibold text-[var(--color-danger)]">
+              Couldn’t load positions
+            </p>
+            <p className="max-w-sm text-[13px] text-[var(--color-ink-muted)]">
+              {p.positionsError}
+            </p>
+            <button
+              type="button"
+              disabled={p.busy}
+              onClick={() => void refreshPositions().then(() => markRefreshed())}
+              className="h-10 rounded-xl bg-[var(--color-brand)] px-4 text-[11px] font-extrabold uppercase tracking-[0.07em] text-white disabled:opacity-40"
+            >
+              Retry
+            </button>
+          </div>
+        ) : isEmpty ? (
+          <div
+            className="flex min-h-[140px] flex-col items-center justify-center gap-2 rounded-xl border border-[var(--color-panel-border)] bg-[var(--color-panel)] px-4 py-8 text-center"
+            role="status"
+          >
+            <p className="text-base font-bold text-[var(--color-ink)]">No active positions</p>
+            <p className="max-w-sm text-[13px] text-[var(--color-ink-muted)]">
+              This wallet has no open Stable Club LP NFTs. Deposit USDC to open five-pool
+              positions.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-left text-[var(--color-ink)]">
+              <thead>
+                <tr className="border-b border-[var(--color-panel-border)] text-[10px] font-extrabold uppercase tracking-[0.1em] text-[var(--color-ink-dim)]">
+                  <th className="py-2.5 pr-2">Pool</th>
+                  <th className="py-2.5 pr-2">Value</th>
+                  <th className="py-2.5 pr-2">Alloc</th>
+                  <th className="py-2.5 pr-2">APY</th>
+                  <th className="py-2.5 pr-2">Claimable</th>
+                  <th className="py-2.5">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.key} className="border-b border-[var(--color-panel-border)]/60">
+                    <td className="py-3 pr-2">
+                      <div className="flex items-center gap-2.5">
+                        <TokenPairMarks a={row.tokenASymbol} b={row.tokenBSymbol} />
+                        <div>
+                          <p className="text-[15px] font-extrabold leading-tight tracking-tight">
+                            {row.pair}
+                          </p>
+                          <p className="mt-0.5 text-[11px] font-semibold text-[var(--color-ink-dim)]">
+                            {row.protocol}
+                            {row.feeLabel ? ` · ${row.feeLabel}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 pr-2 font-mono text-[14px] font-bold">{row.value}</td>
+                    <td className="py-3 pr-2 text-[14px] font-extrabold tabular-nums">
+                      {row.allocation}
+                    </td>
+                    <td className="py-3 pr-2 text-[14px] font-extrabold tabular-nums text-emerald-700 dark:text-emerald-300">
+                      {row.apy}
+                    </td>
+                    <td className="py-3 pr-2 text-[14px] font-bold tabular-nums">
+                      ≈ ${row.claimableUsd.toFixed(2)}
+                    </td>
+                    <td className="py-3">
+                      <span
+                        className={
+                          row.active
+                            ? "rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300"
+                            : "rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-extrabold text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+                        }
+                      >
+                        {row.active ? "Active" : "Check"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <button
             type="button"
-            disabled={!depositsEnabled || actionsBusy}
+            disabled={!depositsEnabled || addFundsBusy}
             onClick={() => onAddFunds?.()}
             className={
               addFundsOpen
-                ? "h-12 rounded-xl border-2 border-[#0b1f3a] bg-[#0b1f3a]/[0.06] text-[12px] font-extrabold uppercase tracking-[0.07em] text-[#0b1f3a] disabled:opacity-40"
+                ? "h-12 rounded-xl border-2 border-[var(--color-ink)]/20 bg-[var(--color-brand)]/10 text-[12px] font-extrabold uppercase tracking-[0.07em] text-[var(--color-ink)] disabled:opacity-40"
                 : actionBtn
             }
           >
@@ -465,7 +493,7 @@ export function StableClubPositionDashboard({
           </button>
           <button
             type="button"
-            disabled={!harvestCompoundReady || actionsBusy}
+            disabled={!harvestCompoundReady || withdrawBusy}
             onClick={() => void afterAction(() => p.harvestAll())}
             className={actionBtn}
           >
@@ -473,7 +501,7 @@ export function StableClubPositionDashboard({
           </button>
           <button
             type="button"
-            disabled={!harvestCompoundReady || actionsBusy}
+            disabled={!harvestCompoundReady || withdrawBusy}
             onClick={() => void afterAction(() => p.compoundAll())}
             className={actionBtn}
           >
@@ -481,73 +509,23 @@ export function StableClubPositionDashboard({
           </button>
           <button
             type="button"
-            disabled={actionsBusy}
+            disabled={withdrawBusy}
             onClick={() => {
               setWithdrawPreset(100);
               setCustomPercent("50");
               setConfirmOpen(true);
             }}
-            className="h-12 rounded-xl bg-[#0b1f3a] text-[12px] font-extrabold uppercase tracking-[0.07em] text-white shadow-[0_8px_22px_rgba(11,31,58,0.22)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+            className="h-12 rounded-xl bg-[var(--color-brand)] text-[12px] font-extrabold uppercase tracking-[0.07em] text-white shadow-[0_8px_22px_rgba(37,99,235,0.28)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Withdraw
           </button>
         </div>
 
-        {p.incompleteWithdraw || (p.strandedAssets?.length ?? 0) > 0 ? (
-          <div
-            className="mt-4 rounded-xl border border-[#d7e0ec] bg-[#f8fafc] px-3.5 py-3 text-sm text-[#0b1f3a]"
-            role="status"
-          >
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-[#5b6b7c]">
-              {p.incompleteWithdraw
-                ? "Incomplete withdraw"
-                : "Stranded wallet assets"}
-            </p>
-            {p.strandedAssets.length > 0 ? (
-              <ul className="mt-2 space-y-1 font-mono text-[13px] font-semibold">
-                {p.strandedAssets.map((row) => (
-                  <li key={`${row.tokenIn}-${row.amountIn.toString()}`} className="flex justify-between gap-3">
-                    <span>{row.symbol}</span>
-                    <span>
-                      {formatUnits(row.amountIn, tokenDecimals(row.symbol))}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-2 text-[12px] text-[#5b6b7c]">
-                Remaining LP batch(es) still need to exit, then residue converts to USDC.
-              </p>
-            )}
-            <p className="mt-2 text-[12px] leading-snug text-[#5b6b7c]">
-              {p.incompleteWithdraw ? (
-                <>
-                  Withdrawal residue from an interrupted exit (cbBTC is often shown as WBTC in
-                  wallets, plus WETH). Resume converts <strong>only</strong> this residue to USDC
-                  and finishes any remaining LP — it does not re-exit completed batches or touch
-                  pre-withdraw balances.
-                </>
-              ) : (
-                <>
-                  These balances are in your wallet. Resume appears when an interrupted Withdraw
-                  checkpoint exists so unrelated holdings stay untouched.
-                </>
-              )}
-            </p>
-            <button
-              type="button"
-              disabled={actionsBusy || !p.incompleteWithdraw}
-              onClick={() => void p.resumeIncompleteWithdraw()}
-              className="mt-3 h-10 w-full rounded-xl bg-[#0b1f3a] text-[11px] font-extrabold uppercase tracking-[0.07em] text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Resume incomplete withdraw → USDC
-            </button>
-          </div>
+        {p.statusMessage ? (
+          <p className="mt-2 text-sm text-emerald-800 dark:text-emerald-300">{p.statusMessage}</p>
         ) : null}
-
-        {p.statusMessage ? <p className="mt-2 text-sm text-emerald-800">{p.statusMessage}</p> : null}
         {p.error ? (
-          <p className="mt-2 text-sm text-[#b42318]" role="alert">
+          <p className="mt-2 text-sm text-[var(--color-danger)]" role="alert">
             {p.error}
           </p>
         ) : null}
@@ -557,7 +535,7 @@ export function StableClubPositionDashboard({
               href={p.explorerUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-[#1a4f8c] underline-offset-2 hover:underline"
+              className="text-[var(--color-brand)] underline-offset-2 hover:underline"
             >
               BaseScan {p.lastTxHash.slice(0, 10)}…
             </a>
@@ -566,20 +544,20 @@ export function StableClubPositionDashboard({
       </div>
 
       {confirmOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#0b1f3a]/50 p-4 sm:items-center">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-[color-mix(in_srgb,var(--color-ink)_45%,transparent)] p-4 sm:items-center">
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Confirm Withdraw"
-            className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+            className="w-full max-w-md rounded-2xl bg-[var(--color-bg-elevated)] p-5 text-[var(--color-ink)] shadow-xl"
           >
-            <h2 className="text-lg font-bold text-[#0b1f3a]">Withdraw · Receive USDC</h2>
-            <p className="mt-2 text-sm text-[#5b6b7c]">
+            <h2 className="text-lg font-bold text-[var(--color-ink)]">Withdraw · Receive USDC</h2>
+            <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
               Removes liquidity as NFT owner across all five pools (batched per NPM), then
               automatically sells withdrawal residue (cbBTC + WETH) to{" "}
               <span className="font-semibold">USDC only</span> in your wallet. Success is shown
-              only after USDC increases and residue is cleared. Interrupted exits can Resume
-              without re-doing completed NPM batches. At 100%, removes all remaining liquidity.
+              only after USDC increases and residue is cleared. At 100%, removes all remaining
+              liquidity.
             </p>
 
             {exitPercentEnabled ? (
@@ -592,8 +570,8 @@ export function StableClubPositionDashboard({
                       onClick={() => setWithdrawPreset(pct)}
                       className={
                         withdrawPreset === pct
-                          ? "h-11 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white"
-                          : "h-11 rounded-xl border border-[#d7e0ec] text-sm font-semibold text-[#0b1f3a]"
+                          ? "h-11 rounded-xl bg-[var(--color-brand)] text-sm font-bold text-white"
+                          : "h-11 rounded-xl border border-[var(--color-panel-border)] text-sm font-semibold text-[var(--color-ink)]"
                       }
                     >
                       {pct}%
@@ -605,14 +583,14 @@ export function StableClubPositionDashboard({
                   onClick={() => setWithdrawPreset("custom")}
                   className={
                     withdrawPreset === "custom"
-                      ? "mt-2 h-11 w-full rounded-xl bg-[#0b1f3a] text-sm font-bold text-white"
-                      : "mt-2 h-11 w-full rounded-xl border border-[#d7e0ec] text-sm font-semibold text-[#0b1f3a]"
+                      ? "mt-2 h-11 w-full rounded-xl bg-[var(--color-brand)] text-sm font-bold text-white"
+                      : "mt-2 h-11 w-full rounded-xl border border-[var(--color-panel-border)] text-sm font-semibold text-[var(--color-ink)]"
                   }
                 >
                   Custom %
                 </button>
                 {withdrawPreset === "custom" ? (
-                  <label className="mt-3 block text-sm text-[#5b6b7c]">
+                  <label className="mt-3 block text-sm text-[var(--color-ink-muted)]">
                     Percent (1–100)
                     <input
                       type="number"
@@ -621,35 +599,35 @@ export function StableClubPositionDashboard({
                       step={1}
                       value={customPercent}
                       onChange={(e) => setCustomPercent(e.target.value)}
-                      className="mt-1 h-11 w-full rounded-xl border border-[#d7e0ec] px-3 font-semibold text-[#0b1f3a]"
+                      className="mt-1 h-11 w-full rounded-xl border border-[var(--color-panel-border)] bg-[var(--color-bg-elevated)] px-3 font-semibold text-[var(--color-ink)]"
                     />
                   </label>
                 ) : null}
                 {!withdrawPercentValid ? (
-                  <p className="mt-2 text-sm text-[#b42318]" role="alert">
+                  <p className="mt-2 text-sm text-[var(--color-danger)]" role="alert">
                     Enter a percent between 1 and 100.
                   </p>
                 ) : !exitPercentExecutable && Math.round(withdrawPercent) !== 100 ? (
-                  <p className="mt-2 text-sm text-[#b42318]" role="alert">
+                  <p className="mt-2 text-sm text-[var(--color-danger)]" role="alert">
                     Custom % is not available on this deployment. Choose{" "}
                     <span className="font-semibold">100%</span> for atomic USDC exit.
                   </p>
                 ) : withdrawStackKind === "legacy" ? (
-                  <p className="mt-2 text-sm text-[#5b6b7c]">
+                  <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
                     Removes {Math.round(withdrawPercent)}% of remaining LP liquidity as NFT
                     owner (no permit) → sells non-USDC on Uniswap → USDC to your wallet.
                     NPM calls are batched per position manager to save gas. Needs a small
                     amount of Base ETH for gas (~a few thousandths).
                   </p>
                 ) : (
-                  <p className="mt-2 text-sm text-[#5b6b7c]">
+                  <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
                     Removes {Math.round(withdrawPercent)}% of remaining LP liquidity → sells
                     non-USDC → sends USDC only to your wallet (one atomic tx).
                   </p>
                 )}
               </>
             ) : (
-              <p className="mt-4 text-sm text-[#5b6b7c]">
+              <p className="mt-4 text-sm text-[var(--color-ink-muted)]">
                 Exits <span className="font-semibold">100%</span> of remaining LP liquidity →
                 sells non-USDC → sends USDC only to your wallet.
               </p>
@@ -658,24 +636,24 @@ export function StableClubPositionDashboard({
             {usdValue.totalUsdc != null && usdValue.totalUsdc > BigInt(0) ? (
               <ul className="mt-3 space-y-1.5 text-sm">
                 <li className="flex justify-between">
-                  <span className="text-[#5b6b7c]">Est. remaining LP (USDC)</span>
+                  <span className="text-[var(--color-ink-muted)]">Est. remaining LP (USDC)</span>
                   <span className="font-semibold">${formatUnits(usdValue.totalUsdc, 6)}</span>
                 </li>
               </ul>
             ) : null}
 
-            <div className="mt-4 rounded-xl border border-[#d7e0ec] bg-[#f8fafc] px-3.5 py-3 text-[12px] leading-snug text-[#0b1f3a]">
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-[#5b6b7c]">
+            <div className="mt-4 rounded-xl border border-[var(--color-panel-border)] bg-[var(--color-panel)] px-3.5 py-3 text-[12px] leading-snug text-[var(--color-ink)]">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-[var(--color-ink-muted)]">
                 Authority step · Base
               </p>
-              <p className="mt-2 text-[#5b6b7c]">
+              <p className="mt-2 text-[var(--color-ink-muted)]">
                 {withdrawStackKind === "legacy" ? (
                   <>
                     Legacy positions call each protocol NPM as NFT owner (
-                    <span className="font-mono text-[#0b1f3a]">decreaseLiquidity</span> /{" "}
-                    <span className="font-mono text-[#0b1f3a]">collect</span>), batched per NPM —
-                    no <span className="font-mono text-[#0b1f3a]">approve</span> /{" "}
-                    <span className="font-mono text-[#0b1f3a]">permit</span> to IndexLa adapters
+                    <span className="font-mono text-[var(--color-ink)]">decreaseLiquidity</span> /{" "}
+                    <span className="font-mono text-[var(--color-ink)]">collect</span>), batched per NPM —
+                    no <span className="font-mono text-[var(--color-ink)]">approve</span> /{" "}
+                    <span className="font-mono text-[var(--color-ink)]">permit</span> to IndexLa adapters
                     (those adapters are not Basescan-verified yet, which triggered wallet
                     “approves ERC20 to an unverified contract”). Then Uniswap SwapRouter sells
                     cbBTC/WETH → USDC. Top up Base ETH if the app reports a gas shortfall.
@@ -683,31 +661,29 @@ export function StableClubPositionDashboard({
                 ) : (
                   <>
                     Withdraw asks for an{" "}
-                    <span className="font-semibold text-[#0b1f3a]">LP NFT permit</span> (EIP-712
-                    signature + on-chain <span className="font-mono text-[#0b1f3a]">permit</span>{" "}
+                    <span className="font-semibold text-[var(--color-ink)]">LP NFT permit</span> (EIP-712
+                    signature + on-chain <span className="font-mono text-[var(--color-ink)]">permit</span>{" "}
                     selector{" "}
-                    <span className="font-mono font-semibold text-[#0b1f3a]">0x7ac2ff7b</span>) —
-                    not ERC20/ERC721 <span className="font-mono text-[#0b1f3a]">approve</span>{" "}
-                    (<span className="font-mono text-[#0b1f3a]">0x095ea7b3</span>). Authority is one
+                    <span className="font-mono font-semibold text-[var(--color-ink)]">0x7ac2ff7b</span>) —
+                    not ERC20/ERC721 <span className="font-mono text-[var(--color-ink)]">approve</span>{" "}
+                    (<span className="font-mono text-[var(--color-ink)]">0x095ea7b3</span>). Authority is one
                     tokenId → one IndexLa adapter; funds stay in the LP until the atomic exit tx
                     (reverts on failure).
                   </>
                 )}
               </p>
-              <p className="mt-2 text-[#5b6b7c]">
+              <p className="mt-2 text-[var(--color-ink-muted)]">
                 Path:{" "}
-                <span className="font-semibold text-[#0b1f3a]">
+                <span className="font-semibold text-[var(--color-ink)]">
                   owner NPM + auto Uni→USDC
                 </span>
                 {withdrawStackKind === "legacy" ? " (legacy adapters)" : " (primary adapters)"}.
               </p>
-              <p className="mt-2 text-[11px] leading-snug text-[#8a9aab]">
+              <p className="mt-2 text-[11px] leading-snug text-[var(--color-ink-dim)]">
                 Wallet confirms (cold): up to 3 NPM multicalls (one per NPM contract) + up to 2
                 Uni max-approves (skipped if already live) + 1 residue→USDC multicall sweep.
-                Resume after LP exit is recover-only (no re-exit). ≤3 total cold confirms need
-                wallet batching (EIP-5792) or a cross-NPM gateway — not on live Base yet.
               </p>
-              <p className="mt-2 text-[#5b6b7c]">
+              <p className="mt-2 text-[var(--color-ink-muted)]">
                 Open Basescan for each adapter (green check = verified source):
               </p>
               {uniqueAdapters.length > 0 ? (
@@ -718,7 +694,7 @@ export function StableClubPositionDashboard({
                         href={`https://basescan.org/address/${adapter}#code`}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-mono text-[#1a4f8c] underline-offset-2 hover:underline"
+                        className="font-mono text-[var(--color-brand)] underline-offset-2 hover:underline"
                       >
                         {adapter}
                       </a>
@@ -732,7 +708,7 @@ export function StableClubPositionDashboard({
               <button
                 type="button"
                 onClick={() => setConfirmOpen(false)}
-                className="h-10 rounded-xl border border-[#d7e0ec] text-sm font-semibold"
+                className="h-10 rounded-xl border border-[var(--color-panel-border)] text-sm font-semibold"
               >
                 Cancel
               </button>
@@ -750,7 +726,7 @@ export function StableClubPositionDashboard({
                   setConfirmOpen(false);
                   void afterAction(() => p.withdrawPercent(pct));
                 }}
-                className="h-10 rounded-xl bg-[#0b1f3a] text-sm font-bold text-white disabled:opacity-45"
+                className="h-10 rounded-xl bg-[var(--color-brand)] text-sm font-bold text-white disabled:opacity-45"
               >
                 Confirm USDC
               </button>
