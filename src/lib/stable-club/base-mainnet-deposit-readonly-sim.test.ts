@@ -493,15 +493,6 @@ describe("Base mainnet read-only deposit simulation", () => {
         },
       });
       await pace();
-      const bundle = await quoteAdapter.fetchQuotes({
-        grossUsdc: parsed.grossUsdc,
-        nowSec,
-      });
-      expect(bundle.source).toBe("oracle-guard");
-      expect(Object.keys(bundle.quotes)).toHaveLength(8);
-
-      // Protocol-specific slot0 ABI (Uni V3 = 7 outs, Slipstream = 6 outs)
-      await pace();
       const slot0States = await readPoolSlot0States(client, "base", 8453);
       const currentTicks = slot0States.map((s) => s.tick);
       expect(currentTicks).toHaveLength(OFFICIAL_STABLE_CLUB_BASE_POOLS.length);
@@ -509,6 +500,17 @@ describe("Base mainnet read-only deposit simulation", () => {
         expect(Number.isInteger(currentTicks[i])).toBe(true);
         expect(slot0States[i]!.sqrtPriceX96 > 0n).toBe(true);
       }
+
+      const bundle = await quoteAdapter.fetchQuotes({
+        grossUsdc: parsed.grossUsdc,
+        nowSec,
+        poolStates: slot0States.map((s) => ({
+          tick: s.tick,
+          sqrtPriceX96: s.sqrtPriceX96,
+        })),
+      });
+      expect(bundle.source).toBe("oracle-guard");
+      expect(Object.keys(bundle.quotes)).toHaveLength(8);
 
       const adapters = TRUSTED_PHASE2A_BASE_MANIFEST.contracts.adapters.map(
         (a) => a as Address,
@@ -567,7 +569,10 @@ describe("Base mainnet read-only deposit simulation", () => {
           minOut: s.minOut.toString(),
         })),
       };
-      report.quoteRequests = buildFivePoolSwapQuoteRequests(parsed.grossUsdc).map((r) => ({
+      report.quoteRequests = buildFivePoolSwapQuoteRequests(
+        parsed.grossUsdc,
+        slot0States.map((s) => ({ tick: s.tick, sqrtPriceX96: s.sqrtPriceX96 })),
+      ).map((r) => ({
         slotId: r.slotId,
         netUsdcIn: formatUnits(r.netUsdcIn, 6),
         decimalsOut: r.decimalsOut,

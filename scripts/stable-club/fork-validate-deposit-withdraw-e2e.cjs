@@ -70,7 +70,10 @@ const REGISTRY_ABI = [
   "function getLeg(bytes32,uint256) view returns (tuple(bytes32 poolId,uint256 allocationBps,address adapter,address tokenA,address tokenB,bytes32 legPermissionId,uint256 maxLegPerTx,uint256 maxLegPerDay))",
   "function strategyDepositNonceUsed(bytes32,uint256) view returns (bool)",
 ];
-const POOL_ABI = ["function tickSpacing() view returns (int24)"];
+const POOL_ABI = [
+  "function tickSpacing() view returns (int24)",
+  "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, bool)",
+];
 const ADAPTER_ABI = [
   "function ownerOf(uint256) view returns (address)",
   "function positionTokens(uint256) view returns (address,address)",
@@ -82,8 +85,63 @@ function npmAbi(protocol) {
   return protocol === "uni" || protocol === "uniswap-v3" ? NPM_UNI : NPM_AERO;
 }
 
-function alignTick(tick, spacing) {
-  return Math.trunc(Number(tick) / spacing) * spacing;
+function floorTickToSpacing(tick, spacing) {
+  const t = Math.floor(tick);
+  return Math.floor(t / spacing) * spacing;
+}
+
+function ceilTickToSpacing(tick, spacing) {
+  const t = Math.ceil(tick);
+  return Math.ceil(t / spacing) * spacing;
+}
+
+/** ±25% price range → ticks (matches app computeTickRange). */
+function computeTickRange(currentTick, spacing) {
+  const lowerRaw = currentTick + Math.log(0.75) / Math.log(1.0001);
+  const upperRaw = currentTick + Math.log(1.25) / Math.log(1.0001);
+  let tickLower = floorTickToSpacing(lowerRaw, spacing);
+  let tickUpper = ceilTickToSpacing(upperRaw, spacing);
+  if (tickLower >= currentTick) tickLower = floorTickToSpacing(currentTick - 1, spacing);
+  if (tickUpper <= currentTick) tickUpper = ceilTickToSpacing(currentTick + 1, spacing);
+  return { tickLower, tickUpper };
+}
+
+/**
+ * Relative USD weights for ±25% in-range mint at spot (token0/token1 pool order).
+ * Matches app computeClRangeTokenValueWeightsBps at geometric-normalized spot.
+ */
+function clRangeWeightsBps() {
+  const pl = 0.75;
+  const pu = 1.25;
+  const p = 1;
+  const a0 = 1 / Math.sqrt(p) - 1 / Math.sqrt(pu);
+  const a1 = Math.sqrt(p) - Math.sqrt(pl);
+  const v0 = a0 * p;
+  const v1 = a1;
+  const total = v0 + v1;
+  const weight0Bps = Math.floor((v0 / total) * 10000);
+  return { weight0Bps, weight1Bps: 10000 - weight0Bps };
+}
+
+function splitLegUsdcCl({ legBudget, dualSwap, tokenA, tokenB }) {
+  const { weight0Bps, weight1Bps } = clRangeWeightsBps();
+  const token0IsA = tokenA.toLowerCase() < tokenB.toLowerCase();
+  const weightABps = BigInt(token0IsA ? weight0Bps : weight1Bps);
+  const weightBBps = BigInt(token0IsA ? weight1Bps : weight0Bps);
+  const BPS = 10000n;
+  const FEE = 100n;
+  if (!dualSwap) {
+    const feeFactor = BPS - FEE;
+    const denom = weightBBps * BPS + weightABps * feeFactor;
+    let swapGross = (legBudget * weightBBps * BPS) / denom;
+    if (swapGross <= 0n) swapGross = 1n;
+    if (swapGross >= legBudget) swapGross = legBudget - 1n;
+    return { retainUsdc: legBudget - swapGross, swapGrosses: [swapGross] };
+  }
+  let first = (legBudget * weightABps) / BPS;
+  if (first <= 0n) first = 1n;
+  if (first >= legBudget) first = legBudget - 1n;
+  return { retainUsdc: 0n, swapGrosses: [first, legBudget - first] };
 }
 
 async function readPoolTick(provider, poolAddress) {
@@ -237,7 +295,6 @@ async function runDeposit(grossUsdc) {
   }
 
   const legBudget = grossUsdc / 5n;
-  const half = legBudget / 2n;
   const deadline = now + 3600n;
   const emptySwap = {
     routeId: ethers.ZeroHash,
@@ -247,6 +304,8 @@ async function runDeposit(grossUsdc) {
     deadline: 0n,
   };
   const depositLegs = [];
+  let preWeth = await (await ethers.getContractAt(ERC20, WETH)).balanceOf(WALLET);
+  let preCbbtc = await (await ethers.getContractAt(ERC20, CBBTC)).balanceOf(WALLET);
   for (let i = 0; i < 5; i++) {
     const a = stack.adapters[i];
     const dualSwap = a.tokenA.toLowerCase() !== USDC.toLowerCase();
@@ -254,14 +313,19 @@ async function runDeposit(grossUsdc) {
     const spacing =
       a.protocol === "uniswap-v3" ? Number(await pool.tickSpacing()) : Number(a.tickSpacing);
     const tick = await readPoolTick(ethers.provider, a.poolAddress);
-    const tickLower = alignTick(tick - spacing * 10, spacing);
-    const tickUpper = alignTick(tick + spacing * 10, spacing);
+    const { tickLower, tickUpper } = computeTickRange(tick, spacing);
+    const { retainUsdc, swapGrosses } = splitLegUsdcCl({
+      legBudget,
+      dualSwap,
+      tokenA: a.tokenA,
+      tokenB: a.tokenB,
+    });
     if (!dualSwap) {
       const swapRoute =
         a.poolAddress.toLowerCase() === "0x4e962bb3889bf030368f56810a9c96b83cb3e778"
           ? ROUTE_USDC_CBBTC_AERO_L
           : ROUTE_USDC_CBBTC_UNI;
-      const q = await oracleQuote(CBBTC, half);
+      const q = await oracleQuote(CBBTC, swapGrosses[0]);
       depositLegs.push({
         legIndex: i,
         adapter: a.adapter,
@@ -269,11 +333,11 @@ async function runDeposit(grossUsdc) {
         tokenB: a.tokenB,
         tickLower,
         tickUpper,
-        retainUsdc: half,
+        retainUsdc,
         swaps: [
           {
             routeId: swapRoute,
-            grossUsdcIn: half,
+            grossUsdcIn: swapGrosses[0],
             minOut: q.minOut,
             quotedOut: q.expected,
             deadline,
@@ -286,8 +350,8 @@ async function runDeposit(grossUsdc) {
         slippageBps: 500n,
       });
     } else {
-      const qCb = await oracleQuote(CBBTC, half);
-      const qWe = await oracleQuote(WETH, half);
+      const qCb = await oracleQuote(CBBTC, swapGrosses[0]);
+      const qWe = await oracleQuote(WETH, swapGrosses[1]);
       depositLegs.push({
         legIndex: i,
         adapter: a.adapter,
@@ -299,14 +363,14 @@ async function runDeposit(grossUsdc) {
         swaps: [
           {
             routeId: ROUTE_USDC_CBBTC_UNI,
-            grossUsdcIn: half,
+            grossUsdcIn: swapGrosses[0],
             minOut: qCb.minOut,
             quotedOut: qCb.expected,
             deadline,
           },
           {
             routeId: ROUTE_USDC_WETH_UNI,
-            grossUsdcIn: half,
+            grossUsdcIn: swapGrosses[1],
             minOut: qWe.minOut,
             quotedOut: qWe.expected,
             deadline,
@@ -348,6 +412,16 @@ async function runDeposit(grossUsdc) {
   });
   const rec = await tx.wait();
   if (rec.status !== 1) throw new Error("deposit reverted");
+
+  const wethTok = await ethers.getContractAt(ERC20, WETH);
+  const cbbtcTok = await ethers.getContractAt(ERC20, CBBTC);
+  const postWeth = await wethTok.balanceOf(WALLET);
+  const postCbbtc = await cbbtcTok.balanceOf(WALLET);
+  const residualWeth = postWeth > preWeth ? postWeth - preWeth : 0n;
+  const residualCbbtc = postCbbtc > preCbbtc ? postCbbtc - preCbbtc : 0n;
+  console.log(
+    `DEPOSIT_RESIDUAL WETH=${ethers.formatUnits(residualWeth, 18)} cbBTC=${ethers.formatUnits(residualCbbtc, 8)}`,
+  );
 
   const transferIface = new ethers.Interface([
     "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
@@ -415,6 +489,10 @@ async function runDeposit(grossUsdc) {
     clExecutor: stack.clExecutor,
     grossUsdc: grossUsdc.toString(),
     usdcSpent: (usdcBefore - usdcAfter).toString(),
+    residualWeth: residualWeth.toString(),
+    residualCbbtc: residualCbbtc.toString(),
+    residualWethFormatted: ethers.formatUnits(residualWeth, 18),
+    residualCbbtcFormatted: ethers.formatUnits(residualCbbtc, 8),
     walletConfirmationCount: prompts.length,
     maxTwoMet: prompts.length <= 2,
     prompts,

@@ -29,6 +29,11 @@ export type FivePoolQuoteAdapter = {
   fetchQuotes(params: {
     grossUsdc: bigint;
     nowSec: number;
+    /**
+     * Live slot0 per catalogue pool. Production deposits must pass this so
+     * USDC is split to CL range weights; omitted → naive 50/50 (tests only).
+     */
+    poolStates?: readonly { tick: number; sqrtPriceX96: bigint }[];
   }): Promise<FivePoolQuoteBundle>;
 };
 
@@ -71,8 +76,8 @@ export function createOracleGuardQuoteAdapter(params: {
 }): FivePoolQuoteAdapter {
   return {
     source: "oracle-guard",
-    async fetchQuotes({ grossUsdc, nowSec }) {
-      const requests = buildFivePoolSwapQuoteRequests(grossUsdc);
+    async fetchQuotes({ grossUsdc, nowSec, poolStates }) {
+      const requests = buildFivePoolSwapQuoteRequests(grossUsdc, poolStates);
       const quotes = {} as Record<FivePoolSwapSlotId, SwapQuoteInput>;
 
       for (const req of requests) {
@@ -126,8 +131,8 @@ export function createMockQuoteAdapter(
 ): FivePoolQuoteAdapter {
   return {
     source: "mock-test-only",
-    async fetchQuotes({ grossUsdc, nowSec }) {
-      const requests = buildFivePoolSwapQuoteRequests(grossUsdc);
+    async fetchQuotes({ grossUsdc, nowSec, poolStates }) {
+      const requests = buildFivePoolSwapQuoteRequests(grossUsdc, poolStates);
       const quotes = {} as Record<FivePoolSwapSlotId, SwapQuoteInput>;
       for (const req of requests) {
         quotes[req.slotId] = {

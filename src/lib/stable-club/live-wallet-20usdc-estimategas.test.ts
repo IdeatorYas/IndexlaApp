@@ -133,8 +133,15 @@ describe.runIf(hasRpc)("live wallet 20 USDC estimateGas (PSC gate)", () => {
       oracleGuard: d.oracleGuard,
       tokens: { usdc: d.usdc, cbbtc: d.cbbtc, weth: d.weth },
     });
-    const bundle = await quoteAdapter.fetchQuotes({ grossUsdc: GROSS, nowSec });
     const slot0States = await readPoolSlot0States(client, "base", 8453);
+    const bundle = await quoteAdapter.fetchQuotes({
+      grossUsdc: GROSS,
+      nowSec,
+      poolStates: slot0States.map((s) => ({
+        tick: s.tick,
+        sqrtPriceX96: s.sqrtPriceX96,
+      })),
+    });
     const adapters = d.adapters.map((a) => a.adapter) as [
       Address,
       Address,

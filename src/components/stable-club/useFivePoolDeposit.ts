@@ -362,10 +362,6 @@ export function useFivePoolDeposit() {
           weth: deployments.weth,
         },
       });
-      const bundle = await adapter.fetchQuotes({
-        grossUsdc: parsed.grossUsdc,
-        nowSec,
-      });
       const slot0States = await readPoolSlot0States(
         publicClient,
         deployments.network,
@@ -373,6 +369,14 @@ export function useFivePoolDeposit() {
       );
       const currentTicks = slot0States.map((s) => s.tick);
       const sqrtPriceX96PerPool = slot0States.map((s) => s.sqrtPriceX96);
+      const bundle = await adapter.fetchQuotes({
+        grossUsdc: parsed.grossUsdc,
+        nowSec,
+        poolStates: slot0States.map((s) => ({
+          tick: s.tick,
+          sqrtPriceX96: s.sqrtPriceX96,
+        })),
+      });
       // Match deposit adapters to registered strategy legs (legacy-pinned users
       // cannot use primary adapters — strategy IDs are non-recyclable).
       let legAdapters: Address[] = [];

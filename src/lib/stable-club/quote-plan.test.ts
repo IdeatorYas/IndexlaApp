@@ -28,11 +28,13 @@ import {
   netUsdcAfterSwapFee,
   serializeQuotePlan,
   splitLegUsdc,
+  splitLegUsdcForClRange,
   tickSpacingForPool,
   type BuildFivePoolQuotePlanInput,
   type FivePoolSwapSlotId,
   type SwapQuoteInput,
 } from "@/lib/stable-club/quote-plan";
+import { getSqrtRatioAtTick } from "@/lib/stable-club/cl-liquidity-math";
 
 const ADAPTERS = [
   "0x1111111111111111111111111111111111111111",
@@ -124,6 +126,25 @@ describe("quote-plan helpers", () => {
     expect(dual.swapGrosses[1]).toBe(BigInt(101));
   });
 
+  it("CL-range dual split underweights WETH vs 50/50 for ±25% ranges", () => {
+    const tick = 0;
+    const { tickLower, tickUpper } = computeTickRange(tick, 10);
+    const dual = splitLegUsdcForClRange({
+      legBudget: BigInt(200_000_000),
+      dualSwap: true,
+      tokenA: BASE_TOKENS.cbBTC.address,
+      tokenB: BASE_TOKENS.WETH.address,
+      tickLower,
+      tickUpper,
+      sqrtPriceX96: getSqrtRatioAtTick(tick),
+    });
+    expect(dual.retainUsdc).toBe(BigInt(0));
+    expect(dual.swapGrosses[0]! + dual.swapGrosses[1]!).toBe(BigInt(200_000_000));
+    // swap[0]=cbBTC, swap[1]=WETH — WETH share should be < 50%
+    expect(dual.swapGrosses[1]!).toBeLessThan(BigInt(100_000_000));
+    expect(dual.swapGrosses[0]!).toBeGreaterThan(BigInt(100_000_000));
+  });
+
   it("computes minOut with integer slippage floor", () => {
     expect(minOutFromQuote(BigInt(10000), BigInt(100))).toBe(BigInt(9900));
     expect(minOutFromQuote(BigInt(100), BigInt(100))).toBe(BigInt(99));
@@ -200,10 +221,17 @@ describe("buildFivePoolQuotePlan — 1000 USDC", () => {
     }
 
     expect(plan.legs[0]!.swapCount).toBe(1);
-    expect(plan.legs[0]!.retainUsdc).toBe(BigInt(100000000));
+    expect(plan.legs[0]!.retainUsdc + plan.legs[0]!.swaps[0]!.grossUsdcIn).toBe(
+      BigInt(200000000),
+    );
+    expect(plan.legs[0]!.retainUsdc).toBeGreaterThan(BigInt(0));
     expect(plan.legs[1]!.swapCount).toBe(1);
     expect(plan.legs[2]!.swapCount).toBe(2);
     expect(plan.legs[2]!.retainUsdc).toBe(BigInt(0));
+    // Dual legs: CL ±25% range needs more cbBTC than WETH vs naive 50/50
+    expect(plan.legs[2]!.swaps[0]!.grossUsdcIn).toBeGreaterThan(
+      plan.legs[2]!.swaps[1]!.grossUsdcIn,
+    );
     expect(plan.legs[3]!.swapCount).toBe(2);
     expect(plan.legs[4]!.swapCount).toBe(2);
 

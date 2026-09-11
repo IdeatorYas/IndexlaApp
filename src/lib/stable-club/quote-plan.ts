@@ -29,6 +29,7 @@ import {
   getSqrtRatioAtTick,
   simulateClMintConsumedAmounts,
   simulateClMintConsumedAmountsOverTickWindow,
+  computeClRangeTokenValueWeightsBps,
 } from "@/lib/stable-club/cl-liquidity-math";
 import {
   EMPTY_SWAP_ROUTE_ID,
@@ -603,46 +604,6 @@ export type FivePoolSwapQuoteRequest = {
 };
 
 /**
- * Derive the eight swap quote sizing requests from a gross USDC deposit.
- * Quotes must be fetched for `netUsdcIn` (after 1% fee), matching fork oracleQuote.
- */
-export function buildFivePoolSwapQuoteRequests(grossUsdc: bigint): FivePoolSwapQuoteRequest[] {
-  const { legBudgets } = allocateFivePoolBudgets(grossUsdc);
-  const requests: FivePoolSwapQuoteRequest[] = [];
-  for (let i = 0; i < FIVE_POOL_LEG_COUNT; i++) {
-    const spec = LEG_SWAP_SPECS[i]!;
-    const { swapGrosses } = splitLegUsdc(legBudgets[i]!, spec.dualSwap);
-    for (let s = 0; s < spec.swaps.length; s++) {
-      const swapSpec = spec.swaps[s]!;
-      const grossUsdcIn = swapGrosses[s]!;
-      requests.push({
-        slotId: swapSpec.slotId,
-        legIndex: i,
-        swapIndex: s,
-        routeKey: swapSpec.routeKey,
-        tokenOut: swapSpec.tokenOut.address,
-        tokenOutSymbol: swapSpec.tokenOut.symbol as "cbBTC" | "WETH",
-        decimalsOut: swapSpec.tokenOut.decimals,
-        grossUsdcIn,
-        netUsdcIn: netUsdcAfterSwapFee(grossUsdcIn),
-      });
-    }
-  }
-  if (requests.length !== EXPECTED_SWAP_COUNT) {
-    throw new QuotePlanError(
-      "INVALID_POOL_CONFIG",
-      `Expected ${EXPECTED_SWAP_COUNT} quote requests, got ${requests.length}`,
-    );
-  }
-  for (let i = 0; i < EXPECTED_SWAP_COUNT; i++) {
-    if (requests[i]!.slotId !== FIVE_POOL_SWAP_SLOT_ORDER[i]) {
-      throw new QuotePlanError("INVALID_POOL_CONFIG", "Quote request order is not deterministic");
-    }
-  }
-  return requests;
-}
-
-/**
  * Split gross USDC into five equal 20% leg budgets.
  * Rejects amounts that leave remainder after five floor divisions (contract requires exact sum).
  */
@@ -679,6 +640,9 @@ export function allocateFivePoolBudgets(grossUsdc: bigint): {
 /**
  * Within a leg: assign USDC so retain + swap grosses === legBudget exactly.
  * Remainder (odd units) goes to retain (single) or the second swap (dual).
+ *
+ * @deprecated Prefer {@link splitLegUsdcForClRange} for production deposits.
+ * Kept for unit tests of the naive 50/50 baseline.
  */
 export function splitLegUsdc(
   legBudget: bigint,
@@ -707,6 +671,162 @@ export function splitLegUsdc(
     throw new QuotePlanError("BUDGET_OVERFLOW", "Dual-swap split mismatch");
   }
   return { retainUsdc: BigInt(0), swapGrosses: [first, second] };
+}
+
+/**
+ * Split a leg's USDC budget to match in-range CL token value weights.
+ *
+ * - Single (USDC/cbBTC): retain = tokenA (USDC), swap = tokenB (cbBTC).
+ *   Swap side is fee-adjusted so post-fee USD ≈ range weights.
+ * - Dual (cbBTC/WETH): swap[0] = tokenA (cbBTC), swap[1] = tokenB (WETH).
+ *   Both swaps pay the same fee, so gross weights match range weights.
+ */
+export function splitLegUsdcForClRange(params: {
+  legBudget: bigint;
+  dualSwap: boolean;
+  tokenA: Address;
+  tokenB: Address;
+  tickLower: number;
+  tickUpper: number;
+  sqrtPriceX96: bigint;
+}): { retainUsdc: bigint; swapGrosses: bigint[] } {
+  const { legBudget, dualSwap } = params;
+  if (legBudget <= BigInt(1)) {
+    throw new QuotePlanError("ZERO_DEPOSIT", "Leg budget too small to split");
+  }
+
+  let weightABps: bigint;
+  let weightBBps: bigint;
+  try {
+    ({ weightABps, weightBBps } = computeClRangeTokenValueWeightsBps({
+      tokenA: params.tokenA,
+      tokenB: params.tokenB,
+      tickLower: params.tickLower,
+      tickUpper: params.tickUpper,
+      sqrtPriceX96: params.sqrtPriceX96,
+    }));
+  } catch (e) {
+    throw new QuotePlanError(
+      "INVALID_TICKS",
+      `CL weight computation failed: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  const BPS = BigInt(10_000);
+  if (weightABps <= BigInt(0) || weightBBps <= BigInt(0) || weightABps + weightBBps !== BPS) {
+    throw new QuotePlanError(
+      "INVALID_TICKS",
+      `Invalid CL weights A=${weightABps} B=${weightBBps}`,
+    );
+  }
+
+  if (!dualSwap) {
+    // Fee-aware: retain X + swap Y = B; want X : 0.99Y ≈ wA : wB
+    // Y = B * wB / (wB + wA * (BPS - FEE) / BPS)
+    const feeFactor = BPS - SWAP_FEE_BPS; // 9900
+    const denom = weightBBps * BPS + weightABps * feeFactor;
+    if (denom <= BigInt(0)) {
+      throw new QuotePlanError("ZERO_DEPOSIT", "Single-swap CL denom is zero");
+    }
+    let swapGross = (legBudget * weightBBps * BPS) / denom;
+    if (swapGross <= BigInt(0)) swapGross = BigInt(1);
+    if (swapGross >= legBudget) swapGross = legBudget - BigInt(1);
+    const retainUsdc = legBudget - swapGross;
+    if (retainUsdc <= BigInt(0) || swapGross <= BigInt(0)) {
+      throw new QuotePlanError("ZERO_DEPOSIT", "Single-swap CL split produced zero");
+    }
+    return { retainUsdc, swapGrosses: [swapGross] };
+  }
+
+  // Dual: first swap buys tokenA (cbBTC), second buys tokenB (WETH)
+  let first = (legBudget * weightABps) / BPS;
+  if (first <= BigInt(0)) first = BigInt(1);
+  if (first >= legBudget) first = legBudget - BigInt(1);
+  const second = legBudget - first;
+  if (first <= BigInt(0) || second <= BigInt(0)) {
+    throw new QuotePlanError("ZERO_DEPOSIT", "Dual-swap CL split produced zero");
+  }
+  return { retainUsdc: BigInt(0), swapGrosses: [first, second] };
+}
+
+export type QuotePlanPoolState = {
+  tick: number;
+  sqrtPriceX96: bigint;
+};
+
+/**
+ * Derive the eight swap quote sizing requests from a gross USDC deposit.
+ * Quotes must be fetched for `netUsdcIn` (after 1% fee), matching fork oracleQuote.
+ * Pass live `poolStates` so USDC is split to CL range weights (±25% mint ranges).
+ */
+export function buildFivePoolSwapQuoteRequests(
+  grossUsdc: bigint,
+  poolStates?: readonly QuotePlanPoolState[],
+  rangePriceMultipliers?: { lower: number; upper: number },
+): FivePoolSwapQuoteRequest[] {
+  const pools = requireCatalogue();
+  const { legBudgets } = allocateFivePoolBudgets(grossUsdc);
+  if (poolStates != null && poolStates.length !== FIVE_POOL_LEG_COUNT) {
+    throw new QuotePlanError("INVALID_TICKS", "Exactly five poolStates required");
+  }
+  const requests: FivePoolSwapQuoteRequest[] = [];
+  for (let i = 0; i < FIVE_POOL_LEG_COUNT; i++) {
+    const pool = pools[i]!;
+    const spec = LEG_SWAP_SPECS[i]!;
+    let retainAndSwaps: { retainUsdc: bigint; swapGrosses: bigint[] };
+    if (poolStates) {
+      const state = poolStates[i]!;
+      if (!Number.isInteger(state.tick) || state.sqrtPriceX96 <= BigInt(0)) {
+        throw new QuotePlanError("INVALID_TICKS", `Invalid pool state at leg ${i}`);
+      }
+      const spacing = tickSpacingForPool(pool);
+      const { tickLower, tickUpper } = computeTickRange(
+        state.tick,
+        spacing,
+        rangePriceMultipliers?.lower ?? DEFAULT_RANGE_PRICE_MULTIPLIER_LOWER,
+        rangePriceMultipliers?.upper ?? DEFAULT_RANGE_PRICE_MULTIPLIER_UPPER,
+      );
+      retainAndSwaps = splitLegUsdcForClRange({
+        legBudget: legBudgets[i]!,
+        dualSwap: spec.dualSwap,
+        tokenA: pool.tokenA.address,
+        tokenB: pool.tokenB.address,
+        tickLower,
+        tickUpper,
+        sqrtPriceX96: state.sqrtPriceX96,
+      });
+    } else {
+      retainAndSwaps = splitLegUsdc(legBudgets[i]!, spec.dualSwap);
+    }
+    const { swapGrosses } = retainAndSwaps;
+    for (let s = 0; s < spec.swaps.length; s++) {
+      const swapSpec = spec.swaps[s]!;
+      const grossUsdcIn = swapGrosses[s]!;
+      requests.push({
+        slotId: swapSpec.slotId,
+        legIndex: i,
+        swapIndex: s,
+        routeKey: swapSpec.routeKey,
+        tokenOut: swapSpec.tokenOut.address,
+        tokenOutSymbol: swapSpec.tokenOut.symbol as "cbBTC" | "WETH",
+        decimalsOut: swapSpec.tokenOut.decimals,
+        grossUsdcIn,
+        netUsdcIn: netUsdcAfterSwapFee(grossUsdcIn),
+      });
+    }
+  }
+  if (requests.length !== EXPECTED_SWAP_COUNT) {
+    throw new QuotePlanError(
+      "INVALID_POOL_CONFIG",
+      `Expected ${EXPECTED_SWAP_COUNT} quote requests, got ${requests.length}`,
+    );
+  }
+  for (let i = 0; i < EXPECTED_SWAP_COUNT; i++) {
+    if (requests[i]!.slotId !== FIVE_POOL_SWAP_SLOT_ORDER[i]) {
+      throw new QuotePlanError("INVALID_POOL_CONFIG", "Quote request order is not deterministic");
+    }
+  }
+  return requests;
 }
 
 function requireCatalogue(): readonly OfficialStableClubPool[] {
@@ -759,6 +879,7 @@ function requireQuote(
 /**
  * Build a deterministic five-pool / eight-swap deposit plan.
  * Pure: no RPC, no quote fetching.
+ * USDC retain/swaps are sized to CL range weights so mint consumes both sides.
  */
 export function buildFivePoolQuotePlan(input: BuildFivePoolQuotePlanInput): FivePoolQuotePlan {
   const pools = requireCatalogue();
@@ -834,11 +955,6 @@ export function buildFivePoolQuotePlan(input: BuildFivePoolQuotePlanInput): Five
     const pool = pools[i]!;
     const spec = LEG_SWAP_SPECS[i]!;
     const legBudget = legBudgets[i]!;
-    const { retainUsdc, swapGrosses } = splitLegUsdc(legBudget, spec.dualSwap);
-
-    if (swapGrosses.length !== spec.swaps.length) {
-      throw new QuotePlanError("INVALID_POOL_CONFIG", `Leg ${i} swap count mismatch`);
-    }
 
     const spacing = tickSpacingForPool(pool);
     const { tickLower, tickUpper } = computeTickRange(
@@ -847,6 +963,19 @@ export function buildFivePoolQuotePlan(input: BuildFivePoolQuotePlanInput): Five
       input.rangePriceMultipliers?.lower ?? DEFAULT_RANGE_PRICE_MULTIPLIER_LOWER,
       input.rangePriceMultipliers?.upper ?? DEFAULT_RANGE_PRICE_MULTIPLIER_UPPER,
     );
+    const { retainUsdc, swapGrosses } = splitLegUsdcForClRange({
+      legBudget,
+      dualSwap: spec.dualSwap,
+      tokenA: pool.tokenA.address,
+      tokenB: pool.tokenB.address,
+      tickLower,
+      tickUpper,
+      sqrtPriceX96: sqrtPrices[i]!,
+    });
+
+    if (swapGrosses.length !== spec.swaps.length) {
+      throw new QuotePlanError("INVALID_POOL_CONFIG", `Leg ${i} swap count mismatch`);
+    }
 
     const swapInstructions: SwapInstructionParams[] = [];
     const swapDesiredParts: { tokenOut: Address; quotedOut: bigint }[] = [];

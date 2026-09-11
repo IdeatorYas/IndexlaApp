@@ -193,6 +193,54 @@ export function getAmountsForLiquidity(
   return { amount0: ZERO, amount1: getAmount1ForLiquidity(a, b, liquidity) };
 }
 
+/**
+ * Relative USD weights for an in-range mint at live sqrtPrice, using pool price
+ * to value token0 in token1 terms. Weights sum to 10_000 bps.
+ *
+ * Used to size USDC retain/swaps so mint consumes both sides instead of refunding
+ * the overbought token.
+ */
+export function computeClRangeTokenValueWeightsBps(params: {
+  tokenA: Address;
+  tokenB: Address;
+  tickLower: number;
+  tickUpper: number;
+  sqrtPriceX96: bigint;
+}): { weightABps: bigint; weightBBps: bigint } {
+  if (params.sqrtPriceX96 <= ZERO) {
+    throw new Error("sqrtPriceX96 must be > 0");
+  }
+  if (!(params.tickLower < params.tickUpper)) {
+    throw new Error("tickLower must be < tickUpper");
+  }
+  const sqrtA = getSqrtRatioAtTick(params.tickLower);
+  const sqrtB = getSqrtRatioAtTick(params.tickUpper);
+  // Large L keeps amounts away from zero rounding for typical Base ticks.
+  const liquidity = Q96;
+  const { amount0, amount1 } = getAmountsForLiquidity(
+    params.sqrtPriceX96,
+    sqrtA,
+    sqrtB,
+    liquidity,
+  );
+  const Q192 = ONE << BigInt(192);
+  const value0InToken1 =
+    (amount0 * params.sqrtPriceX96 * params.sqrtPriceX96) / Q192;
+  const total = value0InToken1 + amount1;
+  if (total <= ZERO) {
+    throw new Error("CL range value weights collapsed to zero");
+  }
+  const BPS = BigInt(10_000);
+  const weight0Bps = (value0InToken1 * BPS) / total;
+  const weight1Bps = BPS - weight0Bps;
+  const token0IsA =
+    params.tokenA.toLowerCase() < params.tokenB.toLowerCase();
+  if (token0IsA) {
+    return { weightABps: weight0Bps, weightBBps: weight1Bps };
+  }
+  return { weightABps: weight1Bps, weightBBps: weight0Bps };
+}
+
 export function sortTokenAmounts(params: {
   tokenA: Address;
   tokenB: Address;

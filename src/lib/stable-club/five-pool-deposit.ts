@@ -396,15 +396,20 @@ export async function rebuildDepositExecutionPlan(params: {
     oracleGuard: params.oracleGuard,
     tokens: params.tokens,
   });
-  const quoteBundle = await quoteAdapter.fetchQuotes({
-    grossUsdc: params.grossUsdc,
-    nowSec: params.nowSec,
-  });
   const slot0States = await readPoolSlot0States(
     params.publicClient as never,
     params.network as "base",
     params.chainId,
   );
+  const poolStates = slot0States.map((s) => ({
+    tick: s.tick,
+    sqrtPriceX96: s.sqrtPriceX96,
+  }));
+  const quoteBundle = await quoteAdapter.fetchQuotes({
+    grossUsdc: params.grossUsdc,
+    nowSec: params.nowSec,
+    poolStates,
+  });
   const plan = buildFivePoolQuotePlan({
     grossUsdc: params.grossUsdc,
     adapters: params.adapters,
