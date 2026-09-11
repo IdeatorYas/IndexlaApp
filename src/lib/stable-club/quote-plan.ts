@@ -43,13 +43,19 @@ export const QUOTE_PLAN_MAX_SLIPPAGE_BPS = BigInt(500);
 export const CL_MIN_TICK = -887_272;
 export const CL_MAX_TICK = 887_272;
 
-/** Fork-verified default half-width in tick spacings (+/- 10). */
+/**
+ * Default LP mint range: −25% / +25% of spot price at deposit
+ * (price × 0.75 → price × 1.25), then aligned to pool tick spacing.
+ */
+export const DEFAULT_RANGE_PRICE_MULTIPLIER_LOWER = 0.75;
+export const DEFAULT_RANGE_PRICE_MULTIPLIER_UPPER = 1.25;
+
+/** @deprecated Prefer percentage-based {@link computeTickRange}. Kept for migration references. */
 export const DEFAULT_TICK_RANGE_SPACINGS = 10;
 
 /**
  * Extra tick-spacing half-width used when sizing LP amountMins.
- * ±1 spacing (10 ticks on fee-500 Uni pools) covers typical Base inclusion drift
- * on 200-tick ranges where ~2% token mix moves per tick.
+ * ±1 spacing covers typical Base inclusion drift inside the wider ±25% range.
  */
 export const MINT_RATIO_DRIFT_TICK_SPACINGS = 1;
 
@@ -143,8 +149,14 @@ export type BuildFivePoolQuotePlanInput = {
   nowSec: number;
   /** Reject quotes older than this many seconds. */
   maxQuoteAgeSec: number;
-  /** Range half-width in tick spacings (default 10). */
-  tickRangeSpacings?: number;
+  /**
+   * Optional override of the default −25% / +25% price multipliers.
+   * Production deposits omit this and use {@link DEFAULT_RANGE_PRICE_MULTIPLIER_*}.
+   */
+  rangePriceMultipliers?: {
+    lower: number;
+    upper: number;
+  };
 };
 
 /** Mirrors StableClubConcentratedLiquidityExecutor.SwapInstruction. */
@@ -322,16 +334,76 @@ export function alignTick(tick: number, spacing: number): number {
   return Math.trunc(tick / spacing) * spacing;
 }
 
+/** Floor tick to spacing (toward −∞) — used for range lower bound. */
+export function floorTickToSpacing(tick: number, spacing: number): number {
+  if (!Number.isInteger(spacing) || spacing <= 0) {
+    throw new QuotePlanError("INVALID_TICKS", `Invalid tick spacing: ${spacing}`);
+  }
+  if (!Number.isFinite(tick)) {
+    throw new QuotePlanError("INVALID_TICKS", `Invalid tick: ${tick}`);
+  }
+  return Math.floor(tick / spacing) * spacing;
+}
+
+/** Ceil tick to spacing (toward +∞) — used for range upper bound. */
+export function ceilTickToSpacing(tick: number, spacing: number): number {
+  if (!Number.isInteger(spacing) || spacing <= 0) {
+    throw new QuotePlanError("INVALID_TICKS", `Invalid tick spacing: ${spacing}`);
+  }
+  if (!Number.isFinite(tick)) {
+    throw new QuotePlanError("INVALID_TICKS", `Invalid tick: ${tick}`);
+  }
+  return Math.ceil(tick / spacing) * spacing;
+}
+
+/**
+ * Uniswap V3 / Slipstream: price(token1/token0) = 1.0001^tick.
+ * Returns the continuous tick delta for a price ratio (e.g. 0.75 or 1.25).
+ */
+export function tickDeltaFromPriceRatio(priceRatio: number): number {
+  if (!(priceRatio > 0) || !Number.isFinite(priceRatio)) {
+    throw new QuotePlanError("INVALID_TICKS", `Invalid price ratio: ${priceRatio}`);
+  }
+  return Math.log(priceRatio) / Math.log(1.0001);
+}
+
+/**
+ * Deposit mint range from spot: price × lowerMult → price × upperMult,
+ * converted to ticks with lower floored and upper ceiled to `spacing`.
+ * Default multipliers: 0.75 / 1.25 (±25%).
+ */
 export function computeTickRange(
   currentTick: number,
   spacing: number,
-  rangeSpacings: number = DEFAULT_TICK_RANGE_SPACINGS,
+  lowerMult: number = DEFAULT_RANGE_PRICE_MULTIPLIER_LOWER,
+  upperMult: number = DEFAULT_RANGE_PRICE_MULTIPLIER_UPPER,
 ): { tickLower: number; tickUpper: number } {
-  if (!Number.isInteger(rangeSpacings) || rangeSpacings <= 0) {
-    throw new QuotePlanError("INVALID_TICKS", `Invalid tick range spacings: ${rangeSpacings}`);
+  if (!Number.isInteger(currentTick)) {
+    throw new QuotePlanError("INVALID_TICKS", `Invalid currentTick: ${currentTick}`);
   }
-  const tickLower = alignTick(currentTick - spacing * rangeSpacings, spacing);
-  const tickUpper = alignTick(currentTick + spacing * rangeSpacings, spacing);
+  if (!Number.isInteger(spacing) || spacing <= 0) {
+    throw new QuotePlanError("INVALID_TICKS", `Invalid tick spacing: ${spacing}`);
+  }
+  if (!(lowerMult > 0) || !(upperMult > 0) || !(lowerMult < upperMult)) {
+    throw new QuotePlanError(
+      "INVALID_TICKS",
+      `Invalid price multipliers: lower=${lowerMult} upper=${upperMult}`,
+    );
+  }
+
+  const rawLower = currentTick + tickDeltaFromPriceRatio(lowerMult);
+  const rawUpper = currentTick + tickDeltaFromPriceRatio(upperMult);
+  let tickLower = floorTickToSpacing(rawLower, spacing);
+  let tickUpper = ceilTickToSpacing(rawUpper, spacing);
+
+  // Guarantees the live tick stays strictly inside the minted range.
+  if (tickLower >= currentTick) {
+    tickLower = floorTickToSpacing(currentTick - 1, spacing);
+  }
+  if (tickUpper <= currentTick) {
+    tickUpper = ceilTickToSpacing(currentTick + 1, spacing);
+  }
+
   if (tickLower >= tickUpper) {
     throw new QuotePlanError(
       "INVALID_TICKS",
@@ -751,7 +823,6 @@ export function buildFivePoolQuotePlan(input: BuildFivePoolQuotePlanInput): Five
     throw new QuotePlanError("INVALID_DEADLINE", "deadline must be > nowSec");
   }
 
-  const rangeSpacings = input.tickRangeSpacings ?? DEFAULT_TICK_RANGE_SPACINGS;
   const { legBudgets, allocationDust } = allocateFivePoolBudgets(input.grossUsdc);
 
   const legs: DepositLegParams[] = [];
@@ -773,7 +844,8 @@ export function buildFivePoolQuotePlan(input: BuildFivePoolQuotePlanInput): Five
     const { tickLower, tickUpper } = computeTickRange(
       input.currentTicks[i]!,
       spacing,
-      rangeSpacings,
+      input.rangePriceMultipliers?.lower ?? DEFAULT_RANGE_PRICE_MULTIPLIER_LOWER,
+      input.rangePriceMultipliers?.upper ?? DEFAULT_RANGE_PRICE_MULTIPLIER_UPPER,
     );
 
     const swapInstructions: SwapInstructionParams[] = [];

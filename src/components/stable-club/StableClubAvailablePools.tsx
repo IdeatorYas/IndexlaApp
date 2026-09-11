@@ -194,6 +194,10 @@ export function StableClubAvailablePools({
       </div>
 
       <p className="border-t border-[var(--color-panel-border)] px-4 py-3 text-[11px] leading-relaxed text-[var(--color-ink-dim)] sm:px-6">
+        Each pool uses a ±25% price range from deposit. Trading fees accrue only within
+        range.
+      </p>
+      <p className="border-t border-[var(--color-panel-border)] px-4 py-3 text-[11px] leading-relaxed text-[var(--color-ink-dim)] sm:px-6">
         Estimated annualized yield. Variable; excludes execution costs and impermanent
         loss.
       </p>

@@ -143,16 +143,37 @@ describe("quote-plan helpers", () => {
     expect(netUsdcAfterSwapFee(BigInt(100))).toBe(BigInt(99));
   });
 
-  it("aligns ticks toward zero and builds valid ranges", () => {
+  it("aligns ticks toward zero and builds ±25% price ranges", () => {
     expect(alignTick(105, 10)).toBe(100);
     expect(alignTick(-105, 10)).toBe(-100);
     expect(alignTick(100, 100)).toBe(100);
-    const { tickLower, tickUpper } = computeTickRange(55, 10, 10);
-    expect(tickLower).toBe(-40); // align(55-100)=align(-45)=-40
-    expect(tickUpper).toBe(150); // align(55+100)=150
+
+    const { tickLower, tickUpper } = computeTickRange(55, 10);
+    const expectedLower = Math.floor((55 + Math.log(0.75) / Math.log(1.0001)) / 10) * 10;
+    const expectedUpper = Math.ceil((55 + Math.log(1.25) / Math.log(1.0001)) / 10) * 10;
+    expect(tickLower).toBe(expectedLower);
+    expect(tickUpper).toBe(expectedUpper);
     expect(tickLower % 10 === 0).toBe(true);
     expect(tickUpper % 10 === 0).toBe(true);
-    expect(tickLower).toBeLessThan(tickUpper);
+    expect(tickLower).toBeLessThan(55);
+    expect(tickUpper).toBeGreaterThan(55);
+
+    const lowerRatio = Math.pow(1.0001, tickLower - 55);
+    const upperRatio = Math.pow(1.0001, tickUpper - 55);
+    expect(lowerRatio).toBeLessThanOrEqual(0.75);
+    expect(upperRatio).toBeGreaterThanOrEqual(1.25);
+  });
+
+  it("floors lower and ceils upper across spacings 10 and 100", () => {
+    for (const spacing of [10, 100] as const) {
+      const { tickLower, tickUpper } = computeTickRange(0, spacing);
+      expect(tickLower % spacing === 0).toBe(true);
+      expect(tickUpper % spacing === 0).toBe(true);
+      expect(tickLower).toBeLessThan(0);
+      expect(tickUpper).toBeGreaterThan(0);
+      // −25% / +25% are asymmetric in tick space (~−2878 / +2231 before align)
+      expect(Math.abs(tickLower)).toBeGreaterThan(Math.abs(tickUpper));
+    }
   });
 
   it("maps catalogue pools to verified tick spacings", () => {
@@ -247,18 +268,18 @@ describe("buildFivePoolQuotePlan — 1000 USDC", () => {
     }
   });
 
-  it("aligns ticks per catalogue spacing", () => {
-    const plan = buildFivePoolQuotePlan(
-      baseInput({ currentTicks: [1234, -55, 17, -250, 99] }),
-    );
-    // leg0 spacing 100
-    expect(plan.legs[0]!.tickLower).toBe(alignTick(1234 - 100 * 10, 100));
-    expect(plan.legs[0]!.tickUpper).toBe(alignTick(1234 + 100 * 10, 100));
-    // leg1 spacing 10 (uni 0.05%)
-    expect(plan.legs[1]!.tickLower).toBe(alignTick(-55 - 10 * 10, 10));
-    expect(plan.legs[1]!.tickUpper).toBe(alignTick(-55 + 10 * 10, 10));
-    for (const leg of plan.legs) {
-      expect(leg.tickLower).toBeLessThan(leg.tickUpper);
+  it("aligns ticks per catalogue spacing using ±25% price bounds", () => {
+    const ticks = [1234, -55, 17, -250, 99] as const;
+    const plan = buildFivePoolQuotePlan(baseInput({ currentTicks: [...ticks] }));
+    for (let i = 0; i < 5; i++) {
+      const spacing = tickSpacingForPool(OFFICIAL_STABLE_CLUB_BASE_POOLS[i]!);
+      const expected = computeTickRange(ticks[i]!, spacing);
+      expect(plan.legs[i]!.tickLower).toBe(expected.tickLower);
+      expect(plan.legs[i]!.tickUpper).toBe(expected.tickUpper);
+      expect(plan.legs[i]!.tickLower).toBeLessThan(ticks[i]!);
+      expect(plan.legs[i]!.tickUpper).toBeGreaterThan(ticks[i]!);
+      expect(plan.legs[i]!.tickLower % spacing === 0).toBe(true);
+      expect(plan.legs[i]!.tickUpper % spacing === 0).toBe(true);
     }
   });
 
