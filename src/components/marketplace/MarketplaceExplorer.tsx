@@ -382,12 +382,12 @@ function CategoryAccentTabs<T extends string>({
   onSelect: (id: T) => void;
   size?: "sm" | "md";
 }) {
-  const h = size === "sm" ? "h-8 sm:h-9" : "h-9 sm:h-10";
+  const h = size === "sm" ? "min-h-8 sm:min-h-9 h-auto" : "min-h-9 sm:min-h-10 h-auto";
   const text =
     size === "sm"
-      ? "text-[10px] sm:text-[11px]"
-      : "text-[11px] sm:text-xs";
-  const pad = size === "sm" ? "px-2.5 sm:px-3" : "px-3 sm:px-3.5";
+      ? "text-[9px] leading-tight sm:text-[11px]"
+      : "text-[10px] leading-tight sm:text-xs";
+  const pad = size === "sm" ? "px-1.5 py-1.5 sm:px-3" : "px-2 py-2 sm:px-3.5";
 
   return (
     <div
@@ -405,7 +405,7 @@ function CategoryAccentTabs<T extends string>({
             aria-selected={active}
             onClick={() => onSelect(item.id)}
             className={[
-              "app-cat-tab min-w-[4.5rem] flex-1 basis-[4.5rem] sm:min-w-[5.5rem] sm:flex-none sm:basis-auto",
+              "app-cat-tab max-w-[46%] grow basis-[4.25rem] sm:max-w-none sm:grow-0 sm:basis-auto sm:min-w-[5.75rem]",
               h,
               text,
               pad,
@@ -413,7 +413,7 @@ function CategoryAccentTabs<T extends string>({
               active ? "is-active" : "",
             ].join(" ")}
           >
-            {item.label}
+            <span className="block text-balance whitespace-normal">{item.label}</span>
           </button>
         );
       })}
