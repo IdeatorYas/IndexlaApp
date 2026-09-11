@@ -52,8 +52,10 @@ import {
   sweepAllResidueToUsdcOnce,
 } from "@/lib/stable-club/recover-loose-assets";
 import { wrapProviderForceRecoverGas } from "@/lib/stable-club/force-recover-gas-provider";
+import { wrapProviderForceOwnerNpmMulticallGas } from "@/lib/stable-club/force-owner-npm-multicall-gas-provider";
 import {
   applyOwnerNpmMulticallGasBuffer,
+  OWNER_NPM_MULTICALL_GAS_FLOOR,
   OWNER_NPM_MULTICALL_OOG_USER_MESSAGE,
 } from "@/lib/stable-club/owner-npm-multicall-gas";
 import {
@@ -965,7 +967,9 @@ export function useFivePoolPositions() {
       throw new Error("Wallet and deployments required");
     }
     if (!onExpectedChain) {
-      throw new Error(`Wrong network — switch to chain ${expectedChainId}`);
+      throw new Error(
+        `Wrong network — tap Switch to Base, confirm in your wallet, then retry (chain ${expectedChainId}).`,
+      );
     }
     assertChainEnvironmentMatch({
       walletChainId: wallet.chainId,
@@ -983,7 +987,9 @@ export function useFivePoolPositions() {
       walletClient: createWalletClient({
         account: wallet.address,
         chain,
-        transport: custom(wallet.provider),
+        transport: custom(
+          wrapProviderForceOwnerNpmMulticallGas(wallet.provider),
+        ),
       }),
     };
   }, [
@@ -997,6 +1003,52 @@ export function useFivePoolPositions() {
     wallet.chainId,
     wallet.provider,
   ]);
+
+  const ensureBaseNetwork = useCallback(async () => {
+    const readChainId = async (): Promise<number | null> => {
+      if (!wallet.provider?.request) return wallet.chainId;
+      try {
+        const hex = (await wallet.provider.request({
+          method: "eth_chainId",
+        })) as string;
+        return Number.parseInt(hex, 16);
+      } catch {
+        return wallet.chainId;
+      }
+    };
+
+    let liveChainId = await readChainId();
+    if (liveChainId === expectedChainId) return;
+
+    setStatusMessage("Switching wallet to Base…");
+    try {
+      await wallet.switchToBase();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/reject|denied|cancel/i.test(msg)) {
+        throw new Error(
+          "Network switch rejected. Tap Switch to Base, confirm in your wallet, then retry.",
+        );
+      }
+      if (/already pending|request already pending/i.test(msg)) {
+        throw new Error(
+          "A network switch is already pending in your wallet. Confirm or reject it, then retry.",
+        );
+      }
+      throw new Error(
+        `Unable to switch to Base (chain ${expectedChainId}). Open your wallet and switch manually, then retry.`,
+      );
+    }
+
+    for (let i = 0; i < 20; i += 1) {
+      await new Promise((r) => setTimeout(r, 250));
+      liveChainId = await readChainId();
+      if (liveChainId === expectedChainId) return;
+    }
+    throw new Error(
+      `Still on wrong network (chain ${liveChainId ?? "unknown"}). Confirm Base in your wallet, then retry.`,
+    );
+  }, [expectedChainId, wallet]);
 
   /**
    * Grant per-tokenId adapter authority without ERC721.approve (0x095ea7b3).
@@ -1825,6 +1877,7 @@ export function useFivePoolPositions() {
       );
 
       try {
+        await ensureBaseNetwork();
         const { d, account, walletClient } = ensureReady();
         if (open.length === 0) {
           // Allow recover-only when resuming an incomplete withdraw with no LPs left.
@@ -1861,12 +1914,20 @@ export function useFivePoolPositions() {
           existingCp &&
           isCheckpointIncomplete(existingCp) &&
           existingCp.percent === pct;
-        /** NPM already finished — only sell withdrawal residue to USDC (never re-apply %). */
+        /**
+         * Recover-only only when every still-open LP's NPM is already completed.
+         * Mid-batch OOG (failed_incomplete + leftover LP) must retry remaining NPM legs.
+         * Live bug: 0xd73deb70… OOG on Aero current → resume sold residue and skipped that LP.
+         */
+        const unfinishedOpenNpms = open.filter(
+          (p) =>
+            !existingCp?.completedNpmKeys.includes(p.npm.toLowerCase()),
+        );
         const resumeRecoverOnly =
           Boolean(resumeSame) &&
-          (existingCp!.phase === "recover" ||
-            existingCp!.phase === "failed_incomplete") &&
-          existingCp!.completedNpmKeys.length > 0;
+          unfinishedOpenNpms.length === 0 &&
+          (existingCp!.completedNpmKeys.length > 0 ||
+            existingCp!.phase === "recover");
 
         const startBlock = await discoveryClient.getBlockNumber({
           cacheTime: 0,
@@ -2091,6 +2152,26 @@ export function useFivePoolPositions() {
             maxPriorityFeePerGas,
           } as never);
           setLastTxHash(hash);
+          // Detect wallet gas substitution before waiting forever on a doomed limit.
+          try {
+            const submitted = await discoveryClient.getTransaction({ hash });
+            if (
+              submitted.gas != null &&
+              submitted.gas < OWNER_NPM_MULTICALL_GAS_FLOOR
+            ) {
+              throw new Error(
+                `${OWNER_NPM_MULTICALL_OOG_USER_MESSAGE} (submitted gas ${submitted.gas.toString()} < floor ${OWNER_NPM_MULTICALL_GAS_FLOOR.toString()}).`,
+              );
+            }
+          } catch (probeErr) {
+            if (
+              probeErr instanceof Error &&
+              probeErr.message.includes(OWNER_NPM_MULTICALL_OOG_USER_MESSAGE)
+            ) {
+              throw probeErr;
+            }
+            // Receipt wait still authoritative if getTransaction is briefly unavailable.
+          }
           const npmReceipt = await waitForSuccessfulTransactionReceipt(
             publicClient,
             hash,
@@ -2272,6 +2353,42 @@ export function useFivePoolPositions() {
           client: recoverReadClient,
           minBlock: readBlockFloor,
         });
+        // Never declare success while intended LP liquidity remains unfinished.
+        for (const position of open) {
+          const npmKey = position.npm.toLowerCase();
+          const isAero =
+            position.protocol === "aerodrome-slipstream" ||
+            position.protocol === "aerodrome";
+          const posAbi = isAero ? aeroNpmPositionsAbi : uniV3NpmPositionsAbi;
+          let liqNow = BigInt(0);
+          try {
+            const posRow = await recoverReadClient.readContract({
+              address: position.npm,
+              abi: posAbi,
+              functionName: "positions",
+              args: [position.positionTokenId],
+            });
+            liqNow = BigInt(posRow[7] as bigint);
+          } catch {
+            // Burned / missing NFT — treat as closed.
+            liqNow = BigInt(0);
+          }
+          if (liqNow <= BigInt(0)) continue;
+          const unfinishedNpm = !checkpoint.completedNpmKeys.includes(npmKey);
+          if (unfinishedNpm || fullExit) {
+            checkpoint.phase = "failed_incomplete";
+            checkpoint.lastError = unfinishedNpm
+              ? `LP still open on unfinished NPM leg ${position.legIndex} (${position.npm.slice(0, 10)}…). Do not re-apply ${pct}% to completed legs.`
+              : `Full exit still has liquidity on leg ${position.legIndex} (${position.npm.slice(0, 10)}…).`;
+            writeWithdrawCheckpoint(checkpoint);
+            setIncompleteWithdraw({ ...checkpoint });
+            setProgress("partial");
+            throw new Error(
+              `${checkpoint.lastError} Tap Resume incomplete withdraw.`,
+            );
+          }
+        }
+
         const usdcAfter = (await recoverReadClient.readContract({
           address: BASE_TOKENS.USDC.address,
           abi: erc20Abi,
@@ -2293,7 +2410,10 @@ export function useFivePoolPositions() {
             await refreshStrandedAssets();
             return;
           }
-          throw new Error("Owner NPM percent withdraw completed but USDC balance did not increase");
+          setProgress("partial");
+          throw new Error(
+            "Owner NPM percent withdraw did not increase USDC (residue conversion incomplete). Tap Resume incomplete withdraw.",
+          );
         }
 
         checkpoint.phase = "complete";
@@ -2312,7 +2432,10 @@ export function useFivePoolPositions() {
         const isScopedRecoverCopy =
           err instanceof Error &&
           (err.message === RECOVER_APPROVE_OOG_USER_MESSAGE ||
-            err.message === RECOVER_SWAP_OOG_USER_MESSAGE);
+            err.message === RECOVER_SWAP_OOG_USER_MESSAGE ||
+            err.message === RECOVER_SWEEP_OOG_USER_MESSAGE ||
+            err.message.startsWith(OWNER_NPM_MULTICALL_OOG_USER_MESSAGE) ||
+            err.message.includes("Tap Resume incomplete withdraw"));
         const message =
           reject ??
           (isScopedRecoverCopy
@@ -2334,7 +2457,11 @@ export function useFivePoolPositions() {
           // ensureReady may fail if wallet disconnected mid-flight
         }
         setError(message);
-        setProgress("failed");
+        setProgress(
+          /Tap Resume|out of gas|incomplete withdraw/i.test(message)
+            ? "partial"
+            : "failed",
+        );
         setLegResults((prev) =>
           prev.map((r) =>
             r.status === "skipped" || r.status === "confirmed"
@@ -2348,6 +2475,7 @@ export function useFivePoolPositions() {
     },
     [
       discoveryClient,
+      ensureBaseNetwork,
       ensureReady,
       expectedChainId,
       chain,
@@ -2365,6 +2493,7 @@ export function useFivePoolPositions() {
    * (does not reset baseline; skips completed NPM batches).
    */
   const resumeIncompleteWithdraw = useCallback(async () => {
+    await ensureBaseNetwork();
     const { account } = ensureReady();
     const cp = readWithdrawCheckpoint(account, expectedChainId);
     if (!isCheckpointIncomplete(cp)) {
@@ -2372,7 +2501,12 @@ export function useFivePoolPositions() {
       return;
     }
     await withdrawLegacyPercentViaOwnerNpm(cp!.percent);
-  }, [ensureReady, expectedChainId, withdrawLegacyPercentViaOwnerNpm]);
+  }, [
+    ensureBaseNetwork,
+    ensureReady,
+    expectedChainId,
+    withdrawLegacyPercentViaOwnerNpm,
+  ]);
 
   /**
    * @deprecated Product Withdraw uses withdrawPercent. Kept for API compatibility.
@@ -2397,6 +2531,8 @@ export function useFivePoolPositions() {
       if (!Number.isFinite(percent) || pct < 1 || pct > 100) {
         throw new Error("Withdraw percent must be between 1 and 100");
       }
+
+      await ensureBaseNetwork();
 
       // Feature-flagged Ops Gateway path. After any gateway broadcast, do NOT fall back to
       // owner-NPM exit (would re-decrease liquidity / double-spend). Fall back only when the
@@ -2459,6 +2595,7 @@ export function useFivePoolPositions() {
     [
       deployments,
       discoveryClient,
+      ensureBaseNetwork,
       ensureReady,
       positions,
       refreshPositions,

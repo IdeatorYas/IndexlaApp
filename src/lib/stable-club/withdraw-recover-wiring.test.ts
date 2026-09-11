@@ -30,4 +30,19 @@ describe("withdraw residue→USDC recover wiring", () => {
     expect(src).toContain("RECOVER_SWEEP_OOG_USER_MESSAGE");
     expect(src).toContain("resumeRecoverOnly");
   });
+
+  it("forces NPM multicall gas at the wallet EIP-1193 boundary", () => {
+    expect(src).toContain("wrapProviderForceOwnerNpmMulticallGas(wallet.provider)");
+    expect(src).toContain("OWNER_NPM_MULTICALL_GAS_FLOOR");
+  });
+
+  it("only recover-skips when unfinished open NPMs are empty", () => {
+    expect(src).toContain("unfinishedOpenNpms");
+    expect(src).toContain("unfinishedOpenNpms.length === 0");
+  });
+
+  it("exposes Resume incomplete withdraw for mid-OOG recovery", () => {
+    expect(src).toContain("resumeIncompleteWithdraw");
+    expect(src).toContain("Tap Resume incomplete withdraw");
+  });
 });

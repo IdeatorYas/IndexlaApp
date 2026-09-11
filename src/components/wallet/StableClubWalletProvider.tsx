@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useAppKit } from "@reown/appkit/react";
@@ -61,6 +62,7 @@ export function StableClubWalletProvider({
   const [provider, setProvider] = useState<EIP1193Provider | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [switchingNetwork, setSwitchingNetwork] = useState(false);
+  const switchingNetworkRef = useRef(false);
 
   const expectedChainId = preferLocalHardhat
     ? STABLE_CLUB_LOCAL_CHAIN.id
@@ -165,20 +167,55 @@ export function StableClubWalletProvider({
   }, [chainId]);
 
   const switchToBase = useCallback(async () => {
+    if (switchingNetworkRef.current) {
+      throw new Error(
+        "A network switch is already pending in your wallet. Confirm or reject it, then retry.",
+      );
+    }
     setLocalError(null);
+    switchingNetworkRef.current = true;
     setSwitchingNetwork(true);
     try {
       await switchChainAsync({ chainId: STABLE_CLUB_CHAIN_ID });
+      // Await confirmed Base on the live EIP-1193 provider (wagmi chainId can lag).
+      for (let i = 0; i < 24; i += 1) {
+        await new Promise((r) => setTimeout(r, 250));
+        if (provider?.request) {
+          try {
+            const hex = (await provider.request({
+              method: "eth_chainId",
+            })) as string;
+            if (Number.parseInt(hex, 16) === STABLE_CLUB_CHAIN_ID) {
+              setLocalError(null);
+              return;
+            }
+          } catch {
+            // keep polling
+          }
+        }
+      }
+      setLocalError(
+        "Switch requested — confirm Base in your wallet if the prompt is still open.",
+      );
     } catch (err) {
-      const message =
-        err instanceof Error && /reject|denied|cancel/i.test(err.message)
-          ? "Network switch rejected. Tap Switch to Base to try again."
-          : "Unable to switch to Base.";
-      setLocalError(message);
+      const raw = err instanceof Error ? err.message : String(err);
+      if (/reject|denied|cancel/i.test(raw)) {
+        setLocalError("Network switch rejected. Tap Switch to Base to try again.");
+        throw new Error(raw);
+      }
+      if (/already pending|request already pending/i.test(raw)) {
+        setLocalError(
+          "A network switch is already pending in your wallet. Confirm or reject it, then retry.",
+        );
+        throw new Error(raw);
+      }
+      setLocalError("Unable to switch to Base.");
+      throw err instanceof Error ? err : new Error(raw);
     } finally {
+      switchingNetworkRef.current = false;
       setSwitchingNetwork(false);
     }
-  }, [switchChainAsync]);
+  }, [provider, switchChainAsync]);
 
   const switchToLocalHardhat = useCallback(async () => {
     setLocalError(null);

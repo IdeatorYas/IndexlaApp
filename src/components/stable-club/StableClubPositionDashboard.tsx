@@ -259,11 +259,11 @@ export function StableClubPositionDashboard({
     "h-12 rounded-xl border border-[var(--color-panel-border)] bg-[var(--color-bg-elevated)] text-[12px] font-extrabold uppercase tracking-[0.07em] text-[var(--color-ink)] transition hover:bg-[var(--color-panel)] disabled:cursor-not-allowed disabled:opacity-40";
 
   /**
-   * Confirmed zero active LPs: render nothing under the My Position tab
-   * (no panel, metrics, table, or action buttons). Available Pools stays separate.
+   * Confirmed zero active LPs: hide the full position panel unless an incomplete
+   * withdraw checkpoint remains (residue→USDC / unfinished NPM legs need Resume).
    * RPC failures still show the error/retry UI above — never blank as “empty”.
    */
-  if (isEmpty) {
+  if (isEmpty && !p.incompleteWithdraw) {
     return null;
   }
 
@@ -520,8 +520,43 @@ export function StableClubPositionDashboard({
           </button>
         </div>
 
+        {p.incompleteWithdraw ? (
+          <div
+            className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-3"
+            role="status"
+          >
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-amber-800 dark:text-amber-200">
+              Incomplete withdraw · {p.incompleteWithdraw.percent}%
+            </p>
+            <p className="mt-1.5 text-sm text-[var(--color-ink-muted)]">
+              {p.incompleteWithdraw.lastError?.slice(0, 220) ||
+                "A prior withdraw stopped mid-way. Resume continues from confirmed progress — it will not re-apply the same % to already-exited legs."}
+            </p>
+            <button
+              type="button"
+              disabled={p.busy || !p.onExpectedChain}
+              onClick={() =>
+                void afterAction(() => p.resumeIncompleteWithdraw())
+              }
+              className="mt-3 h-11 w-full rounded-xl bg-amber-600 text-[12px] font-extrabold uppercase tracking-[0.07em] text-white disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:px-5"
+            >
+              Resume incomplete withdraw
+            </button>
+          </div>
+        ) : null}
+
         {p.statusMessage ? (
-          <p className="mt-2 text-sm text-emerald-800 dark:text-emerald-300">{p.statusMessage}</p>
+          <p
+            className={
+              p.progress === "confirmed"
+                ? "mt-2 text-sm text-emerald-800 dark:text-emerald-300"
+                : p.progress === "partial" || p.progress === "failed"
+                  ? "mt-2 text-sm text-amber-800 dark:text-amber-300"
+                  : "mt-2 text-sm text-[var(--color-ink-muted)]"
+            }
+          >
+            {p.statusMessage}
+          </p>
         ) : null}
         {p.error ? (
           <p className="mt-2 text-sm text-[#b42318]" role="alert">
