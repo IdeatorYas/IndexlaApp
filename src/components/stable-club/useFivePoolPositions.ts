@@ -77,7 +77,7 @@ import {
   type WithdrawCheckpoint,
 } from "@/lib/stable-club/withdraw-checkpoint";
 import {
-  listOpenOwnerNpmPositions,
+  listCatalogueMatchedOpenPositions,
   type OpenOwnerNpmPosition,
 } from "@/lib/stable-club/list-open-owner-npm-positions";
 import {
@@ -442,7 +442,7 @@ export function useFivePoolPositions() {
 
       let openLps: OpenOwnerNpmPosition[] = [];
       try {
-        openLps = await listOpenOwnerNpmPositions({
+        openLps = await listCatalogueMatchedOpenPositions({
           publicClient: discoveryClient,
           account: wallet.address,
         });
@@ -1927,7 +1927,7 @@ export function useFivePoolPositions() {
         }
         const percentBps = BigInt(pct * 100);
         const fullExit = pct === 100;
-        const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+        let deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
 
         const existingCp = readWithdrawCheckpoint(account, expectedChainId);
         // 100% always supersedes a stale partial checkpoint (deadlock escape).
@@ -1947,7 +1947,7 @@ export function useFivePoolPositions() {
           (existingCp.percent === pct || pct === 100);
 
         // Fail-closed HTTP enumeration — never trust empty React positions alone.
-        const chainOpen = await listOpenOwnerNpmPositions({
+        const chainOpen = await listCatalogueMatchedOpenPositions({
           publicClient: discoveryClient,
           account,
         });
@@ -2372,15 +2372,19 @@ export function useFivePoolPositions() {
         }
         } // plannedTxs.length > 0
 
-        // Gate residue: fail-closed HTTP re-enumeration.
-        const stillOpenAfterNpm = await listOpenOwnerNpmPositions({
+        // Gate residue: fail-closed HTTP re-enumeration after syncing to last receipt.
+        await waitForReadClientBlock({
+          client: discoveryClient,
+          minBlock: readBlockFloor,
+        });
+        const stillOpenAfterNpm = await listCatalogueMatchedOpenPositions({
           publicClient: discoveryClient,
           account,
         });
         if (stillOpenAfterNpm.length > 0) {
           checkpoint.phase = "failed_incomplete";
           checkpoint.lastError = `Open LP(s) remain: ${stillOpenAfterNpm
-            .map((r) => `${r.label}#${r.tokenId.toString()}`)
+            .map((r) => `${r.cataloguePoolId ?? r.label}#${r.tokenId.toString()}`)
             .join(", ")}`;
           writeWithdrawCheckpoint(checkpoint);
           setIncompleteWithdraw({ ...checkpoint });
@@ -2393,6 +2397,9 @@ export function useFivePoolPositions() {
         checkpoint.phase = "recover";
         writeWithdrawCheckpoint(checkpoint);
         setIncompleteWithdraw({ ...checkpoint });
+
+        // Remint deadline after multi-prompt NPM sequence (stale 20m deadline killed sweeps).
+        deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
 
         setStatusMessage(
           "Converting withdrawal residue (cbBTC/WETH) → USDC via Uniswap…",
@@ -2445,11 +2452,21 @@ export function useFivePoolPositions() {
             args: [account],
           })) as bigint;
           if (fullExit) {
-            // 100%: convert all non-dust cbBTC/WETH (USDC-only product; survives lost storage).
+            // 100% with checkpoint baseline: convert only withdrawal delta (never unrelated holdings).
             return planLooseAssetRecoveries({
               publicClient: recoverReadClient,
               account,
               applyDustFilter: true,
+              maxByToken: {
+                cbBTC: residueFromBaseline({
+                  current: cbBal,
+                  baseline: cbBtcBefore,
+                }),
+                WETH: residueFromBaseline({
+                  current: wethBal,
+                  baseline: wethBefore,
+                }),
+              },
             });
           }
           return planLooseAssetRecoveries({
@@ -2547,7 +2564,7 @@ export function useFivePoolPositions() {
           minBlock: readBlockFloor,
         });
         // Never declare success while catalogue LPs remain open (HTTP, fail-closed).
-        const openAtEnd = await listOpenOwnerNpmPositions({
+        const openAtEnd = await listCatalogueMatchedOpenPositions({
           publicClient: recoverReadClient,
           account,
         });
@@ -2667,25 +2684,6 @@ export function useFivePoolPositions() {
   );
 
   /**
-   * Finish an interrupted legacy withdraw: remaining open LPs + residue→USDC only
-   * (does not reset baseline; skips completed NPM batches).
-   */
-  const resumeIncompleteWithdraw = useCallback(async () => {
-    await ensureBaseNetwork();
-    ensureReady();
-    await refreshPositions();
-    await refreshStrandedAssets();
-    // Always finish at 100% from chain state (closes leftover LPs + converts residue).
-    await withdrawLegacyPercentViaOwnerNpm(100);
-  }, [
-    ensureBaseNetwork,
-    ensureReady,
-    refreshPositions,
-    refreshStrandedAssets,
-    withdrawLegacyPercentViaOwnerNpm,
-  ]);
-
-  /**
    * @deprecated Product Withdraw uses withdrawPercent. Kept for API compatibility.
    */
   const exitDirectNpmPercent = useCallback(
@@ -2697,10 +2695,8 @@ export function useFivePoolPositions() {
 
   /**
    * Product Withdraw (any % including 100%):
-   * Owner NPM batched multicall (per NPM) + residue-only Uni→USDC recover.
-   * Works for both primary and legacy adapters because the user owns the LP NFTs.
-   * Avoids cold NFT permit/approve to IndexLa adapters (≫2 wallet confirms + unverified warnings).
-   * Atomic exitAllToUsdc remains available via exitAllToUsdc() when NFT authority is already set.
+   * 100% uses mandatory Ops Gateway atomic exit when enabled (no silent owner-NPM fallback).
+   * Partial % / Finish-without-gateway uses owner NPM + recover.
    */
   const withdrawPercent = useCallback(
     async (percent: number) => {
@@ -2711,15 +2707,19 @@ export function useFivePoolPositions() {
 
       await ensureBaseNetwork();
 
-      // Feature-flagged Ops Gateway path. After any gateway broadcast, do NOT fall back to
-      // owner-NPM exit (would re-decrease liquidity / double-spend). Fall back only when the
-      // gateway path never submitted a user tx (preflight / capability / quote failures).
-      if (isOpsGatewayWithdrawAvailable(deployments) && wallet.provider && wallet.address) {
+      // 100% + gateway enabled → MANDATORY atomic path. Never silent-fallback to owner-NPM
+      // (that closed LPs and stranded cbBTC/WETH on live nonces 178–182).
+      if (
+        pct === 100 &&
+        isOpsGatewayWithdrawAvailable(deployments) &&
+        wallet.provider &&
+        wallet.address
+      ) {
         let gatewayBroadcasted = false;
         try {
           const { d, account } = ensureReady();
           setProgress("awaiting-exit");
-          setStatusMessage("Ops Gateway withdraw (USDC-only)…");
+          setStatusMessage("Ops Gateway withdraw (atomic USDC-only)…");
           const open = [...positions].sort((a, b) => a.legIndex - b.legIndex);
           const result = await withdrawPercentViaOpsGateway({
             deployments: d,
@@ -2734,7 +2734,6 @@ export function useFivePoolPositions() {
               tokenB: p.tokenB,
             })),
             percent: pct,
-            minUsdcOut: BigInt(1),
             onStatus: setStatusMessage,
             onBroadcast: () => {
               gatewayBroadcasted = true;
@@ -2742,29 +2741,31 @@ export function useFivePoolPositions() {
           });
           setApprovalTxHashes(result.txHashes);
           setLastTxHash(result.txHashes[result.txHashes.length - 1] ?? null);
-          if (result.txHashes.length > 0) gatewayBroadcasted = true;
           setProgress("confirmed");
           setStatusMessage(
             result.promptClaim.mayClaimLe3
-              ? "Withdraw complete (USDC only)."
-              : `Withdraw complete (USDC only). ${result.promptClaim.copy}`,
+              ? `Withdraw complete — received ${(Number(result.usdcDelta) / 1e6).toFixed(4)} USDC (atomic gateway).`
+              : `Withdraw complete — ${(Number(result.usdcDelta) / 1e6).toFixed(4)} USDC. ${result.promptClaim.copy}`,
           );
           await refreshPositions();
+          await refreshStrandedAssets();
           return;
         } catch (err) {
-          if (gatewayBroadcasted) {
-            setProgress("failed");
-            setError(
-              `${err instanceof Error ? err.message : "Gateway withdraw failed"} — ` +
-                `a gateway transaction was already submitted. Do not retry owner-NPM exit; ` +
-                `use Resume incomplete withdraw / refresh positions to avoid double-exit.`,
-            );
-            return;
-          }
-          setStatusMessage(
-            `Gateway withdraw unavailable (${err instanceof Error ? err.message : "error"}) — using owner NPM + recover…`,
+          setProgress(gatewayBroadcasted ? "failed" : "partial");
+          setError(
+            gatewayBroadcasted
+              ? `${err instanceof Error ? err.message : "Gateway withdraw failed"} — a gateway transaction was already submitted. Do not retry owner-NPM exit.`
+              : `${err instanceof Error ? err.message : "Gateway withdraw failed"} — LPs untouched. Fix the error and retry Withdraw (owner-NPM fallback disabled for 100%).`,
           );
+          return;
         }
+      }
+
+      // Partial % or gateway disabled: owner-NPM + recover (multi-tx).
+      if (isOpsGatewayWithdrawAvailable(deployments) && wallet.provider && wallet.address && pct < 100) {
+        setStatusMessage(
+          "Partial % uses owner NPM + recover (gateway atomic path is 100% only)…",
+        );
       }
 
       await withdrawLegacyPercentViaOwnerNpm(pct);
@@ -2776,11 +2777,44 @@ export function useFivePoolPositions() {
       ensureReady,
       positions,
       refreshPositions,
+      refreshStrandedAssets,
       wallet.address,
       wallet.provider,
       withdrawLegacyPercentViaOwnerNpm,
     ],
   );
+
+  /**
+   * Finish incomplete withdraw from chain state (catalogue LPs and/or residue).
+   * Prefers atomic gateway 100% when enabled and LPs remain.
+   */
+  const resumeIncompleteWithdraw = useCallback(async () => {
+    await ensureBaseNetwork();
+    ensureReady();
+    await refreshPositions();
+    await refreshStrandedAssets();
+    if (
+      isOpsGatewayWithdrawAvailable(deployments) &&
+      chainOpenLps.length > 0 &&
+      wallet.provider &&
+      wallet.address
+    ) {
+      await withdrawPercent(100);
+      return;
+    }
+    await withdrawLegacyPercentViaOwnerNpm(100);
+  }, [
+    chainOpenLps.length,
+    deployments,
+    ensureBaseNetwork,
+    ensureReady,
+    refreshPositions,
+    refreshStrandedAssets,
+    wallet.address,
+    wallet.provider,
+    withdrawLegacyPercentViaOwnerNpm,
+    withdrawPercent,
+  ]);
 
   const runManageAll = useCallback(
     async (mode: "harvest" | "compound") => {

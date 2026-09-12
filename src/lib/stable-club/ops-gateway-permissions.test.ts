@@ -35,7 +35,12 @@ describe("gateway permissions + fallback safety", () => {
   it("refuses owner-NPM fallback after any gateway broadcast", () => {
     expect(positionsSrc).toContain("gatewayBroadcasted");
     expect(positionsSrc).toContain("Do not retry owner-NPM exit");
-    expect(positionsSrc).toMatch(/if \(gatewayBroadcasted\)/);
+    expect(positionsSrc).toMatch(/gatewayBroadcasted \?/);
+  });
+
+  it("makes 100% gateway withdraw mandatory without silent owner-NPM fallback", () => {
+    expect(positionsSrc).toContain("owner-NPM fallback disabled for 100%");
+    expect(positionsSrc).toContain("MANDATORY atomic path");
   });
 
   it("preserves legacy recover + completedPositionKeys idempotency", () => {
@@ -43,7 +48,7 @@ describe("gateway permissions + fallback safety", () => {
     expect(positionsSrc).toContain("sweepAllResidueToUsdcOnce(");
     expect(positionsSrc).toContain("completedPositionKeys");
     expect(positionsSrc).toContain("resumeRecoverOnly");
-    expect(positionsSrc).toContain("listOpenOwnerNpmPositions");
+    expect(positionsSrc).toContain("listCatalogueMatchedOpenPositions");
   });
 
   it("uses setApprovalForAll selector 0xa22cb465 not ERC20 approve", () => {

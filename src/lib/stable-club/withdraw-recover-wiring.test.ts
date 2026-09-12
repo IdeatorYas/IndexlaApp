@@ -37,7 +37,7 @@ describe("withdraw residue→USDC recover wiring", () => {
   });
 
   it("gates recover on HTTP enumeration and per-tokenId completion", () => {
-    expect(src).toContain("listOpenOwnerNpmPositions");
+    expect(src).toContain("listCatalogueMatchedOpenPositions");
     expect(src).toContain("completedPositionKeys");
     expect(src).toContain("auto-retry");
   });
