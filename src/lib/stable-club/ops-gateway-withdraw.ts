@@ -46,7 +46,7 @@ export type GatewayWithdrawPosition = {
 
 const UNI_FEE_005 = 500;
 /** 1% haircut under oracle mid for aggregate minUsdcOut. */
-const MIN_USDC_ORACLE_HAIRCUT_BPS = 100n;
+const MIN_USDC_ORACLE_HAIRCUT_BPS = BigInt(100);
 
 export async function withdrawPercentViaOpsGateway(params: {
   deployments: {
@@ -188,7 +188,8 @@ export async function withdrawPercentViaOpsGateway(params: {
 
   const minUsdcOut =
     oracleGuard && expectedUsdc > BigInt(0)
-      ? (expectedUsdc * (10_000n - MIN_USDC_ORACLE_HAIRCUT_BPS)) / 10_000n
+      ? (expectedUsdc * (BigInt(10_000) - MIN_USDC_ORACLE_HAIRCUT_BPS)) /
+        BigInt(10_000)
       : params.minUsdcOut != null && params.minUsdcOut > BigInt(0)
         ? params.minUsdcOut
         : BigInt(1);
