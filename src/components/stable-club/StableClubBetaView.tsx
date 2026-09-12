@@ -217,6 +217,8 @@ function DevUiPreview({ mode }: { mode: "deposit" | "positions" | "pools" }) {
     withdrawPercent: async () => undefined,
     resumeIncompleteWithdraw: async () => undefined,
     incompleteWithdraw: null,
+    chainOpenLps: [],
+    chainFinishNeeded: false,
     strandedAssets: [],
     refreshStrandedAssets: async () => undefined,
     harvestAll: async () => undefined,

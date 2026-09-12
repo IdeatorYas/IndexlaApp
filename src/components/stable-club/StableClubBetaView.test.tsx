@@ -84,6 +84,8 @@ let positionsState = {
   withdrawPercent: vi.fn(),
   resumeIncompleteWithdraw: vi.fn(),
   incompleteWithdraw: null,
+  chainOpenLps: [] as unknown[],
+  chainFinishNeeded: false,
   strandedAssets: [] as unknown[],
   refreshStrandedAssets: vi.fn(),
   harvestAll,
@@ -259,7 +261,7 @@ describe("StableClubBetaView", () => {
     expect(screen.queryByRole("button", { name: "Harvest" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Compound" })).toBeNull();
     expect(screen.queryByText(/Stranded wallet assets/i)).toBeNull();
-    expect(screen.queryByRole("button", { name: /Resume incomplete withdraw/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Finish incomplete withdraw/i })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Deposit USDC" })).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "Available Pools" }));

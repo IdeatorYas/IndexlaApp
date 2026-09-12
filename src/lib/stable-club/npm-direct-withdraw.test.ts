@@ -40,4 +40,18 @@ describe("npm-direct-withdraw", () => {
     expect(multicallData.slice(0, 10).toLowerCase()).not.toBe(APPROVE_SELECTOR);
     expect(multicallData.startsWith("0xac9650d8")).toBe(true); // multicall(bytes[])
   });
+
+  it("can split decrease/collect/burn into separate payloads", () => {
+    const { stepPayloads } = buildNpmWithdrawMulticallCalls({
+      tokenId: BigInt(42),
+      liquidity: BigInt(1000),
+      amount0Min: BigInt(0),
+      amount1Min: BigInt(0),
+      deadline: BigInt(1_700_000_000),
+      recipient: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      burnAfter: true,
+      splitSteps: true,
+    });
+    expect(stepPayloads).toHaveLength(3);
+  });
 });

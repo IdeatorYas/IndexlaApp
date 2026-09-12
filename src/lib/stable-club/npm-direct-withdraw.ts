@@ -333,15 +333,13 @@ export async function quoteNpmExecutorExit(params: {
   };
 }
 
-export function buildNpmWithdrawMulticallCalls(params: {
+export function encodeNpmDecreaseLiquidityCall(params: {
   tokenId: bigint;
   liquidity: bigint;
   amount0Min: bigint;
   amount1Min: bigint;
   deadline: bigint;
-  recipient: Address;
-  burnAfter: boolean;
-}): { calls: Hex[]; multicallData: Hex } {
+}): Hex {
   const decrease = encodeFunctionData({
     abi: npmPositionManagerAbi,
     functionName: "decreaseLiquidity",
@@ -356,7 +354,13 @@ export function buildNpmWithdrawMulticallCalls(params: {
     ],
   });
   assertNotApproveCalldata(decrease);
+  return decrease;
+}
 
+export function encodeNpmCollectCall(params: {
+  tokenId: bigint;
+  recipient: Address;
+}): Hex {
   const collect = encodeFunctionData({
     abi: npmPositionManagerAbi,
     functionName: "collect",
@@ -370,19 +374,61 @@ export function buildNpmWithdrawMulticallCalls(params: {
     ],
   });
   assertNotApproveCalldata(collect);
+  return collect;
+}
 
+export function encodeNpmBurnCall(tokenId: bigint): Hex {
+  const burn = encodeFunctionData({
+    abi: npmPositionManagerAbi,
+    functionName: "burn",
+    args: [tokenId],
+  });
+  assertNotApproveCalldata(burn);
+  return burn;
+}
+
+/**
+ * Build NPM withdraw calldata. Prefer one tokenId per tx.
+ * When `splitSteps`, emit decrease / collect / burn as separate txs (OOG-safe for Aero).
+ */
+export function buildNpmWithdrawMulticallCalls(params: {
+  tokenId: bigint;
+  liquidity: bigint;
+  amount0Min: bigint;
+  amount1Min: bigint;
+  deadline: bigint;
+  recipient: Address;
+  burnAfter: boolean;
+  /** Emit each step as its own multicall(bytes[]) payload. */
+  splitSteps?: boolean;
+}): { calls: Hex[]; multicallData: Hex; stepPayloads: Hex[] } {
+  const decrease = encodeNpmDecreaseLiquidityCall({
+    tokenId: params.tokenId,
+    liquidity: params.liquidity,
+    amount0Min: params.amount0Min,
+    amount1Min: params.amount1Min,
+    deadline: params.deadline,
+  });
+  const collect = encodeNpmCollectCall({
+    tokenId: params.tokenId,
+    recipient: params.recipient,
+  });
   const calls: Hex[] = [decrease, collect];
   if (params.burnAfter) {
-    const burn = encodeFunctionData({
-      abi: npmPositionManagerAbi,
-      functionName: "burn",
-      args: [params.tokenId],
-    });
-    assertNotApproveCalldata(burn);
-    calls.push(burn);
+    calls.push(encodeNpmBurnCall(params.tokenId));
   }
 
-  return { calls, multicallData: encodeNpmMulticall(calls) };
+  if (params.splitSteps) {
+    const stepPayloads = calls.map((c) => encodeNpmMulticall([c]));
+    return {
+      calls,
+      multicallData: stepPayloads[0]!,
+      stepPayloads,
+    };
+  }
+
+  const multicallData = encodeNpmMulticall(calls);
+  return { calls, multicallData, stepPayloads: [multicallData] };
 }
 
 /** Pack many per-position NPM call arrays into one multicall (same NPM only). */

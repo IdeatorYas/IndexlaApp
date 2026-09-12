@@ -38,11 +38,12 @@ describe("gateway permissions + fallback safety", () => {
     expect(positionsSrc).toMatch(/if \(gatewayBroadcasted\)/);
   });
 
-  it("preserves legacy recover + completedNpmKeys idempotency", () => {
+  it("preserves legacy recover + completedPositionKeys idempotency", () => {
     expect(positionsSrc).toContain("readResidueAtHead");
     expect(positionsSrc).toContain("sweepAllResidueToUsdcOnce(");
-    expect(positionsSrc).toContain("completedNpmKeys");
+    expect(positionsSrc).toContain("completedPositionKeys");
     expect(positionsSrc).toContain("resumeRecoverOnly");
+    expect(positionsSrc).toContain("listOpenOwnerNpmPositions");
   });
 
   it("uses setApprovalForAll selector 0xa22cb465 not ERC20 approve", () => {

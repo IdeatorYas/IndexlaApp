@@ -70,11 +70,20 @@ import {
 import {
   clearWithdrawCheckpoint,
   isCheckpointIncomplete,
+  positionCompletionKey,
   readWithdrawCheckpoint,
   residueFromBaseline,
   writeWithdrawCheckpoint,
   type WithdrawCheckpoint,
 } from "@/lib/stable-club/withdraw-checkpoint";
+import {
+  listOpenOwnerNpmPositions,
+  type OpenOwnerNpmPosition,
+} from "@/lib/stable-club/list-open-owner-npm-positions";
+import {
+  TransactionRevertedError,
+  waitForSuccessfulTransactionReceipt,
+} from "@/lib/stable-club/transaction-receipt";
 import {
   FIVE_POOL_DEFAULT_EXIT_SLIPPAGE_BPS,
   aeroFactoryGetPoolAbi,
@@ -114,6 +123,8 @@ import { FIVE_POOL_LEG_COUNT } from "@/lib/stable-club/five-pool-strategy";
 import { erc721PositionAbi } from "@/lib/stable-club/nft-approval";
 import {
   buildNpmWithdrawMulticallCalls,
+  encodeNpmBurnCall,
+  encodeNpmCollectCall,
   encodeNpmMulticall,
   quoteNpmDecreaseMins,
   quoteNpmExecutorExit,
@@ -127,7 +138,6 @@ import {
 import {
   FIVE_POOL_POSITIONS_REFRESH_EVENT,
 } from "@/lib/stable-club/positions-refresh";
-import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import {
   requireAttestedPhase2aDeployments,
   type StableClubPhase2aPublicDeployments,
@@ -358,6 +368,9 @@ export function useFivePoolPositions() {
   >([]);
   const [incompleteWithdraw, setIncompleteWithdraw] =
     useState<WithdrawCheckpoint | null>(null);
+  /** Chain-derived open catalogue LPs — Finish withdraw without localStorage. */
+  const [chainOpenLps, setChainOpenLps] = useState<OpenOwnerNpmPosition[]>([]);
+  const [chainFinishNeeded, setChainFinishNeeded] = useState(false);
 
   const chain = useMemo(
     () =>
@@ -408,11 +421,15 @@ export function useFivePoolPositions() {
     if (!deployments || !wallet.address) {
       setStrandedAssets([]);
       setIncompleteWithdraw(null);
+      setChainOpenLps([]);
+      setChainFinishNeeded(false);
       return;
     }
     if (deployments.network === "hardhat-local" || deployments.chainId !== 8453) {
       setStrandedAssets([]);
       setIncompleteWithdraw(null);
+      setChainOpenLps([]);
+      setChainFinishNeeded(false);
       return;
     }
     if (!onExpectedChain) {
@@ -422,22 +439,34 @@ export function useFivePoolPositions() {
     try {
       const cp = readWithdrawCheckpoint(wallet.address, expectedChainId);
       setIncompleteWithdraw(isCheckpointIncomplete(cp) ? cp : null);
+
+      let openLps: OpenOwnerNpmPosition[] = [];
+      try {
+        openLps = await listOpenOwnerNpmPositions({
+          publicClient: discoveryClient,
+          account: wallet.address,
+        });
+        setChainOpenLps(openLps);
+      } catch {
+        // Keep prior open-LP list on blips; do not clear to empty (fail-open for UI only).
+      }
+
       let planned;
-      if (cp && isCheckpointIncomplete(cp)) {
-        const cbBal = (await publicClient.readContract({
+      if (cp && isCheckpointIncomplete(cp) && cp.percent < 100) {
+        const cbBal = (await discoveryClient.readContract({
           address: BASE_TOKENS.cbBTC.address,
           abi: erc20Abi,
           functionName: "balanceOf",
           args: [wallet.address],
         })) as bigint;
-        const wethBal = (await publicClient.readContract({
+        const wethBal = (await discoveryClient.readContract({
           address: BASE_TOKENS.WETH.address,
           abi: erc20Abi,
           functionName: "balanceOf",
           args: [wallet.address],
         })) as bigint;
         planned = await planLooseAssetRecoveries({
-          publicClient,
+          publicClient: discoveryClient,
           account: wallet.address,
           maxByToken: {
             cbBTC: residueFromBaseline({
@@ -451,9 +480,11 @@ export function useFivePoolPositions() {
           },
         });
       } else {
+        // 100% / no checkpoint: surface all non-dust cbBTC/WETH for Finish recover.
         planned = await planLooseAssetRecoveries({
-          publicClient,
+          publicClient: discoveryClient,
           account: wallet.address,
+          applyDustFilter: true,
         });
       }
       setStrandedAssets(
@@ -463,14 +494,19 @@ export function useFivePoolPositions() {
           amountIn: row.amountIn,
         })),
       );
+      setChainFinishNeeded(
+        openLps.length > 0 ||
+          planned.length > 0 ||
+          isCheckpointIncomplete(cp),
+      );
     } catch {
       // Read-only reporting — keep prior list on RPC blips.
     }
   }, [
     deployments,
+    discoveryClient,
     expectedChainId,
     onExpectedChain,
-    publicClient,
     wallet.address,
   ]);
 
@@ -1879,13 +1915,6 @@ export function useFivePoolPositions() {
       try {
         await ensureBaseNetwork();
         const { d, account, walletClient } = ensureReady();
-        if (open.length === 0) {
-          // Allow recover-only when resuming an incomplete withdraw with no LPs left.
-          const cp = readWithdrawCheckpoint(account, expectedChainId);
-          if (!isCheckpointIncomplete(cp)) {
-            throw new Error("No open positions to exit");
-          }
-        }
         if (d.network === "hardhat-local" || expectedChainId !== 8453) {
           throw new Error(
             "Owner NPM percent withdraw is only available on Base mainnet positions.",
@@ -1901,33 +1930,68 @@ export function useFivePoolPositions() {
         const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
 
         const existingCp = readWithdrawCheckpoint(account, expectedChainId);
+        // 100% always supersedes a stale partial checkpoint (deadlock escape).
         if (
           existingCp &&
           isCheckpointIncomplete(existingCp) &&
-          existingCp.percent !== pct
+          existingCp.percent !== pct &&
+          pct !== 100
         ) {
           throw new Error(
-            `An incomplete ${existingCp.percent}% withdraw is still pending (residue not yet sold to USDC). Tap “Resume incomplete withdraw” to finish it before starting a new ${pct}% withdraw.`,
+            `An incomplete ${existingCp.percent}% withdraw is still pending (residue not yet sold to USDC). Tap Finish incomplete withdraw (100%) or Resume to finish it first.`,
           );
         }
         const resumeSame =
           existingCp &&
           isCheckpointIncomplete(existingCp) &&
-          existingCp.percent === pct;
-        /**
-         * Recover-only only when every still-open LP's NPM is already completed.
-         * Mid-batch OOG (failed_incomplete + leftover LP) must retry remaining NPM legs.
-         * Live bug: 0xd73deb70… OOG on Aero current → resume sold residue and skipped that LP.
-         */
-        const unfinishedOpenNpms = open.filter(
-          (p) =>
-            !existingCp?.completedNpmKeys.includes(p.npm.toLowerCase()),
+          (existingCp.percent === pct || pct === 100);
+
+        // Fail-closed HTTP enumeration — never trust empty React positions alone.
+        const chainOpen = await listOpenOwnerNpmPositions({
+          publicClient: discoveryClient,
+          account,
+        });
+        const resumeRecoverOnly = chainOpen.length === 0;
+
+        // Merge chain-open NFTs missing from discovery into the work list.
+        const work: typeof open = [...open];
+        const seen = new Set(
+          work.map((p) =>
+            positionCompletionKey(p.npm, p.positionTokenId),
+          ),
         );
-        const resumeRecoverOnly =
-          Boolean(resumeSame) &&
-          unfinishedOpenNpms.length === 0 &&
-          (existingCp!.completedNpmKeys.length > 0 ||
-            existingCp!.phase === "recover");
+        for (const row of chainOpen) {
+          const key = positionCompletionKey(row.npm, row.tokenId);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          work.push({
+            legIndex: Math.max(0, work.length),
+            poolId: ("0x" + "00".repeat(32)) as Hex,
+            poolLabel: row.label,
+            pairLabel: row.label,
+            protocol: row.protocol,
+            adapter: row.npm,
+            nftContract: row.npm,
+            npm: row.npm,
+            tokenA: BASE_TOKENS.WETH.address,
+            tokenB: BASE_TOKENS.cbBTC.address,
+            tokenASymbol: "WETH",
+            tokenBSymbol: "cbBTC",
+            positionTokenId: row.tokenId,
+            liquidity: row.liquidity,
+            amount0: BigInt(0),
+            amount1: BigInt(0),
+            amountA: BigInt(0),
+            amountB: BigInt(0),
+            allocationBps: BigInt(0),
+            legPermissionId: ("0x" + "00".repeat(32)) as Hex,
+            owner: account,
+            adapterApproved: false,
+            rangeStatus: "unknown",
+            explorerNftUrl: null,
+            protocolExplorerHint: row.label,
+          });
+        }
 
         const startBlock = await discoveryClient.getBlockNumber({
           cacheTime: 0,
@@ -1942,57 +2006,75 @@ export function useFivePoolPositions() {
             blockNumber: startBlock,
           })) as bigint;
 
-        const usdcBefore = resumeSame
-          ? BigInt(existingCp!.baseline.usdc)
-          : await readBaseline(BASE_TOKENS.USDC.address);
-        const cbBtcBefore = resumeSame
-          ? BigInt(existingCp!.baseline.cbBtc)
-          : await readBaseline(BASE_TOKENS.cbBTC.address);
-        const wethBefore = resumeSame
-          ? BigInt(existingCp!.baseline.weth)
-          : await readBaseline(BASE_TOKENS.WETH.address);
+        const usdcBefore =
+          resumeSame && existingCp!.percent === pct
+            ? BigInt(existingCp!.baseline.usdc)
+            : await readBaseline(BASE_TOKENS.USDC.address);
+        const cbBtcBefore =
+          resumeSame && existingCp!.percent === pct
+            ? BigInt(existingCp!.baseline.cbBtc)
+            : await readBaseline(BASE_TOKENS.cbBTC.address);
+        const wethBefore =
+          resumeSame && existingCp!.percent === pct
+            ? BigInt(existingCp!.baseline.weth)
+            : await readBaseline(BASE_TOKENS.WETH.address);
 
-        const checkpoint: WithdrawCheckpoint = resumeSame
-          ? { ...existingCp! }
-          : {
-              version: 1,
-              wallet: account,
-              chainId: expectedChainId,
-              percent: pct,
-              startedAt: Date.now(),
-              updatedAt: Date.now(),
-              phase: "npm",
-              baseline: {
-                usdc: usdcBefore.toString(),
-                cbBtc: cbBtcBefore.toString(),
-                weth: wethBefore.toString(),
-              },
-              completedNpmKeys: [],
-            };
+        const checkpoint: WithdrawCheckpoint =
+          resumeSame && existingCp!.percent === pct
+            ? { ...existingCp! }
+            : {
+                version: 2,
+                wallet: account,
+                chainId: expectedChainId,
+                percent: pct,
+                startedAt: Date.now(),
+                updatedAt: Date.now(),
+                phase: "npm",
+                baseline: {
+                  usdc: usdcBefore.toString(),
+                  cbBtc: cbBtcBefore.toString(),
+                  weth: wethBefore.toString(),
+                },
+                completedPositionKeys: [],
+              };
+        if (open.length === 0 && chainOpen.length === 0 && !resumeRecoverOnly) {
+          const dustPlan = await planLooseAssetRecoveries({
+            publicClient: discoveryClient,
+            account,
+            applyDustFilter: true,
+          });
+          if (dustPlan.length === 0) {
+            throw new Error(
+              "No open positions or convertible residue to withdraw",
+            );
+          }
+        }
         if (resumeRecoverOnly) {
           checkpoint.phase = "recover";
           setStatusMessage(
-            `Resuming residue→USDC only (skipping ${checkpoint.completedNpmKeys.length} completed NPM batch(es); will not re-apply ${pct}%)…`,
+            `Resuming residue→USDC only (${checkpoint.completedPositionKeys.length} LP(s) already closed; will not re-apply ${pct}%)…`,
           );
         } else if (resumeSame) {
           setStatusMessage(
-            `Resuming incomplete ${pct}% withdraw (skipping ${checkpoint.completedNpmKeys.length} completed NPM batch(es))…`,
+            `Resuming incomplete ${pct}% withdraw (skipping ${checkpoint.completedPositionKeys.length} completed LP(s))…`,
           );
         }
         writeWithdrawCheckpoint(checkpoint);
         setIncompleteWithdraw(checkpoint);
 
         type PreparedLeg = {
-          position: (typeof open)[number];
-          calls: Hex[];
+          position: (typeof work)[number];
+          stepPayloads: Hex[];
         };
         const prepared: PreparedLeg[] = [];
 
         if (!resumeRecoverOnly) {
-        for (const position of open) {
-          if (
-            checkpoint.completedNpmKeys.includes(position.npm.toLowerCase())
-          ) {
+        for (const position of work) {
+          const posKey = positionCompletionKey(
+            position.npm,
+            position.positionTokenId,
+          );
+          if (checkpoint.completedPositionKeys.includes(posKey)) {
             setLegResults((prev) =>
               prev.map((r) =>
                 r.legIndex === position.legIndex
@@ -2003,11 +2085,11 @@ export function useFivePoolPositions() {
             continue;
           }
           setStatusMessage(
-            `Preparing owner NPM decrease ${pct}% · leg ${position.legIndex + 1}/${FIVE_POOL_LEG_COUNT}…`,
+            `Preparing owner NPM decrease ${pct}% · token ${position.positionTokenId.toString()}…`,
           );
           setProgress("awaiting-exit");
 
-          const owner = (await publicClient.readContract({
+          const owner = (await discoveryClient.readContract({
             address: position.npm,
             abi: erc721PositionAbi,
             functionName: "ownerOf",
@@ -2019,14 +2101,20 @@ export function useFivePoolPositions() {
             position.protocol === "aerodrome-slipstream" ||
             position.protocol === "aerodrome";
           const posAbi = isAero ? aeroNpmPositionsAbi : uniV3NpmPositionsAbi;
-          const posRow = await publicClient.readContract({
+          const posRow = await discoveryClient.readContract({
             address: position.npm,
             abi: posAbi,
             functionName: "positions",
             args: [position.positionTokenId],
           });
           const liqNow = BigInt(posRow[7] as bigint);
-          if (liqNow <= BigInt(0)) {
+          const owed0 = BigInt(posRow[10] as bigint);
+          const owed1 = BigInt(posRow[11] as bigint);
+          if (liqNow <= BigInt(0) && owed0 + owed1 <= BigInt(0)) {
+            checkpoint.completedPositionKeys = [
+              ...new Set([...checkpoint.completedPositionKeys, posKey]),
+            ];
+            writeWithdrawCheckpoint(checkpoint);
             setLegResults((prev) =>
               prev.map((r) =>
                 r.legIndex === position.legIndex
@@ -2036,174 +2124,271 @@ export function useFivePoolPositions() {
             );
             continue;
           }
-          const liqOut = fullExit
-            ? liqNow
-            : (liqNow * percentBps) / BigInt(10_000);
+          const liqOut =
+            liqNow <= BigInt(0)
+              ? BigInt(0)
+              : fullExit
+                ? liqNow
+                : (liqNow * percentBps) / BigInt(10_000);
           if (liqOut > liqNow) {
             throw new Error(
               `NPM decrease liquidity ${liqOut.toString()} exceeds live position liquidity ${liqNow.toString()} for tokenId ${position.positionTokenId.toString()} — refresh and retry`,
             );
           }
-          if (liqOut <= BigInt(0)) {
+          if (liqNow > BigInt(0) && liqOut <= BigInt(0)) {
             throw new Error(
               `Partial liquidity rounds to zero for tokenId ${position.positionTokenId.toString()}`,
             );
           }
 
-          const mins = await quoteNpmDecreaseMins({
-            publicClient,
-            npm: position.npm,
-            account,
-            tokenId: position.positionTokenId,
-            liquidity: liqOut,
-            deadline,
-            slippageBps,
-          });
-          const burnAfter = fullExit || liqOut >= liqNow;
-          const { calls } = buildNpmWithdrawMulticallCalls({
-            tokenId: position.positionTokenId,
-            liquidity: liqOut,
-            amount0Min: mins.amount0Min,
-            amount1Min: mins.amount1Min,
-            deadline,
-            recipient: account,
-            burnAfter,
-          });
-          prepared.push({ position, calls });
+          const mins =
+            liqOut > BigInt(0)
+              ? await quoteNpmDecreaseMins({
+                  publicClient: discoveryClient,
+                  npm: position.npm,
+                  account,
+                  tokenId: position.positionTokenId,
+                  liquidity: liqOut,
+                  deadline,
+                  slippageBps,
+                })
+              : { amount0Min: BigInt(0), amount1Min: BigInt(0) };
+          const burnAfter = fullExit && (liqOut >= liqNow || liqNow === BigInt(0));
+          let stepPayloads: Hex[];
+          if (liqOut <= BigInt(0)) {
+            const steps = [
+              encodeNpmCollectCall({
+                tokenId: position.positionTokenId,
+                recipient: account,
+              }),
+            ];
+            if (burnAfter) steps.push(encodeNpmBurnCall(position.positionTokenId));
+            stepPayloads = steps.map((c) => encodeNpmMulticall([c]));
+          } else {
+            let splitSteps = false;
+            const combined = buildNpmWithdrawMulticallCalls({
+              tokenId: position.positionTokenId,
+              liquidity: liqOut,
+              amount0Min: fullExit ? BigInt(0) : mins.amount0Min,
+              amount1Min: fullExit ? BigInt(0) : mins.amount1Min,
+              deadline,
+              recipient: account,
+              burnAfter,
+              splitSteps: false,
+            });
+            try {
+              const est = await discoveryClient.estimateGas({
+                account,
+                to: position.npm,
+                data: combined.multicallData,
+              });
+              splitSteps = est >= BigInt(400_000);
+            } catch {
+              splitSteps = isAero;
+            }
+            stepPayloads = buildNpmWithdrawMulticallCalls({
+              tokenId: position.positionTokenId,
+              liquidity: liqOut,
+              amount0Min: fullExit ? BigInt(0) : mins.amount0Min,
+              amount1Min: fullExit ? BigInt(0) : mins.amount1Min,
+              deadline,
+              recipient: account,
+              burnAfter,
+              splitSteps,
+            }).stepPayloads;
+          }
+          prepared.push({ position, stepPayloads });
         }
         } // !resumeRecoverOnly
 
-        // One multicall per NPM contract (legs sharing Aero/Uni NPM share one tx).
-        const batches = new Map<
-          string,
-          { npm: Address; legIndexes: number[]; calls: Hex[] }
-        >();
-        for (const row of prepared) {
-          const key = row.position.npm.toLowerCase();
-          if (checkpoint.completedNpmKeys.includes(key)) continue;
-          const cur = batches.get(key) ?? {
-            npm: row.position.npm,
-            legIndexes: [] as number[],
-            calls: [] as Hex[],
-          };
-          cur.legIndexes.push(row.position.legIndex);
-          cur.calls.push(...row.calls);
-          batches.set(key, cur);
-        }
-
-        const plannedTxs = [...batches.values()].map((b) => ({
-          to: b.npm,
-          data: encodeNpmMulticall(b.calls),
-        }));
+        // One tokenId per tx (optionally split decrease/collect/burn). Never batch 2 NFTs.
+        const plannedTxs = prepared.flatMap((row) =>
+          row.stepPayloads.map((data) => ({
+            to: row.position.npm,
+            data,
+          })),
+        );
 
         if (plannedTxs.length > 0) {
-        setStatusMessage("Checking Base ETH balance for batched NPM + Uni gas…");
+        setStatusMessage("Checking Base ETH balance for NPM exits + Uni gas…");
         const { maxFeePerGas, maxPriorityFeePerGas } =
           await requireNativeEthForOwnerWithdraw({
-          publicClient,
+          publicClient: discoveryClient,
           account,
           txs: plannedTxs,
         });
 
-        let batchIndex = 0;
-        for (const batch of batches.values()) {
-          batchIndex += 1;
-          const multicallData = encodeNpmMulticall(batch.calls);
-          setStatusMessage(
-            `Owner NPM multicall ${batchIndex}/${batches.size} (${batch.legIndexes.length} leg(s), no NFT permit)…`,
+        let unitIndex = 0;
+        for (const row of prepared) {
+          const posKey = positionCompletionKey(
+            row.position.npm,
+            row.position.positionTokenId,
           );
-          for (const legIndex of batch.legIndexes) {
-            setLegResults((prev) =>
-              prev.map((r) =>
-                r.legIndex === legIndex ? { ...r, status: "submitting" } : r,
-              ),
+          if (checkpoint.completedPositionKeys.includes(posKey)) continue;
+
+          setLegResults((prev) =>
+            prev.map((r) =>
+              r.legIndex === row.position.legIndex
+                ? { ...r, status: "submitting" }
+                : r,
+            ),
+          );
+
+          let lastHash: Hex | null = null;
+          for (let stepIdx = 0; stepIdx < row.stepPayloads.length; stepIdx += 1) {
+            const multicallData = row.stepPayloads[stepIdx]!;
+            unitIndex += 1;
+            setStatusMessage(
+              `Owner NPM exit ${unitIndex}/${plannedTxs.length} · token ${row.position.positionTokenId.toString()} step ${stepIdx + 1}/${row.stepPayloads.length}…`,
             );
-          }
 
-          try {
-            await publicClient.call({
-              account,
-              to: batch.npm,
-              data: multicallData,
-            });
-          } catch (simErr) {
-            const detail =
-              simErr instanceof Error ? simErr.message : String(simErr);
-            throw new Error(
-              `Owner NPM multicall simulation failed for legs [${batch.legIndexes.join(",")}]: ${detail.slice(0, 280)}`,
-            );
-          }
-
-          // Buffer gas — live OOG at estimate==limit 565311 (0x80fa91ef…).
-          const gasEstimate = await discoveryClient.estimateGas({
-            account,
-            to: batch.npm,
-            data: multicallData,
-          });
-          const npmGas = applyOwnerNpmMulticallGasBuffer(gasEstimate);
-
-          const hash = await walletClient.sendTransaction({
-            account,
-            to: batch.npm,
-            data: multicallData,
-            chain: walletClient.chain ?? undefined,
-            gas: npmGas,
-            maxFeePerGas,
-            maxPriorityFeePerGas,
-          } as never);
-          setLastTxHash(hash);
-          // Detect wallet gas substitution before waiting forever on a doomed limit.
-          try {
-            const submitted = await discoveryClient.getTransaction({ hash });
-            if (
-              submitted.gas != null &&
-              submitted.gas < OWNER_NPM_MULTICALL_GAS_FLOOR
-            ) {
+            try {
+              await discoveryClient.call({
+                account,
+                to: row.position.npm,
+                data: multicallData,
+              });
+            } catch (simErr) {
+              const detail =
+                simErr instanceof Error ? simErr.message : String(simErr);
               throw new Error(
-                `${OWNER_NPM_MULTICALL_OOG_USER_MESSAGE} (submitted gas ${submitted.gas.toString()} < floor ${OWNER_NPM_MULTICALL_GAS_FLOOR.toString()}).`,
+                `Owner NPM simulation failed for token ${row.position.positionTokenId.toString()}: ${detail.slice(0, 280)}`,
               );
             }
-          } catch (probeErr) {
-            if (
-              probeErr instanceof Error &&
-              probeErr.message.includes(OWNER_NPM_MULTICALL_OOG_USER_MESSAGE)
-            ) {
-              throw probeErr;
+
+            const gasEstimate = await discoveryClient.estimateGas({
+              account,
+              to: row.position.npm,
+              data: multicallData,
+            });
+            const npmGas = applyOwnerNpmMulticallGasBuffer(gasEstimate);
+
+            let attempt = 0;
+            let stepOk = false;
+            while (attempt < 3 && !stepOk) {
+              attempt += 1;
+              const hash = await walletClient.sendTransaction({
+                account,
+                to: row.position.npm,
+                data: multicallData,
+                chain: walletClient.chain ?? undefined,
+                gas: npmGas,
+                maxFeePerGas,
+                maxPriorityFeePerGas,
+              } as never);
+              lastHash = hash;
+              setLastTxHash(hash);
+              // Telemetry only — never abort before receipt (0ab839a live bug).
+              try {
+                const submitted = await discoveryClient.getTransaction({ hash });
+                if (
+                  submitted.gas != null &&
+                  submitted.gas < OWNER_NPM_MULTICALL_GAS_FLOOR
+                ) {
+                  setStatusMessage(
+                    `Wallet rewrote gas to ${submitted.gas.toString()} (app asked ≥${OWNER_NPM_MULTICALL_GAS_FLOOR.toString()}) — waiting for receipt…`,
+                  );
+                }
+              } catch {
+                // ignore probe blips
+              }
+              try {
+                const npmReceipt = await waitForSuccessfulTransactionReceipt(
+                  discoveryClient,
+                  hash,
+                  {
+                    gasLimit: npmGas,
+                    outOfGasMessage: OWNER_NPM_MULTICALL_OOG_USER_MESSAGE,
+                  },
+                );
+                readBlockFloor = maxBlock(
+                  readBlockFloor,
+                  npmReceipt.blockNumber ?? null,
+                );
+                stepOk = true;
+              } catch (receiptErr) {
+                const isOog =
+                  receiptErr instanceof TransactionRevertedError &&
+                  /out of gas/i.test(receiptErr.message);
+                if (isOog && attempt < 3) {
+                  setStatusMessage(
+                    `NPM step OOG — auto-retry ${attempt}/2 with same calldata…`,
+                  );
+                  continue;
+                }
+                throw receiptErr;
+              }
             }
-            // Receipt wait still authoritative if getTransaction is briefly unavailable.
           }
-          const npmReceipt = await waitForSuccessfulTransactionReceipt(
-            publicClient,
-            hash,
-            {
-              gasLimit: npmGas,
-              outOfGasMessage: OWNER_NPM_MULTICALL_OOG_USER_MESSAGE,
-            },
-          );
-          readBlockFloor = maxBlock(
-            readBlockFloor,
-            npmReceipt.blockNumber ?? null,
-          );
-          for (const legIndex of batch.legIndexes) {
-            setLegResults((prev) =>
-              prev.map((r) =>
-                r.legIndex === legIndex
-                  ? { ...r, status: "confirmed", txHash: hash }
-                  : r,
-              ),
+
+          // Confirm live closure before marking complete.
+          const isAero =
+            row.position.protocol === "aerodrome-slipstream" ||
+            row.position.protocol === "aerodrome";
+          const posAbi = isAero ? aeroNpmPositionsAbi : uniV3NpmPositionsAbi;
+          let stillOpen = false;
+          try {
+            const posRow = await discoveryClient.readContract({
+              address: row.position.npm,
+              abi: posAbi,
+              functionName: "positions",
+              args: [row.position.positionTokenId],
+            });
+            const liqLeft = BigInt(posRow[7] as bigint);
+            const owedLeft =
+              BigInt(posRow[10] as bigint) + BigInt(posRow[11] as bigint);
+            if (fullExit) {
+              stillOpen = liqLeft > BigInt(0) || owedLeft > BigInt(0);
+            } else {
+              stillOpen = false;
+            }
+          } catch {
+            // burned NFT — closed
+            stillOpen = false;
+          }
+          if (stillOpen) {
+            throw new Error(
+              `LP token ${row.position.positionTokenId.toString()} still open after NPM txs. Tap Finish incomplete withdraw.`,
             );
           }
-          checkpoint.completedNpmKeys = [
-            ...new Set([
-              ...checkpoint.completedNpmKeys,
-              batch.npm.toLowerCase(),
-            ]),
+
+          checkpoint.completedPositionKeys = [
+            ...new Set([...checkpoint.completedPositionKeys, posKey]),
           ];
           checkpoint.phase = "npm";
           writeWithdrawCheckpoint(checkpoint);
           setIncompleteWithdraw({ ...checkpoint });
+          setLegResults((prev) =>
+            prev.map((r) =>
+              r.legIndex === row.position.legIndex
+                ? {
+                    ...r,
+                    status: "confirmed",
+                    txHash: lastHash ?? undefined,
+                  }
+                : r,
+            ),
+          );
         }
         } // plannedTxs.length > 0
+
+        // Gate residue: fail-closed HTTP re-enumeration.
+        const stillOpenAfterNpm = await listOpenOwnerNpmPositions({
+          publicClient: discoveryClient,
+          account,
+        });
+        if (stillOpenAfterNpm.length > 0) {
+          checkpoint.phase = "failed_incomplete";
+          checkpoint.lastError = `Open LP(s) remain: ${stillOpenAfterNpm
+            .map((r) => `${r.label}#${r.tokenId.toString()}`)
+            .join(", ")}`;
+          writeWithdrawCheckpoint(checkpoint);
+          setIncompleteWithdraw({ ...checkpoint });
+          setProgress("partial");
+          throw new Error(
+            `${checkpoint.lastError}. Finish remaining LP exits before USDC conversion.`,
+          );
+        }
 
         checkpoint.phase = "recover";
         writeWithdrawCheckpoint(checkpoint);
@@ -2259,6 +2444,14 @@ export function useFivePoolPositions() {
             functionName: "balanceOf",
             args: [account],
           })) as bigint;
+          if (fullExit) {
+            // 100%: convert all non-dust cbBTC/WETH (USDC-only product; survives lost storage).
+            return planLooseAssetRecoveries({
+              publicClient: recoverReadClient,
+              account,
+              applyDustFilter: true,
+            });
+          }
           return planLooseAssetRecoveries({
             publicClient: recoverReadClient,
             account,
@@ -2353,40 +2546,22 @@ export function useFivePoolPositions() {
           client: recoverReadClient,
           minBlock: readBlockFloor,
         });
-        // Never declare success while intended LP liquidity remains unfinished.
-        for (const position of open) {
-          const npmKey = position.npm.toLowerCase();
-          const isAero =
-            position.protocol === "aerodrome-slipstream" ||
-            position.protocol === "aerodrome";
-          const posAbi = isAero ? aeroNpmPositionsAbi : uniV3NpmPositionsAbi;
-          let liqNow = BigInt(0);
-          try {
-            const posRow = await recoverReadClient.readContract({
-              address: position.npm,
-              abi: posAbi,
-              functionName: "positions",
-              args: [position.positionTokenId],
-            });
-            liqNow = BigInt(posRow[7] as bigint);
-          } catch {
-            // Burned / missing NFT — treat as closed.
-            liqNow = BigInt(0);
-          }
-          if (liqNow <= BigInt(0)) continue;
-          const unfinishedNpm = !checkpoint.completedNpmKeys.includes(npmKey);
-          if (unfinishedNpm || fullExit) {
-            checkpoint.phase = "failed_incomplete";
-            checkpoint.lastError = unfinishedNpm
-              ? `LP still open on unfinished NPM leg ${position.legIndex} (${position.npm.slice(0, 10)}…). Do not re-apply ${pct}% to completed legs.`
-              : `Full exit still has liquidity on leg ${position.legIndex} (${position.npm.slice(0, 10)}…).`;
-            writeWithdrawCheckpoint(checkpoint);
-            setIncompleteWithdraw({ ...checkpoint });
-            setProgress("partial");
-            throw new Error(
-              `${checkpoint.lastError} Tap Resume incomplete withdraw.`,
-            );
-          }
+        // Never declare success while catalogue LPs remain open (HTTP, fail-closed).
+        const openAtEnd = await listOpenOwnerNpmPositions({
+          publicClient: recoverReadClient,
+          account,
+        });
+        if (openAtEnd.length > 0) {
+          checkpoint.phase = "failed_incomplete";
+          checkpoint.lastError = `Open LP(s) remain after recover: ${openAtEnd
+            .map((r) => `${r.label}#${r.tokenId.toString()}`)
+            .join(", ")}`;
+          writeWithdrawCheckpoint(checkpoint);
+          setIncompleteWithdraw({ ...checkpoint });
+          setProgress("partial");
+          throw new Error(
+            `${checkpoint.lastError} Tap Finish incomplete withdraw.`,
+          );
         }
 
         const usdcAfter = (await recoverReadClient.readContract({
@@ -2396,15 +2571,18 @@ export function useFivePoolPositions() {
           args: [account],
         })) as bigint;
         if (usdcAfter <= usdcBefore) {
-          if (resumeRecoverOnly) {
-            // Leftover already empty at head — residue was zero or cleared externally.
+          if (resumeRecoverOnly || fullExit) {
+            // LPs closed and residue cleared (or dust-only) — USDC may be flat.
             checkpoint.phase = "complete";
             writeWithdrawCheckpoint(checkpoint);
             clearWithdrawCheckpoint(account, expectedChainId);
             setIncompleteWithdraw(null);
+            setChainFinishNeeded(false);
             setProgress("confirmed");
             setStatusMessage(
-              "Withdrawal residue already cleared — no stranded cbBTC/WETH",
+              fullExit
+                ? "Withdrawal complete — all catalogue LPs closed; residue cleared to USDC"
+                : "Withdrawal residue already cleared — no stranded cbBTC/WETH",
             );
             await refreshPositions();
             await refreshStrandedAssets();
@@ -2412,7 +2590,7 @@ export function useFivePoolPositions() {
           }
           setProgress("partial");
           throw new Error(
-            "Owner NPM percent withdraw did not increase USDC (residue conversion incomplete). Tap Resume incomplete withdraw.",
+            "Owner NPM percent withdraw did not increase USDC (residue conversion incomplete). Tap Finish incomplete withdraw.",
           );
         }
 
@@ -2494,17 +2672,16 @@ export function useFivePoolPositions() {
    */
   const resumeIncompleteWithdraw = useCallback(async () => {
     await ensureBaseNetwork();
-    const { account } = ensureReady();
-    const cp = readWithdrawCheckpoint(account, expectedChainId);
-    if (!isCheckpointIncomplete(cp)) {
-      setError("No incomplete withdraw to resume.");
-      return;
-    }
-    await withdrawLegacyPercentViaOwnerNpm(cp!.percent);
+    ensureReady();
+    await refreshPositions();
+    await refreshStrandedAssets();
+    // Always finish at 100% from chain state (closes leftover LPs + converts residue).
+    await withdrawLegacyPercentViaOwnerNpm(100);
   }, [
     ensureBaseNetwork,
     ensureReady,
-    expectedChainId,
+    refreshPositions,
+    refreshStrandedAssets,
     withdrawLegacyPercentViaOwnerNpm,
   ]);
 
@@ -3049,6 +3226,8 @@ export function useFivePoolPositions() {
     withdrawPercent,
     resumeIncompleteWithdraw,
     incompleteWithdraw,
+    chainOpenLps,
+    chainFinishNeeded,
     strandedAssets,
     refreshStrandedAssets,
     harvestAll,

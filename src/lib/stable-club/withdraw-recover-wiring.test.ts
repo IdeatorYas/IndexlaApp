@@ -36,13 +36,16 @@ describe("withdraw residue→USDC recover wiring", () => {
     expect(src).toContain("OWNER_NPM_MULTICALL_GAS_FLOOR");
   });
 
-  it("only recover-skips when unfinished open NPMs are empty", () => {
-    expect(src).toContain("unfinishedOpenNpms");
-    expect(src).toContain("unfinishedOpenNpms.length === 0");
+  it("gates recover on HTTP enumeration and per-tokenId completion", () => {
+    expect(src).toContain("listOpenOwnerNpmPositions");
+    expect(src).toContain("completedPositionKeys");
+    expect(src).toContain("auto-retry");
   });
 
-  it("exposes Resume incomplete withdraw for mid-OOG recovery", () => {
-    expect(src).toContain("resumeIncompleteWithdraw");
-    expect(src).toContain("Tap Resume incomplete withdraw");
+  it("never aborts before receipt on wallet gas rewrite", () => {
+    expect(src).toContain("waiting for receipt");
+    expect(src).not.toContain(
+      "submitted gas ${submitted.gas.toString()} < floor",
+    );
   });
 });

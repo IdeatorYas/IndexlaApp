@@ -16,7 +16,7 @@ export const OPS_GATEWAY_FORK_PROOF_CHECKLIST = [
   "Fresh first deposit + depositAgain + partial/full exit USDC-only + residual revert — StableClubOpsGatewayForkE2E.test.cjs.",
   "Deposit-matched stack (registry+executor+adapters+gateway) — StableClubOpsGatewayDepositStackFork.test.cjs on Base fork.",
   "Executor deployedBytecode ≤24576 with linked libs.",
-  "Fallback must not re-exit after any gateway broadcast; legacy recover + completedNpmKeys preserved.",
+  "Fallback must not re-exit after any gateway broadcast; legacy recover + completedPositionKeys preserved.",
   "Deploy gate: split flags in trusted manifest; Basescan verify before enabling.",
 ] as const;
 
