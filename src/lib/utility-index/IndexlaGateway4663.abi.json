@@ -1,0 +1,474 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "weth_",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "swapRouter02_",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "v2Router_",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "universalRouter_",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "feeRecipient_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "BadPercent",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BadWeights",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "DeadlineExpired",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InsufficientOutput",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "TransferFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroMinOut",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroValue",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "grossEth",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "feeEth",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "investableEth",
+        "type": "uint256"
+      }
+    ],
+    "name": "BasketBought",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "percentBps",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "ethGross",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "feeEth",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "ethToUser",
+        "type": "uint256"
+      }
+    ],
+    "name": "BasketSold",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previous",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "next",
+        "type": "address"
+      }
+    ],
+    "name": "FeeRecipientUpdated",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "FEE_BPS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "PERMIT2",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "tokenOut",
+            "type": "address"
+          },
+          {
+            "internalType": "uint24",
+            "name": "fee",
+            "type": "uint24"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weightBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amountOutMinimum",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IndexlaGateway4663.V3Leg[]",
+        "name": "v3Legs",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "tokenOut",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weightBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amountOutMinimum",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IndexlaGateway4663.V2Leg[]",
+        "name": "v2Legs",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "tokenOut",
+            "type": "address"
+          },
+          {
+            "internalType": "uint24",
+            "name": "fee",
+            "type": "uint24"
+          },
+          {
+            "internalType": "int24",
+            "name": "tickSpacing",
+            "type": "int24"
+          },
+          {
+            "internalType": "address",
+            "name": "hooks",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "weightBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amountOutMinimum",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IndexlaGateway4663.V4Leg[]",
+        "name": "v4Legs",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      }
+    ],
+    "name": "depositFromEth",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "percentBps",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "tokenIn",
+            "type": "address"
+          },
+          {
+            "internalType": "uint24",
+            "name": "fee",
+            "type": "uint24"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amountOutMinimum",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IndexlaGateway4663.V3ExitLeg[]",
+        "name": "v3Legs",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "tokenIn",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amountOutMinimum",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IndexlaGateway4663.V2ExitLeg[]",
+        "name": "v2Legs",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "tokenIn",
+            "type": "address"
+          },
+          {
+            "internalType": "uint24",
+            "name": "fee",
+            "type": "uint24"
+          },
+          {
+            "internalType": "int24",
+            "name": "tickSpacing",
+            "type": "int24"
+          },
+          {
+            "internalType": "address",
+            "name": "hooks",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amountOutMinimum",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IndexlaGateway4663.V4ExitLeg[]",
+        "name": "v4Legs",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minAmountOutEth",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      }
+    ],
+    "name": "exitPercentToEth",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "feeRecipient",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "next",
+        "type": "address"
+      }
+    ],
+    "name": "setFeeRecipient",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "swapRouter02",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "universalRouter",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "v2Router",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "weth",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "stateMutability": "payable",
+    "type": "receive"
+  }
+]
