@@ -59,6 +59,15 @@ const catalog: MarketplaceProduct[] = [
     narrative: "ai",
     networkIds: ["ethereum"],
   }),
+  product({
+    id: "utility-index-rh",
+    name: "Utility Index",
+    indexType: "Crypto",
+    narrative: "defi",
+    networkIds: ["robinhood"],
+    href: "/app/utility-index",
+    isIllustrative: false,
+  }),
 ];
 
 function state(
@@ -79,7 +88,7 @@ describe("parseChainFilter", () => {
 describe("filterMarketplaceProducts chain + narrative", () => {
   it("defaults to all chains under Crypto", () => {
     const ids = filterMarketplaceProducts(catalog, state()).map((p) => p.id);
-    expect(ids).toEqual(["eth-l1", "sol-ai"]);
+    expect(ids).toEqual(["eth-l1", "sol-ai", "utility-index-rh"]);
   });
 
   it("filters by chain membership", () => {
@@ -104,12 +113,12 @@ describe("filterMarketplaceProducts chain + narrative", () => {
     expect(empty).toHaveLength(0);
   });
 
-  it("shows empty for Robinhood Chain with no matching indexes", () => {
-    const empty = filterMarketplaceProducts(
+  it("shows Utility Index for Robinhood Chain crypto filter", () => {
+    const ids = filterMarketplaceProducts(
       catalog,
       state({ chain: "robinhood" }),
-    );
-    expect(empty).toHaveLength(0);
+    ).map((p) => p.id);
+    expect(ids).toContain("utility-index-rh");
   });
 
   it("ignores chain when asset category is not Crypto", () => {

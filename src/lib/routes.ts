@@ -17,6 +17,7 @@ export const APP_ROUTES = {
   creatorProfile: (handle: string) => `/app/creators/${handle}`,
   creatorDashboard: "/app/creator-dashboard",
   product: (id: string) => `/app/product/${id}`,
+  utilityIndex: "/app/utility-index",
 } as const;
 
 export const NAV_ITEMS = [

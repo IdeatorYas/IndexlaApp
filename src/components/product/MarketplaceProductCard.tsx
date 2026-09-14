@@ -5,7 +5,6 @@ import {
   ProductKindBadge,
 } from "@/components/product/ProductIdentity";
 import { ProductCreatorLine } from "@/components/product/ProductCreatorLine";
-import { InvestChoiceLink } from "@/components/product/InvestmentChoiceModal";
 import { AssetIconStack } from "@/components/ui/AssetIcons";
 import { IllustrativeBadge } from "@/components/ui/IllustrativeBadge";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
@@ -22,8 +21,11 @@ export function MarketplaceProductCard({
 }) {
   const positive = product.performance30d >= 0;
   const showFeatured = featured || product.featured;
-  const detailsHref = APP_ROUTES.product(product.id);
+  const detailsHref = product.href || APP_ROUTES.product(product.id);
   const isIndex = product.kind === "Index";
+  const investHref = product.isIllustrative
+    ? `${APP_ROUTES.product(product.id)}?action=invest`
+    : detailsHref;
 
   const shellClass = [
     "group relative flex h-full flex-col overflow-hidden",
@@ -168,7 +170,7 @@ export function MarketplaceProductCard({
           />
         </div>
 
-        {!compact ? (
+        {!compact && product.isIllustrative ? (
           <div className="mt-2.5 flex justify-center">
             <IllustrativeBadge compact />
           </div>
@@ -190,15 +192,16 @@ export function MarketplaceProductCard({
         >
           View Details
         </Link>
-        <InvestChoiceLink
-          productId={product.id}
+        <Link
+          href={investHref}
           className={[
             "app-btn-invest app-interactive inline-flex flex-1 items-center justify-center rounded-[8px]",
             compact ? "h-7 text-[10px]" : "h-9 text-[11px]",
           ].join(" ")}
+          onClick={(e) => e.stopPropagation()}
         >
           Invest
-        </InvestChoiceLink>
+        </Link>
       </div>
     </article>
   );
