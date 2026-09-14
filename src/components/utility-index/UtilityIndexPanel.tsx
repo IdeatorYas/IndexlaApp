@@ -100,6 +100,12 @@ export function UtilityIndexPanel() {
   const [sellQuoting, setSellQuoting] = useState(false);
 
   const [gasPrice, setGasPrice] = useState<bigint | null>(null);
+  const [capsBusy, setCapsBusy] = useState(false);
+  const [capsResult, setCapsResult] = useState<{
+    ok: boolean;
+    summary: string;
+    json: string;
+  } | null>(null);
 
   const publicClient = useMemo(
     () => createPublicClient({ chain, transport: http(RH_RPC) }),
@@ -381,6 +387,119 @@ export function UtilityIndexPanel() {
     }
   }
 
+  /** Read-only EIP-5792 capability probe. No signatures, approvals, or txs. */
+  async function checkWalletBatching() {
+    const ethereum = getEthereum();
+    setCapsBusy(true);
+    setCapsResult(null);
+    try {
+      if (!ethereum) {
+        setCapsResult({
+          ok: false,
+          summary: "No EIP-1193 provider (window.ethereum) found.",
+          json: JSON.stringify({ error: "NO_PROVIDER" }, null, 2),
+        });
+        return;
+      }
+      const accounts = (await ethereum.request({
+        method: "eth_requestAccounts",
+      })) as string[];
+      const addr = accounts[0] as Address;
+      setAccount(addr);
+      const chainHex = (await ethereum.request({ method: "eth_chainId" })) as string;
+      const cid = Number(chainHex);
+      setChainId(cid);
+      if (cid !== RH_CHAIN_ID) {
+        setCapsResult({
+          ok: false,
+          summary: `Wrong chain ${cid} (${chainHex}). Switch to Robinhood ${RH_CHAIN_ID} (0x${RH_CHAIN_ID.toString(16)}), then retry.`,
+          json: JSON.stringify(
+            {
+              account: addr,
+              chainId: cid,
+              chainHex,
+              expectedChainId: RH_CHAIN_ID,
+              expectedChainHex: `0x${RH_CHAIN_ID.toString(16)}`,
+              error: "WRONG_CHAIN",
+            },
+            null,
+            2,
+          ),
+        });
+        return;
+      }
+      const expectedHex = `0x${RH_CHAIN_ID.toString(16)}`;
+      let raw: unknown;
+      try {
+        raw = await ethereum.request({
+          method: "wallet_getCapabilities",
+          params: [addr, [expectedHex]],
+        });
+      } catch (e) {
+        const err =
+          e && typeof e === "object"
+            ? (e as { code?: number; message?: string; data?: unknown })
+            : { message: String(e) };
+        setCapsResult({
+          ok: false,
+          summary: `wallet_getCapabilities failed: ${err.message ?? String(e)}${
+            err.code != null ? ` (code ${err.code})` : ""
+          }. This is a read-only probe — no execution was attempted.`,
+          json: JSON.stringify(
+            {
+              account: addr,
+              chainId: cid,
+              chainHex,
+              method: "wallet_getCapabilities",
+              params: [addr, [expectedHex]],
+              error: err,
+            },
+            null,
+            2,
+          ),
+        });
+        return;
+      }
+
+      const caps = raw as Record<string, { atomic?: { status?: string } }> | null;
+      const atomicStatus = caps?.[expectedHex]?.atomic?.status ?? null;
+      const honesty =
+        atomicStatus === "supported" || atomicStatus === "ready"
+          ? `Wallet reports atomic.status="${atomicStatus}" on ${expectedHex}. That is capability advertisement only — not a proven wallet_sendCalls sell, and not ≤3 confirmation proof.`
+          : atomicStatus
+            ? `Wallet reports atomic.status="${atomicStatus}" on ${expectedHex}. Not proven execution.`
+            : `No atomic capability returned for ${expectedHex}. Batch sell path is not advertised for this account/chain.`;
+
+      setCapsResult({
+        ok: true,
+        summary: honesty,
+        json: JSON.stringify(
+          {
+            account: addr,
+            chainId: cid,
+            chainHex,
+            method: "wallet_getCapabilities",
+            params: [addr, [expectedHex]],
+            capabilities: raw,
+            atomicStatus,
+            interpretation:
+              "READ_ONLY_CAPABILITY_CHECK — not wallet_sendCalls, not a trade, not proven execution",
+          },
+          null,
+          2,
+        ),
+      });
+    } catch (e) {
+      setCapsResult({
+        ok: false,
+        summary: `Unexpected error: ${String(e).slice(0, 240)}`,
+        json: JSON.stringify({ error: String(e) }, null, 2),
+      });
+    } finally {
+      setCapsBusy(false);
+    }
+  }
+
   async function buy() {
     const ethereum = getEthereum();
     if (!ethereum || !account || !gatewayReady || !gateway) return;
@@ -638,6 +757,14 @@ export function UtilityIndexPanel() {
           >
             {account ? "Reconnect" : "Connect wallet"}
           </button>
+          <button
+            type="button"
+            disabled={capsBusy}
+            onClick={() => void checkWalletBatching()}
+            className="rounded border border-sky-600/60 bg-sky-950/40 px-4 py-2 text-sm font-medium text-sky-100 disabled:opacity-40"
+          >
+            {capsBusy ? "Checking…" : "Check wallet batching"}
+          </button>
           {account && (
             <span className="font-mono text-sm text-zinc-300">
               {account.slice(0, 6)}…{account.slice(-4)} · chain {chainId ?? "?"}
@@ -645,6 +772,31 @@ export function UtilityIndexPanel() {
             </span>
           )}
         </div>
+        <p className="text-xs text-zinc-500">
+          Batching check is read-only: wallet_getCapabilities only. No signatures, approvals, or
+          trades. A “ready” status is not proven execution.
+        </p>
+        {capsResult && (
+          <div
+            className={`rounded border px-3 py-3 text-sm ${
+              capsResult.ok
+                ? "border-zinc-600 bg-zinc-950/80 text-zinc-200"
+                : "border-amber-700/60 bg-amber-950/30 text-amber-100"
+            }`}
+          >
+            <p className="font-medium">{capsResult.summary}</p>
+            <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-black/40 p-2 font-mono text-[11px] text-zinc-300">
+              {capsResult.json}
+            </pre>
+            <button
+              type="button"
+              className="mt-2 text-sm text-sky-400 underline"
+              onClick={() => void navigator.clipboard.writeText(capsResult.json)}
+            >
+              Copy JSON
+            </button>
+          </div>
+        )}
         <label className="text-sm text-zinc-400">
           Slippage (bps)
           <input
