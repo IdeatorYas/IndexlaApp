@@ -60,13 +60,13 @@ export const QUOTE_HEURISTICS = {
 } as const;
 
 export function applySlippage(quoted: bigint, slippageBps: number): bigint {
-  if (quoted === 0n) return 0n;
-  const floor = (quoted * BigInt(10_000 - slippageBps)) / 10_000n;
-  return floor > 0n ? floor : 1n;
+  if (quoted === BigInt(0)) return BigInt(0);
+  const floor = (quoted * BigInt(10_000 - slippageBps)) / BigInt(10_000);
+  return floor > BigInt(0) ? floor : BigInt(1);
 }
 
 export function netAfterFee(grossEth: bigint): bigint {
-  return grossEth - (grossEth * BigInt(INDEXLA_FEE_BPS)) / 10_000n;
+  return grossEth - (grossEth * BigInt(INDEXLA_FEE_BPS)) / BigInt(10_000);
 }
 
 function makeClient(rpcUrl = RH_RPC): PublicClient {
@@ -93,7 +93,7 @@ async function quoteV3(
         tokenOut,
         amountIn,
         fee,
-        sqrtPriceLimitX96: 0n,
+        sqrtPriceLimitX96: BigInt(0),
       },
     ],
   });
@@ -105,7 +105,7 @@ async function quoteV2Path(
   amountIn: bigint,
   path: Address[],
 ): Promise<bigint> {
-  if (amountIn === 0n) return 0n;
+  if (amountIn === BigInt(0)) return BigInt(0);
   const amounts = await client.readContract({
     address: V2_ROUTER,
     abi: v2RouterAbi,
@@ -123,8 +123,8 @@ async function quoteV2Sell(
 ): Promise<bigint> {
   let effectiveIn = amountIn;
   if (fotTaxBps > 0) {
-    effectiveIn = (amountIn * BigInt(10_000 - fotTaxBps)) / 10_000n;
-    effectiveIn = (effectiveIn * BigInt(10_000 - fotTaxBps)) / 10_000n;
+    effectiveIn = (amountIn * BigInt(10_000 - fotTaxBps)) / BigInt(10_000);
+    effectiveIn = (effectiveIn * BigInt(10_000 - fotTaxBps)) / BigInt(10_000);
   }
   return quoteV2Path(client, effectiveIn, [tokenIn, WETH]);
 }
@@ -207,14 +207,14 @@ export async function quoteBuyLegs(params: {
   const tokens = basketQuoteTokens();
 
   for (const t of tokens) {
-    const amountIn = (investable * BigInt(t.weightBps)) / 10_000n;
-    if (amountIn === 0n) {
+    const amountIn = (investable * BigInt(t.weightBps)) / BigInt(10_000);
+    if (amountIn === BigInt(0)) {
       legs.push({
         symbol: t.symbol,
         venue: t.venue,
-        amountIn: 0n,
-        quotedOut: 0n,
-        amountOutMinimum: 0n,
+        amountIn: BigInt(0),
+        quotedOut: BigInt(0),
+        amountOutMinimum: BigInt(0),
       });
       continue;
     }
@@ -227,7 +227,7 @@ export async function quoteBuyLegs(params: {
         if (t.symbol === "PRISM") {
           const fot = await readPrismTaxBps(client, t.address, "buy");
           taxNotes.PRISM_BUY = `${fot.source}=${fot.taxBps}`;
-          quotedOut = (quotedOut * BigInt(10_000 - fot.taxBps)) / 10_000n;
+          quotedOut = (quotedOut * BigInt(10_000 - fot.taxBps)) / BigInt(10_000);
         }
       } else {
         quotedOut = await quoteV4Exact(
@@ -243,10 +243,10 @@ export async function quoteBuyLegs(params: {
           taxNotes.PROLOGUE_V4 = "zeroForOne=true fee=2500 tickSpacing=25";
         }
       }
-      if (quotedOut === 0n) errors.push(`${t.symbol}: buy quote returned 0`);
+      if (quotedOut === BigInt(0)) errors.push(`${t.symbol}: buy quote returned 0`);
       const legSlippage = t.venue === "v2" ? slippageBps + 50 : slippageBps;
       const amountOutMinimum = applySlippage(quotedOut, legSlippage);
-      if (amountOutMinimum === 0n) errors.push(`${t.symbol}: buy minOut collapsed to 0`);
+      if (amountOutMinimum === BigInt(0)) errors.push(`${t.symbol}: buy minOut collapsed to 0`);
       legs.push({
         symbol: t.symbol,
         venue: t.venue,
@@ -262,14 +262,14 @@ export async function quoteBuyLegs(params: {
         symbol: t.symbol,
         venue: t.venue,
         amountIn,
-        quotedOut: 0n,
-        amountOutMinimum: 0n,
+        quotedOut: BigInt(0),
+        amountOutMinimum: BigInt(0),
       });
     }
   }
 
-  const activeLegCount = legs.filter((l) => l.amountIn > 0n).length;
-  if (params.grossEth > 0n && activeLegCount === 0) {
+  const activeLegCount = legs.filter((l) => l.amountIn > BigInt(0)).length;
+  if (params.grossEth > BigInt(0) && activeLegCount === 0) {
     errors.push(
       "Amount too small: after the 100 bps fee, every basket leg rounds to 0 wei (nothing would swap).",
     );
@@ -280,7 +280,7 @@ export async function quoteBuyLegs(params: {
     investableEth: investable,
     legs,
     quotesOk:
-      errors.length === 0 && legs.every((l) => l.amountIn === 0n || l.amountOutMinimum > 0n),
+      errors.length === 0 && legs.every((l) => l.amountIn === BigInt(0) || l.amountOutMinimum > BigInt(0)),
     errors,
     taxNotes,
     activeLegCount,
@@ -297,18 +297,18 @@ export async function quoteSellLegs(params: {
   const client = params.client ?? makeClient(params.rpcUrl);
   const legs: QuotedLeg[] = [];
   const errors: string[] = [];
-  let quotedGross = 0n;
+  let quotedGross = BigInt(0);
   const tokens = basketQuoteTokens();
 
   for (const t of tokens) {
-    const amountIn = params.amountIns[t.symbol] ?? 0n;
-    if (amountIn === 0n) {
+    const amountIn = params.amountIns[t.symbol] ?? BigInt(0);
+    if (amountIn === BigInt(0)) {
       legs.push({
         symbol: t.symbol,
         venue: t.venue,
-        amountIn: 0n,
-        quotedOut: 0n,
-        amountOutMinimum: 0n,
+        amountIn: BigInt(0),
+        quotedOut: BigInt(0),
+        amountOutMinimum: BigInt(0),
       });
       continue;
     }
@@ -333,10 +333,10 @@ export async function quoteSellLegs(params: {
           false,
         );
       }
-      if (quotedOut === 0n) errors.push(`${t.symbol}: sell quote returned 0`);
+      if (quotedOut === BigInt(0)) errors.push(`${t.symbol}: sell quote returned 0`);
       const legSlippage = t.venue === "v2" ? slippageBps + 50 : slippageBps;
       const amountOutMinimum = applySlippage(quotedOut, legSlippage);
-      if (amountOutMinimum === 0n) errors.push(`${t.symbol}: sell minOut collapsed to 0`);
+      if (amountOutMinimum === BigInt(0)) errors.push(`${t.symbol}: sell minOut collapsed to 0`);
       legs.push({
         symbol: t.symbol,
         venue: t.venue,
@@ -353,14 +353,14 @@ export async function quoteSellLegs(params: {
         symbol: t.symbol,
         venue: t.venue,
         amountIn,
-        quotedOut: 0n,
-        amountOutMinimum: 0n,
+        quotedOut: BigInt(0),
+        amountOutMinimum: BigInt(0),
       });
     }
   }
 
   const quotedNet = netAfterFee(quotedGross);
-  const active = legs.filter((l) => l.amountIn > 0n).length;
+  const active = legs.filter((l) => l.amountIn > BigInt(0)).length;
   const multiLegImpactBps = active >= 2 ? QUOTE_HEURISTICS.multiLegImpactBps : 0;
   const minAmountOutEth = applySlippage(quotedNet, slippageBps + multiLegImpactBps);
 
@@ -374,7 +374,7 @@ export async function quoteSellLegs(params: {
     quotedGrossEth: quotedGross,
     minAmountOutEth,
     quotesOk:
-      errors.length === 0 && legs.every((l) => l.amountIn === 0n || l.amountOutMinimum > 0n),
+      errors.length === 0 && legs.every((l) => l.amountIn === BigInt(0) || l.amountOutMinimum > BigInt(0)),
     errors,
   };
 }

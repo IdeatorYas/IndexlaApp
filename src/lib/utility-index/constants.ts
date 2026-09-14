@@ -197,7 +197,7 @@ export const erc20Abi = [
 
 export function buildBuyLegs(minOuts?: Record<string, bigint>) {
   const zero = "0x0000000000000000000000000000000000000000" as Address;
-  const m = (sym: string) => minOuts?.[sym] ?? 0n;
+  const m = (sym: string) => minOuts?.[sym] ?? BigInt(0);
   return {
     v3: BASKET.filter((t) => t.venue === "v3").map((t) => ({
       tokenOut: t.address,
@@ -223,7 +223,7 @@ export function buildBuyLegs(minOuts?: Record<string, bigint>) {
 
 export function buildExitLegs(minOuts?: Record<string, bigint>) {
   const zero = "0x0000000000000000000000000000000000000000" as Address;
-  const m = (sym: string) => minOuts?.[sym] ?? 0n;
+  const m = (sym: string) => minOuts?.[sym] ?? BigInt(0);
   return {
     v3: BASKET.filter((t) => t.venue === "v3").map((t) => ({
       tokenIn: t.address,

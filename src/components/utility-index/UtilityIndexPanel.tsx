@@ -63,7 +63,7 @@ function parseEthInput(raw: string): { ok: true; value: bigint } | { ok: false; 
   if (!/^\d*\.?\d+$/.test(t)) return { ok: false, reason: `Invalid ETH amount: "${raw}".` };
   try {
     const value = parseEther(t as `${number}`);
-    if (value <= 0n) return { ok: false, reason: "ETH amount must be greater than 0." };
+    if (value <= BigInt(0)) return { ok: false, reason: "ETH amount must be greater than 0." };
     return { ok: true, value };
   } catch {
     return { ok: false, reason: `Could not parse ETH amount: "${raw}".` };
@@ -122,7 +122,7 @@ export function UtilityIndexPanel() {
             functionName: "balanceOf",
             args: [account],
           });
-          let allowance = 0n;
+          let allowance = BigInt(0);
           if (gatewayReady && gateway) {
             allowance = await publicClient.readContract({
               address: t.address,
@@ -231,9 +231,9 @@ export function UtilityIndexPanel() {
     const percentBps = Math.min(100, Math.max(1, sellPercent)) * 100;
     const amountIns: Record<string, bigint> = {};
     for (const row of balances) {
-      amountIns[row.symbol] = (row.raw * BigInt(percentBps)) / 10_000n;
+      amountIns[row.symbol] = (row.raw * BigInt(percentBps)) / BigInt(10_000);
     }
-    const any = Object.values(amountIns).some((a) => a > 0n);
+    const any = Object.values(amountIns).some((a) => a > BigInt(0));
     if (!any) {
       setSellQuote(null);
       setSellQuoteError("No basket token balance to sell.");
@@ -449,15 +449,15 @@ export function UtilityIndexPanel() {
       const percentBps = Math.min(100, Math.max(1, sellPercent)) * 100;
       const amountIns: Record<string, bigint> = {};
       for (const row of balances) {
-        amountIns[row.symbol] = (row.raw * BigInt(percentBps)) / 10_000n;
+        amountIns[row.symbol] = (row.raw * BigInt(percentBps)) / BigInt(10_000);
       }
 
       let prompts = 0;
       for (const t of BASKET) {
-        const need = amountIns[t.symbol] ?? 0n;
-        if (need === 0n) continue;
+        const need = amountIns[t.symbol] ?? BigInt(0);
+        if (need === BigInt(0)) continue;
         const row = balances.find((b) => b.symbol === t.symbol);
-        const have = row?.allowance ?? 0n;
+        const have = row?.allowance ?? BigInt(0);
         if (have < need) {
           prompts += 1;
           setPromptCount((n) => n + 1);
@@ -616,7 +616,7 @@ export function UtilityIndexPanel() {
                     </td>
                     <td className="py-2 pr-3 font-mono text-xs">{row?.amount ?? "—"}</td>
                     <td className="py-2 text-xs">
-                      {row && row.allowance > 0n ? "set" : "none"}
+                      {row && row.allowance > BigInt(0) ? "set" : "none"}
                     </td>
                   </tr>
                 );
