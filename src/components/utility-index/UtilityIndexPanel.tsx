@@ -44,6 +44,7 @@ import {
   type BuyQuoteBundle,
   type SellQuoteBundle,
 } from "@/lib/utility-index/quotes";
+import { chainLabel } from "@/lib/wallet/provider-chain";
 
 type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
@@ -155,6 +156,35 @@ export function UtilityIndexPanel() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Keep panel chain/account in sync with the live EIP-1193 provider (no forced switch).
+  useEffect(() => {
+    const ethereum = getEthereum() as
+      | (EthereumProvider & {
+          on?: (event: string, handler: (...args: unknown[]) => void) => void;
+          removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
+        })
+      | undefined;
+    if (!ethereum?.on) return;
+    const onChainChanged = (hex: unknown) => {
+      const n = Number.parseInt(String(hex), 16);
+      if (Number.isFinite(n)) setChainId(n);
+    };
+    const onAccountsChanged = (accounts: unknown) => {
+      const list = Array.isArray(accounts) ? (accounts as string[]) : [];
+      setAccount(list[0] ? (list[0] as Address) : null);
+      void ethereum.request({ method: "eth_chainId" }).then((hex) => {
+        const n = Number(hex);
+        if (Number.isFinite(n)) setChainId(n);
+      });
+    };
+    ethereum.on("chainChanged", onChainChanged);
+    ethereum.on("accountsChanged", onAccountsChanged);
+    return () => {
+      ethereum.removeListener?.("chainChanged", onChainChanged);
+      ethereum.removeListener?.("accountsChanged", onAccountsChanged);
+    };
+  }, []);
 
   // --- Buy quotes (dynamic on ethIn + slippage) ---
   useEffect(() => {
@@ -315,9 +345,7 @@ export function UtilityIndexPanel() {
   const buyBlockReason = useMemo(() => {
     if (!gatewayReady) return "Gateway address not configured.";
     if (!account) return "Connect a wallet first.";
-    if (chainId !== null && chainId !== RH_CHAIN_ID) {
-      return `Wrong chain (${chainId}); switch to Robinhood ${RH_CHAIN_ID}.`;
-    }
+    // Wrong chain is not a hard block — Buy requests Robinhood 4663 on click.
     const parsed = parseEthInput(ethIn);
     if (!parsed.ok) return parsed.reason;
     if (buyQuoting) return null;
@@ -339,7 +367,6 @@ export function UtilityIndexPanel() {
   }, [
     gatewayReady,
     account,
-    chainId,
     ethIn,
     buyQuoting,
     buyQuoteError,
@@ -353,14 +380,12 @@ export function UtilityIndexPanel() {
   const sellBlockReason = useMemo(() => {
     if (!gatewayReady) return "Gateway address not configured.";
     if (!account) return "Connect a wallet first.";
-    if (chainId !== null && chainId !== RH_CHAIN_ID) {
-      return `Wrong chain (${chainId}); switch to Robinhood ${RH_CHAIN_ID}.`;
-    }
+    // Wrong chain is not a hard block — Sell requests Robinhood 4663 on click.
     if (sellQuoting) return null;
     if (sellQuoteError) return sellQuoteError;
     if (!sellQuote?.quotesOk) return sellQuote?.errors.join(" · ") || "Sell quotes not ready.";
     return null;
-  }, [gatewayReady, account, chainId, sellQuoting, sellQuoteError, sellQuote]);
+  }, [gatewayReady, account, sellQuoting, sellQuoteError, sellQuote]);
 
   async function connect() {
     const ethereum = getEthereum();
@@ -374,20 +399,30 @@ export function UtilityIndexPanel() {
     setAccount(accounts[0] as Address);
     const cid = Number(await ethereum.request({ method: "eth_chainId" }));
     setChainId(cid);
-    if (cid !== RH_CHAIN_ID) {
-      try {
-        await ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: `0x${RH_CHAIN_ID.toString(16)}` }],
-        });
-        setChainId(RH_CHAIN_ID);
-      } catch {
-        setStatus(`Switch wallet to Robinhood Chain (${RH_CHAIN_ID}).`);
-      }
+    // Do not force a network switch on connect — only buy/sell request RH 4663.
+  }
+
+  async function ensureRobinhoodChain(ethereum: EthereumProvider): Promise<boolean> {
+    const cid = Number(await ethereum.request({ method: "eth_chainId" }));
+    setChainId(cid);
+    if (cid === RH_CHAIN_ID) return true;
+    try {
+      await ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: `0x${RH_CHAIN_ID.toString(16)}` }],
+      });
+      const after = Number(await ethereum.request({ method: "eth_chainId" }));
+      setChainId(after);
+      if (after === RH_CHAIN_ID) return true;
+      setStatus(`Still on chain ${after}; switch to Robinhood ${RH_CHAIN_ID} to continue.`);
+      return false;
+    } catch {
+      setStatus(`Switch wallet to Robinhood Chain (${RH_CHAIN_ID}) to buy or sell.`);
+      return false;
     }
   }
 
-  /** Read-only EIP-5792 capability probe. No signatures, approvals, or txs. */
+  /** Read-only EIP-5792 capability probe. No signatures, approvals, txs, or silent switches. */
   async function checkWalletBatching() {
     const ethereum = getEthereum();
     setCapsBusy(true);
@@ -409,31 +444,14 @@ export function UtilityIndexPanel() {
       const chainHex = (await ethereum.request({ method: "eth_chainId" })) as string;
       const cid = Number(chainHex);
       setChainId(cid);
-      if (cid !== RH_CHAIN_ID) {
-        setCapsResult({
-          ok: false,
-          summary: `Wrong chain ${cid} (${chainHex}). Switch to Robinhood ${RH_CHAIN_ID} (0x${RH_CHAIN_ID.toString(16)}), then retry.`,
-          json: JSON.stringify(
-            {
-              account: addr,
-              chainId: cid,
-              chainHex,
-              expectedChainId: RH_CHAIN_ID,
-              expectedChainHex: `0x${RH_CHAIN_ID.toString(16)}`,
-              error: "WRONG_CHAIN",
-            },
-            null,
-            2,
-          ),
-        });
-        return;
-      }
-      const expectedHex = `0x${RH_CHAIN_ID.toString(16)}`;
+      const checkedHex = `0x${cid.toString(16)}`;
+      const rhHex = `0x${RH_CHAIN_ID.toString(16)}`;
+      // Check the chain the wallet is actually on — do not switch.
       let raw: unknown;
       try {
         raw = await ethereum.request({
           method: "wallet_getCapabilities",
-          params: [addr, [expectedHex]],
+          params: [addr, [checkedHex]],
         });
       } catch (e) {
         const err =
@@ -442,17 +460,25 @@ export function UtilityIndexPanel() {
             : { message: String(e) };
         setCapsResult({
           ok: false,
-          summary: `wallet_getCapabilities failed: ${err.message ?? String(e)}${
+          summary: `wallet_getCapabilities failed on ${chainLabel(cid)} (${checkedHex}): ${err.message ?? String(e)}${
             err.code != null ? ` (code ${err.code})` : ""
-          }. This is a read-only probe — no execution was attempted.`,
+          }. Read-only — no switch or trade was attempted.${
+            cid !== RH_CHAIN_ID
+              ? ` Basket batching needs Robinhood ${RH_CHAIN_ID}; switch manually only when you buy/sell.`
+              : ""
+          }`,
           json: JSON.stringify(
             {
               account: addr,
-              chainId: cid,
-              chainHex,
+              checkedChainId: cid,
+              checkedChainHex: checkedHex,
+              checkedChainLabel: chainLabel(cid),
+              robinhoodChainId: RH_CHAIN_ID,
+              robinhoodChainHex: rhHex,
               method: "wallet_getCapabilities",
-              params: [addr, [expectedHex]],
+              params: [addr, [checkedHex]],
               error: err,
+              silentSwitch: false,
             },
             null,
             2,
@@ -462,26 +488,37 @@ export function UtilityIndexPanel() {
       }
 
       const caps = raw as Record<string, { atomic?: { status?: string } }> | null;
-      const atomicStatus = caps?.[expectedHex]?.atomic?.status ?? null;
+      const atomicStatus =
+        caps?.[checkedHex]?.atomic?.status ??
+        caps?.[checkedHex.toLowerCase()]?.atomic?.status ??
+        null;
       const honesty =
         atomicStatus === "supported" || atomicStatus === "ready"
-          ? `Wallet reports atomic.status="${atomicStatus}" on ${expectedHex}. That is capability advertisement only — not a proven wallet_sendCalls sell, and not ≤3 confirmation proof.`
+          ? `Checked ${chainLabel(cid)} (${checkedHex}): wallet reports atomic.status="${atomicStatus}". Capability advertisement only — not proven wallet_sendCalls execution.`
           : atomicStatus
-            ? `Wallet reports atomic.status="${atomicStatus}" on ${expectedHex}. Not proven execution.`
-            : `No atomic capability returned for ${expectedHex}. Batch sell path is not advertised for this account/chain.`;
+            ? `Checked ${chainLabel(cid)} (${checkedHex}): atomic.status="${atomicStatus}". Not proven execution.`
+            : `Checked ${chainLabel(cid)} (${checkedHex}): no atomic capability returned for this account/chain.`;
 
       setCapsResult({
         ok: true,
-        summary: honesty,
+        summary:
+          honesty +
+          (cid !== RH_CHAIN_ID
+            ? ` (Wallet is not on Robinhood ${RH_CHAIN_ID}; buy/sell will ask to switch then.)`
+            : ""),
         json: JSON.stringify(
           {
             account: addr,
-            chainId: cid,
-            chainHex,
+            checkedChainId: cid,
+            checkedChainHex: checkedHex,
+            checkedChainLabel: chainLabel(cid),
+            robinhoodChainId: RH_CHAIN_ID,
+            robinhoodChainHex: rhHex,
             method: "wallet_getCapabilities",
-            params: [addr, [expectedHex]],
+            params: [addr, [checkedHex]],
             capabilities: raw,
             atomicStatus,
+            silentSwitch: false,
             interpretation:
               "READ_ONLY_CAPABILITY_CHECK — not wallet_sendCalls, not a trade, not proven execution",
           },
@@ -513,6 +550,7 @@ export function UtilityIndexPanel() {
     setBusy(true);
     setStatus("");
     try {
+      if (!(await ensureRobinhoodChain(ethereum))) return;
       const wallet = createWalletClient({
         account,
         chain,
@@ -561,6 +599,7 @@ export function UtilityIndexPanel() {
     setBusy(true);
     setStatus("");
     try {
+      if (!(await ensureRobinhoodChain(ethereum))) return;
       const wallet = createWalletClient({
         account,
         chain,
@@ -767,14 +806,15 @@ export function UtilityIndexPanel() {
           </button>
           {account && (
             <span className="font-mono text-sm text-zinc-300">
-              {account.slice(0, 6)}…{account.slice(-4)} · chain {chainId ?? "?"}
+              {account.slice(0, 6)}…{account.slice(-4)} · {chainLabel(chainId)}
               {ethBalance !== null ? ` · ${formatEther(ethBalance)} ETH` : ""}
             </span>
           )}
         </div>
         <p className="text-xs text-zinc-500">
-          Batching check is read-only: wallet_getCapabilities only. No signatures, approvals, or
-          trades. A “ready” status is not proven execution.
+          Connect stays on your current chain. Buy/sell ask for Robinhood (4663) only when needed.
+          Batching check uses the connected wallet on whatever chain you are on — no silent switch.
+          A “ready” status is not proven execution.
         </p>
         {capsResult && (
           <div

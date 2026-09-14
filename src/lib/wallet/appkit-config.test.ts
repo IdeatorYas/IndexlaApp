@@ -34,10 +34,10 @@ describe("Reown AppKit wallet config", () => {
     expect(isPriorityWalletOrder([...FEATURED_WALLET_NAMES])).toBe(true);
   });
 
-  it("uses INDEXLA metadata and Base as primary network", () => {
+  it("uses INDEXLA metadata with Base + Robinhood networks", () => {
     expect(APPKIT_METADATA.name).toBe("INDEXLA");
     expect(APPKIT_METADATA.url).toBe("https://app.indexla.tech");
-    expect(appKitNetworks[0]?.id).toBe(8453);
+    expect(appKitNetworks.map((n) => n.id)).toEqual([8453, 4663]);
   });
 
   it("resolves metadata URL for local development without hardcoding production origin", () => {
@@ -60,6 +60,7 @@ describe("Reown AppKit wallet config", () => {
     expect(opts.enableInjected).toBe(true);
     expect(opts.featuredWalletIds).toEqual([...FEATURED_WALLET_IDS]);
     expect(opts.defaultNetwork?.id).toBe(8453);
+    expect(opts.networks.map((n) => n.id)).toEqual([8453, 4663]);
     expect(opts.metadata.name).toBe("INDEXLA");
   });
 

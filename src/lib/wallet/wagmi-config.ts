@@ -1,7 +1,7 @@
 import { cookieStorage, createStorage } from "wagmi";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
-import { base } from "@reown/appkit/networks";
 import {
+  appKitNetworks,
   readWalletConnectProjectId,
   WALLETCONNECT_PROJECT_ID_ENV,
 } from "@/lib/wallet/appkit-config";
@@ -11,9 +11,9 @@ import {
  * Project ID is never logged. Module uses a placeholder when unset so tests can load;
  * createAppKit must only run when a real ID is present.
  */
-export const appKitPrimaryNetwork = base;
+export const appKitPrimaryNetwork = appKitNetworks[0];
 
-export const appKitNetworkList = [base] as const;
+export const appKitNetworkList = appKitNetworks;
 
 const projectId = readWalletConnectProjectId() ?? "";
 

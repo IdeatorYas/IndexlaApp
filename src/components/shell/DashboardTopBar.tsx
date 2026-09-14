@@ -15,7 +15,7 @@ export function DashboardTopBar({
   onMenuClick?: () => void;
 }) {
   const { theme, toggleTheme } = useTheme();
-  const { wallet, connect, disconnect, switchToBase } = useDemoWallet();
+  const { wallet, connect, disconnect } = useDemoWallet();
 
   return (
     <header
@@ -66,22 +66,10 @@ export function DashboardTopBar({
 
         <button
           type="button"
-          onClick={
-            wallet.state === "connected"
-              ? disconnect
-              : wallet.state === "wrong-network"
-                ? () => {
-                    void switchToBase();
-                  }
-                : connect
-          }
+          onClick={wallet.state === "connected" ? disconnect : connect}
           className="app-interactive h-8 shrink-0 truncate rounded-full border border-app-brand/35 bg-gradient-to-r from-app-brand/15 to-[color:var(--color-accent-violet)]/12 px-2.5 text-[11px] font-bold text-app-ink hover:border-app-brand/55 hover:shadow-[0_4px_14px_-4px_rgba(37,99,235,0.35)] sm:h-9 sm:px-3.5 sm:text-[12px]"
         >
-          {wallet.state === "connected"
-            ? wallet.shortenedAddress
-            : wallet.state === "wrong-network"
-              ? "Switch to Base"
-              : "Connect Wallet"}
+          {wallet.state === "connected" ? wallet.shortenedAddress : "Connect Wallet"}
         </button>
       </div>
     </header>

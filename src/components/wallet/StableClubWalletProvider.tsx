@@ -24,6 +24,7 @@ import {
   STABLE_CLUB_LOCAL_CHAIN,
 } from "@/lib/stable-club/constants";
 import { hasWalletConnectProjectId } from "@/lib/wallet/wagmi-config";
+import { readProviderChainId } from "@/lib/wallet/provider-chain";
 
 type StableClubWalletState = {
   status: "disconnected" | "connecting" | "connected" | "wrong-network";
@@ -55,11 +56,12 @@ export function StableClubWalletProvider({
 }) {
   const { open } = useAppKit();
   const { address, isConnected, isConnecting, isReconnecting, connector } = useAccount();
-  const chainId = useChainId();
+  const wagmiChainId = useChainId();
   const { connectAsync, connectors } = useConnect();
   const { disconnectAsync } = useDisconnect();
   const { switchChainAsync } = useSwitchChain();
   const [provider, setProvider] = useState<EIP1193Provider | null>(null);
+  const [liveChainId, setLiveChainId] = useState<number | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [switchingNetwork, setSwitchingNetwork] = useState(false);
   const switchingNetworkRef = useRef(false);
@@ -88,9 +90,40 @@ export function StableClubWalletProvider({
     };
   }, [connector]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const sync = async () => {
+      const fromProvider = await readProviderChainId(provider);
+      if (cancelled) return;
+      setLiveChainId(fromProvider ?? wagmiChainId ?? null);
+    };
+    void sync();
+    if (!provider || typeof provider.on !== "function") {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const onChainChanged = (hex: string) => {
+      const n = Number.parseInt(hex, 16);
+      if (Number.isFinite(n)) setLiveChainId(n);
+    };
+    const onAccountsChanged = () => {
+      void sync();
+    };
+    provider.on("chainChanged", onChainChanged);
+    provider.on("accountsChanged", onAccountsChanged);
+    return () => {
+      cancelled = true;
+      provider.removeListener?.("chainChanged", onChainChanged);
+      provider.removeListener?.("accountsChanged", onAccountsChanged);
+    };
+  }, [provider, wagmiChainId]);
+
+  const chainId = liveChainId ?? wagmiChainId ?? null;
+
   /**
-   * Auto-reconnect injected wallets (MetaMask / Playwright inject) when the site
-   * already has eth_accounts authorized — required for My Position discovery.
+   * Auto-reconnect injected wallets when eth_accounts already authorized.
+   * Do NOT pass chainId — reconnect must not force Base.
    */
   useEffect(() => {
     if (preferLocalHardhat || isConnected || isConnecting || isReconnecting) return;
@@ -109,7 +142,7 @@ export function StableClubWalletProvider({
           connectors.find((c) => c.type === "injected") ??
           connectors.find((c) => c.id === "injected" || /injected|metaMask/i.test(c.name));
         if (!injected) return;
-        await connectAsync({ connector: injected, chainId: expectedChainId });
+        await connectAsync({ connector: injected });
       } catch {
         // Manual Connect Wallet remains available.
       }
@@ -124,7 +157,6 @@ export function StableClubWalletProvider({
     isReconnecting,
     connectors,
     connectAsync,
-    expectedChainId,
   ]);
 
   const status: StableClubWalletState["status"] = !isConnected
@@ -173,6 +205,14 @@ export function StableClubWalletProvider({
       );
     }
     setLocalError(null);
+
+    const already = await readProviderChainId(provider);
+    if (already === STABLE_CLUB_CHAIN_ID) {
+      setLiveChainId(STABLE_CLUB_CHAIN_ID);
+      setLocalError(null);
+      return;
+    }
+
     switchingNetworkRef.current = true;
     setSwitchingNetwork(true);
     try {
@@ -180,18 +220,11 @@ export function StableClubWalletProvider({
       // Await confirmed Base on the live EIP-1193 provider (wagmi chainId can lag).
       for (let i = 0; i < 24; i += 1) {
         await new Promise((r) => setTimeout(r, 250));
-        if (provider?.request) {
-          try {
-            const hex = (await provider.request({
-              method: "eth_chainId",
-            })) as string;
-            if (Number.parseInt(hex, 16) === STABLE_CLUB_CHAIN_ID) {
-              setLocalError(null);
-              return;
-            }
-          } catch {
-            // keep polling
-          }
+        const live = await readProviderChainId(provider);
+        if (live === STABLE_CLUB_CHAIN_ID) {
+          setLiveChainId(STABLE_CLUB_CHAIN_ID);
+          setLocalError(null);
+          return;
         }
       }
       setLocalError(
@@ -199,6 +232,13 @@ export function StableClubWalletProvider({
       );
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
+      // Some wallets throw even when already on target chain.
+      const liveAfter = await readProviderChainId(provider);
+      if (liveAfter === STABLE_CLUB_CHAIN_ID) {
+        setLiveChainId(STABLE_CLUB_CHAIN_ID);
+        setLocalError(null);
+        return;
+      }
       if (/reject|denied|cancel/i.test(raw)) {
         setLocalError("Network switch rejected. Tap Switch to Base to try again.");
         throw new Error(raw);

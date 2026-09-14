@@ -3,11 +3,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { createAppKit } from "@reown/appkit/react";
-import { base } from "@reown/appkit/networks";
 import { WagmiProvider, cookieToInitialState, type Config } from "wagmi";
 import {
   APPKIT_METADATA,
   FEATURED_WALLET_IDS,
+  appKitNetworks,
+  buildAppKitCreateOptions,
   readWalletConnectProjectId,
   resolveAppKitMetadataUrl,
 } from "@/lib/wallet/appkit-config";
@@ -19,14 +20,16 @@ import {
 /**
  * Reown requires createAppKit before any useAppKit hook (including during SSR of client trees).
  * Initialize once at module scope when the public project ID is present.
+ * Networks include Base + Robinhood — connect must not force a single chain.
  */
 const projectId = readWalletConnectProjectId();
 if (projectId) {
+  const opts = buildAppKitCreateOptions(projectId);
   createAppKit({
     adapters: [wagmiAdapter],
-    projectId,
-    networks: [base],
-    defaultNetwork: base,
+    projectId: opts.projectId,
+    networks: [...appKitNetworks],
+    defaultNetwork: opts.defaultNetwork,
     metadata: {
       name: APPKIT_METADATA.name,
       description: APPKIT_METADATA.description,

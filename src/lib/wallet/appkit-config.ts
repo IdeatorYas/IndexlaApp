@@ -3,7 +3,7 @@
  * Project ID is read from env only — never hardcode or log the value.
  */
 
-import { base } from "@reown/appkit/networks";
+import { base, defineChain } from "@reown/appkit/networks";
 
 export const WALLETCONNECT_PROJECT_ID_ENV = "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID" as const;
 
@@ -54,8 +54,29 @@ export function resolveAppKitMetadataUrl(
   return APPKIT_METADATA.url;
 }
 
-/** Base is the primary required network. */
-export const appKitNetworks = [base] as const;
+/** Robinhood Chain — Utility Index / RH basket (4663). */
+export const robinhoodAppKit = defineChain({
+  id: 4663,
+  caipNetworkId: "eip155:4663",
+  chainNamespace: "eip155",
+  name: "Robinhood Chain",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: {
+    default: { http: ["https://rpc.mainnet.chain.robinhood.com"] },
+  },
+  blockExplorers: {
+    default: {
+      name: "Robinhood Explorer",
+      url: "https://explorer.mainnet.chain.robinhood.com",
+    },
+  },
+});
+
+/**
+ * Supported app networks. Connect must not force a switch — include both Base
+ * (Stable Club) and Robinhood (Utility Index) so either is a valid connected chain.
+ */
+export const appKitNetworks = [base, robinhoodAppKit] as const;
 
 export function readWalletConnectProjectId(
   env?: NodeJS.ProcessEnv,
@@ -80,6 +101,7 @@ export type AppKitCreateOptionsShape = {
     icons: typeof APPKIT_METADATA.icons;
   };
   networks: typeof appKitNetworks;
+  /** Listed for AppKit typing only — must not force a switch on connect. */
   defaultNetwork: (typeof appKitNetworks)[0];
   featuredWalletIds: string[];
   allWallets: "SHOW";
