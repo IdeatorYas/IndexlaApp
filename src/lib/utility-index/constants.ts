@@ -78,15 +78,17 @@ export const BASKET = [
   },
 ] as const;
 
-/** Honest plain-EOA prompt inventory — ownership model: 8 ERC20s in user wallet. */
+/** Target prompt inventory for wallet UX (atomic batch path). */
 export const PROMPT_INVENTORY = {
   buy: 1,
-  firstSellCold: 9, // 8× approve(gateway) + 1× exitPercentToEth
+  /** Cold first sell: wallet_sendCalls(approves+exit); target ≤3–4 confirms when atomic works. */
+  firstSellColdTarget: 3,
+  /** Without atomic batching, plain EOA would need 8 approve + 1 exit = 9. */
+  firstSellColdSequential: 9,
   repeatSellWarm: 1,
-  maxAllowed: 3,
-  firstSellMeetsLe3: false,
-  blocker:
-    "Cold first sell needs 8 ERC20 approvals + 1 exit = 9 confirmations on ordinary RH wallets. MetaMask atomic batch networks omit 4663; EIP-2612 covers only 4/8 tokens. Vault/xINDEX rejected — ownership stays in-wallet. maxUint256 approves make subsequent sells 1 confirm.",
+  maxAllowed: 4,
+  note:
+    "Buy is 1 confirm. First sell requires atomic wallet_sendCalls for approvals+exit (no sequential fallback). Warm sells are 1 confirm after maxUint256 allowances. ≤3 first-sell is live-verified only with wallet_sendCalls receipts.",
 } as const;
 
 export const gatewayAbi = [

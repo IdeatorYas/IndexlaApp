@@ -23,6 +23,8 @@ interface IndexDef {
   narrative: NarrativeId;
   narrativeLabel: string;
   assets: string[];
+  /** Optional weight bps aligned with assets (must sum ~10000). */
+  weightBps?: number[];
   risk: ProductRisk;
   networkIds: NetworkId[];
   performance30d: number;
@@ -35,6 +37,9 @@ interface IndexDef {
   addedAt: string;
   rankMonthly?: number | null;
   strategyId?: string;
+  /** Live product route override (default: /app/product/:id). */
+  href?: string;
+  isIllustrative?: boolean;
 }
 
 function equalAllocations(symbols: string[]) {
@@ -47,9 +52,20 @@ function equalAllocations(symbols: string[]) {
   }));
 }
 
+function weightedAllocations(symbols: string[], weightBps?: number[]) {
+  if (!weightBps || weightBps.length !== symbols.length) {
+    return equalAllocations(symbols);
+  }
+  return symbols.map((symbol, i) => ({
+    assetId: symbol.toLowerCase(),
+    label: assetLabel(symbol),
+    percent: Math.round((weightBps[i] ?? 0) / 100),
+  }));
+}
+
 function buildIndex(def: IndexDef, ordinal: number): MarketplaceProduct {
   const assetIds = def.assets.map((s) => s.toLowerCase());
-  const allocations = equalAllocations(def.assets);
+  const allocations = weightedAllocations(def.assets, def.weightBps);
   const strategyId =
     def.strategyId ?? strategyIdForIndexOrdinal(ordinal);
   const selectedStrategy = resolveProductStrategy(strategyId);
@@ -83,16 +99,50 @@ function buildIndex(def: IndexDef, ordinal: number): MarketplaceProduct {
     networkIds: def.networkIds,
     allocations,
     assetIds,
-    href: APP_ROUTES.product(def.id),
+    href: def.href ?? APP_ROUTES.product(def.id),
     featured: def.featured ?? false,
     isNew: def.isNew ?? false,
     addedAt: def.addedAt,
     rankMonthly: def.rankMonthly ?? null,
-    isIllustrative: true,
+    isIllustrative: def.isIllustrative ?? true,
   });
 }
 
 const INDEX_DEFS: IndexDef[] = [
+  // CRYPTO — live Robinhood Utility Index
+  {
+    id: "utility-index-rh",
+    name: "Utility Index",
+    description:
+      "Live basket of eight Robinhood Chain tokens. Buy with ETH into your wallet, hold the assets directly, and sell any percentage back to ETH.",
+    indexType: "Crypto",
+    narrative: "defi",
+    narrativeLabel: "DeFi",
+    assets: [
+      "PONS",
+      "UP",
+      "PROLOGUE",
+      "RAM",
+      "PRISM",
+      "STONKBROKER",
+      "INDEX",
+      "HOOKR",
+    ],
+    weightBps: [2200, 1800, 1500, 1300, 1200, 800, 700, 500],
+    risk: "High",
+    networkIds: ["robinhood"],
+    performance30d: 0,
+    aumUsd: 0,
+    volumeUsd: 0,
+    investors: 0,
+    likes: 9800,
+    featured: true,
+    isNew: true,
+    addedAt: "2026-09-14",
+    rankMonthly: 1,
+    href: APP_ROUTES.utilityIndex,
+    isIllustrative: false,
+  },
   // CRYPTO
   {
     id: "layer-1-index",

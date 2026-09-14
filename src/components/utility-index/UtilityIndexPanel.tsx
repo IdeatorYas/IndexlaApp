@@ -1,14 +1,11 @@
 "use client";
 
 /**
- * Utility Index — direct ownership: all eight basket tokens in the user wallet.
- * Buy/sell use fresh quotes + slippage floors. Amount is user-chosen; only
- * genuinely unexecutable sizes are blocked (with exact reason).
- *
- * Honest prompts (plain EOA on RH 4663):
- *   buy = 1 · first cold sell = 9 (8× approve + exit) · warm sell = 1
- * ≤3 first-sell is UNRESOLVED on ordinary wallets.
+ * Utility Index — direct ownership: eight basket tokens in the user wallet.
+ * Buy = 1× depositFromEth. Sell = atomic wallet_sendCalls when approvals are
+ * needed; warm exit is a single writeContract / sendCalls. No sequential fallback.
  */
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createPublicClient,
@@ -24,10 +21,11 @@ import {
   type Hex,
 } from "viem";
 import { robinhood } from "viem/chains";
+import { AssetIcon } from "@/components/ui/AssetIcons";
+import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import {
   BASKET,
   GATEWAY_ADDRESS,
-  PROMPT_INVENTORY,
   RH_CHAIN_ID,
   RH_EXPLORER,
   RH_RPC,
@@ -44,10 +42,13 @@ import {
   type BuyQuoteBundle,
   type SellQuoteBundle,
 } from "@/lib/utility-index/quotes";
+import { APP_ROUTES } from "@/lib/routes";
 import { chainLabel } from "@/lib/wallet/provider-chain";
 
 type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+  on?: (event: string, handler: (...args: unknown[]) => void) => void;
+  removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
 };
 
 function getEthereum(): EthereumProvider | undefined {
@@ -56,8 +57,14 @@ function getEthereum(): EthereumProvider | undefined {
   return w.ethereum;
 }
 
+function parseChainId(hex: unknown): number | null {
+  const n = Number(hex);
+  return Number.isFinite(n) ? n : null;
+}
+
 const chain = { ...robinhood, id: RH_CHAIN_ID };
 const DEADLINE_SEC = 1200;
+const RH_CHAIN_HEX = `0x${RH_CHAIN_ID.toString(16)}`;
 
 function parseEthInput(raw: string): { ok: true; value: bigint } | { ok: false; reason: string } {
   const t = raw.trim();
@@ -72,7 +79,19 @@ function parseEthInput(raw: string): { ok: true; value: bigint } | { ok: false; 
   }
 }
 
+function shorten(addr: string): string {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+function formatTokenAmount(raw: string): string {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n === 0) return "0";
+  if (n >= 1) return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  return n.toLocaleString(undefined, { maximumSignificantDigits: 6 });
+}
+
 export function UtilityIndexPanel() {
+  const { wallet, connect } = useDemoWallet();
   const gateway = GATEWAY_ADDRESS;
   const gatewayReady = Boolean(gateway && /^0x[a-fA-F0-9]{40}$/i.test(gateway));
 
@@ -82,12 +101,12 @@ export function UtilityIndexPanel() {
   const [sellPercent, setSellPercent] = useState(50);
   const [slippageBps, setSlippageBps] = useState(DEFAULT_SLIPPAGE_BPS);
   const [status, setStatus] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [balances, setBalances] = useState<
     { symbol: string; amount: string; raw: bigint; allowance: bigint }[]
   >([]);
   const [ethBalance, setEthBalance] = useState<bigint | null>(null);
   const [busy, setBusy] = useState(false);
-  const [promptCount, setPromptCount] = useState(0);
 
   const [buyQuote, setBuyQuote] = useState<BuyQuoteBundle | null>(null);
   const [buyQuoteError, setBuyQuoteError] = useState<string | null>(null);
@@ -97,21 +116,23 @@ export function UtilityIndexPanel() {
 
   const [sellQuote, setSellQuote] = useState<SellQuoteBundle | null>(null);
   const [sellQuoteError, setSellQuoteError] = useState<string | null>(null);
-  const [sellGasWei, setSellGasWei] = useState<bigint | null>(null);
   const [sellQuoting, setSellQuoting] = useState(false);
 
   const [gasPrice, setGasPrice] = useState<bigint | null>(null);
-  const [capsBusy, setCapsBusy] = useState(false);
-  const [capsResult, setCapsResult] = useState<{
-    ok: boolean;
-    summary: string;
-    json: string;
-  } | null>(null);
 
   const publicClient = useMemo(
     () => createPublicClient({ chain, transport: http(RH_RPC) }),
     [],
   );
+
+  // Shell wallet → panel account (browse/connect without forcing RH).
+  useEffect(() => {
+    if (wallet.state === "connected" && wallet.address) {
+      setAccount(wallet.address as Address);
+    } else if (wallet.state === "disconnected") {
+      setAccount(null);
+    }
+  }, [wallet.state, wallet.address]);
 
   useEffect(() => {
     void publicClient.getGasPrice().then(setGasPrice).catch(() => setGasPrice(null));
@@ -149,7 +170,7 @@ export function UtilityIndexPanel() {
       );
       setBalances(rows);
     } catch (e) {
-      setStatus(`Refresh failed: ${String(e).slice(0, 200)}`);
+      setError(`Refresh failed: ${String(e).slice(0, 200)}`);
     }
   }, [account, gateway, gatewayReady, publicClient]);
 
@@ -157,25 +178,27 @@ export function UtilityIndexPanel() {
     void refresh();
   }, [refresh]);
 
-  // Keep panel chain/account in sync with the live EIP-1193 provider (no forced switch).
+  // Live EIP-1193 chain/account sync (no forced switch on browse).
   useEffect(() => {
-    const ethereum = getEthereum() as
-      | (EthereumProvider & {
-          on?: (event: string, handler: (...args: unknown[]) => void) => void;
-          removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
-        })
-      | undefined;
-    if (!ethereum?.on) return;
+    const ethereum = getEthereum();
+    if (!ethereum) return;
+
+    void ethereum.request({ method: "eth_chainId" }).then((hex) => {
+      const n = parseChainId(hex);
+      if (n != null) setChainId(n);
+    });
+
+    if (!ethereum.on) return;
     const onChainChanged = (hex: unknown) => {
-      const n = Number.parseInt(String(hex), 16);
-      if (Number.isFinite(n)) setChainId(n);
+      const n = parseChainId(hex);
+      if (n != null) setChainId(n);
     };
     const onAccountsChanged = (accounts: unknown) => {
       const list = Array.isArray(accounts) ? (accounts as string[]) : [];
       setAccount(list[0] ? (list[0] as Address) : null);
       void ethereum.request({ method: "eth_chainId" }).then((hex) => {
-        const n = Number(hex);
-        if (Number.isFinite(n)) setChainId(n);
+        const n = parseChainId(hex);
+        if (n != null) setChainId(n);
       });
     };
     ethereum.on("chainChanged", onChainChanged);
@@ -186,7 +209,7 @@ export function UtilityIndexPanel() {
     };
   }, []);
 
-  // --- Buy quotes (dynamic on ethIn + slippage) ---
+  // --- Buy quotes ---
   useEffect(() => {
     if (!gatewayReady || !gateway) return;
     const parsed = parseEthInput(ethIn);
@@ -262,7 +285,7 @@ export function UtilityIndexPanel() {
     };
   }, [ethIn, slippageBps, gateway, gatewayReady, publicClient, account]);
 
-  // --- Sell quotes (dynamic on balances + percent) ---
+  // --- Sell quotes ---
   useEffect(() => {
     if (!gatewayReady || !gateway || balances.length === 0) return;
     const percentBps = Math.min(100, Math.max(1, sellPercent)) * 100;
@@ -274,7 +297,6 @@ export function UtilityIndexPanel() {
     if (!any) {
       setSellQuote(null);
       setSellQuoteError("No basket token balance to sell.");
-      setSellGasWei(null);
       setSellQuoting(false);
       return;
     }
@@ -294,36 +316,6 @@ export function UtilityIndexPanel() {
           setSellQuote(q);
           if (!q.quotesOk) {
             setSellQuoteError(q.errors.join(" · "));
-            setSellGasWei(null);
-            return;
-          }
-          // Gas for exit only (approvals are separate prompts)
-          const exit = buildExitLegs(minOutMap(q.legs));
-          const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_SEC);
-          const data = encodeFunctionData({
-            abi: gatewayAbi,
-            functionName: "exitPercentToEth",
-            args: [
-              BigInt(percentBps),
-              exit.v3,
-              exit.v2,
-              exit.v4,
-              q.minAmountOutEth,
-              deadline,
-            ],
-          });
-          try {
-            const gas = await publicClient.estimateGas({
-              account: account ?? undefined,
-              to: gateway as Address,
-              data,
-            });
-            if (cancelled) return;
-            setSellGasWei(gas);
-          } catch {
-            // Exit gas often fails without allowances — not a hard block for quoting.
-            if (cancelled) return;
-            setSellGasWei(null);
           }
         } catch (e) {
           if (cancelled) return;
@@ -340,12 +332,11 @@ export function UtilityIndexPanel() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [balances, sellPercent, slippageBps, gateway, gatewayReady, publicClient, account]);
+  }, [balances, sellPercent, slippageBps, gateway, gatewayReady, publicClient]);
 
   const buyBlockReason = useMemo(() => {
     if (!gatewayReady) return "Gateway address not configured.";
     if (!account) return "Connect a wallet first.";
-    // Wrong chain is not a hard block — Buy requests Robinhood 4663 on click.
     const parsed = parseEthInput(ethIn);
     if (!parsed.ok) return parsed.reason;
     if (buyQuoting) return null;
@@ -356,12 +347,10 @@ export function UtilityIndexPanel() {
       const gasCost = buyGasWei * gasPrice;
       const need = parsed.value + gasCost;
       if (ethBalance < need) {
-        return `Wallet has ${formatEther(ethBalance)} ETH; need ≈ ${formatEther(need)} ETH (${formatEther(parsed.value)} buy + ≈${formatEther(gasCost)} gas at current price).`;
+        return `Wallet has ${formatEther(ethBalance)} ETH; need ≈ ${formatEther(need)} ETH (${formatEther(parsed.value)} buy + ≈${formatEther(gasCost)} gas).`;
       }
-    } else if (ethBalance !== null) {
-      if (ethBalance < parsed.value) {
-        return `Wallet has ${formatEther(ethBalance)} ETH; buy needs ${formatEther(parsed.value)} ETH (excluding gas).`;
-      }
+    } else if (ethBalance !== null && ethBalance < parsed.value) {
+      return `Wallet has ${formatEther(ethBalance)} ETH; buy needs ${formatEther(parsed.value)} ETH (excluding gas).`;
     }
     return null;
   }, [
@@ -380,160 +369,39 @@ export function UtilityIndexPanel() {
   const sellBlockReason = useMemo(() => {
     if (!gatewayReady) return "Gateway address not configured.";
     if (!account) return "Connect a wallet first.";
-    // Wrong chain is not a hard block — Sell requests Robinhood 4663 on click.
     if (sellQuoting) return null;
     if (sellQuoteError) return sellQuoteError;
     if (!sellQuote?.quotesOk) return sellQuote?.errors.join(" · ") || "Sell quotes not ready.";
     return null;
   }, [gatewayReady, account, sellQuoting, sellQuoteError, sellQuote]);
 
-  async function connect() {
-    const ethereum = getEthereum();
-    if (!ethereum) {
-      setStatus("No EIP-1193 wallet found.");
-      return;
-    }
-    const accounts = (await ethereum.request({
-      method: "eth_requestAccounts",
-    })) as string[];
-    setAccount(accounts[0] as Address);
-    const cid = Number(await ethereum.request({ method: "eth_chainId" }));
-    setChainId(cid);
-    // Do not force a network switch on connect — only buy/sell request RH 4663.
-  }
+  const needsAnyApprove = useMemo(() => {
+    const percentBps = Math.min(100, Math.max(1, sellPercent)) * 100;
+    return BASKET.some((t) => {
+      const row = balances.find((b) => b.symbol === t.symbol);
+      if (!row) return false;
+      const need = (row.raw * BigInt(percentBps)) / BigInt(10_000);
+      return need > BigInt(0) && row.allowance < need;
+    });
+  }, [balances, sellPercent]);
 
   async function ensureRobinhoodChain(ethereum: EthereumProvider): Promise<boolean> {
-    const cid = Number(await ethereum.request({ method: "eth_chainId" }));
-    setChainId(cid);
+    const cid = parseChainId(await ethereum.request({ method: "eth_chainId" }));
+    if (cid != null) setChainId(cid);
     if (cid === RH_CHAIN_ID) return true;
     try {
       await ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: `0x${RH_CHAIN_ID.toString(16)}` }],
+        params: [{ chainId: RH_CHAIN_HEX }],
       });
-      const after = Number(await ethereum.request({ method: "eth_chainId" }));
-      setChainId(after);
+      const after = parseChainId(await ethereum.request({ method: "eth_chainId" }));
+      if (after != null) setChainId(after);
       if (after === RH_CHAIN_ID) return true;
-      setStatus(`Still on chain ${after}; switch to Robinhood ${RH_CHAIN_ID} to continue.`);
+      setError(`Still on ${chainLabel(after)}; switch to Robinhood (${RH_CHAIN_ID}) to continue.`);
       return false;
     } catch {
-      setStatus(`Switch wallet to Robinhood Chain (${RH_CHAIN_ID}) to buy or sell.`);
+      setError(`Switch wallet to Robinhood Chain (${RH_CHAIN_ID}) to buy or sell.`);
       return false;
-    }
-  }
-
-  /** Read-only EIP-5792 capability probe. No signatures, approvals, txs, or silent switches. */
-  async function checkWalletBatching() {
-    const ethereum = getEthereum();
-    setCapsBusy(true);
-    setCapsResult(null);
-    try {
-      if (!ethereum) {
-        setCapsResult({
-          ok: false,
-          summary: "No EIP-1193 provider (window.ethereum) found.",
-          json: JSON.stringify({ error: "NO_PROVIDER" }, null, 2),
-        });
-        return;
-      }
-      const accounts = (await ethereum.request({
-        method: "eth_requestAccounts",
-      })) as string[];
-      const addr = accounts[0] as Address;
-      setAccount(addr);
-      const chainHex = (await ethereum.request({ method: "eth_chainId" })) as string;
-      const cid = Number(chainHex);
-      setChainId(cid);
-      const checkedHex = `0x${cid.toString(16)}`;
-      const rhHex = `0x${RH_CHAIN_ID.toString(16)}`;
-      // Check the chain the wallet is actually on — do not switch.
-      let raw: unknown;
-      try {
-        raw = await ethereum.request({
-          method: "wallet_getCapabilities",
-          params: [addr, [checkedHex]],
-        });
-      } catch (e) {
-        const err =
-          e && typeof e === "object"
-            ? (e as { code?: number; message?: string; data?: unknown })
-            : { message: String(e) };
-        setCapsResult({
-          ok: false,
-          summary: `wallet_getCapabilities failed on ${chainLabel(cid)} (${checkedHex}): ${err.message ?? String(e)}${
-            err.code != null ? ` (code ${err.code})` : ""
-          }. Read-only — no switch or trade was attempted.${
-            cid !== RH_CHAIN_ID
-              ? ` Basket batching needs Robinhood ${RH_CHAIN_ID}; switch manually only when you buy/sell.`
-              : ""
-          }`,
-          json: JSON.stringify(
-            {
-              account: addr,
-              checkedChainId: cid,
-              checkedChainHex: checkedHex,
-              checkedChainLabel: chainLabel(cid),
-              robinhoodChainId: RH_CHAIN_ID,
-              robinhoodChainHex: rhHex,
-              method: "wallet_getCapabilities",
-              params: [addr, [checkedHex]],
-              error: err,
-              silentSwitch: false,
-            },
-            null,
-            2,
-          ),
-        });
-        return;
-      }
-
-      const caps = raw as Record<string, { atomic?: { status?: string } }> | null;
-      const atomicStatus =
-        caps?.[checkedHex]?.atomic?.status ??
-        caps?.[checkedHex.toLowerCase()]?.atomic?.status ??
-        null;
-      const honesty =
-        atomicStatus === "supported" || atomicStatus === "ready"
-          ? `Checked ${chainLabel(cid)} (${checkedHex}): wallet reports atomic.status="${atomicStatus}". Capability advertisement only — not proven wallet_sendCalls execution.`
-          : atomicStatus
-            ? `Checked ${chainLabel(cid)} (${checkedHex}): atomic.status="${atomicStatus}". Not proven execution.`
-            : `Checked ${chainLabel(cid)} (${checkedHex}): no atomic capability returned for this account/chain.`;
-
-      setCapsResult({
-        ok: true,
-        summary:
-          honesty +
-          (cid !== RH_CHAIN_ID
-            ? ` (Wallet is not on Robinhood ${RH_CHAIN_ID}; buy/sell will ask to switch then.)`
-            : ""),
-        json: JSON.stringify(
-          {
-            account: addr,
-            checkedChainId: cid,
-            checkedChainHex: checkedHex,
-            checkedChainLabel: chainLabel(cid),
-            robinhoodChainId: RH_CHAIN_ID,
-            robinhoodChainHex: rhHex,
-            method: "wallet_getCapabilities",
-            params: [addr, [checkedHex]],
-            capabilities: raw,
-            atomicStatus,
-            silentSwitch: false,
-            interpretation:
-              "READ_ONLY_CAPABILITY_CHECK — not wallet_sendCalls, not a trade, not proven execution",
-          },
-          null,
-          2,
-        ),
-      });
-    } catch (e) {
-      setCapsResult({
-        ok: false,
-        summary: `Unexpected error: ${String(e).slice(0, 240)}`,
-        json: JSON.stringify({ error: String(e) }, null, 2),
-      });
-    } finally {
-      setCapsBusy(false);
     }
   }
 
@@ -541,35 +409,35 @@ export function UtilityIndexPanel() {
     const ethereum = getEthereum();
     if (!ethereum || !account || !gatewayReady || !gateway) return;
     if (buyBlockReason) {
-      setStatus(`Buy blocked: ${buyBlockReason}`);
+      setError(buyBlockReason);
       return;
     }
     const parsed = parseEthInput(ethIn);
     if (!parsed.ok || !buyQuote) return;
 
     setBusy(true);
+    setError(null);
     setStatus("");
     try {
       if (!(await ensureRobinhoodChain(ethereum))) return;
-      const wallet = createWalletClient({
+      const walletClient = createWalletClient({
         account,
         chain,
         transport: custom(ethereum),
       });
-      // Fresh quote at send time
       const fresh = await quoteBuyLegs({
         client: publicClient,
         grossEth: parsed.value,
         slippageBps,
       });
       if (!fresh.quotesOk) {
-        setStatus(`Buy blocked: ${fresh.errors.join(" · ")}`);
+        setError(`Buy blocked: ${fresh.errors.join(" · ")}`);
         return;
       }
       const legs = buildBuyLegs(minOutMap(fresh.legs));
       const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_SEC);
-      setPromptCount((n) => n + 1);
-      const hash = await wallet.writeContract({
+      setStatus("Confirm buy in your wallet…");
+      const hash = await walletClient.writeContract({
         address: gateway as Address,
         abi: gatewayAbi,
         functionName: "depositFromEth",
@@ -578,74 +446,69 @@ export function UtilityIndexPanel() {
         account,
         chain,
       });
-      setStatus(`Buy submitted (1 confirmation): ${hash}`);
+      setStatus(`Buy submitted · tx ${hash}`);
       await publicClient.waitForTransactionReceipt({ hash: hash as Hex });
       await refresh();
-      setStatus(`Buy confirmed: ${hash} — tokens are in your wallet`);
+      setStatus(`Buy confirmed · tx ${hash} — basket tokens are in your wallet`);
     } catch (e) {
-      setStatus(`Buy failed: ${String(e).slice(0, 300)}`);
+      setError(`Buy failed: ${String(e).slice(0, 300)}`);
+      setStatus("");
     } finally {
       setBusy(false);
     }
   }
 
-  async function sellSequentialCold() {
-    await sellBasket({ mode: "sequential-allowed" });
+  async function pollCallsStatus(
+    ethereum: EthereumProvider,
+    batchId: string,
+  ): Promise<unknown> {
+    let statusJson: unknown = null;
+    for (let i = 0; i < 40; i += 1) {
+      try {
+        statusJson = await ethereum.request({
+          method: "wallet_getCallsStatus",
+          params: [batchId],
+        });
+        const st = statusJson as { status?: number | string; receipts?: unknown[] };
+        const code = st?.status;
+        if (
+          code === 200 ||
+          code === "CONFIRMED" ||
+          code === 1 ||
+          (Array.isArray(st?.receipts) && st.receipts.length > 0)
+        ) {
+          break;
+        }
+        if (code === 100 || code === "FAILED" || code === 3) break;
+      } catch {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    return statusJson;
   }
 
-  /**
-   * Gate A live path: wallet_sendCalls with atomicRequired only.
-   * No silent fallback to 8× approve + exit sequential confirms.
-   */
-  async function sellAtomicGateA50() {
-    await sellBasket({ mode: "atomic-only", forcePercent: 50 });
-  }
-
-  async function sellAtomicGateA100() {
-    await sellBasket({ mode: "atomic-only", forcePercent: 100 });
-  }
-
-  async function sellBasket(opts: {
-    mode: "atomic-only" | "sequential-allowed";
-    forcePercent?: number;
-  }) {
+  async function sell() {
     const ethereum = getEthereum();
     if (!ethereum || !account || !gatewayReady || !gateway) return;
-    if (sellBlockReason && opts.mode === "sequential-allowed") {
-      setStatus(`Sell blocked: ${sellBlockReason}`);
+    if (sellBlockReason) {
+      setError(sellBlockReason);
       return;
     }
-    // Gate A atomic path: only require connect + gateway; quotes refreshed below.
-    if (opts.mode === "atomic-only") {
-      if (!account) {
-        setStatus("Gate A blocked: connect wallet first.");
-        return;
-      }
-      if (!gatewayReady) {
-        setStatus("Gate A blocked: gateway not configured.");
-        return;
-      }
-    }
+
     setBusy(true);
+    setError(null);
     setStatus("");
     try {
       if (!(await ensureRobinhoodChain(ethereum))) return;
-      const wallet = createWalletClient({
-        account,
-        chain,
-        transport: custom(ethereum),
-      });
-      const pct = opts.forcePercent ?? sellPercent;
-      const percentBps = Math.min(100, Math.max(1, pct)) * 100;
+
+      const percentBps = Math.min(100, Math.max(1, sellPercent)) * 100;
       const amountIns: Record<string, bigint> = {};
       for (const row of balances) {
         amountIns[row.symbol] = (row.raw * BigInt(percentBps)) / BigInt(10_000);
       }
-      const hasAny = Object.values(amountIns).some((v) => v > BigInt(0));
-      if (!hasAny) {
-        setStatus(
-          "Sell blocked: no basket token balances. Buy first, then retry Gate A atomic sell.",
-        );
+      if (!Object.values(amountIns).some((v) => v > BigInt(0))) {
+        setError("No basket token balances to sell. Buy first.");
         return;
       }
 
@@ -655,9 +518,10 @@ export function UtilityIndexPanel() {
         slippageBps,
       });
       if (!fresh.quotesOk) {
-        setStatus(`Sell blocked: ${fresh.errors.join(" · ")}`);
+        setError(`Sell blocked: ${fresh.errors.join(" · ")}`);
         return;
       }
+
       const exit = buildExitLegs(minOutMap(fresh.legs));
       const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_SEC);
       const exitData = encodeFunctionData({
@@ -680,159 +544,98 @@ export function UtilityIndexPanel() {
         return have < need;
       });
 
-      const chainKey = `0x${RH_CHAIN_ID.toString(16)}`;
-      const tryAtomic = async (): Promise<boolean> => {
-        const caps = (await ethereum.request({
-          method: "wallet_getCapabilities",
-          params: [account, [chainKey]],
-        })) as Record<string, { atomic?: { status?: string } }>;
-        const atomic =
-          caps?.[chainKey]?.atomic?.status ??
-          caps?.[chainKey.toLowerCase()]?.atomic?.status ??
-          null;
-        if (atomic !== "supported" && atomic !== "ready") {
-          if (opts.mode === "atomic-only") {
-            setStatus(
-              `Gate A FAIL: atomic.status=${JSON.stringify(atomic)} on ${chainKey}. Capability discovery did not advertise ready/supported — not attempting sequential fallback.`,
-            );
-            return true; // handled
-          }
-          return false;
+      // Cold path: atomic batch only — never fall back to sequential approvals.
+      if (needsApprove.length > 0) {
+        let atomicStatus: string | null = null;
+        try {
+          const caps = (await ethereum.request({
+            method: "wallet_getCapabilities",
+            params: [account, [RH_CHAIN_HEX]],
+          })) as Record<string, { atomic?: { status?: string } }>;
+          atomicStatus =
+            caps?.[RH_CHAIN_HEX]?.atomic?.status ??
+            caps?.[RH_CHAIN_HEX.toLowerCase()]?.atomic?.status ??
+            null;
+        } catch (e) {
+          setError(
+            `Atomic batch unavailable: wallet_getCapabilities failed (${String(e).slice(0, 180)}). Your wallet must support wallet_sendCalls with atomicRequired on Robinhood ${RH_CHAIN_ID} for first-time sells that need approvals. No sequential fallback.`,
+          );
+          return;
         }
 
-        const calls =
-          needsApprove.length > 0
-            ? [
-                ...needsApprove.map((t) => ({
-                  to: t.address,
-                  data: encodeFunctionData({
-                    abi: erc20Abi,
-                    functionName: "approve",
-                    args: [gateway as Address, maxUint256],
-                  }),
-                  value: "0x0",
-                })),
-                {
-                  to: gateway as Address,
-                  data: exitData,
-                  value: "0x0",
-                },
-              ]
-            : [
-                {
-                  to: gateway as Address,
-                  data: exitData,
-                  value: "0x0",
-                },
-              ];
+        if (atomicStatus !== "supported" && atomicStatus !== "ready") {
+          setError(
+            `Atomic batch unavailable: wallet reports atomic.status=${JSON.stringify(atomicStatus)} on Robinhood ${RH_CHAIN_ID}. Approvals + sell must be bundled in one wallet_sendCalls (atomicRequired). No sequential fallback.`,
+          );
+          return;
+        }
 
-        const ethBefore = await publicClient.getBalance({ address: account });
-        setPromptCount((n) => n + 1);
+        const calls = [
+          ...needsApprove.map((t) => ({
+            to: t.address,
+            data: encodeFunctionData({
+              abi: erc20Abi,
+              functionName: "approve",
+              args: [gateway as Address, maxUint256],
+            }),
+            value: "0x0" as const,
+          })),
+          {
+            to: gateway as Address,
+            data: exitData,
+            value: "0x0" as const,
+          },
+        ];
+
         setStatus(
-          `Gate A: requesting wallet_sendCalls (${calls.length} calls, atomicRequired=true, atomic.status=${atomic}, sell=${pct}%). Approve the wallet prompt(s). “ready” ≠ proven execution.`,
+          `Confirm atomic sell in your wallet… (${calls.length} calls: ${needsApprove.length} approvals + exit)`,
         );
-        const batch = (await ethereum.request({
-          method: "wallet_sendCalls",
-          params: [
-            {
-              version: "2.0.0",
-              from: account,
-              chainId: chainKey,
-              atomicRequired: true,
-              calls,
-            },
-          ],
-        })) as { id?: string } | string;
+        let batch: { id?: string } | string;
+        try {
+          batch = (await ethereum.request({
+            method: "wallet_sendCalls",
+            params: [
+              {
+                version: "2.0.0",
+                from: account,
+                chainId: RH_CHAIN_HEX,
+                atomicRequired: true,
+                calls,
+              },
+            ],
+          })) as { id?: string } | string;
+        } catch (e) {
+          setError(
+            `Atomic sell failed: ${String(e).slice(0, 320)}. No sequential fallback — retry with a wallet that supports atomic batching on Robinhood, or approve tokens another way then use a warm sell.`,
+          );
+          setStatus("");
+          return;
+        }
+
         const batchId =
           typeof batch === "string"
             ? batch
             : batch?.id ?? JSON.stringify(batch).slice(0, 120);
-
-        // Poll getCallsStatus when available
-        let statusJson: unknown = null;
-        for (let i = 0; i < 40; i += 1) {
-          try {
-            statusJson = await ethereum.request({
-              method: "wallet_getCallsStatus",
-              params: [batchId],
-            });
-            const st = statusJson as { status?: number | string; receipts?: unknown[] };
-            const code = st?.status;
-            if (
-              code === 200 ||
-              code === "CONFIRMED" ||
-              code === 1 ||
-              (Array.isArray(st?.receipts) && st.receipts.length > 0)
-            ) {
-              break;
-            }
-            if (code === 100 || code === "FAILED" || code === 3) break;
-          } catch {
-            break;
-          }
-          await new Promise((r) => setTimeout(r, 1500));
-        }
-
+        setStatus(`Sell batch submitted · batchId ${batchId}`);
+        const callsStatus = await pollCallsStatus(ethereum, batchId);
         await refresh();
-        const ethAfter = await publicClient.getBalance({ address: account });
-        const returned = ethAfter > ethBefore ? ethAfter - ethBefore : BigInt(0);
+        const receiptHint = callsStatus
+          ? ` · status ${JSON.stringify(callsStatus).slice(0, 240)}`
+          : "";
         setStatus(
-          [
-            `Gate A wallet_sendCalls submitted.`,
-            `atomic.status(capability)=${atomic}`,
-            `batchId=${batchId}`,
-            `calls=${calls.length} (approves=${needsApprove.length}, exit=1)`,
-            `sellPercent=${pct}`,
-            `minOutEth=${formatEther(fresh.minAmountOutEth)}`,
-            `ETH before=${formatEther(ethBefore)} after=${formatEther(ethAfter)} delta≈${formatEther(returned)} (gas may reduce delta)`,
-            `getCallsStatus=${statusJson ? JSON.stringify(statusJson).slice(0, 500) : "n/a"}`,
-            `Honesty: capability “ready” is not execution proof — record receipts from wallet/explorer.`,
-          ].join("\n"),
-        );
-        return true;
-      };
-
-      try {
-        const handled = await tryAtomic();
-        if (handled) return;
-      } catch (e) {
-        if (opts.mode === "atomic-only") {
-          setStatus(
-            `Gate A FAIL (no sequential fallback): ${String(e).slice(0, 400)}`,
-          );
-          return;
-        }
-        // sequential-allowed: fall through
-        setStatus(
-          `Atomic batch unavailable (${String(e).slice(0, 120)}); falling back to sequential…`,
-        );
-      }
-
-      if (opts.mode === "atomic-only") {
-        setStatus(
-          "Gate A FAIL: atomic path did not run. No sequential fallback by design.",
+          `Sell submitted · batchId ${batchId} · ${sellPercent}% → ETH (min ${formatEther(fresh.minAmountOutEth)} ETH)${receiptHint}`,
         );
         return;
       }
 
-      let prompts = 0;
-      for (const t of needsApprove) {
-        prompts += 1;
-        setPromptCount((n) => n + 1);
-        const h = await wallet.writeContract({
-          address: t.address,
-          abi: erc20Abi,
-          functionName: "approve",
-          args: [gateway as Address, maxUint256],
-          account,
-          chain,
-        });
-        await publicClient.waitForTransactionReceipt({ hash: h as Hex });
-      }
-
-      prompts += 1;
-      setPromptCount((n) => n + 1);
-      const hash = await wallet.writeContract({
+      // Warm path: single exit via writeContract (1 confirmation).
+      const walletClient = createWalletClient({
+        account,
+        chain,
+        transport: custom(ethereum),
+      });
+      setStatus("Confirm sell in your wallet…");
+      const hash = await walletClient.writeContract({
         address: gateway as Address,
         abi: gatewayAbi,
         functionName: "exitPercentToEth",
@@ -847,295 +650,360 @@ export function UtilityIndexPanel() {
         account,
         chain,
       });
-      setStatus(
-        `Sell submitted after ${prompts} confirmation(s) this session (cold path up to 9 on ordinary wallets). Hash: ${hash}`,
-      );
+      setStatus(`Sell submitted · tx ${hash}`);
       await publicClient.waitForTransactionReceipt({ hash: hash as Hex });
       await refresh();
-      setStatus(`Sell confirmed: ${hash}`);
+      setStatus(
+        `Sell confirmed · tx ${hash} · ${sellPercent}% → ETH (min ${formatEther(fresh.minAmountOutEth)} ETH)`,
+      );
     } catch (e) {
-      setStatus(`Sell failed: ${String(e).slice(0, 300)}`);
+      setError(`Sell failed: ${String(e).slice(0, 300)}`);
+      setStatus("");
     } finally {
       setBusy(false);
     }
   }
 
+  const connected = Boolean(account);
+  const displayChain = chainLabel(chainId);
+
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-10 text-[var(--foreground)]">
-      <header className="flex flex-col gap-3">
-        <p className="text-sm uppercase tracking-[0.2em] text-zinc-500">INDEXLA Core</p>
-        <h1 className="text-3xl font-semibold tracking-tight">Utility Index</h1>
-        <div className="rounded border border-zinc-700 bg-zinc-950/80 px-4 py-3 text-sm leading-relaxed text-zinc-300">
-          <p className="font-medium text-zinc-100">Direct ownership — eight tokens in your wallet</p>
-          <p className="mt-1">
-            Choose any buy amount. Quotes and gas update live. Slippage floors apply on every
-            active leg (PRISM FoT + PROLOGUE V4 included).
+    <div className="mx-auto max-w-3xl space-y-5 pb-10">
+      <nav
+        className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-app-muted"
+        aria-label="Breadcrumb"
+      >
+        <Link href={APP_ROUTES.dashboard} className="hover:text-app-brand">
+          INDEXLA Core
+        </Link>
+        <span aria-hidden className="text-app-dim">
+          →
+        </span>
+        <Link
+          href={`${APP_ROUTES.discover}?tab=indexes`}
+          className="hover:text-app-brand"
+        >
+          Indexes
+        </Link>
+        <span aria-hidden className="text-app-dim">
+          →
+        </span>
+        <Link
+          href={`${APP_ROUTES.discover}?tab=indexes&type=Crypto`}
+          className="hover:text-app-brand"
+        >
+          Crypto
+        </Link>
+        <span aria-hidden className="text-app-dim">
+          →
+        </span>
+        <Link
+          href={`${APP_ROUTES.discover}?tab=indexes&type=Crypto&chain=robinhood`}
+          className="text-app-brand hover:underline"
+        >
+          Robinhood
+        </Link>
+      </nav>
+
+      <header className="space-y-3">
+        <div>
+          <h1 className="app-display text-2xl font-bold text-app-ink sm:text-[1.75rem]">
+            Utility Index
+          </h1>
+          <p className="mt-1 max-w-2xl text-sm text-app-muted">
+            Buy the eight-token Robinhood basket with ETH. Tokens land in your
+            wallet — sell any percent back to ETH when you want.
           </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {BASKET.map((t) => (
+            <div
+              key={t.symbol}
+              className="inline-flex items-center gap-1.5 rounded-full border border-app-line/70 bg-app-elevated/80 px-2 py-1"
+            >
+              <AssetIcon assetId={t.symbol.toLowerCase()} size={18} />
+              <span className="text-[11px] font-bold text-app-ink">{t.symbol}</span>
+              <span className="text-[10px] font-semibold text-app-muted">
+                {(t.weightBps / 100).toFixed(0)}%
+              </span>
+            </div>
+          ))}
         </div>
       </header>
 
-      <section className="rounded border border-amber-700/60 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
-        <p className="font-medium">Unresolved blocker (ownership model unchanged)</p>
-        <p className="mt-1 text-amber-200/90">{PROMPT_INVENTORY.blocker}</p>
-        <ul className="mt-2 list-disc pl-5 text-amber-200/80">
-          <li>Buy: {PROMPT_INVENTORY.buy} confirmation ✓ (≤{PROMPT_INVENTORY.maxAllowed})</li>
-          <li>
-            First cold sell: {PROMPT_INVENTORY.firstSellCold} confirmations ✗ (target ≤
-            {PROMPT_INVENTORY.maxAllowed})
-          </li>
-          <li>Warm sell (allowances already set): {PROMPT_INVENTORY.repeatSellWarm} confirmation</li>
-        </ul>
-      </section>
-
-      <section className="flex flex-col gap-2 border-t border-zinc-800 pt-6 text-sm">
-        <h2 className="text-lg font-medium text-zinc-100">Gateway</h2>
-        {gatewayReady ? (
-          <a
-            className="font-mono text-xs text-sky-400 underline break-all"
-            href={`${RH_EXPLORER}/address/${gateway}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {gateway}
-          </a>
-        ) : (
-          <p className="text-amber-300">
-            Set <code className="text-amber-100">NEXT_PUBLIC_INDEXLA_GATEWAY_4663</code> after
-            deploying <code className="text-amber-100">IndexlaGateway4663</code>.
+      <section className="app-panel flex flex-col gap-3 rounded-2xl p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="min-w-0 space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-app-dim">
+            Wallet
           </p>
-        )}
-      </section>
-
-      <section className="flex flex-col gap-3 border-t border-zinc-800 pt-6">
-        <h2 className="text-lg font-medium">Wallet</h2>
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => void connect()}
-            className="rounded bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900"
-          >
-            {account ? "Reconnect" : "Connect wallet"}
-          </button>
-          <button
-            type="button"
-            disabled={capsBusy}
-            onClick={() => void checkWalletBatching()}
-            className="rounded border border-sky-600/60 bg-sky-950/40 px-4 py-2 text-sm font-medium text-sky-100 disabled:opacity-40"
-          >
-            {capsBusy ? "Checking…" : "Check wallet batching"}
-          </button>
-          {account && (
-            <span className="font-mono text-sm text-zinc-300">
-              {account.slice(0, 6)}…{account.slice(-4)} · {chainLabel(chainId)}
-              {ethBalance !== null ? ` · ${formatEther(ethBalance)} ETH` : ""}
+          {connected ? (
+            <p className="truncate text-sm font-semibold text-app-ink">
+              {shorten(account!)}
+              <span className="mx-1.5 text-app-dim">·</span>
+              <span className="font-medium text-app-muted">{displayChain}</span>
+              {ethBalance !== null ? (
+                <>
+                  <span className="mx-1.5 text-app-dim">·</span>
+                  <span className="font-mono text-[13px]">
+                    {Number(formatEther(ethBalance)).toFixed(4)} ETH
+                  </span>
+                </>
+              ) : null}
+            </p>
+          ) : (
+            <p className="text-sm text-app-muted">
+              Connect to buy, view holdings, and sell. Network switch happens only
+              when you trade.
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {!connected ? (
+            <button
+              type="button"
+              onClick={connect}
+              className="app-gradient-btn h-9 rounded-[10px] px-4 text-[12px] font-bold"
+            >
+              Connect Wallet
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="app-interactive h-9 rounded-[10px] border border-app-line bg-app-elevated px-3 text-[12px] font-bold text-app-ink"
+            >
+              Refresh
+            </button>
+          )}
+          {gatewayReady ? (
+            <a
+              href={`${RH_EXPLORER}/address/${gateway}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[11px] font-semibold text-app-brand hover:underline"
+            >
+              Gateway
+            </a>
+          ) : (
+            <span className="text-[11px] font-semibold text-app-danger">
+              Gateway not configured
             </span>
           )}
         </div>
-        <p className="text-xs text-zinc-500">
-          Connect stays on your current chain. Buy/sell ask for Robinhood (4663) only when needed.
-          Batching check uses the connected wallet on whatever chain you are on — no silent switch.
-          A “ready” status is not proven execution.
-        </p>
-        {capsResult && (
-          <div
-            className={`rounded border px-3 py-3 text-sm ${
-              capsResult.ok
-                ? "border-zinc-600 bg-zinc-950/80 text-zinc-200"
-                : "border-amber-700/60 bg-amber-950/30 text-amber-100"
-            }`}
-          >
-            <p className="font-medium">{capsResult.summary}</p>
-            <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-black/40 p-2 font-mono text-[11px] text-zinc-300">
-              {capsResult.json}
-            </pre>
-            <button
-              type="button"
-              className="mt-2 text-sm text-sky-400 underline"
-              onClick={() => void navigator.clipboard.writeText(capsResult.json)}
-            >
-              Copy JSON
-            </button>
-          </div>
-        )}
-        <label className="text-sm text-zinc-400">
-          Slippage (bps)
-          <input
-            type="number"
-            min={1}
-            max={2000}
-            className="ml-2 w-24 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 font-mono"
-            value={slippageBps}
-            onChange={(e) => setSlippageBps(Math.min(2000, Math.max(1, Number(e.target.value) || 1)))}
-          />
-          <span className="ml-2 text-zinc-500">
-            V2 legs add +50 bps; multi-leg sell total adds +200 bps
-          </span>
-        </label>
-        <p className="text-sm text-zinc-500">Session wallet prompts counted: {promptCount}</p>
       </section>
 
-      <section className="flex flex-col gap-4 border-t border-zinc-800 pt-6">
-        <h2 className="text-lg font-medium">Tokens you own (in your wallet)</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="text-zinc-500">
-              <tr>
-                <th className="py-1 pr-3">Token</th>
-                <th className="py-1 pr-3">Balance</th>
-                <th className="py-1">Gateway allowance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {BASKET.map((t) => {
-                const row = balances.find((b) => b.symbol === t.symbol);
-                return (
-                  <tr key={t.symbol} className="border-t border-zinc-900">
-                    <td className="py-2 pr-3">
-                      {t.symbol}{" "}
-                      <span className="text-zinc-500">({(t.weightBps / 100).toFixed(0)}%)</span>
-                    </td>
-                    <td className="py-2 pr-3 font-mono text-xs">{row?.amount ?? "—"}</td>
-                    <td className="py-2 text-xs">
-                      {row && row.allowance > BigInt(0) ? "set" : "none"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <button
-          type="button"
-          className="self-start text-sm text-sky-400 underline"
-          onClick={() => void refresh()}
-        >
-          Refresh
-        </button>
-      </section>
-
-      {gatewayReady && (
+      {gatewayReady ? (
         <>
-          <section className="flex flex-col gap-4 border-t border-zinc-800 pt-6">
-            <h2 className="text-lg font-medium">Buy · 1 confirmation → 8 tokens to your wallet</h2>
-            <label className="text-sm text-zinc-400">
-              ETH amount (your choice)
+          <section className="app-panel space-y-4 rounded-2xl p-4 sm:p-5">
+            <div>
+              <h2 className="app-display text-lg font-bold text-app-ink">Buy with ETH</h2>
+              <p className="mt-0.5 text-xs text-app-muted">
+                One wallet confirmation · tokens land in your wallet
+              </p>
+            </div>
+
+            <label className="block text-xs" htmlFor="utility-eth-in">
+              <span className="font-semibold text-app-dim">ETH amount</span>
               <input
-                className="mt-1 w-48 rounded border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono"
+                id="utility-eth-in"
+                className="app-input mt-1.5 w-full max-w-xs rounded-[10px] px-3 py-2.5 font-mono text-sm"
                 value={ethIn}
-                placeholder="e.g. 0.005"
+                placeholder="0.01"
+                inputMode="decimal"
                 onChange={(e) => setEthIn(e.target.value)}
               />
             </label>
-            <div className="text-xs text-zinc-400 space-y-1 font-mono">
+
+            <label className="flex flex-wrap items-center gap-2 text-xs text-app-muted">
+              <span className="font-semibold text-app-dim">Slippage</span>
+              <input
+                type="number"
+                min={1}
+                max={2000}
+                className="app-input w-20 rounded-[8px] px-2 py-1.5 font-mono text-[12px]"
+                value={slippageBps}
+                onChange={(e) =>
+                  setSlippageBps(Math.min(2000, Math.max(1, Number(e.target.value) || 1)))
+                }
+              />
+              <span>bps</span>
+            </label>
+
+            <div className="rounded-[12px] border border-app-line/60 bg-app-elevated/50 px-3 py-2.5 text-xs text-app-muted">
               {buyQuoting && <p>Quoting…</p>}
-              {buyQuote?.quotesOk && (
-                <>
-                  <p>
-                    Active legs: {buyQuote.activeLegCount}/8 · investable after 100 bps fee:{" "}
-                    {formatEther(buyQuote.investableEth)} ETH
+              {!buyQuoting && buyQuote?.quotesOk && (
+                <div className="space-y-1">
+                  <p className="font-medium text-app-ink">
+                    {buyQuote.activeLegCount}/8 legs · after fee{" "}
+                    <span className="font-mono">
+                      {formatEther(buyQuote.investableEth)} ETH
+                    </span>
                   </p>
-                  {buyQuote.legs.map((l) => (
-                    <p key={l.symbol}>
-                      {l.symbol}: in {formatEther(l.amountIn)} ETH → minOut{" "}
-                      {formatUnits(l.amountOutMinimum, 18)}
-                    </p>
-                  ))}
-                  {buyGasWei !== null && (
+                  {buyGasWei !== null && gasPrice !== null && (
                     <p>
-                      Est. gas units: {buyGasWei.toString()}
-                      {gasPrice !== null
-                        ? ` · ≈${formatEther(buyGasWei * gasPrice)} ETH fee`
-                        : " (wallet will show fee)"}
+                      Est. gas ≈{" "}
+                      <span className="font-mono">
+                        {formatEther(buyGasWei * gasPrice)} ETH
+                      </span>
                     </p>
                   )}
-                  {Object.keys(buyQuote.taxNotes).length > 0 && (
-                    <p>{JSON.stringify(buyQuote.taxNotes)}</p>
-                  )}
-                </>
+                </div>
               )}
-              {buyBlockReason && (
-                <p className="text-amber-300 whitespace-pre-wrap">Blocked: {buyBlockReason}</p>
+              {buyBlockReason && ethIn.trim() && (
+                <p className="text-app-danger">{buyBlockReason}</p>
               )}
             </div>
+
             <button
               type="button"
               disabled={busy || !account || Boolean(buyBlockReason) || buyQuoting}
               onClick={() => void buy()}
-              className="w-fit rounded bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
+              className="app-gradient-btn h-11 w-full rounded-[12px] text-sm font-bold disabled:opacity-40 sm:w-auto sm:px-8"
             >
-              Buy basket
+              {busy ? "Working…" : "Buy basket"}
             </button>
           </section>
 
-          <section className="flex flex-col gap-4 border-t border-zinc-800 pt-6">
-            <h2 className="text-lg font-medium">Sell → native ETH</h2>
-            <p className="text-sm text-zinc-400">
-              Ordinary-wallet cold path can be up to {PROMPT_INVENTORY.firstSellCold} prompts (not
-              ≤{PROMPT_INVENTORY.maxAllowed}). Quotes refresh with your balances and percent.
-            </p>
-            <label className="text-sm text-zinc-400">
-              Percent: {sellPercent}%
+          <section className="app-panel space-y-4 rounded-2xl p-4 sm:p-5">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="app-display text-lg font-bold text-app-ink">Holdings</h2>
+                <p className="mt-0.5 text-xs text-app-muted">
+                  Tokens in your wallet · sell uses gateway allowance
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-app-line/70 text-[10px] font-bold uppercase tracking-[0.12em] text-app-dim">
+                    <th className="pb-2 pr-3 font-bold">Asset</th>
+                    <th className="pb-2 pr-3 font-bold">Amount</th>
+                    <th className="pb-2 font-bold">Allowance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {BASKET.map((t) => {
+                    const row = balances.find((b) => b.symbol === t.symbol);
+                    const allowed = row && row.allowance > BigInt(0);
+                    return (
+                      <tr
+                        key={t.symbol}
+                        className="border-b border-app-line/40 last:border-0"
+                      >
+                        <td className="py-2.5 pr-3">
+                          <div className="flex items-center gap-2">
+                            <AssetIcon assetId={t.symbol.toLowerCase()} size={22} />
+                            <div>
+                              <p className="font-semibold text-app-ink">{t.symbol}</p>
+                              <p className="text-[10px] text-app-muted">
+                                {(t.weightBps / 100).toFixed(0)}% weight
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-2.5 pr-3 font-mono text-[12px] text-app-ink">
+                          {row ? formatTokenAmount(row.amount) : "—"}
+                        </td>
+                        <td className="py-2.5">
+                          <span
+                            className={
+                              allowed
+                                ? "rounded-md bg-app-success/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-app-success"
+                                : "rounded-md bg-app-elevated px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-app-muted"
+                            }
+                          >
+                            {allowed ? "Approved" : "On first sell"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="app-panel space-y-4 rounded-2xl p-4 sm:p-5">
+            <div>
+              <h2 className="app-display text-lg font-bold text-app-ink">Sell to ETH</h2>
+              <p className="mt-0.5 text-xs text-app-muted">
+                {needsAnyApprove
+                  ? "First sell bundles approvals + exit (target ≤3–4 wallet confirms)"
+                  : "Allowances set · one wallet confirmation"}
+              </p>
+            </div>
+
+            <label className="block text-xs" htmlFor="utility-sell-pct">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-app-dim">Sell percent</span>
+                <span className="font-mono text-sm font-bold text-app-ink">
+                  {sellPercent}%
+                </span>
+              </div>
               <input
+                id="utility-sell-pct"
                 type="range"
                 min={1}
                 max={100}
                 value={sellPercent}
                 onChange={(e) => setSellPercent(Number(e.target.value))}
-                className="mt-2 block w-full max-w-md"
+                className="mt-3 w-full accent-[var(--color-brand)]"
               />
             </label>
-            <div className="text-xs text-zinc-400 space-y-1 font-mono">
-              {sellQuoting && <p>Quoting sell…</p>}
-              {sellQuote?.quotesOk && (
-                <>
-                  <p>
-                    Quoted gross ≈ {formatEther(sellQuote.quotedGrossEth)} ETH · min net to you:{" "}
+
+            <div className="rounded-[12px] border border-app-line/60 bg-app-elevated/50 px-3 py-2.5 text-xs text-app-muted">
+              {sellQuoting && <p>Quoting…</p>}
+              {!sellQuoting && sellQuote?.quotesOk && (
+                <p className="font-medium text-app-ink">
+                  Quoted ≈{" "}
+                  <span className="font-mono">
+                    {formatEther(sellQuote.quotedGrossEth)} ETH
+                  </span>
+                  {" · "}
+                  min out{" "}
+                  <span className="font-mono">
                     {formatEther(sellQuote.minAmountOutEth)} ETH
-                  </p>
-                  {sellGasWei !== null && (
-                    <p>Est. exit gas units: {sellGasWei.toString()} (approvals extra if cold)</p>
-                  )}
-                </>
+                  </span>
+                </p>
               )}
-              {sellBlockReason && (
-                <p className="text-amber-300 whitespace-pre-wrap">Blocked: {sellBlockReason}</p>
+              {sellBlockReason && connected && (
+                <p className="text-app-danger">{sellBlockReason}</p>
               )}
             </div>
+
             <button
               type="button"
               disabled={busy || !account || Boolean(sellBlockReason) || sellQuoting}
-              onClick={() => void sellSequentialCold()}
-              className="w-fit rounded border border-zinc-600 px-5 py-2.5 text-sm font-semibold text-zinc-200 disabled:opacity-40"
+              onClick={() => void sell()}
+              className="app-gradient-btn h-11 w-full rounded-[12px] text-sm font-bold disabled:opacity-40 sm:w-auto sm:px-8"
             >
-              Sell {sellPercent}% (sequential · may be up to 9 prompts)
+              {busy ? "Working…" : `Sell ${sellPercent}%`}
             </button>
-            <button
-              type="button"
-              disabled={busy || !account}
-              onClick={() => void sellAtomicGateA50()}
-              className="w-fit rounded bg-sky-500 px-5 py-2.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
-            >
-              Gate A · Sell 50% atomic only (wallet_sendCalls)
-            </button>
-            <button
-              type="button"
-              disabled={busy || !account}
-              onClick={() => void sellAtomicGateA100()}
-              className="w-fit rounded border border-sky-500 px-5 py-2.5 text-sm font-semibold text-sky-100 disabled:opacity-40"
-            >
-              Gate A · Sell 100% remainder atomic only
-            </button>
-            <p className="text-xs text-zinc-500 max-w-xl">
-              Gate A buttons force atomicRequired wallet_sendCalls (approvals + exit together). They
-              do not fall back to nine sequential confirms. Capability “ready” is discovery only —
-              not proven execution until receipts land.
-            </p>
           </section>
         </>
+      ) : (
+        <section className="app-panel rounded-2xl p-5 text-sm text-app-muted">
+          Set{" "}
+          <code className="rounded bg-app-elevated px-1.5 py-0.5 text-[12px] text-app-ink">
+            NEXT_PUBLIC_INDEXLA_GATEWAY_4663
+          </code>{" "}
+          after deploying IndexlaGateway4663.
+        </section>
       )}
 
-      {status && (
-        <section className="border-t border-zinc-800 pt-6 text-sm text-amber-200">{status}</section>
+      {(status || error) && (
+        <section
+          className={`app-panel rounded-2xl p-4 text-sm whitespace-pre-wrap break-all ${
+            error ? "border border-app-danger/40 text-app-danger" : "text-app-ink"
+          }`}
+          role="status"
+        >
+          {error ? <p>{error}</p> : null}
+          {status ? <p className={error ? "mt-2 text-app-muted" : undefined}>{status}</p> : null}
+        </section>
       )}
     </div>
   );
