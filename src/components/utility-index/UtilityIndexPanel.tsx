@@ -725,7 +725,7 @@ export function UtilityIndexPanel() {
                   {buyQuote.legs.map((l) => (
                     <p key={l.symbol}>
                       {l.symbol}: in {formatEther(l.amountIn)} ETH → minOut{" "}
-                      {formatUnits(l.amountOutMinimum, BASKET.find((t) => t.symbol === l.symbol)?.decimals ?? 18)}
+                      {formatUnits(l.amountOutMinimum, 18)}
                     </p>
                   ))}
                   {buyGasWei !== null && (
