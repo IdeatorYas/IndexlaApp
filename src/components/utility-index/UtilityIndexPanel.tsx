@@ -590,11 +590,41 @@ export function UtilityIndexPanel() {
   }
 
   async function sellSequentialCold() {
+    await sellBasket({ mode: "sequential-allowed" });
+  }
+
+  /**
+   * Gate A live path: wallet_sendCalls with atomicRequired only.
+   * No silent fallback to 8× approve + exit sequential confirms.
+   */
+  async function sellAtomicGateA50() {
+    await sellBasket({ mode: "atomic-only", forcePercent: 50 });
+  }
+
+  async function sellAtomicGateA100() {
+    await sellBasket({ mode: "atomic-only", forcePercent: 100 });
+  }
+
+  async function sellBasket(opts: {
+    mode: "atomic-only" | "sequential-allowed";
+    forcePercent?: number;
+  }) {
     const ethereum = getEthereum();
     if (!ethereum || !account || !gatewayReady || !gateway) return;
-    if (sellBlockReason) {
+    if (sellBlockReason && opts.mode === "sequential-allowed") {
       setStatus(`Sell blocked: ${sellBlockReason}`);
       return;
+    }
+    // Gate A atomic path: only require connect + gateway; quotes refreshed below.
+    if (opts.mode === "atomic-only") {
+      if (!account) {
+        setStatus("Gate A blocked: connect wallet first.");
+        return;
+      }
+      if (!gatewayReady) {
+        setStatus("Gate A blocked: gateway not configured.");
+        return;
+      }
     }
     setBusy(true);
     setStatus("");
@@ -605,10 +635,18 @@ export function UtilityIndexPanel() {
         chain,
         transport: custom(ethereum),
       });
-      const percentBps = Math.min(100, Math.max(1, sellPercent)) * 100;
+      const pct = opts.forcePercent ?? sellPercent;
+      const percentBps = Math.min(100, Math.max(1, pct)) * 100;
       const amountIns: Record<string, bigint> = {};
       for (const row of balances) {
         amountIns[row.symbol] = (row.raw * BigInt(percentBps)) / BigInt(10_000);
+      }
+      const hasAny = Object.values(amountIns).some((v) => v > BigInt(0));
+      if (!hasAny) {
+        setStatus(
+          "Sell blocked: no basket token balances. Buy first, then retry Gate A atomic sell.",
+        );
+        return;
       }
 
       const fresh = await quoteSellLegs({
@@ -635,62 +673,146 @@ export function UtilityIndexPanel() {
         ],
       });
 
-      // Capability-gated EIP-5792 batch (MetaMask atomic list does not include 4663 today).
       const needsApprove = BASKET.filter((t) => {
         const need = amountIns[t.symbol] ?? BigInt(0);
         if (need === BigInt(0)) return false;
         const have = balances.find((b) => b.symbol === t.symbol)?.allowance ?? BigInt(0);
         return have < need;
       });
-      let usedBatch = false;
-      if (needsApprove.length > 0) {
-        try {
-          const caps = (await ethereum.request({
-            method: "wallet_getCapabilities",
-            params: [account, [`0x${RH_CHAIN_ID.toString(16)}`]],
-          })) as Record<string, { atomic?: { status?: string } }>;
-          const chainKey = `0x${RH_CHAIN_ID.toString(16)}`;
-          const atomic = caps?.[chainKey]?.atomic?.status;
-          if (atomic === "supported" || atomic === "ready") {
-            const calls = [
-              ...needsApprove.map((t) => ({
-                to: t.address,
-                data: encodeFunctionData({
-                  abi: erc20Abi,
-                  functionName: "approve",
-                  args: [gateway as Address, maxUint256],
-                }),
-                value: "0x0",
-              })),
-              {
-                to: gateway as Address,
-                data: exitData,
-                value: "0x0",
-              },
-            ];
-            setPromptCount((n) => n + 1);
-            const batch = (await ethereum.request({
-              method: "wallet_sendCalls",
-              params: [
-                {
-                  version: "2.0.0",
-                  from: account,
-                  chainId: chainKey,
-                  atomicRequired: true,
-                  calls,
-                },
-              ],
-            })) as { id?: string };
-            usedBatch = true;
+
+      const chainKey = `0x${RH_CHAIN_ID.toString(16)}`;
+      const tryAtomic = async (): Promise<boolean> => {
+        const caps = (await ethereum.request({
+          method: "wallet_getCapabilities",
+          params: [account, [chainKey]],
+        })) as Record<string, { atomic?: { status?: string } }>;
+        const atomic =
+          caps?.[chainKey]?.atomic?.status ??
+          caps?.[chainKey.toLowerCase()]?.atomic?.status ??
+          null;
+        if (atomic !== "supported" && atomic !== "ready") {
+          if (opts.mode === "atomic-only") {
             setStatus(
-              `Sell batched via wallet_sendCalls (atomic=${atomic}). Batch id: ${batch?.id ?? JSON.stringify(batch).slice(0, 80)}`,
+              `Gate A FAIL: atomic.status=${JSON.stringify(atomic)} on ${chainKey}. Capability discovery did not advertise ready/supported — not attempting sequential fallback.`,
             );
-            await refresh();
-            return;
+            return true; // handled
           }
-        } catch {
-          // Expected on MetaMask/Rabby for 4663 today — fall through to sequential.
+          return false;
         }
+
+        const calls =
+          needsApprove.length > 0
+            ? [
+                ...needsApprove.map((t) => ({
+                  to: t.address,
+                  data: encodeFunctionData({
+                    abi: erc20Abi,
+                    functionName: "approve",
+                    args: [gateway as Address, maxUint256],
+                  }),
+                  value: "0x0",
+                })),
+                {
+                  to: gateway as Address,
+                  data: exitData,
+                  value: "0x0",
+                },
+              ]
+            : [
+                {
+                  to: gateway as Address,
+                  data: exitData,
+                  value: "0x0",
+                },
+              ];
+
+        const ethBefore = await publicClient.getBalance({ address: account });
+        setPromptCount((n) => n + 1);
+        setStatus(
+          `Gate A: requesting wallet_sendCalls (${calls.length} calls, atomicRequired=true, atomic.status=${atomic}, sell=${pct}%). Approve the wallet prompt(s). “ready” ≠ proven execution.`,
+        );
+        const batch = (await ethereum.request({
+          method: "wallet_sendCalls",
+          params: [
+            {
+              version: "2.0.0",
+              from: account,
+              chainId: chainKey,
+              atomicRequired: true,
+              calls,
+            },
+          ],
+        })) as { id?: string } | string;
+        const batchId =
+          typeof batch === "string"
+            ? batch
+            : batch?.id ?? JSON.stringify(batch).slice(0, 120);
+
+        // Poll getCallsStatus when available
+        let statusJson: unknown = null;
+        for (let i = 0; i < 40; i += 1) {
+          try {
+            statusJson = await ethereum.request({
+              method: "wallet_getCallsStatus",
+              params: [batchId],
+            });
+            const st = statusJson as { status?: number | string; receipts?: unknown[] };
+            const code = st?.status;
+            if (
+              code === 200 ||
+              code === "CONFIRMED" ||
+              code === 1 ||
+              (Array.isArray(st?.receipts) && st.receipts.length > 0)
+            ) {
+              break;
+            }
+            if (code === 100 || code === "FAILED" || code === 3) break;
+          } catch {
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+
+        await refresh();
+        const ethAfter = await publicClient.getBalance({ address: account });
+        const returned = ethAfter > ethBefore ? ethAfter - ethBefore : BigInt(0);
+        setStatus(
+          [
+            `Gate A wallet_sendCalls submitted.`,
+            `atomic.status(capability)=${atomic}`,
+            `batchId=${batchId}`,
+            `calls=${calls.length} (approves=${needsApprove.length}, exit=1)`,
+            `sellPercent=${pct}`,
+            `minOutEth=${formatEther(fresh.minAmountOutEth)}`,
+            `ETH before=${formatEther(ethBefore)} after=${formatEther(ethAfter)} delta≈${formatEther(returned)} (gas may reduce delta)`,
+            `getCallsStatus=${statusJson ? JSON.stringify(statusJson).slice(0, 500) : "n/a"}`,
+            `Honesty: capability “ready” is not execution proof — record receipts from wallet/explorer.`,
+          ].join("\n"),
+        );
+        return true;
+      };
+
+      try {
+        const handled = await tryAtomic();
+        if (handled) return;
+      } catch (e) {
+        if (opts.mode === "atomic-only") {
+          setStatus(
+            `Gate A FAIL (no sequential fallback): ${String(e).slice(0, 400)}`,
+          );
+          return;
+        }
+        // sequential-allowed: fall through
+        setStatus(
+          `Atomic batch unavailable (${String(e).slice(0, 120)}); falling back to sequential…`,
+        );
+      }
+
+      if (opts.mode === "atomic-only") {
+        setStatus(
+          "Gate A FAIL: atomic path did not run. No sequential fallback by design.",
+        );
+        return;
       }
 
       let prompts = 0;
@@ -726,9 +848,7 @@ export function UtilityIndexPanel() {
         chain,
       });
       setStatus(
-        usedBatch
-          ? `Sell confirmed via batch`
-          : `Sell submitted after ${prompts} confirmation(s) this session (cold path up to 9 on ordinary wallets). Hash: ${hash}`,
+        `Sell submitted after ${prompts} confirmation(s) this session (cold path up to 9 on ordinary wallets). Hash: ${hash}`,
       );
       await publicClient.waitForTransactionReceipt({ hash: hash as Hex });
       await refresh();
@@ -989,6 +1109,27 @@ export function UtilityIndexPanel() {
             >
               Sell {sellPercent}% (sequential · may be up to 9 prompts)
             </button>
+            <button
+              type="button"
+              disabled={busy || !account}
+              onClick={() => void sellAtomicGateA50()}
+              className="w-fit rounded bg-sky-500 px-5 py-2.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
+            >
+              Gate A · Sell 50% atomic only (wallet_sendCalls)
+            </button>
+            <button
+              type="button"
+              disabled={busy || !account}
+              onClick={() => void sellAtomicGateA100()}
+              className="w-fit rounded border border-sky-500 px-5 py-2.5 text-sm font-semibold text-sky-100 disabled:opacity-40"
+            >
+              Gate A · Sell 100% remainder atomic only
+            </button>
+            <p className="text-xs text-zinc-500 max-w-xl">
+              Gate A buttons force atomicRequired wallet_sendCalls (approvals + exit together). They
+              do not fall back to nine sequential confirms. Capability “ready” is discovery only —
+              not proven execution until receipts land.
+            </p>
           </section>
         </>
       )}
