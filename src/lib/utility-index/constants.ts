@@ -86,7 +86,7 @@ export const PROMPT_INVENTORY = {
   maxAllowed: 3,
   firstSellMeetsLe3: false,
   blocker:
-    "Cold first sell needs 8 ERC20 approvals + 1 exit = 9 confirmations on ordinary RH wallets. No proven 4663 batching (5792/7702/7715). Vault/xINDEX rejected — ownership stays in-wallet.",
+    "Cold first sell needs 8 ERC20 approvals + 1 exit = 9 confirmations on ordinary RH wallets. MetaMask atomic batch networks omit 4663; EIP-2612 covers only 4/8 tokens. Vault/xINDEX rejected — ownership stays in-wallet. maxUint256 approves make subsequent sells 1 confirm.",
 } as const;
 
 export const gatewayAbi = [

@@ -18,6 +18,7 @@ import {
   formatEther,
   formatUnits,
   http,
+  maxUint256,
   parseEther,
   type Address,
   type Hex,
@@ -452,27 +453,6 @@ export function UtilityIndexPanel() {
         amountIns[row.symbol] = (row.raw * BigInt(percentBps)) / BigInt(10_000);
       }
 
-      let prompts = 0;
-      for (const t of BASKET) {
-        const need = amountIns[t.symbol] ?? BigInt(0);
-        if (need === BigInt(0)) continue;
-        const row = balances.find((b) => b.symbol === t.symbol);
-        const have = row?.allowance ?? BigInt(0);
-        if (have < need) {
-          prompts += 1;
-          setPromptCount((n) => n + 1);
-          const h = await wallet.writeContract({
-            address: t.address,
-            abi: erc20Abi,
-            functionName: "approve",
-            args: [gateway as Address, need],
-            account,
-            chain,
-          });
-          await publicClient.waitForTransactionReceipt({ hash: h as Hex });
-        }
-      }
-
       const fresh = await quoteSellLegs({
         client: publicClient,
         amountIns,
@@ -484,6 +464,92 @@ export function UtilityIndexPanel() {
       }
       const exit = buildExitLegs(minOutMap(fresh.legs));
       const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_SEC);
+      const exitData = encodeFunctionData({
+        abi: gatewayAbi,
+        functionName: "exitPercentToEth",
+        args: [
+          BigInt(percentBps),
+          exit.v3,
+          exit.v2,
+          exit.v4,
+          fresh.minAmountOutEth,
+          deadline,
+        ],
+      });
+
+      // Capability-gated EIP-5792 batch (MetaMask atomic list does not include 4663 today).
+      const needsApprove = BASKET.filter((t) => {
+        const need = amountIns[t.symbol] ?? BigInt(0);
+        if (need === BigInt(0)) return false;
+        const have = balances.find((b) => b.symbol === t.symbol)?.allowance ?? BigInt(0);
+        return have < need;
+      });
+      let usedBatch = false;
+      if (needsApprove.length > 0) {
+        try {
+          const caps = (await ethereum.request({
+            method: "wallet_getCapabilities",
+            params: [account, [`0x${RH_CHAIN_ID.toString(16)}`]],
+          })) as Record<string, { atomic?: { status?: string } }>;
+          const chainKey = `0x${RH_CHAIN_ID.toString(16)}`;
+          const atomic = caps?.[chainKey]?.atomic?.status;
+          if (atomic === "supported" || atomic === "ready") {
+            const calls = [
+              ...needsApprove.map((t) => ({
+                to: t.address,
+                data: encodeFunctionData({
+                  abi: erc20Abi,
+                  functionName: "approve",
+                  args: [gateway as Address, maxUint256],
+                }),
+                value: "0x0",
+              })),
+              {
+                to: gateway as Address,
+                data: exitData,
+                value: "0x0",
+              },
+            ];
+            setPromptCount((n) => n + 1);
+            const batch = (await ethereum.request({
+              method: "wallet_sendCalls",
+              params: [
+                {
+                  version: "2.0.0",
+                  from: account,
+                  chainId: chainKey,
+                  atomicRequired: true,
+                  calls,
+                },
+              ],
+            })) as { id?: string };
+            usedBatch = true;
+            setStatus(
+              `Sell batched via wallet_sendCalls (atomic=${atomic}). Batch id: ${batch?.id ?? JSON.stringify(batch).slice(0, 80)}`,
+            );
+            await refresh();
+            return;
+          }
+        } catch {
+          // Expected on MetaMask/Rabby for 4663 today — fall through to sequential.
+        }
+      }
+
+      let prompts = 0;
+      for (const t of needsApprove) {
+        prompts += 1;
+        setPromptCount((n) => n + 1);
+        const h = await wallet.writeContract({
+          address: t.address,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [gateway as Address, maxUint256],
+          account,
+          chain,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: h as Hex });
+      }
+
       prompts += 1;
       setPromptCount((n) => n + 1);
       const hash = await wallet.writeContract({
@@ -502,7 +568,9 @@ export function UtilityIndexPanel() {
         chain,
       });
       setStatus(
-        `Sell submitted after ${prompts} confirmation(s) this session (cold path can be up to 9). Hash: ${hash}`,
+        usedBatch
+          ? `Sell confirmed via batch`
+          : `Sell submitted after ${prompts} confirmation(s) this session (cold path up to 9 on ordinary wallets). Hash: ${hash}`,
       );
       await publicClient.waitForTransactionReceipt({ hash: hash as Hex });
       await refresh();
@@ -654,6 +722,12 @@ export function UtilityIndexPanel() {
                     Active legs: {buyQuote.activeLegCount}/8 · investable after 100 bps fee:{" "}
                     {formatEther(buyQuote.investableEth)} ETH
                   </p>
+                  {buyQuote.legs.map((l) => (
+                    <p key={l.symbol}>
+                      {l.symbol}: in {formatEther(l.amountIn)} ETH → minOut{" "}
+                      {formatUnits(l.amountOutMinimum, BASKET.find((t) => t.symbol === l.symbol)?.decimals ?? 18)}
+                    </p>
+                  ))}
                   {buyGasWei !== null && (
                     <p>
                       Est. gas units: {buyGasWei.toString()}
