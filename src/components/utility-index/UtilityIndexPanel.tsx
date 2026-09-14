@@ -48,10 +48,10 @@ type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
 };
 
-declare global {
-  interface Window {
-    ethereum?: EthereumProvider;
-  }
+function getEthereum(): EthereumProvider | undefined {
+  if (typeof window === "undefined") return undefined;
+  const w = window as Window & { ethereum?: EthereumProvider };
+  return w.ethereum;
 }
 
 const chain = { ...robinhood, id: RH_CHAIN_ID };
@@ -356,19 +356,20 @@ export function UtilityIndexPanel() {
   }, [gatewayReady, account, chainId, sellQuoting, sellQuoteError, sellQuote]);
 
   async function connect() {
-    if (!window.ethereum) {
+    const ethereum = getEthereum();
+    if (!ethereum) {
       setStatus("No EIP-1193 wallet found.");
       return;
     }
-    const accounts = (await window.ethereum.request({
+    const accounts = (await ethereum.request({
       method: "eth_requestAccounts",
     })) as string[];
     setAccount(accounts[0] as Address);
-    const cid = Number(await window.ethereum.request({ method: "eth_chainId" }));
+    const cid = Number(await ethereum.request({ method: "eth_chainId" }));
     setChainId(cid);
     if (cid !== RH_CHAIN_ID) {
       try {
-        await window.ethereum.request({
+        await ethereum.request({
           method: "wallet_switchEthereumChain",
           params: [{ chainId: `0x${RH_CHAIN_ID.toString(16)}` }],
         });
@@ -380,7 +381,8 @@ export function UtilityIndexPanel() {
   }
 
   async function buy() {
-    if (!window.ethereum || !account || !gatewayReady || !gateway) return;
+    const ethereum = getEthereum();
+    if (!ethereum || !account || !gatewayReady || !gateway) return;
     if (buyBlockReason) {
       setStatus(`Buy blocked: ${buyBlockReason}`);
       return;
@@ -394,7 +396,7 @@ export function UtilityIndexPanel() {
       const wallet = createWalletClient({
         account,
         chain,
-        transport: custom(window.ethereum),
+        transport: custom(ethereum),
       });
       // Fresh quote at send time
       const fresh = await quoteBuyLegs({
@@ -430,7 +432,8 @@ export function UtilityIndexPanel() {
   }
 
   async function sellSequentialCold() {
-    if (!window.ethereum || !account || !gatewayReady || !gateway) return;
+    const ethereum = getEthereum();
+    if (!ethereum || !account || !gatewayReady || !gateway) return;
     if (sellBlockReason) {
       setStatus(`Sell blocked: ${sellBlockReason}`);
       return;
@@ -441,7 +444,7 @@ export function UtilityIndexPanel() {
       const wallet = createWalletClient({
         account,
         chain,
-        transport: custom(window.ethereum),
+        transport: custom(ethereum),
       });
       const percentBps = Math.min(100, Math.max(1, sellPercent)) * 100;
       const amountIns: Record<string, bigint> = {};
