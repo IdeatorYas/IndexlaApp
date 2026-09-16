@@ -30,7 +30,15 @@ function StableClubShellSkeleton({ label }: { label: string }) {
   );
 }
 
-function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolean }) {
+function StableClubConnectedShell({
+  depositsEnabled,
+  depositBlockers,
+  onRetryReadiness,
+}: {
+  depositsEnabled: boolean;
+  depositBlockers: readonly string[];
+  onRetryReadiness: () => void;
+}) {
   const positions = useFivePoolPositions();
   const hasActiveLps = positions.positions.some((pos) => pos.liquidity > BigInt(0));
   const deploymentsBooting = positions.deploymentsLoading && !hasActiveLps;
@@ -115,6 +123,8 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
   const firstDepositForm = (
     <StableClubCompactDeposit
       depositsEnabled={depositsEnabled}
+      depositBlockers={depositBlockers}
+      onRetryReadiness={onRetryReadiness}
       onDepositSuccess={onDepositSuccess}
       title="Add Funds"
       subtitle="Deposit USDC · equal 20% across all five Base pools"
@@ -160,6 +170,8 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
           {addFundsOpen && hasActiveLps ? (
             <StableClubCompactDeposit
               depositsEnabled={depositsEnabled}
+              depositBlockers={depositBlockers}
+              onRetryReadiness={onRetryReadiness}
               onDepositSuccess={onDepositSuccess}
               title="Add Funds"
               subtitle="New USDC is allocated 20% across all five pools"
@@ -265,9 +277,15 @@ export function StableClubBetaView({
   devToolsEnabled?: boolean;
 } = {}) {
   const wallet = useStableClubWallet();
-  const { readiness, loading, error, refetchBootstrap } = useStableClubBetaReadiness();
+  const { readiness, loading, error, refetchBootstrap, refreshActivation } =
+    useStableClubBetaReadiness();
   const searchParams = useSearchParams();
   const depositsEnabled = depositsEnabledOverride ?? readiness.depositsEnabled;
+  const depositBlockers = readiness.depositBlockers;
+  const onRetryReadiness = useCallback(() => {
+    void refetchBootstrap?.();
+    void refreshActivation?.();
+  }, [refetchBootstrap, refreshActivation]);
   const readinessLoading = loadingOverride ?? loading;
   const readinessError = errorOverride !== undefined ? errorOverride : error;
   const connected = wallet.status === "connected" && Boolean(wallet.address);
@@ -371,7 +389,11 @@ export function StableClubBetaView({
             <StableClubShellSkeleton label="Preparing your position" />
           </>
         ) : (
-          <StableClubConnectedShell depositsEnabled={depositsEnabled} />
+          <StableClubConnectedShell
+            depositsEnabled={depositsEnabled}
+            depositBlockers={depositBlockers}
+            onRetryReadiness={onRetryReadiness}
+          />
         )}
         <StableClubCategoryExplain />
         <StableClubRiskDisclaimer />

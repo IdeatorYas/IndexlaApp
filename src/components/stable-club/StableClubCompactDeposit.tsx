@@ -10,12 +10,17 @@ import { STABLE_CLUB_CHAIN_ID } from "@/lib/stable-club/constants";
  */
 export function StableClubCompactDeposit({
   depositsEnabled,
+  depositBlockers = [],
+  onRetryReadiness,
   onDepositSuccess,
   title = "Deposit USDC",
   subtitle = "One deposit · equal 20% allocation across five Base pools",
   compact = false,
 }: {
   depositsEnabled: boolean;
+  /** From beta readiness — shown when deposits are gated. */
+  depositBlockers?: readonly string[];
+  onRetryReadiness?: () => void;
   onDepositSuccess?: () => void;
   title?: string;
   subtitle?: string;
@@ -25,7 +30,9 @@ export function StableClubCompactDeposit({
   const wallet = useStableClubWallet();
   const [panelError, setPanelError] = useState<string | null>(null);
   const notifiedTx = useRef<string | null>(null);
-  const wrongNetwork = wallet.chainId != null && wallet.chainId !== STABLE_CLUB_CHAIN_ID;
+  const disconnected = !wallet.address;
+  const wrongNetwork =
+    wallet.chainId != null && wallet.chainId !== STABLE_CLUB_CHAIN_ID;
   const busy = d.deploymentsLoading || d.busy;
   const failClosed = !d.deploymentsLoading && (!depositsEnabled || !d.deployments);
 
@@ -36,20 +43,62 @@ export function StableClubCompactDeposit({
     onDepositSuccess?.();
   }, [d.progress, d.lastTxHash, onDepositSuccess]);
 
-  const onDeposit = () => {
+  // Clear stale gate errors once readiness / network recover.
+  useEffect(() => {
+    if (!failClosed && !wrongNetwork && !disconnected) {
+      setPanelError(null);
+    }
+  }, [failClosed, wrongNetwork, disconnected, depositsEnabled, d.deployments]);
+
+  const onPrimaryClick = () => {
     setPanelError(null);
-    if (failClosed) {
-      setPanelError(
-        "Deposits are unavailable until USDC-only Withdraw All (exitAllToUsdc) is enabled on Base.",
-      );
+    if (disconnected) {
+      void wallet.connect();
       return;
     }
     if (wrongNetwork) {
-      void wallet.switchToBase();
+      void wallet.switchToBase().catch((err) => {
+        const raw = err instanceof Error ? err.message : String(err);
+        setPanelError(
+          /reject|denied|cancel/i.test(raw)
+            ? "Network switch rejected in wallet. Switch to Base and try again."
+            : raw.slice(0, 220),
+        );
+      });
+      return;
+    }
+    if (failClosed) {
+      const detail =
+        depositBlockers.length > 0
+          ? depositBlockers[0]
+          : d.deploymentsError
+            ? d.deploymentsError
+            : !d.deployments
+              ? "Deployments are not loaded yet. Tap Retry."
+              : "Deposits are temporarily unavailable. Confirm you are on Base and retry.";
+      setPanelError(detail);
+      onRetryReadiness?.();
       return;
     }
     void d.depositIntoFivePoolStrategy();
   };
+
+  const primaryDisabled =
+    busy || (wrongNetwork && wallet.switchingNetwork);
+
+  const primaryLabel = disconnected
+    ? "Connect Wallet"
+    : wrongNetwork
+      ? wallet.switchingNetwork
+        ? "Switching…"
+        : "Switch to Base"
+      : failClosed
+        ? "Retry"
+        : d.busy
+          ? "Working…"
+          : title.includes("Add")
+            ? "Add Funds"
+            : "Deposit USDC";
 
   return (
     <section
@@ -71,9 +120,21 @@ export function StableClubCompactDeposit({
       </h1>
       <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{subtitle}</p>
 
+      {disconnected ? (
+        <p className="mt-4 text-sm text-[var(--color-danger)]" role="alert">
+          Connect a wallet to deposit.
+        </p>
+      ) : null}
       {wrongNetwork ? (
         <p className="mt-4 text-sm text-[var(--color-danger)]" role="alert">
           Wrong network — switch to Base.
+        </p>
+      ) : null}
+      {failClosed && !disconnected && !wrongNetwork ? (
+        <p className="mt-4 text-sm text-[var(--color-danger)]" role="alert">
+          {depositBlockers[0] ??
+            d.deploymentsError ??
+            "Deposit gated — tap Retry to re-check Base readiness."}
         </p>
       ) : null}
 
@@ -96,29 +157,19 @@ export function StableClubCompactDeposit({
 
       <button
         type="button"
-        disabled={busy || failClosed || (wrongNetwork && wallet.switchingNetwork)}
-        onClick={onDeposit}
+        disabled={primaryDisabled}
+        onClick={onPrimaryClick}
         className="mt-5 h-12 w-full rounded-xl bg-[var(--color-brand)] text-sm font-bold uppercase tracking-[0.06em] text-white disabled:opacity-45"
       >
-        {failClosed
-          ? "Deposit unavailable"
-          : d.busy
-            ? "Working…"
-            : wrongNetwork
-              ? wallet.switchingNetwork
-                ? "Switching…"
-                : "Switch to Base"
-              : title.includes("Add")
-                ? "Add Funds"
-                : "Deposit USDC"}
+        {primaryLabel}
       </button>
 
       {d.statusMessage ? (
         <p className="mt-3 text-sm text-emerald-800">{d.statusMessage}</p>
       ) : null}
-      {panelError || d.error ? (
+      {panelError || d.error || wallet.error ? (
         <p className="mt-2 text-sm text-[var(--color-danger)]" role="alert">
-          {panelError ?? d.error}
+          {panelError ?? d.error ?? wallet.error}
         </p>
       ) : null}
       {d.lastTxHash && d.explorerUrl ? (

@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPublicClient, custom, http, type Address, type PublicClient } from "viem";
+import { createPublicClient, http, type Address, type PublicClient } from "viem";
 import { base } from "viem/chains";
-import { useStableClubWallet } from "@/components/wallet/StableClubWalletProvider";
 import { usePhase2aBootstrap } from "@/components/stable-club/usePhase2aBootstrap";
 import {
   STABLE_CLUB_LOCAL_CHAIN,
@@ -18,14 +17,20 @@ import {
 import { isExitAllToUsdcAvailable } from "@/lib/stable-club/exit-to-usdc";
 import type { Stage1FivePoolBetaPoolId } from "@/lib/stable-club/stage1-launch";
 
+/**
+ * Beta readiness for deposits. Pool-activation reads are view-only and MUST use
+ * HTTP RPC — never the wallet EIP-1193 provider. Mobile wallets (MetaMask in-app,
+ * WalletConnect) often reject eth_call with "user rejected the request", which
+ * previously cleared activations and falsely showed DEPOSIT UNAVAILABLE.
+ */
 export function useStableClubBetaReadiness() {
-  const wallet = useStableClubWallet();
   const bootstrap = usePhase2aBootstrap();
   const deployments = bootstrap.deployments;
   const attestationPassed = bootstrap.isSuccess && deployments != null;
   const [activatedOnChainIds, setActivatedOnChainIds] = useState<
     Stage1FivePoolBetaPoolId[]
   >([]);
+  const [activationError, setActivationError] = useState<string | null>(null);
 
   const isBaseProduction = deployments?.network === "base" && deployments.chainId === 8453;
   const isLocalHardhat =
@@ -35,16 +40,14 @@ export function useStableClubBetaReadiness() {
   const rpc = deployments?.rpcUrl ?? (isLocalHardhat ? STABLE_CLUB_LOCAL_RPC_URL : undefined);
 
   const publicClient = useMemo(() => {
-    if (wallet.provider) {
-      return createPublicClient({ chain, transport: custom(wallet.provider) });
-    }
     if (!rpc) return null;
     return createPublicClient({ chain, transport: http(rpc) });
-  }, [chain, rpc, wallet.provider]);
+  }, [chain, rpc]);
 
   const refreshActivation = useCallback(async () => {
     if (!deployments || !publicClient || !attestationPassed) {
       setActivatedOnChainIds([]);
+      setActivationError(null);
       return;
     }
     try {
@@ -53,8 +56,15 @@ export function useStableClubBetaReadiness() {
         deployments.clExecutor as Address,
       );
       setActivatedOnChainIds(ids);
-    } catch {
+      setActivationError(null);
+    } catch (err) {
       setActivatedOnChainIds([]);
+      const raw = err instanceof Error ? err.message : String(err);
+      setActivationError(
+        /reject|denied|cancel/i.test(raw)
+          ? "Could not verify pool activation (wallet rejected a read). Retry — reads use the app RPC, not a wallet signature."
+          : `Could not verify pool activation: ${raw.slice(0, 180)}`,
+      );
     }
   }, [attestationPassed, deployments, publicClient]);
 
@@ -77,7 +87,7 @@ export function useStableClubBetaReadiness() {
     deployments,
     readiness,
     loading: bootstrap.loading && !attestationPassed,
-    error: bootstrap.error,
+    error: bootstrap.error ?? activationError,
     isLocalHardhat,
     refreshActivation,
     refetchBootstrap: bootstrap.refetch,
