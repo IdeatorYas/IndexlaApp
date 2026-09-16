@@ -63,11 +63,14 @@ export function StableClubPositionDashboard({
   depositsEnabled = false,
   onAddFunds,
   addFundsOpen = false,
+  forceShow = false,
 }: {
   positionsApi: PositionsApi;
   depositsEnabled?: boolean;
   onAddFunds?: () => void;
   addFundsOpen?: boolean;
+  /** Keep panel visible after deposit while positions refresh. */
+  forceShow?: boolean;
 }) {
   const p = positionsApi;
   const wallet = useStableClubWallet();
@@ -260,10 +263,44 @@ export function StableClubPositionDashboard({
 
   /**
    * Confirmed zero active LPs: hide the full position panel unless Finish/Resume
-   * is needed (open catalogue LP and/or convertible residue from chain).
+   * is needed, or we are forcing the panel after a deposit while refresh catches up.
    */
-  if (isEmpty && !p.incompleteWithdraw && !p.chainFinishNeeded) {
+  if (isEmpty && !p.incompleteWithdraw && !p.chainFinishNeeded && !forceShow && !p.positionsLoading) {
     return null;
+  }
+
+  if (isEmpty && (forceShow || p.positionsLoading) && !p.incompleteWithdraw && !p.chainFinishNeeded) {
+    return (
+      <section
+        id="my-stable-club-position"
+        className="app-panel overflow-hidden rounded-2xl p-5"
+        aria-label="My Stable Club Position"
+        role="status"
+      >
+        <h2 className="text-lg font-extrabold text-[var(--color-ink)]">My Position</h2>
+        <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
+          Loading your positions…
+        </p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <button type="button" disabled className={`${actionBtn} opacity-40`}>
+            Add Funds
+          </button>
+          <button type="button" disabled className={`${actionBtn} opacity-40`}>
+            Harvest
+          </button>
+          <button type="button" disabled className={`${actionBtn} opacity-40`}>
+            Compound
+          </button>
+          <button
+            type="button"
+            disabled
+            className="h-12 rounded-xl bg-[var(--color-brand)] text-[12px] font-extrabold uppercase tracking-[0.07em] text-white opacity-40"
+          >
+            Withdraw
+          </button>
+        </div>
+      </section>
+    );
   }
 
   return (

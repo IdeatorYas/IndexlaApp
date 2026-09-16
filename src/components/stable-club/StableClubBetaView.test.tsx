@@ -187,13 +187,17 @@ describe("StableClubBetaView", () => {
     };
   });
 
-  it("disconnected: pool catalogue without intro / duplicate Connect Wallet", () => {
+  it("disconnected: pool catalogue with Add Funds CTA (opens connect)", () => {
     render(<StableClubBetaView />);
     expect(screen.queryByRole("button", { name: "Connect Wallet" })).toBeNull();
     expect(screen.queryByText(/Five-pool USDC liquidity/i)).toBeNull();
     expect(screen.queryByText(/Stable Club · Base/i)).toBeNull();
     expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
     expect(screen.queryByText("My Stable Club Position")).toBeNull();
+    const addFunds = screen.getByRole("button", { name: "Add Funds" });
+    expect(addFunds).toBeEnabled();
+    fireEvent.click(addFunds);
+    expect(connect).toHaveBeenCalled();
   });
 
   it("wrong-network: Switch to Base instead of Connect wall", () => {
@@ -212,6 +216,9 @@ describe("StableClubBetaView", () => {
     expect(screen.queryByText(/Five-pool USDC liquidity/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Switch to Base" }));
     expect(walletState.switchToBase).toHaveBeenCalled();
+    // Add Funds CTA also routes to switch on wrong network
+    fireEvent.click(screen.getByRole("button", { name: "Add Funds" }));
+    expect(walletState.switchToBase).toHaveBeenCalledTimes(2);
   });
 
   it("wrong-network: shows Switching… while request pending", () => {
@@ -226,9 +233,10 @@ describe("StableClubBetaView", () => {
     };
     render(<StableClubBetaView />);
     expect(screen.getByRole("button", { name: "Switching…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add Funds" })).toBeDisabled();
   });
 
-  it("connected with no positions: blank My Position body (no panel/actions)", () => {
+  it("connected with no positions: My Position tab shows Add Funds form", () => {
     walletState = {
       status: "connected",
       chainId: 8453,
@@ -239,30 +247,26 @@ describe("StableClubBetaView", () => {
       switchToBase: vi.fn(),
     };
     render(<StableClubBetaView />);
-    // Empty wallets land on Available Pools; My Position is blank when selected.
+    // Empty wallets land on Available Pools with inline Add Funds form.
     expect(screen.getByRole("tab", { name: "Available Pools" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
     expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Add Funds" }).length).toBeGreaterThanOrEqual(1);
 
     fireEvent.click(screen.getByRole("tab", { name: "My Position" }));
     expect(screen.getByRole("tab", { name: "My Position" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.queryByRole("heading", { name: "My Position" })).toBeNull();
+    // Empty My Position shows the Add Funds deposit form (not a blank panel).
+    expect(screen.getByRole("heading", { name: "Add Funds" })).toBeInTheDocument();
     expect(screen.queryByLabelText("My Stable Club Position")).toBeNull();
     expect(screen.queryByText("Total Position Value")).toBeNull();
-    expect(screen.queryByText("No active positions")).toBeNull();
-    expect(screen.queryByRole("columnheader", { name: "Pool" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add Funds" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Withdraw" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Harvest" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Compound" })).toBeNull();
-    expect(screen.queryByText(/Stranded wallet assets/i)).toBeNull();
-    expect(screen.queryByRole("button", { name: /Finish incomplete withdraw/i })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Deposit USDC" })).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "Available Pools" }));
     expect(screen.getByRole("heading", { name: "TOP BASE CHAIN LPs" })).toBeInTheDocument();

@@ -36,6 +36,7 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
   const deploymentsBooting = positions.deploymentsLoading && !hasActiveLps;
   const [tab, setTab] = useState<TabId>("pools");
   const [addFundsOpen, setAddFundsOpen] = useState(false);
+  const [awaitingPositions, setAwaitingPositions] = useState(false);
 
   const openAddFunds = useCallback(() => {
     setTab("position");
@@ -45,16 +46,22 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
   const onDepositSuccess = useCallback(() => {
     setTab("position");
     setAddFundsOpen(false);
-    void positions.refreshPositions();
+    setAwaitingPositions(true);
+    void positions.refreshPositions().finally(() => {
+      /* positionsLoading / hasActiveLps drive UI */
+    });
   }, [positions]);
 
   useEffect(() => {
-    if (hasActiveLps) setTab("position");
+    if (hasActiveLps) {
+      setTab("position");
+      setAwaitingPositions(false);
+    }
   }, [hasActiveLps]);
 
   useEffect(() => {
-    if (!hasActiveLps) setAddFundsOpen(false);
-  }, [hasActiveLps]);
+    if (!hasActiveLps && !awaitingPositions) setAddFundsOpen(false);
+  }, [hasActiveLps, awaitingPositions]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -62,6 +69,7 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
       if (detail?.reason === "deposit-confirmed") {
         setTab("position");
         setAddFundsOpen(false);
+        setAwaitingPositions(true);
       }
     };
     window.addEventListener(FIVE_POOL_POSITIONS_REFRESH_EVENT, handler);
@@ -114,6 +122,8 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
     />
   );
 
+  const showPositionPanel = hasActiveLps || awaitingPositions || positions.positionsLoading;
+
   return (
     <div className="space-y-3">
       <div
@@ -136,12 +146,17 @@ function StableClubConnectedShell({ depositsEnabled }: { depositsEnabled: boolea
         </div>
       ) : (
         <div className="space-y-3">
-          <StableClubPositionDashboard
-            positionsApi={positions}
-            depositsEnabled={depositsEnabled}
-            onAddFunds={() => setAddFundsOpen((v) => !v)}
-            addFundsOpen={addFundsOpen}
-          />
+          {showPositionPanel ? (
+            <StableClubPositionDashboard
+              positionsApi={positions}
+              depositsEnabled={depositsEnabled}
+              onAddFunds={() => setAddFundsOpen((v) => !v)}
+              addFundsOpen={addFundsOpen}
+              forceShow={awaitingPositions}
+            />
+          ) : (
+            firstDepositForm
+          )}
           {addFundsOpen && hasActiveLps ? (
             <StableClubCompactDeposit
               depositsEnabled={depositsEnabled}
@@ -292,6 +307,30 @@ export function StableClubBetaView({
     </section>
   );
 
+  const guestPools = (
+    <StableClubAvailablePools
+      depositsEnabled={false}
+      requireDepositsEnabled={false}
+      showDepositCta
+      onDepositClick={() => void wallet.connect()}
+      ctaLabel="Add Funds"
+      ctaHint="Connect wallet · then deposit USDC equally across five Base pools"
+    />
+  );
+
+  const wrongNetworkPools = (
+    <StableClubAvailablePools
+      depositsEnabled={false}
+      requireDepositsEnabled={false}
+      showDepositCta
+      onDepositClick={
+        wallet.switchingNetwork ? undefined : () => void wallet.switchToBase()
+      }
+      ctaLabel="Add Funds"
+      ctaHint="Switch to Base · then deposit USDC into My Position"
+    />
+  );
+
   return (
     <div className="stable-club-hub min-h-[70vh] px-3 py-4 sm:px-6 sm:py-6">
       <div className="mx-auto w-full max-w-3xl space-y-3">
@@ -300,10 +339,10 @@ export function StableClubBetaView({
         ) : wrongNetwork ? (
           <>
             {wrongNetworkBanner}
-            <StableClubAvailablePools depositsEnabled={false} showDepositCta={false} />
+            {wrongNetworkPools}
           </>
         ) : !connected ? (
-          <StableClubAvailablePools depositsEnabled={false} showDepositCta={false} />
+          guestPools
         ) : readinessError ? (
           <section className="app-panel rounded-2xl p-6">
             <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-[var(--color-danger)]">
@@ -322,7 +361,13 @@ export function StableClubBetaView({
           </section>
         ) : readinessLoading ? (
           <>
-            <StableClubAvailablePools depositsEnabled={false} showDepositCta={false} />
+            <StableClubAvailablePools
+              depositsEnabled={false}
+              requireDepositsEnabled
+              showDepositCta
+              ctaLabel="Add Funds"
+              ctaHint="Preparing Stable Club…"
+            />
             <StableClubShellSkeleton label="Preparing your position" />
           </>
         ) : (

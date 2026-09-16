@@ -159,13 +159,17 @@ export function StableClubWalletProvider({
     connectAsync,
   ]);
 
+  // Prefer live EIP-1193 chain. While connected but chain still unknown, stay in
+  // "connecting" — never flash false "wrong-network" / Switch to Base.
   const status: StableClubWalletState["status"] = !isConnected
     ? isConnecting || isReconnecting
       ? "connecting"
       : "disconnected"
-    : chainId === expectedChainId
-      ? "connected"
-      : "wrong-network";
+    : chainId == null
+      ? "connecting"
+      : chainId === expectedChainId
+        ? "connected"
+        : "wrong-network";
 
   const connect = useCallback(async () => {
     setLocalError(null);

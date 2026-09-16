@@ -63,14 +63,21 @@ function ProtocolLogo({ protocol }: { protocol: "uniswap-v3" | "aerodrome-slipst
 export function StableClubAvailablePools({
   showDepositCta = false,
   depositsEnabled = false,
+  requireDepositsEnabled = true,
   onDepositClick,
   depositSlot,
+  ctaLabel,
+  ctaHint,
 }: {
   showDepositCta?: boolean;
   depositsEnabled?: boolean;
+  /** When false, Add Funds stays clickable even if depositsEnabled is false (e.g. Connect). */
+  requireDepositsEnabled?: boolean;
   onDepositClick?: () => void;
   /** Optional deposit form rendered inside this panel (users without positions). */
   depositSlot?: ReactNode;
+  ctaLabel?: string;
+  ctaHint?: string;
 } = {}) {
   const { byPoolId, loading, fetchedAt } = useStableClubPoolApyMap();
   const pools = OFFICIAL_STABLE_CLUB_BASE_POOLS.filter((p) =>
@@ -212,14 +219,18 @@ export function StableClubAvailablePools({
         <div className="border-t border-[var(--color-panel-border)] bg-[var(--color-panel)] px-5 py-5 sm:px-7">
           <button
             type="button"
-            disabled={!depositsEnabled}
+            disabled={!onDepositClick || (requireDepositsEnabled && !depositsEnabled)}
             onClick={onDepositClick}
             className="flex h-12 w-full items-center justify-center rounded-xl bg-[var(--color-brand)] text-sm font-bold uppercase tracking-[0.08em] text-white shadow-[0_8px_24px_rgba(11,31,58,0.22)] transition hover:brightness-110 disabled:opacity-45"
           >
-            {depositsEnabled ? "Add Funds" : "Add Funds unavailable"}
+            {ctaLabel ??
+              (requireDepositsEnabled && !depositsEnabled
+                ? "Add Funds unavailable"
+                : "Add Funds")}
           </button>
           <p className="mt-2 text-center text-[12px] text-[var(--color-ink-muted)]">
-            Deposit USDC into My Position · equal 20% across all five pools
+            {ctaHint ??
+              "Deposit USDC into My Position · equal 20% across all five pools"}
           </p>
         </div>
       ) : null}
