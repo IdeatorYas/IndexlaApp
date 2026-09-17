@@ -1,7 +1,8 @@
 /**
  * Gateway cold/warm withdraw orchestration (feature-flagged).
  * Fail-closed: never mark complete while catalogue LPs or non-USDC withdrawal residue remain.
- * Atomic path: setApprovalForAll (as needed) → simulate → one exitPercentToUsdc for all legs.
+ * Path: setApprovalForAll (as needed, always mined first) → HTTP estimate+floor →
+ * simulate with gas → one exitPercentToUsdc with forced gas (mobile-safe).
  */
 import {
   createWalletClient,
@@ -14,15 +15,14 @@ import {
   type PublicClient,
   type WalletClient,
 } from "viem";
+import { base } from "viem/chains";
 import {
   coldWithdrawPromptClaim,
   encodeGatewayExitPercentToUsdcCall,
-  encodeSetApprovalForAllCall,
   erc721SetApprovalForAllAbi,
   opsGatewayAbi,
   probeAtomicBatchCapability,
   resolveOpsGatewayAddress,
-  tryWalletSendCalls,
   uniqueNpmAddresses,
   isOpsGatewayWithdrawAvailable,
   type NpmExitLegInput,
@@ -35,6 +35,12 @@ import { waitForReadClientBlock } from "@/lib/stable-club/read-block-floor";
 import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transaction-receipt";
 import { planLooseAssetRecoveries } from "@/lib/stable-club/recover-loose-assets";
 import { residueFromBaseline } from "@/lib/stable-club/withdraw-checkpoint";
+import {
+  applyGatewayExitGasBuffer,
+  GATEWAY_EXIT_OOG_USER_MESSAGE,
+  requireGatewayExitGasLimit,
+} from "@/lib/stable-club/gateway-exit-gas";
+import { wrapProviderForceGatewayExitGas } from "@/lib/stable-club/force-gateway-exit-gas-provider";
 
 export type GatewayWithdrawPosition = {
   npm: Address;
@@ -72,6 +78,7 @@ export async function withdrawPercentViaOpsGateway(params: {
     | "getBalance"
     | "getBlockNumber"
     | "call"
+    | "estimateGas"
   >;
   /** Optional React positions — live HTTP catalogue enumeration is authoritative. */
   positions: GatewayWithdrawPosition[];
@@ -98,19 +105,22 @@ export async function withdrawPercentViaOpsGateway(params: {
   }
 
   const chainIdHex = `0x${params.deployments.chainId.toString(16)}` as Hex;
-  const caps = await probeAtomicBatchCapability({
+  // Probe kept for inventory copy only — exit is always sequential + forced gas
+  // (mobile wallets fail batch / ungassed exit simulation).
+  await probeAtomicBatchCapability({
     provider: params.provider,
     chainIdHex,
     account: params.account,
   });
   const promptClaim = coldWithdrawPromptClaim({
-    atomicBatchSupported: caps.atomicBatchSupported,
+    atomicBatchSupported: false,
   });
   params.onStatus?.(promptClaim.copy);
 
   const walletClient = createWalletClient({
     account: params.account,
-    transport: custom(params.provider),
+    chain: base,
+    transport: custom(wrapProviderForceGatewayExitGas(params.provider)),
   });
 
   // Wait for HTTP head so post–Add Funds enumeration is not stale.
@@ -240,8 +250,10 @@ export async function withdrawPercentViaOpsGateway(params: {
     if (!approved) needingGrant.push(npm);
   }
 
-  // Grants first (idempotent), then simulate exit, then send — cold wallets cannot simulate without operator.
-  if (needingGrant.length > 0 && !caps.atomicBatchSupported) {
+  // ALWAYS grant + mine receipts before exit sim/send — even when the wallet
+  // advertises EIP-5792. Cold mobile wallets fail simulation without operator
+  // (GatewayNotOperator); batching grants+exit often shows "Failed to simulate".
+  if (needingGrant.length > 0) {
     await sequentialGrantsOnly({
       walletClient,
       account: params.account,
@@ -262,12 +274,23 @@ export async function withdrawPercentViaOpsGateway(params: {
     deadline,
   });
 
+  params.onStatus?.("Estimating gateway exit gas (keep ≥ 10,000,000)…");
+  const rawEstimate = await params.publicClient.estimateGas({
+    account: params.account,
+    to: exitCall.to,
+    data: exitCall.data,
+  });
+  const exitGas = requireGatewayExitGasLimit(
+    applyGatewayExitGasBuffer(rawEstimate),
+  );
+
   params.onStatus?.("Simulating gateway exitPercentToUsdc…");
   try {
     await params.publicClient.call({
       account: params.account,
       to: exitCall.to,
       data: exitCall.data,
+      gas: exitGas,
     });
   } catch (simErr) {
     const detail = simErr instanceof Error ? simErr.message : String(simErr);
@@ -277,50 +300,20 @@ export async function withdrawPercentViaOpsGateway(params: {
   }
 
   const txHashes: Hex[] = [];
-
-  if (needingGrant.length > 0 && caps.atomicBatchSupported) {
-    params.onStatus?.("Batching NFT operator grants + exit to USDC (EIP-5792)…");
-    const calls = [
-      ...needingGrant.map((npm) =>
-        encodeSetApprovalForAllCall({ npm, operator: gateway, approved: true }),
-      ),
-      exitCall,
-    ];
-    const batchId = await tryWalletSendCalls({
-      provider: params.provider,
-      from: params.account,
-      chainIdHex,
-      calls,
-    });
-    if (batchId) {
-      params.onBroadcast?.();
-      txHashes.push(batchId);
-    } else {
-      await sequentialGrantsAndExit({
-        walletClient,
-        account: params.account,
-        gateway,
-        needingGrant,
-        exitCall,
-        publicClient: params.publicClient,
-        txHashes,
-        onStatus: params.onStatus,
-        onBroadcast: params.onBroadcast,
-      });
-    }
-  } else {
-    await sequentialGrantsAndExit({
-      walletClient,
-      account: params.account,
-      gateway,
-      needingGrant,
-      exitCall,
-      publicClient: params.publicClient,
-      txHashes,
-      onStatus: params.onStatus,
-      onBroadcast: params.onBroadcast,
-    });
-  }
+  // Sequential exit with explicit gas + EIP-1193 force wrapper (deposit pattern).
+  // Do not wallet_sendCalls the exit — mobile batch sim is the failure mode.
+  await sequentialGrantsAndExit({
+    walletClient,
+    account: params.account,
+    gateway,
+    needingGrant,
+    exitCall,
+    exitGas,
+    publicClient: params.publicClient,
+    txHashes,
+    onStatus: params.onStatus,
+    onBroadcast: params.onBroadcast,
+  });
 
   const lastHash = txHashes[txHashes.length - 1];
   if (lastHash) {
@@ -420,7 +413,7 @@ async function sequentialGrantsOnly(params: {
       functionName: "setApprovalForAll",
       args: [params.gateway, true],
       account: params.account,
-      chain: null,
+      chain: base,
     });
     params.onBroadcast?.();
     await params.publicClient.waitForTransactionReceipt({ hash });
@@ -433,6 +426,7 @@ async function sequentialGrantsAndExit(params: {
   gateway: Address;
   needingGrant: Address[];
   exitCall: { to: Address; data: Hex };
+  exitGas: bigint;
   publicClient: Pick<PublicClient, "waitForTransactionReceipt">;
   txHashes: Hex[];
   onStatus?: (msg: string) => void;
@@ -448,22 +442,28 @@ async function sequentialGrantsAndExit(params: {
       functionName: "setApprovalForAll",
       args: [params.gateway, true],
       account: params.account,
-      chain: null,
+      chain: base,
     });
     params.onBroadcast?.();
     params.txHashes.push(hash);
     await params.publicClient.waitForTransactionReceipt({ hash });
   }
-  params.onStatus?.("Confirm gateway exit to USDC (all catalogue LPs)…");
+  params.onStatus?.(
+    "Confirm gateway exit to USDC — keep gas ≥ 10,000,000 (do not accept a tight wallet estimate)…",
+  );
   const exitHash = await params.walletClient.sendTransaction({
     account: params.account,
     to: params.exitCall.to,
     data: params.exitCall.data,
-    chain: null,
+    gas: params.exitGas,
+    chain: base,
   });
   params.onBroadcast?.();
   params.txHashes.push(exitHash);
-  await waitForSuccessfulTransactionReceipt(params.publicClient, exitHash);
+  await waitForSuccessfulTransactionReceipt(params.publicClient, exitHash, {
+    gasLimit: params.exitGas,
+    outOfGasMessage: GATEWAY_EXIT_OOG_USER_MESSAGE,
+  });
 }
 
 const SET_APPROVAL_LABEL = "setApprovalForAll 0xa22cb465";
