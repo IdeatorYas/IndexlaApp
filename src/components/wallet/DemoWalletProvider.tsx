@@ -43,6 +43,8 @@ type AppWalletContextValue = {
   ethBalanceFormatted: string | null;
   /** Live EIP-1193 chain when available; falls back to wagmi. */
   chainId: number | null;
+  /** Connected connector’s EIP-1193 provider (not window.ethereum). */
+  provider: EIP1193Provider | null;
   walletError: string | null;
   retryLoad: () => void;
   simulateError: () => void;
@@ -195,6 +197,7 @@ export function AppWalletProvider({ children }: { children: ReactNode }) {
       switchToBase,
       ethBalanceFormatted,
       chainId,
+      provider,
       walletError,
       retryLoad: connect,
       simulateError: () => {
@@ -209,6 +212,7 @@ export function AppWalletProvider({ children }: { children: ReactNode }) {
       switchToBase,
       ethBalanceFormatted,
       chainId,
+      provider,
       walletError,
     ],
   );

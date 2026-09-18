@@ -51,12 +51,6 @@ type EthereumProvider = {
   removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
 };
 
-function getEthereum(): EthereumProvider | undefined {
-  if (typeof window === "undefined") return undefined;
-  const w = window as Window & { ethereum?: EthereumProvider };
-  return w.ethereum;
-}
-
 function parseChainId(hex: unknown): number | null {
   const n = Number(hex);
   return Number.isFinite(n) ? n : null;
@@ -65,6 +59,44 @@ function parseChainId(hex: unknown): number | null {
 const chain = { ...robinhood, id: RH_CHAIN_ID };
 const DEADLINE_SEC = 1200;
 const RH_CHAIN_HEX = `0x${RH_CHAIN_ID.toString(16)}`;
+
+function formatUtilityWalletError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (
+    /4100|not been authorized by the user|UnauthorizedProvider|unauthorized/i.test(
+      msg,
+    )
+  ) {
+    return (
+      "Wallet did not authorize this account for signing on Robinhood. " +
+      "Reconnect with the same wallet AppKit connected (not a different browser extension), " +
+      "confirm Robinhood Chain, and retry."
+    );
+  }
+  if (/4001|user rejected|denied the request|ACTION_REJECTED/i.test(msg)) {
+    return "Wallet request rejected.";
+  }
+  return msg.slice(0, 300);
+}
+
+async function authorizeConnectedAccount(
+  provider: EthereumProvider,
+  expected: Address,
+): Promise<Address> {
+  const accounts = (await provider.request({
+    method: "eth_requestAccounts",
+  })) as string[];
+  const authorized = accounts[0];
+  if (!authorized) {
+    throw new Error("Wallet returned no authorized account.");
+  }
+  if (authorized.toLowerCase() !== expected.toLowerCase()) {
+    throw new Error(
+      `Connected address ${expected} is not authorized on the signing provider (${authorized}). Reconnect the same wallet used in AppKit.`,
+    );
+  }
+  return authorized as Address;
+}
 
 function parseEthInput(raw: string): { ok: true; value: bigint } | { ok: false; reason: string } {
   const t = raw.trim();
@@ -91,7 +123,7 @@ function formatTokenAmount(raw: string): string {
 }
 
 export function UtilityIndexPanel() {
-  const { wallet, connect } = useDemoWallet();
+  const { wallet, connect, provider: appProvider } = useDemoWallet();
   const gateway = GATEWAY_ADDRESS;
   const gatewayReady = Boolean(gateway && /^0x[a-fA-F0-9]{40}$/i.test(gateway));
 
@@ -178,10 +210,10 @@ export function UtilityIndexPanel() {
     void refresh();
   }, [refresh]);
 
-  // Live EIP-1193 chain/account sync (no forced switch on browse).
+  // Live EIP-1193 chain/account sync on the AppKit connector provider (not window.ethereum).
   useEffect(() => {
-    const ethereum = getEthereum();
-    if (!ethereum) return;
+    const ethereum = appProvider as EthereumProvider | null;
+    if (!ethereum?.request) return;
 
     void ethereum.request({ method: "eth_chainId" }).then((hex) => {
       const n = parseChainId(hex);
@@ -207,7 +239,7 @@ export function UtilityIndexPanel() {
       ethereum.removeListener?.("chainChanged", onChainChanged);
       ethereum.removeListener?.("accountsChanged", onAccountsChanged);
     };
-  }, []);
+  }, [appProvider]);
 
   // --- Buy quotes ---
   useEffect(() => {
@@ -390,24 +422,64 @@ export function UtilityIndexPanel() {
     if (cid != null) setChainId(cid);
     if (cid === RH_CHAIN_ID) return true;
     try {
-      await ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: RH_CHAIN_HEX }],
-      });
+      try {
+        await ethereum.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: RH_CHAIN_HEX }],
+        });
+      } catch (switchErr) {
+        const code =
+          switchErr && typeof switchErr === "object" && "code" in switchErr
+            ? Number((switchErr as { code: unknown }).code)
+            : null;
+        const msg =
+          switchErr instanceof Error ? switchErr.message : String(switchErr);
+        if (code === 4902 || /Unrecognized chain|unknown chain|4902/i.test(msg)) {
+          await ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: RH_CHAIN_HEX,
+                chainName: "Robinhood Chain",
+                nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+                rpcUrls: [RH_RPC],
+                blockExplorerUrls: [RH_EXPLORER],
+              },
+            ],
+          });
+          await ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: RH_CHAIN_HEX }],
+          });
+        } else {
+          throw switchErr;
+        }
+      }
       const after = parseChainId(await ethereum.request({ method: "eth_chainId" }));
       if (after != null) setChainId(after);
       if (after === RH_CHAIN_ID) return true;
       setError(`Still on ${chainLabel(after)}; switch to Robinhood (${RH_CHAIN_ID}) to continue.`);
       return false;
-    } catch {
-      setError(`Switch wallet to Robinhood Chain (${RH_CHAIN_ID}) to buy or sell.`);
+    } catch (e) {
+      setError(
+        /4001|reject|denied|cancel/i.test(String(e))
+          ? `Switch to Robinhood Chain (${RH_CHAIN_ID}) was rejected.`
+          : `Switch wallet to Robinhood Chain (${RH_CHAIN_ID}) to buy or sell.`,
+      );
       return false;
     }
   }
 
   async function buy() {
-    const ethereum = getEthereum();
-    if (!ethereum || !account || !gatewayReady || !gateway) return;
+    const ethereum = appProvider as EthereumProvider | null;
+    if (!ethereum?.request || !account || !gatewayReady || !gateway) {
+      setError(
+        !appProvider
+          ? "No AppKit wallet provider — reconnect your wallet, then retry Buy."
+          : "Connect a wallet first.",
+      );
+      return;
+    }
     if (buyBlockReason) {
       setError(buyBlockReason);
       return;
@@ -420,8 +492,9 @@ export function UtilityIndexPanel() {
     setStatus("");
     try {
       if (!(await ensureRobinhoodChain(ethereum))) return;
+      const signer = await authorizeConnectedAccount(ethereum, account);
       const walletClient = createWalletClient({
-        account,
+        account: signer,
         chain,
         transport: custom(ethereum),
       });
@@ -443,7 +516,7 @@ export function UtilityIndexPanel() {
         functionName: "depositFromEth",
         args: [legs.v3, legs.v2, legs.v4, deadline],
         value: parsed.value,
-        account,
+        account: signer,
         chain,
       });
       setStatus(`Buy submitted · tx ${hash}`);
@@ -451,7 +524,7 @@ export function UtilityIndexPanel() {
       await refresh();
       setStatus(`Buy confirmed · tx ${hash} — basket tokens are in your wallet`);
     } catch (e) {
-      setError(`Buy failed: ${String(e).slice(0, 300)}`);
+      setError(`Buy failed: ${formatUtilityWalletError(e)}`);
       setStatus("");
     } finally {
       setBusy(false);
@@ -489,8 +562,15 @@ export function UtilityIndexPanel() {
   }
 
   async function sell() {
-    const ethereum = getEthereum();
-    if (!ethereum || !account || !gatewayReady || !gateway) return;
+    const ethereum = appProvider as EthereumProvider | null;
+    if (!ethereum?.request || !account || !gatewayReady || !gateway) {
+      setError(
+        !appProvider
+          ? "No AppKit wallet provider — reconnect your wallet, then retry Sell."
+          : "Connect a wallet first.",
+      );
+      return;
+    }
     if (sellBlockReason) {
       setError(sellBlockReason);
       return;
@@ -501,6 +581,7 @@ export function UtilityIndexPanel() {
     setStatus("");
     try {
       if (!(await ensureRobinhoodChain(ethereum))) return;
+      const signer = await authorizeConnectedAccount(ethereum, account);
 
       const percentBps = Math.min(100, Math.max(1, sellPercent)) * 100;
       const amountIns: Record<string, bigint> = {};
@@ -550,7 +631,7 @@ export function UtilityIndexPanel() {
         try {
           const caps = (await ethereum.request({
             method: "wallet_getCapabilities",
-            params: [account, [RH_CHAIN_HEX]],
+            params: [signer, [RH_CHAIN_HEX]],
           })) as Record<string, { atomic?: { status?: string } }>;
           atomicStatus =
             caps?.[RH_CHAIN_HEX]?.atomic?.status ??
@@ -597,7 +678,7 @@ export function UtilityIndexPanel() {
             params: [
               {
                 version: "2.0.0",
-                from: account,
+                from: signer,
                 chainId: RH_CHAIN_HEX,
                 atomicRequired: true,
                 calls,
@@ -606,7 +687,7 @@ export function UtilityIndexPanel() {
           })) as { id?: string } | string;
         } catch (e) {
           setError(
-            `Atomic sell failed: ${String(e).slice(0, 320)}. No sequential fallback — retry with a wallet that supports atomic batching on Robinhood, or approve tokens another way then use a warm sell.`,
+            `Atomic sell failed: ${formatUtilityWalletError(e)}. No sequential fallback — retry with a wallet that supports atomic batching on Robinhood, or approve tokens another way then use a warm sell.`,
           );
           setStatus("");
           return;
@@ -630,7 +711,7 @@ export function UtilityIndexPanel() {
 
       // Warm path: single exit via writeContract (1 confirmation).
       const walletClient = createWalletClient({
-        account,
+        account: signer,
         chain,
         transport: custom(ethereum),
       });
@@ -647,7 +728,7 @@ export function UtilityIndexPanel() {
           fresh.minAmountOutEth,
           deadline,
         ],
-        account,
+        account: signer,
         chain,
       });
       setStatus(`Sell submitted · tx ${hash}`);
@@ -657,7 +738,7 @@ export function UtilityIndexPanel() {
         `Sell confirmed · tx ${hash} · ${sellPercent}% → ETH (min ${formatEther(fresh.minAmountOutEth)} ETH)`,
       );
     } catch (e) {
-      setError(`Sell failed: ${String(e).slice(0, 300)}`);
+      setError(`Sell failed: ${formatUtilityWalletError(e)}`);
       setStatus("");
     } finally {
       setBusy(false);
