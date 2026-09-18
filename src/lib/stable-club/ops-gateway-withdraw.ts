@@ -21,7 +21,6 @@ import {
   encodeGatewayExitPercentToUsdcCall,
   erc721SetApprovalForAllAbi,
   opsGatewayAbi,
-  probeAtomicBatchCapability,
   resolveOpsGatewayAddress,
   uniqueNpmAddresses,
   isOpsGatewayWithdrawAvailable,
@@ -104,23 +103,17 @@ export async function withdrawPercentViaOpsGateway(params: {
     throw new Error("Withdraw percent must be between 1 and 100");
   }
 
-  const chainIdHex = `0x${params.deployments.chainId.toString(16)}` as Hex;
-  // Probe kept for inventory copy only — exit is always sequential + forced gas
-  // (mobile wallets fail batch / ungassed exit simulation).
-  await probeAtomicBatchCapability({
-    provider: params.provider,
-    chainIdHex,
-    account: params.account,
-  });
+  // Exit is always sequential + forced gas (mobile wallets fail batch / ungassed sim).
   const promptClaim = coldWithdrawPromptClaim({
     atomicBatchSupported: false,
   });
   params.onStatus?.(promptClaim.copy);
 
-  const walletClient = createWalletClient({
+  // Grants use a plain wallet client (no exit-gas wrap needed for setApprovalForAll).
+  const grantWalletClient = createWalletClient({
     account: params.account,
     chain: base,
-    transport: custom(wrapProviderForceGatewayExitGas(params.provider)),
+    transport: custom(params.provider),
   });
 
   // Wait for HTTP head so post–Add Funds enumeration is not stale.
@@ -130,7 +123,7 @@ export async function withdrawPercentViaOpsGateway(params: {
     minBlock: head,
   });
 
-  const catalogueOpen = await listCatalogueMatchedOpenPositions({
+  let catalogueOpen = await listCatalogueMatchedOpenPositions({
     publicClient: params.publicClient,
     account: params.account,
   });
@@ -140,6 +133,48 @@ export async function withdrawPercentViaOpsGateway(params: {
     );
   }
 
+  const npms = uniqueNpmAddresses(catalogueOpen.map((r) => ({ npm: r.npm })));
+  const needingGrant: Address[] = [];
+  for (const npm of npms) {
+    const approved = (await params.publicClient.readContract({
+      address: npm,
+      abi: erc721SetApprovalForAllAbi,
+      functionName: "isApprovedForAll",
+      args: [params.account, gateway],
+    })) as boolean;
+    if (!approved) needingGrant.push(npm);
+  }
+
+  // ALWAYS grant + mine receipts before exit sim/send.
+  if (needingGrant.length > 0) {
+    await sequentialGrantsOnly({
+      walletClient: grantWalletClient,
+      account: params.account,
+      gateway,
+      needingGrant,
+      publicClient: params.publicClient,
+      onStatus: params.onStatus,
+      onBroadcast: params.onBroadcast,
+    });
+    needingGrant.length = 0;
+    // Let tip (and mobile wallet simulators) observe operator grants.
+    const afterGrant = await params.publicClient.getBlockNumber({ cacheTime: 0 });
+    await waitForReadClientBlock({
+      client: params.publicClient,
+      minBlock: afterGrant + BigInt(1),
+    });
+    catalogueOpen = await listCatalogueMatchedOpenPositions({
+      publicClient: params.publicClient,
+      account: params.account,
+    });
+    if (catalogueOpen.length === 0) {
+      throw new Error(
+        "Catalogue LPs disappeared after operator grants — refresh and retry",
+      );
+    }
+  }
+
+  // Remint deadline + mins AFTER grants (multi-prompt mobile can take minutes).
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
   const exitLegs: NpmExitLegInput[] = [];
   let expectedUsdc = BigInt(0);
@@ -238,34 +273,6 @@ export async function withdrawPercentViaOpsGateway(params: {
     args: [params.account],
   })) as bigint;
 
-  const npms = uniqueNpmAddresses(catalogueOpen.map((r) => ({ npm: r.npm })));
-  const needingGrant: Address[] = [];
-  for (const npm of npms) {
-    const approved = (await params.publicClient.readContract({
-      address: npm,
-      abi: erc721SetApprovalForAllAbi,
-      functionName: "isApprovedForAll",
-      args: [params.account, gateway],
-    })) as boolean;
-    if (!approved) needingGrant.push(npm);
-  }
-
-  // ALWAYS grant + mine receipts before exit sim/send — even when the wallet
-  // advertises EIP-5792. Cold mobile wallets fail simulation without operator
-  // (GatewayNotOperator); batching grants+exit often shows "Failed to simulate".
-  if (needingGrant.length > 0) {
-    await sequentialGrantsOnly({
-      walletClient,
-      account: params.account,
-      gateway,
-      needingGrant,
-      publicClient: params.publicClient,
-      onStatus: params.onStatus,
-      onBroadcast: params.onBroadcast,
-    });
-    needingGrant.length = 0;
-  }
-
   const exitCall = encodeGatewayExitPercentToUsdcCall({
     gateway,
     exitLegs,
@@ -299,9 +306,15 @@ export async function withdrawPercentViaOpsGateway(params: {
     );
   }
 
+  const walletClient = createWalletClient({
+    account: params.account,
+    chain: base,
+    transport: custom(
+      wrapProviderForceGatewayExitGas(params.provider, { cachedExitGas: exitGas }),
+    ),
+  });
+
   const txHashes: Hex[] = [];
-  // Sequential exit with explicit gas + EIP-1193 force wrapper (deposit pattern).
-  // Do not wallet_sendCalls the exit — mobile batch sim is the failure mode.
   await sequentialGrantsAndExit({
     walletClient,
     account: params.account,

@@ -53,6 +53,7 @@ import {
 } from "@/lib/stable-club/recover-loose-assets";
 import { wrapProviderForceRecoverGas } from "@/lib/stable-club/force-recover-gas-provider";
 import { wrapProviderForceOwnerNpmMulticallGas } from "@/lib/stable-club/force-owner-npm-multicall-gas-provider";
+import { formatGatewayWithdrawWalletError } from "@/lib/stable-club/gateway-exit-gas";
 import {
   applyOwnerNpmMulticallGasBuffer,
   OWNER_NPM_MULTICALL_GAS_FLOOR,
@@ -2751,11 +2752,13 @@ export function useFivePoolPositions() {
           await refreshStrandedAssets();
           return;
         } catch (err) {
+          const walletMsg = formatGatewayWithdrawWalletError(err);
+          const raw = err instanceof Error ? err.message : "Gateway withdraw failed";
           setProgress(gatewayBroadcasted ? "failed" : "partial");
           setError(
             gatewayBroadcasted
-              ? `${err instanceof Error ? err.message : "Gateway withdraw failed"} — a gateway transaction was already submitted. Do not retry owner-NPM exit.`
-              : `${err instanceof Error ? err.message : "Gateway withdraw failed"} — LPs untouched. Fix the error and retry Withdraw (owner-NPM fallback disabled for 100%).`,
+              ? `${walletMsg ?? raw} — a gateway transaction was already submitted. Do not retry owner-NPM exit. Use Resume if LPs or residue remain.`
+              : `${walletMsg ?? raw} — LPs untouched. Retry Withdraw (owner-NPM fallback disabled for 100%).`,
           );
           return;
         }

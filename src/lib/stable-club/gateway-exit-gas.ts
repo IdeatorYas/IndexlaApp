@@ -22,6 +22,30 @@ export const GATEWAY_EXIT_GAS_CEILING = BigInt(30_000_000);
 export const GATEWAY_EXIT_OOG_USER_MESSAGE =
   "Gateway withdraw ran out of gas. Retry and keep gas limit ≥ 10,000,000 (do not accept a tight wallet estimate).";
 
+/**
+ * Mobile wallets often return "User rejected the request" after a failed
+ * internal simulation (low-gas eth_call), not after a deliberate cancel.
+ */
+export const GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE =
+  "Wallet could not simulate gateway exit (often a low-gas preflight — not a cancel). Keep gas ≥ 10,000,000, do not edit gas manually, and retry Withdraw. LPs are untouched until a tx confirms.";
+
+export function formatGatewayWithdrawWalletError(err: unknown): string | null {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (
+    /failed to simulate|simulation failed|could not simulate|internal JSON-RPC/i.test(
+      msg,
+    )
+  ) {
+    return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
+  }
+  // 4001 / "user rejected" after HTTP preflight usually means wallet closed a
+  // failed sim sheet — not a deliberate cancel of a healthy confirm.
+  if (/user rejected|denied|rejected the request|ACTION_REJECTED|code[:\s]*4001/i.test(msg)) {
+    return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
+  }
+  return null;
+}
+
 export function parseHexGasQuantity(
   value: string | number | bigint | null | undefined,
 ): bigint | null {
