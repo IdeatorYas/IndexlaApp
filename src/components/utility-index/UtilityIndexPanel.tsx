@@ -626,27 +626,9 @@ export function UtilityIndexPanel() {
       });
 
       // Cold path: atomic wallet_sendCalls only — never fall back to sequential approvals.
-      // Do not hard-gate on wallet_getCapabilities: Robinhood often returns -32600 for that
-      // discovery RPC even when sendCalls may still be attempted (or must fail with its own error).
+      // Do not call wallet_getCapabilities: Robinhood often returns -32600 for that discovery
+      // RPC; only wallet_sendCalls execution (receipts) proves batching.
       if (needsApprove.length > 0) {
-        let capsHint: string | null = null;
-        try {
-          const caps = (await ethereum.request({
-            method: "wallet_getCapabilities",
-            params: [signer, [RH_CHAIN_HEX]],
-          })) as Record<string, { atomic?: { status?: string } }>;
-          const atomicStatus =
-            caps?.[RH_CHAIN_HEX]?.atomic?.status ??
-            caps?.[RH_CHAIN_HEX.toLowerCase()]?.atomic?.status ??
-            null;
-          if (atomicStatus != null) {
-            capsHint = `atomic.status=${JSON.stringify(atomicStatus)}`;
-          }
-        } catch (e) {
-          // Soft probe only — -32600/unsupported must not abort before sendCalls.
-          capsHint = `getCapabilities unavailable (${String(e).slice(0, 120)})`;
-        }
-
         const calls = [
           ...needsApprove.map((t) => ({
             to: t.address,
@@ -688,8 +670,8 @@ export function UtilityIndexPanel() {
           );
           setError(
             unsupported
-              ? `First-time sell needs atomic wallet_sendCalls on Robinhood ${RH_CHAIN_ID}, but this wallet rejected it (${detail}).${capsHint ? ` Probe: ${capsHint}.` : ""} No sequential ${needsApprove.length}+1 approval path. Warm sells work after gateway allowances exist. EIP-7702 type-4 is not enabled until that wallet is registry-verified.`
-              : `Atomic sell failed: ${detail}.${capsHint ? ` Probe: ${capsHint}.` : ""} No sequential fallback.`,
+              ? `First-time sell needs atomic wallet_sendCalls on Robinhood ${RH_CHAIN_ID}, but this wallet rejected it (${detail}). No sequential ${needsApprove.length}+1 approval path. Warm sells work after gateway allowances exist. EIP-7702 type-4 is not enabled until that wallet is registry-verified.`
+              : `Atomic sell failed: ${detail}. No sequential fallback.`,
           );
           setStatus("");
           return;

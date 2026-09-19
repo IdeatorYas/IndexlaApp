@@ -88,7 +88,7 @@ export const PROMPT_INVENTORY = {
   repeatSellWarm: 1,
   maxAllowed: 4,
   note:
-    "Buy is 1 confirm. First sell attempts atomic wallet_sendCalls for approvals+exit without hard-gating on wallet_getCapabilities (RH often rejects that discovery RPC). No sequential 9-approve fallback. Warm sells are 1 confirm after maxUint256 allowances. ≤3 first-sell is live-verified only with sendCalls receipts — not capability JSON.",
+    "Buy is 1 confirm. First sell calls wallet_sendCalls for approvals+exit only (no wallet_getCapabilities probe — RH often rejects that discovery RPC). No sequential 9-approve fallback. Warm sells are 1 confirm after maxUint256 allowances. ≤3 first-sell is live-verified only with sendCalls receipts — not capability JSON.",
 } as const;
 
 export const gatewayAbi = [
