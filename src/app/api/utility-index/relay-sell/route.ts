@@ -41,14 +41,15 @@ type RelayBody = {
     deadline: string;
   };
   wrappedSignature: Hex;
-  authorization: {
+  /** Required unless the user EOA is already Calibur-delegated. */
+  authorization?: {
     chainId: number | string;
     address: Address;
     nonce: number | string;
     yParity?: number;
     r: Hex;
     s: Hex;
-  };
+  } | null;
 };
 
 function readRelayerKey(): Hex | null {
@@ -87,7 +88,7 @@ export async function POST(req: Request) {
     }
 
     const body = (await req.json()) as RelayBody;
-    if (!body?.user || !body?.calls || !body?.signedBatchedCall || !body?.wrappedSignature || !body?.authorization) {
+    if (!body?.user || !body?.calls || !body?.signedBatchedCall || !body?.wrappedSignature) {
       return NextResponse.json({ ok: false, error: "Missing fields" }, { status: 400 });
     }
 
@@ -110,11 +111,6 @@ export async function POST(req: Request) {
       }
     }
 
-    const authAddr = String(body.authorization.address).toLowerCase();
-    if (authAddr !== CALIBUR_RH.toLowerCase()) {
-      return NextResponse.json({ ok: false, error: "Authorization must target Calibur v10" }, { status: 400 });
-    }
-
     const executeData = encodeCaliburSignedExecute(message, body.wrappedSignature);
     const account = privateKeyToAccount(key);
     const publicClient = createPublicClient({
@@ -127,22 +123,46 @@ export async function POST(req: Request) {
       transport: http(RH_RPC),
     });
 
-    const chainIdNum =
-      typeof body.authorization.chainId === "string"
-        ? Number.parseInt(body.authorization.chainId, 16) || Number(body.authorization.chainId)
-        : Number(body.authorization.chainId);
-    const authNonce =
-      typeof body.authorization.nonce === "string"
-        ? Number.parseInt(body.authorization.nonce, 16) || Number(body.authorization.nonce)
-        : Number(body.authorization.nonce);
+    const userCode = await publicClient.getBytecode({ address: body.user });
+    const alreadyDelegated =
+      typeof userCode === "string" &&
+      userCode.toLowerCase().startsWith("0xef0100") &&
+      userCode.toLowerCase().slice(8) === CALIBUR_RH.toLowerCase().slice(2);
 
-    const hash = await walletClient.sendTransaction({
-      to: body.user,
-      data: executeData,
-      value: BigInt(0),
-      chain: robinhood,
-      account,
-      authorizationList: [
+    let authorizationList:
+      | Array<{
+          address: Address;
+          chainId: number;
+          nonce: number;
+          yParity: number;
+          r: Hex;
+          s: Hex;
+        }>
+      | undefined;
+
+    if (body.authorization) {
+      const authAddr = String(body.authorization.address).toLowerCase();
+      if (authAddr !== CALIBUR_RH.toLowerCase()) {
+        return NextResponse.json(
+          { ok: false, error: "Authorization must target Calibur v10" },
+          { status: 400 },
+        );
+      }
+      const chainIdNum =
+        typeof body.authorization.chainId === "string"
+          ? Number.parseInt(
+              body.authorization.chainId,
+              body.authorization.chainId.startsWith("0x") ? 16 : 10,
+            ) || Number(body.authorization.chainId)
+          : Number(body.authorization.chainId);
+      const authNonce =
+        typeof body.authorization.nonce === "string"
+          ? Number.parseInt(
+              body.authorization.nonce,
+              body.authorization.nonce.startsWith("0x") ? 16 : 10,
+            ) || Number(body.authorization.nonce)
+          : Number(body.authorization.nonce);
+      authorizationList = [
         {
           address: CALIBUR_RH,
           chainId: chainIdNum || RH_CHAIN_ID,
@@ -151,7 +171,25 @@ export async function POST(req: Request) {
           r: body.authorization.r,
           s: body.authorization.s,
         },
-      ],
+      ];
+    } else if (!alreadyDelegated) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Missing authorization and user is not Calibur-delegated; cannot relay first sell",
+        },
+        { status: 400 },
+      );
+    }
+
+    const hash = await walletClient.sendTransaction({
+      to: body.user,
+      data: executeData,
+      value: BigInt(0),
+      chain: robinhood,
+      account,
+      ...(authorizationList ? { authorizationList } : {}),
     });
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
@@ -162,6 +200,8 @@ export async function POST(req: Request) {
       type: receipt.type,
       gasUsed: receipt.gasUsed.toString(),
       relayer: account.address,
+      usedAuthorization: Boolean(authorizationList),
+      alreadyDelegated,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

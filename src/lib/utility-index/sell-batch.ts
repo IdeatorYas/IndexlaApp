@@ -5,13 +5,29 @@
 import {
   encodeAbiParameters,
   encodeFunctionData,
+  hexToBytes,
+  numberToHex,
   pad,
   parseAbi,
+  bytesToHex,
   type Address,
   type Hex,
   type TypedDataDomain,
 } from "viem";
 import { BASKET, GATEWAY_ADDRESS, RH_CHAIN_ID } from "@/lib/utility-index/constants";
+
+export type Eip1193Requester = {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+};
+
+export type Signed7702Authorization = {
+  chainId: number;
+  address: Address;
+  nonce: number;
+  yParity: number;
+  r: Hex;
+  s: Hex;
+};
 
 export const RH_CHAIN_HEX = `0x${RH_CHAIN_ID.toString(16)}` as Hex;
 
@@ -211,6 +227,129 @@ export function encodeCaliburSignedExecute(
 }
 
 const APPROVE_SELECTOR = "0x095ea7b3";
+
+/** True when EOA already has EIP-7702 code delegated to Calibur. */
+export function isCaliburDelegated(
+  code: Hex | undefined | null,
+  calibur: Address = CALIBUR_RH,
+): boolean {
+  if (!code || code === "0x" || code.length < 48) return false;
+  const lower = code.toLowerCase();
+  if (!lower.startsWith("0xef0100")) return false;
+  return lower.slice(8) === calibur.toLowerCase().slice(2);
+}
+
+function toQuantity(n: number | bigint): Hex {
+  return numberToHex(n);
+}
+
+function parseSignedAuthorization(
+  raw: unknown,
+  expected: { chainId: number; address: Address; nonce: number },
+): Signed7702Authorization {
+  if (typeof raw === "string" && raw.startsWith("0x")) {
+    const bytes = hexToBytes(raw as Hex);
+    if (bytes.length !== 65) {
+      throw new Error(`eth_signAuthorization returned ${bytes.length}-byte sig`);
+    }
+    const r = bytesToHex(bytes.slice(0, 32));
+    const s = bytesToHex(bytes.slice(32, 64));
+    const v = bytes[64];
+    const yParity = v === 0 || v === 1 ? v : v >= 27 ? v - 27 : v;
+    return {
+      chainId: expected.chainId,
+      address: expected.address,
+      nonce: expected.nonce,
+      yParity,
+      r,
+      s,
+    };
+  }
+  if (!raw || typeof raw !== "object") {
+    throw new Error("eth_signAuthorization returned empty result");
+  }
+  const o = raw as Record<string, unknown>;
+  const r = String(o.r ?? "") as Hex;
+  const s = String(o.s ?? "") as Hex;
+  if (!r.startsWith("0x") || !s.startsWith("0x")) {
+    throw new Error("eth_signAuthorization missing r/s");
+  }
+  let yParity = 0;
+  if (typeof o.yParity === "number") yParity = o.yParity;
+  else if (typeof o.yParity === "string") yParity = Number(o.yParity);
+  else if (typeof o.v === "number") yParity = o.v >= 27 ? o.v - 27 : o.v;
+  else if (typeof o.v === "string") {
+    const v = Number(o.v);
+    yParity = v >= 27 ? v - 27 : v;
+  }
+  const chainId =
+    o.chainId != null
+      ? typeof o.chainId === "string"
+        ? Number.parseInt(o.chainId, o.chainId.startsWith("0x") ? 16 : 10)
+        : Number(o.chainId)
+      : expected.chainId;
+  const nonce =
+    o.nonce != null
+      ? typeof o.nonce === "string"
+        ? Number.parseInt(o.nonce, o.nonce.startsWith("0x") ? 16 : 10)
+        : Number(o.nonce)
+      : expected.nonce;
+  const address = (String(o.address ?? o.contractAddress ?? expected.address) as Address);
+  return { chainId, address, nonce, yParity, r, s };
+}
+
+/**
+ * Sign EIP-7702 authorization via EIP-1193 wallet (AppKit json-rpc).
+ * Do NOT use viem walletClient.signAuthorization — it rejects json-rpc accounts.
+ */
+export async function signEip7702AuthorizationViaProvider(args: {
+  ethereum: Eip1193Requester;
+  signer: Address;
+  contractAddress?: Address;
+  chainId?: number;
+  nonce: number;
+}): Promise<Signed7702Authorization> {
+  const contractAddress = args.contractAddress ?? CALIBUR_RH;
+  const chainId = args.chainId ?? RH_CHAIN_ID;
+  const authFields = {
+    address: contractAddress,
+    chainId: toQuantity(chainId),
+    nonce: toQuantity(args.nonce),
+  };
+  const attempts: Array<{ method: string; params: unknown[] }> = [
+    { method: "eth_signAuthorization", params: [authFields] },
+    { method: "eth_signAuthorization", params: [args.signer, authFields] },
+    {
+      method: "wallet_signAuthorization",
+      params: [{ ...authFields, contractAddress }],
+    },
+    {
+      method: "wallet_signAuthorization",
+      params: [args.signer, { ...authFields, contractAddress }],
+    },
+  ];
+  const errors: string[] = [];
+  for (const attempt of attempts) {
+    try {
+      const raw = await args.ethereum.request(attempt);
+      return parseSignedAuthorization(raw, {
+        chainId,
+        address: contractAddress,
+        nonce: args.nonce,
+      });
+    } catch (e) {
+      errors.push(
+        `${attempt.method}: ${e instanceof Error ? e.message : String(e)}`.slice(
+          0,
+          160,
+        ),
+      );
+    }
+  }
+  throw new Error(
+    `Wallet has no usable eth_signAuthorization / wallet_signAuthorization (${errors.join(" | ")})`,
+  );
+}
 
 /** Allowlist: approve(gateway) for basket tokens, or exitPercentToEth on gateway. */
 export function assertAllowlistedSellCalls(

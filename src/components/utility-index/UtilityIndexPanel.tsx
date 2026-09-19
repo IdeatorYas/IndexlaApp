@@ -50,10 +50,13 @@ import {
   caliburTypedDataDomain,
   CALIBUR_EIP712_TYPES,
   CALIBUR_RH,
+  isCaliburDelegated,
   isEthersType4Unsupported,
   isSendCallsNetworkUnsupported,
+  signEip7702AuthorizationViaProvider,
   wrapCaliburSignature,
   type BatchCall,
+  type Signed7702Authorization,
 } from "@/lib/utility-index/sell-batch";
 
 type EthereumProvider = {
@@ -740,7 +743,7 @@ export function UtilityIndexPanel() {
         }
 
         setStatus(
-          "Wallet rejects type-4 send. Sign EIP-7702 authorization, then the sell batch (2 confirms)...",
+          "Wallet rejects type-4 send. Preparing sponsored Calibur sell...",
         );
         try {
           const walletClient = createWalletClient({
@@ -748,40 +751,33 @@ export function UtilityIndexPanel() {
             chain,
             transport: custom(ethereum),
           });
-          const authNonce = await publicClient.getTransactionCount({
-            address: signer,
-            blockTag: "pending",
-          });
-          let authorization: {
-            chainId: number;
-            address: Address;
-            nonce: number;
-            yParity?: number;
-            r: Hex;
-            s: Hex;
-          };
-          try {
-            const signedAuth = await walletClient.signAuthorization({
-              account: signer,
-              contractAddress: CALIBUR_RH,
-              chainId: RH_CHAIN_ID,
-              nonce: authNonce,
-            });
-            authorization = {
-              chainId: Number(signedAuth.chainId),
-              address: signedAuth.address as Address,
-              nonce: Number(signedAuth.nonce),
-              yParity: signedAuth.yParity ?? 0,
-              r: signedAuth.r as Hex,
-              s: signedAuth.s as Hex,
-            };
-          } catch (authErr) {
-            const authDetail = formatUtilityWalletError(authErr);
-            setError(
-              `First-time sell needs EIP-7702 signAuthorization (wallet ethers blocked type-4 send). Authorization signing failed (${authDetail.slice(0, 180)}). Update wallet for EIP-7702 / sendCalls on Robinhood, or warm-sell after gateway allowances exist. No sequential path.`,
+          const eoaCode = await publicClient.getBytecode({ address: signer });
+          const alreadyDelegated = isCaliburDelegated(eoaCode, CALIBUR_RH);
+          let authorization: Signed7702Authorization | null = null;
+          if (!alreadyDelegated) {
+            setStatus(
+              "Sign EIP-7702 authorization in your wallet (required for first sell)...",
             );
-            setStatus("");
-            return;
+            const authNonce = await publicClient.getTransactionCount({
+              address: signer,
+              blockTag: "pending",
+            });
+            try {
+              authorization = await signEip7702AuthorizationViaProvider({
+                ethereum,
+                signer,
+                contractAddress: CALIBUR_RH,
+                chainId: RH_CHAIN_ID,
+                nonce: authNonce,
+              });
+            } catch (authErr) {
+              const authDetail = formatUtilityWalletError(authErr);
+              setError(
+                `First-time sell needs wallet eth_signAuthorization (viem cannot sign 7702 on AppKit json-rpc). Failed (${authDetail.slice(0, 200)}). Warm sells work after gateway allowances exist. No sequential path.`,
+              );
+              setStatus("");
+              return;
+            }
           }
 
           setStatus("Sign the sell batch (EIP-712)...");
@@ -799,7 +795,7 @@ export function UtilityIndexPanel() {
           });
           const wrappedSignature = wrapCaliburSignature(signature as Hex);
 
-          setStatus("Submitting sponsored type-4 sell...");
+          setStatus("Submitting sponsored sell...");
           const res = await fetch("/api/utility-index/relay-sell", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
