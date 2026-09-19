@@ -45,8 +45,14 @@ import {
 import { APP_ROUTES } from "@/lib/routes";
 import { chainLabel } from "@/lib/wallet/provider-chain";
 import {
+  buildSignedBatchedCallMessage,
   buildType4CaliburExecuteTx,
+  caliburTypedDataDomain,
+  CALIBUR_EIP712_TYPES,
+  CALIBUR_RH,
+  isEthersType4Unsupported,
   isSendCallsNetworkUnsupported,
+  wrapCaliburSignature,
   type BatchCall,
 } from "@/lib/utility-index/sell-batch";
 
@@ -630,9 +636,8 @@ export function UtilityIndexPanel() {
         return have < need;
       });
 
-      // Cold path: try EIP-5792 sendCalls; on UNRECOGNIZED/unsupported, try EIP-7702
-      // type-4 eth_sendTransaction -> Calibur execute(approves+exit). Same provider as buy.
-      // Never sequential approvals. Do not claim WORKING without a receipt.
+      // Cold path: sendCalls → type-4 fold-in → sponsored Calibur SignedBatchedCall relay.
+      // Never sequential. Do not claim WORKING without a receipt.
       if (needsApprove.length > 0) {
         const calls: BatchCall[] = [
           ...needsApprove.map((tok) => ({
@@ -698,10 +703,11 @@ export function UtilityIndexPanel() {
           return;
         }
 
-        // C2: type-4 Calibur — same eth_sendTransaction family as buy.
+        // C2: type-4 Calibur fold-in (wallets that accept type 0x4).
         setStatus(
-          `Atomic sendCalls unavailable on Robinhood (${sendCallsError.slice(0, 100)}). Trying EIP-7702 type-4 batch...`,
+          `Atomic sendCalls unavailable on Robinhood. Trying EIP-7702 type-4 batch...`,
         );
+        let type4Error: string | null = null;
         try {
           const nonceHex = (await ethereum.request({
             method: "eth_getTransactionCount",
@@ -721,9 +727,122 @@ export function UtilityIndexPanel() {
           );
           return;
         } catch (e2) {
-          const detail2 = formatUtilityWalletError(e2);
+          type4Error = formatUtilityWalletError(e2);
+        }
+
+        // C2b: wallet ethers ≤6.13.4 rejects type=4 — sign auth + EIP-712 batch; INDEXLA relays type-4 via viem.
+        if (!type4Error || !isEthersType4Unsupported(type4Error)) {
           setError(
-            `First-time sell blocked on this wallet: wallet_sendCalls failed (${sendCallsError.slice(0, 140)}) and EIP-7702 type-4 eth_sendTransaction also failed (${detail2.slice(0, 180)}). No sequential ${needsApprove.length}+1 path. Warm sells work after gateway allowances exist.`,
+            `First-time sell blocked: wallet_sendCalls failed (${sendCallsError.slice(0, 120)}) and type-4 eth_sendTransaction failed (${(type4Error ?? "unknown").slice(0, 160)}). No sequential ${needsApprove.length}+1 path.`,
+          );
+          setStatus("");
+          return;
+        }
+
+        setStatus(
+          "Wallet rejects type-4 send. Sign EIP-7702 authorization, then the sell batch (2 confirms)...",
+        );
+        try {
+          const walletClient = createWalletClient({
+            account: signer,
+            chain,
+            transport: custom(ethereum),
+          });
+          const authNonce = await publicClient.getTransactionCount({
+            address: signer,
+            blockTag: "pending",
+          });
+          let authorization: {
+            chainId: number;
+            address: Address;
+            nonce: number;
+            yParity?: number;
+            r: Hex;
+            s: Hex;
+          };
+          try {
+            const signedAuth = await walletClient.signAuthorization({
+              account: signer,
+              contractAddress: CALIBUR_RH,
+              chainId: RH_CHAIN_ID,
+              nonce: authNonce,
+            });
+            authorization = {
+              chainId: Number(signedAuth.chainId),
+              address: signedAuth.address as Address,
+              nonce: Number(signedAuth.nonce),
+              yParity: signedAuth.yParity ?? 0,
+              r: signedAuth.r as Hex,
+              s: signedAuth.s as Hex,
+            };
+          } catch (authErr) {
+            const authDetail = formatUtilityWalletError(authErr);
+            setError(
+              `First-time sell needs EIP-7702 signAuthorization (wallet ethers blocked type-4 send). Authorization signing failed (${authDetail.slice(0, 180)}). Update wallet for EIP-7702 / sendCalls on Robinhood, or warm-sell after gateway allowances exist. No sequential path.`,
+            );
+            setStatus("");
+            return;
+          }
+
+          setStatus("Sign the sell batch (EIP-712)...");
+          const signedBatchedCall = buildSignedBatchedCallMessage({
+            calls,
+            nonce: BigInt(0),
+            deadline: BigInt(Math.floor(Date.now() / 1000) + 15 * 60),
+          });
+          const signature = await walletClient.signTypedData({
+            account: signer,
+            domain: caliburTypedDataDomain(signer),
+            types: CALIBUR_EIP712_TYPES,
+            primaryType: "SignedBatchedCall",
+            message: signedBatchedCall,
+          });
+          const wrappedSignature = wrapCaliburSignature(signature as Hex);
+
+          setStatus("Submitting sponsored type-4 sell...");
+          const res = await fetch("/api/utility-index/relay-sell", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user: signer,
+              calls,
+              signedBatchedCall: {
+                batchedCall: {
+                  calls: signedBatchedCall.batchedCall.calls.map((c) => ({
+                    to: c.to,
+                    value: c.value.toString(),
+                    data: c.data,
+                  })),
+                  revertOnFailure: true,
+                },
+                nonce: signedBatchedCall.nonce.toString(),
+                keyHash: signedBatchedCall.keyHash,
+                executor: signedBatchedCall.executor,
+                deadline: signedBatchedCall.deadline.toString(),
+              },
+              wrappedSignature,
+              authorization,
+            }),
+          });
+          const payload = (await res.json()) as {
+            ok?: boolean;
+            hash?: Hex;
+            error?: string;
+          };
+          if (!res.ok || !payload.ok || !payload.hash) {
+            throw new Error(payload.error ?? `Relay failed (HTTP ${res.status})`);
+          }
+          setStatus(`Sponsored sell submitted · tx ${payload.hash}`);
+          await publicClient.waitForTransactionReceipt({ hash: payload.hash });
+          await refresh();
+          setStatus(
+            `Sell confirmed · tx ${payload.hash} · ${sellPercent}% → ETH (min ${formatEther(fresh.minAmountOutEth)} ETH) · sponsored EIP-7702`,
+          );
+          return;
+        } catch (e3) {
+          const detail3 = formatUtilityWalletError(e3);
+          setError(
+            `First-time sell blocked: sendCalls UNRECOGNIZED, wallet type-4 rejected by ethers (${type4Error.slice(0, 100)}), and sponsored Calibur path failed (${detail3.slice(0, 180)}). No sequential ${needsApprove.length}+1 path. Warm sells work after gateway allowances exist.`,
           );
           setStatus("");
           return;

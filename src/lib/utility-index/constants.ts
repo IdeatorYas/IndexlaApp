@@ -88,7 +88,7 @@ export const PROMPT_INVENTORY = {
   repeatSellWarm: 1,
   maxAllowed: 4,
   note:
-    "Buy is 1 confirm. Cold first sell: wallet_sendCalls if supported; else EIP-7702 type-4 Calibur execute via eth_sendTransaction (same family as buy). No sequential 9-approve. Warm sells are 1 confirm after allowances. WORKING only with mined receipts.",
+    "Buy is 1 confirm. Cold first sell: sendCalls if supported; else type-4 fold-in; else sponsored Calibur SignedBatchedCall (signAuthorization + EIP-712) relayed by INDEXLA to bypass wallet ethers <6.14. No sequential 9-approve. Warm sells are 1 confirm. WORKING only with mined receipts.",
 } as const;
 
 export const gatewayAbi = [
