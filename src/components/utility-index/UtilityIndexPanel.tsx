@@ -772,9 +772,7 @@ export function UtilityIndexPanel() {
               });
             } catch (authErr) {
               const authDetail = formatUtilityWalletError(authErr);
-              setError(
-                `First-time sell needs wallet eth_signAuthorization (viem cannot sign 7702 on AppKit json-rpc). Failed (${authDetail.slice(0, 200)}). Warm sells work after gateway allowances exist. No sequential path.`,
-              );
+              setError(authDetail.slice(0, 520));
               setStatus("");
               return;
             }

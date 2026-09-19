@@ -14,6 +14,10 @@ import {
   type Hex,
   type TypedDataDomain,
 } from "viem";
+import {
+  hashAuthorization,
+  recoverAuthorizationAddress,
+} from "viem/utils";
 import { BASKET, GATEWAY_ADDRESS, RH_CHAIN_ID } from "@/lib/utility-index/constants";
 
 export type Eip1193Requester = {
@@ -301,6 +305,7 @@ function parseSignedAuthorization(
 /**
  * Sign EIP-7702 authorization via EIP-1193 wallet (AppKit json-rpc).
  * Do NOT use viem walletClient.signAuthorization — it rejects json-rpc accounts.
+ * Fallback C2c: eth_sign(hashAuthorization) with recover===signer fail-closed.
  */
 export async function signEip7702AuthorizationViaProvider(args: {
   ethereum: Eip1193Requester;
@@ -346,9 +351,49 @@ export async function signEip7702AuthorizationViaProvider(args: {
       );
     }
   }
-  throw new Error(
-    `Wallet has no usable eth_signAuthorization / wallet_signAuthorization (${errors.join(" | ")})`,
-  );
+
+  // C2c: raw eth_sign over EIP-7702 digest (not personal_sign).
+  const digest = hashAuthorization({
+    address: contractAddress,
+    chainId,
+    nonce: args.nonce,
+  });
+  try {
+    const rawSig = (await args.ethereum.request({
+      method: "eth_sign",
+      params: [args.signer, digest],
+    })) as Hex;
+    if (typeof rawSig !== "string" || !rawSig.startsWith("0x")) {
+      throw new Error("eth_sign returned non-hex");
+    }
+    const parsed = parseSignedAuthorization(rawSig, {
+      chainId,
+      address: contractAddress,
+      nonce: args.nonce,
+    });
+    const recovered = await recoverAuthorizationAddress({
+      authorization: {
+        address: contractAddress,
+        chainId,
+        nonce: args.nonce,
+        r: parsed.r,
+        s: parsed.s,
+        yParity: parsed.yParity,
+      },
+    });
+    if (recovered.toLowerCase() !== args.signer.toLowerCase()) {
+      throw new Error(
+        `eth_sign recover mismatch (got ${recovered}, expected ${args.signer})`,
+      );
+    }
+    return parsed;
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    errors.push(`eth_sign: ${detail}`.slice(0, 200));
+    throw new Error(
+      `Cold sell blocked: this wallet cannot produce EIP-7702 authorization. Tried eth_signAuthorization / wallet_signAuthorization / eth_sign(hashAuthorization). Last errors: ${errors.slice(-3).join(" | ")}. Unlock requires wallet support for wallet_sendCalls on Robinhood 4663, type-4 eth_sendTransaction, eth_signAuthorization, or eth_sign of the 7702 digest. Warm sells work after gateway allowances exist. No sequential path.`,
+    );
+  }
 }
 
 /** Allowlist: approve(gateway) for basket tokens, or exitPercentToEth on gateway. */
