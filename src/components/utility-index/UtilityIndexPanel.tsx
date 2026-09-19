@@ -44,6 +44,11 @@ import {
 } from "@/lib/utility-index/quotes";
 import { APP_ROUTES } from "@/lib/routes";
 import { chainLabel } from "@/lib/wallet/provider-chain";
+import {
+  buildType4CaliburExecuteTx,
+  isSendCallsNetworkUnsupported,
+  type BatchCall,
+} from "@/lib/utility-index/sell-batch";
 
 type EthereumProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
@@ -625,13 +630,13 @@ export function UtilityIndexPanel() {
         return have < need;
       });
 
-      // Cold path: atomic wallet_sendCalls only — never fall back to sequential approvals.
-      // Do not call wallet_getCapabilities: Robinhood often returns -32600 for that discovery
-      // RPC; only wallet_sendCalls execution (receipts) proves batching.
+      // Cold path: try EIP-5792 sendCalls; on UNRECOGNIZED/unsupported, try EIP-7702
+      // type-4 eth_sendTransaction -> Calibur execute(approves+exit). Same provider as buy.
+      // Never sequential approvals. Do not claim WORKING without a receipt.
       if (needsApprove.length > 0) {
-        const calls = [
-          ...needsApprove.map((t) => ({
-            to: t.address,
+        const calls: BatchCall[] = [
+          ...needsApprove.map((tok) => ({
+            to: tok.address,
             data: encodeFunctionData({
               abi: erc20Abi,
               functionName: "approve",
@@ -647,9 +652,10 @@ export function UtilityIndexPanel() {
         ];
 
         setStatus(
-          `Confirm atomic sell in your wallet… (${calls.length} calls: ${needsApprove.length} approvals + exit)`,
+          `Confirm atomic sell in your wallet... (${calls.length} calls: ${needsApprove.length} approvals + exit)`,
         );
-        let batch: { id?: string } | string;
+        let batch: { id?: string } | string | null = null;
+        let sendCallsError: string | null = null;
         try {
           batch = (await ethereum.request({
             method: "wallet_sendCalls",
@@ -664,33 +670,64 @@ export function UtilityIndexPanel() {
             ],
           })) as { id?: string } | string;
         } catch (e) {
-          const detail = formatUtilityWalletError(e);
-          const unsupported = /32600|32601|Unsupported method|method not found|5700|5710/i.test(
-            detail,
+          sendCallsError = formatUtilityWalletError(e);
+        }
+
+        if (batch != null) {
+          const batchId =
+            typeof batch === "string"
+              ? batch
+              : batch?.id ?? JSON.stringify(batch).slice(0, 120);
+          setStatus(`Sell batch submitted · batchId ${batchId}`);
+          const callsStatus = await pollCallsStatus(ethereum, batchId);
+          await refresh();
+          const receiptHint = callsStatus
+            ? ` · status ${JSON.stringify(callsStatus).slice(0, 240)}`
+            : "";
+          setStatus(
+            `Sell submitted · batchId ${batchId} · ${sellPercent}% → ETH (min ${formatEther(fresh.minAmountOutEth)} ETH)${receiptHint}`,
           );
+          return;
+        }
+
+        if (!sendCallsError || !isSendCallsNetworkUnsupported(sendCallsError)) {
           setError(
-            unsupported
-              ? `First-time sell needs atomic wallet_sendCalls on Robinhood ${RH_CHAIN_ID}, but this wallet rejected it (${detail}). No sequential ${needsApprove.length}+1 approval path. Warm sells work after gateway allowances exist. EIP-7702 type-4 is not enabled until that wallet is registry-verified.`
-              : `Atomic sell failed: ${detail}. No sequential fallback.`,
+            `Atomic sell failed: ${sendCallsError ?? "unknown"}. No sequential fallback.`,
           );
           setStatus("");
           return;
         }
 
-        const batchId =
-          typeof batch === "string"
-            ? batch
-            : batch?.id ?? JSON.stringify(batch).slice(0, 120);
-        setStatus(`Sell batch submitted · batchId ${batchId}`);
-        const callsStatus = await pollCallsStatus(ethereum, batchId);
-        await refresh();
-        const receiptHint = callsStatus
-          ? ` · status ${JSON.stringify(callsStatus).slice(0, 240)}`
-          : "";
+        // C2: type-4 Calibur — same eth_sendTransaction family as buy.
         setStatus(
-          `Sell submitted · batchId ${batchId} · ${sellPercent}% → ETH (min ${formatEther(fresh.minAmountOutEth)} ETH)${receiptHint}`,
+          `Atomic sendCalls unavailable on Robinhood (${sendCallsError.slice(0, 100)}). Trying EIP-7702 type-4 batch...`,
         );
-        return;
+        try {
+          const nonceHex = (await ethereum.request({
+            method: "eth_getTransactionCount",
+            params: [signer, "pending"],
+          })) as Hex;
+          const type4 = buildType4CaliburExecuteTx({
+            from: signer,
+            nonce: nonceHex,
+            calls,
+          });
+          const hash = (await ethereum.request(type4)) as Hex;
+          setStatus(`Type-4 sell submitted · tx ${hash}`);
+          await publicClient.waitForTransactionReceipt({ hash });
+          await refresh();
+          setStatus(
+            `Sell confirmed · tx ${hash} · ${sellPercent}% → ETH (min ${formatEther(fresh.minAmountOutEth)} ETH) · EIP-7702 type-4`,
+          );
+          return;
+        } catch (e2) {
+          const detail2 = formatUtilityWalletError(e2);
+          setError(
+            `First-time sell blocked on this wallet: wallet_sendCalls failed (${sendCallsError.slice(0, 140)}) and EIP-7702 type-4 eth_sendTransaction also failed (${detail2.slice(0, 180)}). No sequential ${needsApprove.length}+1 path. Warm sells work after gateway allowances exist.`,
+          );
+          setStatus("");
+          return;
+        }
       }
 
       // Warm path: single exit via writeContract (1 confirmation).
