@@ -2727,6 +2727,7 @@ export function useFivePoolPositions() {
           setProgress("awaiting-exit");
           setStatusMessage("Ops Gateway withdraw (atomic USDC-only)…");
           const open = [...positions].sort((a, b) => a.legIndex - b.legIndex);
+          // WC/AppKit: allow one-LP chunk fallback when oneshot fee reserve exceeds ETH.
           const preferChunkedExits = /walletconnect|appkit|reown|coinbase|wallet.?connect/i.test(
             `${wallet.connectorId ?? ""} ${wallet.connectorName ?? ""}`,
           );

@@ -1,8 +1,9 @@
 /**
  * Gateway cold/warm withdraw orchestration (feature-flagged).
  * Fail-closed: never mark complete while catalogue LPs or non-USDC withdrawal residue remain.
- * Path: setApprovalForAll (as needed, always mined first) → HTTP estimate+floor →
- * simulate with gas → exitPercentToUsdc with forced gas (one-shot or one-LP chunks).
+ * Path: setApprovalForAll (as needed) → HTTP estimate×1.4 clamped to ETH affordability →
+ * simulate → oneshot exitPercentToUsdc when affordable; one-LP chunks only as low-ETH fallback.
+ * LP decrease mins are 0; slippage is enforced via minUsdcOut (MetaMask Mobile fee-reserve).
  */
 import {
   createWalletClient,
@@ -35,16 +36,11 @@ import { waitForSuccessfulTransactionReceipt } from "@/lib/stable-club/transacti
 import { planLooseAssetRecoveries } from "@/lib/stable-club/recover-loose-assets";
 import { residueFromBaseline } from "@/lib/stable-club/withdraw-checkpoint";
 import {
-  applyGatewayExitGasBuffer,
-  GATEWAY_EXIT_CHUNK_GAS_FLOOR,
   GATEWAY_EXIT_CHUNK_OOG_USER_MESSAGE,
   GATEWAY_EXIT_OOG_USER_MESSAGE,
-  requireGatewayExitGasLimit,
+  resolveGatewayExitGas,
 } from "@/lib/stable-club/gateway-exit-gas";
 import { wrapProviderForceGatewayExitGas } from "@/lib/stable-club/force-gateway-exit-gas-provider";
-
-/** Mobile WC: one-LP chunks when many legs (avoids oversized private sims). */
-const GATEWAY_EXIT_CHUNK_LEG_THRESHOLD = 3;
 
 export type GatewayWithdrawPosition = {
   npm: Address;
@@ -83,6 +79,8 @@ export async function withdrawPercentViaOpsGateway(params: {
     | "getBlockNumber"
     | "call"
     | "estimateGas"
+    | "estimateFeesPerGas"
+    | "getGasPrice"
   >;
   /** Optional React positions — live HTTP catalogue enumeration is authoritative. */
   positions: GatewayWithdrawPosition[];
@@ -92,8 +90,8 @@ export async function withdrawPercentViaOpsGateway(params: {
   onStatus?: (msg: string) => void;
   onBroadcast?: () => void;
   /**
-   * WalletConnect / AppKit mobile: prefer one-LP gateway exits so each wallet
-   * private sim stays under ~6M (full 5-leg exit often auto-rejects as 4001).
+   * WalletConnect / AppKit mobile: allow one-LP chunk *fallback* when oneshot
+   * gas×conservative maxFee exceeds ETH. Prefer oneshot whenever affordable.
    */
   preferChunkedExits?: boolean;
 }): Promise<{
@@ -209,12 +207,14 @@ export async function withdrawPercentViaOpsGateway(params: {
       deadline,
       slippageBps: BigInt(500),
     });
+    // Zero NPM decrease mins — MetaMask Mobile private sim is brittle on stale
+    // tick mins; USDC slippage is enforced via minUsdcOut below.
     exitLegs.push({
       npm: getAddress(row.npm),
       tokenId: row.tokenId,
       liquidity: liqOut,
-      amount0Min: mins.amount0Min,
-      amount1Min: mins.amount1Min,
+      amount0Min: BigInt(0),
+      amount1Min: BigInt(0),
       burnIfEmpty: pct >= 100,
     });
     if (oracleGuard) {
@@ -291,13 +291,31 @@ export async function withdrawPercentViaOpsGateway(params: {
     deadline,
   });
 
-  // ≥3 LPs or WC/mobile: one-LP chunks. Desktop injected with <3 legs keeps single-shot.
-  // Chunk gas uses 1.5M floor (not 10M) so low-ETH mobile wallets can afford the fee reserve.
-  const preferChunked =
-    Boolean(params.preferChunkedExits) ||
-    exitLegs.length >= GATEWAY_EXIT_CHUNK_LEG_THRESHOLD;
+  // Prefer oneshot. Chunk only when oneshot gas×conservative fee exceeds ETH
+  // (preferChunkedExits enables that fallback; never force 5 confirms by default).
+  const allowChunkFallback = Boolean(params.preferChunkedExits);
 
   const txHashes: Hex[] = [];
+
+  const fees = await params.publicClient.estimateFeesPerGas();
+  const networkMaxFee =
+    fees.maxFeePerGas ?? (await params.publicClient.getGasPrice());
+  const ethBalance = await params.publicClient.getBalance({
+    address: params.account,
+  });
+
+  const resolveExitGas = async (to: Address, data: Hex): Promise<bigint> => {
+    const rawEstimate = await params.publicClient.estimateGas({
+      account: params.account,
+      to,
+      data,
+    });
+    return resolveGatewayExitGas({
+      estimateGas: rawEstimate,
+      ethBalance,
+      networkMaxFee,
+    });
+  };
 
   const runExitChunks = async (legs: typeof exitLegs, label: string) => {
     const chunks: (typeof exitLegs)[] = [];
@@ -316,17 +334,7 @@ export async function withdrawPercentViaOpsGateway(params: {
       params.onStatus?.(
         `${label} ${i + 1}/${chunks.length} (1 LP)…`,
       );
-      const rawEstimate = await params.publicClient.estimateGas({
-        account: params.account,
-        to: chunkCall.to,
-        data: chunkCall.data,
-      });
-      const exitGas = requireGatewayExitGasLimit(
-        applyGatewayExitGasBuffer(rawEstimate, {
-          floor: GATEWAY_EXIT_CHUNK_GAS_FLOOR,
-        }),
-        { floor: GATEWAY_EXIT_CHUNK_GAS_FLOOR },
-      );
+      const exitGas = await resolveExitGas(chunkCall.to, chunkCall.data);
       try {
         await params.publicClient.call({
           account: params.account,
@@ -368,29 +376,28 @@ export async function withdrawPercentViaOpsGateway(params: {
     }
   };
 
-  if (preferChunked) {
+  let useChunks = false;
+  let oneshotGas: bigint | null = null;
+  try {
+    oneshotGas = await resolveExitGas(exitCall.to, exitCall.data);
+  } catch (affordErr) {
+    if (!allowChunkFallback) throw affordErr;
+    useChunks = true;
     params.onStatus?.(
-      `Mobile/safe path: ${exitLegs.length} gateway exits (one LP each)…`,
+      `Oneshot exit unaffordable on ETH reserve — falling back to one-LP chunks…`,
     );
-    await runExitChunks(exitLegs, "Estimating gateway exit");
-  } else {
-    params.onStatus?.("Estimating gateway exit gas (keep ≥ 10,000,000)…");
-    const rawEstimate = await params.publicClient.estimateGas({
-      account: params.account,
-      to: exitCall.to,
-      data: exitCall.data,
-    });
-    const exitGas = requireGatewayExitGasLimit(
-      applyGatewayExitGasBuffer(rawEstimate),
-    );
+  }
 
-    params.onStatus?.("Simulating gateway exitPercentToUsdc…");
+  if (!useChunks && oneshotGas != null) {
+    params.onStatus?.(
+      `Estimating oneshot gateway exit (gas ${oneshotGas.toString()})…`,
+    );
     try {
       await params.publicClient.call({
         account: params.account,
         to: exitCall.to,
         data: exitCall.data,
-        gas: exitGas,
+        gas: oneshotGas,
       });
     } catch (simErr) {
       const detail = simErr instanceof Error ? simErr.message : String(simErr);
@@ -403,7 +410,9 @@ export async function withdrawPercentViaOpsGateway(params: {
       account: params.account,
       chain: base,
       transport: custom(
-        wrapProviderForceGatewayExitGas(params.provider, { cachedExitGas: exitGas }),
+        wrapProviderForceGatewayExitGas(params.provider, {
+          cachedExitGas: oneshotGas,
+        }),
       ),
     });
 
@@ -413,12 +422,17 @@ export async function withdrawPercentViaOpsGateway(params: {
       gateway,
       needingGrant: [],
       exitCall,
-      exitGas,
+      exitGas: oneshotGas,
       publicClient: params.publicClient,
       txHashes,
       onStatus: params.onStatus,
       onBroadcast: params.onBroadcast,
     });
+  } else {
+    params.onStatus?.(
+      `Low-ETH path: ${exitLegs.length} gateway exits (one LP each)…`,
+    );
+    await runExitChunks(exitLegs, "Estimating gateway exit");
   }
 
   const lastHash = txHashes[txHashes.length - 1];
@@ -555,7 +569,7 @@ async function sequentialGrantsAndExit(params: {
     await params.publicClient.waitForTransactionReceipt({ hash });
   }
   params.onStatus?.(
-    "Confirm gateway exit to USDC — keep gas ≥ 10,000,000 (do not accept a tight wallet estimate)…",
+    "Confirm gateway exit to USDC — keep the dapp gas limit (do not edit gas in the wallet)…",
   );
   const exitHash = await params.walletClient.sendTransaction({
     account: params.account,

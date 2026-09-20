@@ -8,7 +8,7 @@
 import {
   forceGatewayExitTxGas,
   isGatewayExitPercentToUsdcCalldata,
-  GATEWAY_EXIT_GAS_FLOOR,
+  GATEWAY_EXIT_GAS_ABSOLUTE_MIN,
   parseHexGasQuantity,
   toHexGasQuantity,
 } from "@/lib/stable-club/gateway-exit-gas";
@@ -44,7 +44,7 @@ function resolveForcedGasHex(
   existing: string | number | bigint | undefined,
   cachedExitGas: bigint | undefined,
 ): `0x${string}` {
-  // Honor any positive cached exit gas (full 10M floor OR chunk ~1.5M+).
+  // Honor any positive cached exit gas (affordability-clamped estimate×buffer).
   if (cachedExitGas != null && cachedExitGas > BigInt(0)) {
     const fromExisting = parseHexGasQuantity(existing ?? null);
     const pick =
@@ -89,7 +89,7 @@ export function wrapProviderForceGatewayExitGas<T>(
       if (isGatewayExitPercentToUsdcCalldata(data)) {
         return resolveForcedGasHex(
           readTxFields(tx).gas,
-          cachedExitGas ?? GATEWAY_EXIT_GAS_FLOOR,
+          cachedExitGas ?? GATEWAY_EXIT_GAS_ABSOLUTE_MIN,
         );
       }
       return baseRequest({ method, params });
@@ -137,7 +137,7 @@ export function wrapProviderForceGatewayExitGas<T>(
 }
 
 export {
-  GATEWAY_EXIT_GAS_FLOOR,
+  GATEWAY_EXIT_GAS_ABSOLUTE_MIN,
   parseHexGasQuantity,
   toHexGasQuantity,
 };
