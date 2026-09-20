@@ -37,6 +37,9 @@ type StableClubWalletState = {
 type StableClubWalletContextValue = StableClubWalletState & {
   provider: EIP1193Provider | null;
   chain: Chain;
+  /** Wagmi connector id/name — used to detect WalletConnect/AppKit mobile. */
+  connectorId: string | null;
+  connectorName: string | null;
   connect: () => Promise<void>;
   disconnect: () => void;
   switchToBase: () => Promise<void>;
@@ -321,6 +324,8 @@ export function StableClubWalletProvider({
       switchingNetwork,
       provider,
       chain,
+      connectorId: connector?.id ?? null,
+      connectorName: connector?.name ?? null,
       connect,
       disconnect,
       switchToBase,
@@ -335,6 +340,8 @@ export function StableClubWalletProvider({
       switchingNetwork,
       provider,
       chain,
+      connector?.id,
+      connector?.name,
       connect,
       disconnect,
       switchToBase,

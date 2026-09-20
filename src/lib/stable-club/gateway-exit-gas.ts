@@ -29,21 +29,47 @@ export const GATEWAY_EXIT_OOG_USER_MESSAGE =
 export const GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE =
   "Wallet could not simulate gateway exit (often a low-gas preflight — not a cancel). Keep gas ≥ 10,000,000, do not edit gas manually, and retry Withdraw. LPs are untouched until a tx confirms.";
 
-export function formatGatewayWithdrawWalletError(err: unknown): string | null {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (
-    /failed to simulate|simulation failed|could not simulate|internal JSON-RPC/i.test(
-      msg,
-    )
-  ) {
-    return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
+function collectWalletErrorText(err: unknown): string {
+  if (err == null) return "";
+  if (typeof err === "string") return err;
+  if (typeof err !== "object") return String(err);
+  const e = err as {
+    message?: unknown;
+    shortMessage?: unknown;
+    details?: unknown;
+    code?: unknown;
+    name?: unknown;
+    cause?: unknown;
+  };
+  const parts = [
+    e.name,
+    e.code != null ? `code:${String(e.code)}` : null,
+    e.shortMessage,
+    e.message,
+    e.details,
+    collectWalletErrorText(e.cause),
+  ];
+  return parts.filter((p) => typeof p === "string" && p.length > 0).join(" | ");
+}
+
+/** True when wallet returned 4001 / UserRejected — often a failed private sim, not cancel. */
+export function isGatewayWithdrawWalletRejectError(err: unknown): boolean {
+  const msg = collectWalletErrorText(err);
+  if (/failed to simulate|simulation failed|could not simulate|internal JSON-RPC/i.test(msg)) {
+    return true;
   }
+  if (/user rejected|denied|rejected the request|ACTION_REJECTED|code[:\s]*4001|\b4001\b/i.test(msg)) {
+    return true;
+  }
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === 4001 || code === "4001" || code === "ACTION_REJECTED";
+}
+
+export function formatGatewayWithdrawWalletError(err: unknown): string | null {
+  if (!isGatewayWithdrawWalletRejectError(err)) return null;
   // 4001 / "user rejected" after HTTP preflight usually means wallet closed a
   // failed sim sheet — not a deliberate cancel of a healthy confirm.
-  if (/user rejected|denied|rejected the request|ACTION_REJECTED|code[:\s]*4001/i.test(msg)) {
-    return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
-  }
-  return null;
+  return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
 }
 
 export function parseHexGasQuantity(

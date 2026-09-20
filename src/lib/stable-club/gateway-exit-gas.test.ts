@@ -40,6 +40,12 @@ describe("gateway exit gas policy", () => {
         new Error("Failed to simulate the results of this request."),
       ),
     ).toBe(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
+    expect(
+      formatGatewayWithdrawWalletError({
+        shortMessage: "User rejected the request.",
+        code: 4001,
+      }),
+    ).toBe(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
   });
 
   it("short-circuits eth_estimateGas without calling the wallet", async () => {
@@ -111,6 +117,13 @@ describe("gateway withdraw wiring", () => {
     expect(src).toContain("cachedExitGas");
     expect(src).toContain("applyGatewayExitGasBuffer");
     expect(src).toContain("gas: params.exitGas");
+  });
+
+  it("chunks multi-LP gateway exits for mobile/WC private-sim safety", () => {
+    expect(src).toContain("preferChunkedExits");
+    expect(src).toContain("runExitChunks");
+    expect(src).toContain("GATEWAY_EXIT_CHUNK_LEG_THRESHOLD");
+    expect(src).toContain("isGatewayWithdrawWalletRejectError");
   });
 
   it("remints deadline after grants and never atomicBatch-gates grants", () => {

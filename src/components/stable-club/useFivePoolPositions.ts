@@ -2727,6 +2727,9 @@ export function useFivePoolPositions() {
           setProgress("awaiting-exit");
           setStatusMessage("Ops Gateway withdraw (atomic USDC-only)…");
           const open = [...positions].sort((a, b) => a.legIndex - b.legIndex);
+          const preferChunkedExits = /walletconnect|appkit|reown|coinbase|wallet.?connect/i.test(
+            `${wallet.connectorId ?? ""} ${wallet.connectorName ?? ""}`,
+          );
           const result = await withdrawPercentViaOpsGateway({
             deployments: d,
             account,
@@ -2740,6 +2743,7 @@ export function useFivePoolPositions() {
               tokenB: p.tokenB,
             })),
             percent: pct,
+            preferChunkedExits,
             onStatus: setStatusMessage,
             onBroadcast: () => {
               gatewayBroadcasted = true;
