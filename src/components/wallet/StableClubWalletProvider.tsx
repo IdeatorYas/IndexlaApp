@@ -41,6 +41,8 @@ type StableClubWalletContextValue = StableClubWalletState & {
   disconnect: () => void;
   switchToBase: () => Promise<void>;
   switchToLocalHardhat: () => Promise<void>;
+  /** Re-acquire EIP-1193 provider (mobile WalletConnect can drop it while address remains). */
+  refreshProvider: () => Promise<EIP1193Provider | null>;
 };
 
 const StableClubWalletContext = createContext<StableClubWalletContextValue | null>(
@@ -195,6 +197,21 @@ export function StableClubWalletProvider({
     void disconnectAsync().catch(() => undefined);
   }, [disconnectAsync]);
 
+  const refreshProvider = useCallback(async (): Promise<EIP1193Provider | null> => {
+    if (!connector) {
+      setProvider(null);
+      return null;
+    }
+    try {
+      const p = (await connector.getProvider()) as EIP1193Provider;
+      setProvider(p ?? null);
+      return p ?? null;
+    } catch {
+      setProvider(null);
+      return null;
+    }
+  }, [connector]);
+
   useEffect(() => {
     if (chainId === STABLE_CLUB_CHAIN_ID) {
       setLocalError(null);
@@ -308,6 +325,7 @@ export function StableClubWalletProvider({
       disconnect,
       switchToBase,
       switchToLocalHardhat,
+      refreshProvider,
     }),
     [
       status,
@@ -321,6 +339,7 @@ export function StableClubWalletProvider({
       disconnect,
       switchToBase,
       switchToLocalHardhat,
+      refreshProvider,
     ],
   );
 

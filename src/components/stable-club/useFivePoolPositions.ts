@@ -2710,12 +2710,17 @@ export function useFivePoolPositions() {
 
       // 100% + gateway enabled → MANDATORY atomic path. Never silent-fallback to owner-NPM
       // (that closed LPs and stranded cbBTC/WETH on live nonces 178–182).
-      if (
-        pct === 100 &&
-        isOpsGatewayWithdrawAvailable(deployments) &&
-        wallet.provider &&
-        wallet.address
-      ) {
+      // Mobile WalletConnect can keep address while provider is null — refresh then fail-closed.
+      if (pct === 100 && isOpsGatewayWithdrawAvailable(deployments)) {
+        const liveProvider =
+          (await wallet.refreshProvider()) ?? wallet.provider;
+        if (!liveProvider || !wallet.address) {
+          setProgress("failed");
+          setError(
+            "Wallet session lost the signing provider (common after mobile background). Reconnect your wallet, confirm Base, then retry Withdraw. Owner-NPM fallback is disabled for 100%.",
+          );
+          return;
+        }
         let gatewayBroadcasted = false;
         try {
           const { d, account } = ensureReady();
@@ -2725,7 +2730,7 @@ export function useFivePoolPositions() {
           const result = await withdrawPercentViaOpsGateway({
             deployments: d,
             account,
-            provider: wallet.provider,
+            provider: liveProvider,
             publicClient: discoveryClient,
             positions: open.map((p) => ({
               npm: p.nftContract,
@@ -2781,8 +2786,7 @@ export function useFivePoolPositions() {
       positions,
       refreshPositions,
       refreshStrandedAssets,
-      wallet.address,
-      wallet.provider,
+      wallet,
       withdrawLegacyPercentViaOwnerNpm,
     ],
   );
@@ -2796,12 +2800,16 @@ export function useFivePoolPositions() {
     ensureReady();
     await refreshPositions();
     await refreshStrandedAssets();
-    if (
-      isOpsGatewayWithdrawAvailable(deployments) &&
-      chainOpenLps.length > 0 &&
-      wallet.provider &&
-      wallet.address
-    ) {
+    if (isOpsGatewayWithdrawAvailable(deployments) && chainOpenLps.length > 0) {
+      const liveProvider =
+        (await wallet.refreshProvider()) ?? wallet.provider;
+      if (!liveProvider || !wallet.address) {
+        setProgress("failed");
+        setError(
+          "Wallet session lost the signing provider. Reconnect, confirm Base, then Resume. Owner-NPM fallback is disabled while Ops Gateway withdraw is enabled and LPs remain.",
+        );
+        return;
+      }
       await withdrawPercent(100);
       return;
     }
@@ -2813,8 +2821,7 @@ export function useFivePoolPositions() {
     ensureReady,
     refreshPositions,
     refreshStrandedAssets,
-    wallet.address,
-    wallet.provider,
+    wallet,
     withdrawLegacyPercentViaOwnerNpm,
     withdrawPercent,
   ]);

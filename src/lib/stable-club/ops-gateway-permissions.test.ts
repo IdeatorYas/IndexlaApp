@@ -41,6 +41,11 @@ describe("gateway permissions + fallback safety", () => {
   it("makes 100% gateway withdraw mandatory without silent owner-NPM fallback", () => {
     expect(positionsSrc).toContain("owner-NPM fallback disabled for 100%");
     expect(positionsSrc).toContain("MANDATORY atomic path");
+    // Mobile WC: address can remain while provider is null — must refresh then fail-closed.
+    expect(positionsSrc).toContain("refreshProvider");
+    expect(positionsSrc).toContain(
+      "Wallet session lost the signing provider (common after mobile background)",
+    );
   });
 
   it("preserves legacy recover + completedPositionKeys idempotency", () => {
