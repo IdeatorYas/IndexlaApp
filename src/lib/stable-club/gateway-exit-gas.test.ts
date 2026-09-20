@@ -177,15 +177,15 @@ describe("gateway withdraw wiring", () => {
     expect(src).toContain("gas: params.exitGas");
   });
 
-  it("prefers oneshot and zeros LP mins; chunks only as ETH fallback", () => {
-    expect(src).toContain("preferChunkedExits");
-    expect(src).toContain("allowChunkFallback");
+  it("prefers oneshot and zeros LP mins; always allows chunk ETH fallback", () => {
+    expect(src).toContain("allowChunkFallback = true");
     expect(src).toContain("runExitChunks");
     expect(src).toContain("amount0Min: BigInt(0)");
     expect(src).toContain("amount1Min: BigInt(0)");
     expect(src).not.toContain("GATEWAY_EXIT_CHUNK_LEG_THRESHOLD");
     expect(src).not.toContain("GATEWAY_EXIT_AUTO_REJECT_MS");
     expect(src).not.toContain("keep gas ≥ 10,000,000");
+    expect(src).not.toContain("allowChunkFallback = Boolean(params.preferChunkedExits)");
   });
 
   it("remints deadline after grants and never atomicBatch-gates grants", () => {

@@ -90,8 +90,8 @@ export async function withdrawPercentViaOpsGateway(params: {
   onStatus?: (msg: string) => void;
   onBroadcast?: () => void;
   /**
-   * WalletConnect / AppKit mobile: allow one-LP chunk *fallback* when oneshot
-   * gas×conservative maxFee exceeds ETH. Prefer oneshot whenever affordable.
+   * @deprecated Chunk fallback is always allowed when oneshot is unaffordable.
+   * Kept for call-site compatibility; ignored for affordability gating.
    */
   preferChunkedExits?: boolean;
 }): Promise<{
@@ -291,9 +291,10 @@ export async function withdrawPercentViaOpsGateway(params: {
     deadline,
   });
 
-  // Prefer oneshot. Chunk only when oneshot gas×conservative fee exceeds ETH
-  // (preferChunkedExits enables that fallback; never force 5 confirms by default).
-  const allowChunkFallback = Boolean(params.preferChunkedExits);
+  // Prefer oneshot. Always fall back to one-LP chunks when oneshot gas×conservative
+  // fee exceeds ETH — do not gate on connector regex (MetaMask Mobile often misses
+  // walletconnect|appkit|reown and previously threw the oneshot reserve error).
+  const allowChunkFallback = true;
 
   const txHashes: Hex[] = [];
 
