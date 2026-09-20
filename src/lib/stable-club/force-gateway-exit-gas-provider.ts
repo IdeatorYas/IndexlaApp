@@ -44,13 +44,14 @@ function resolveForcedGasHex(
   existing: string | number | bigint | undefined,
   cachedExitGas: bigint | undefined,
 ): `0x${string}` {
-  if (cachedExitGas != null && cachedExitGas >= GATEWAY_EXIT_GAS_FLOOR) {
+  // Honor any positive cached exit gas (full 10M floor OR chunk ~1.5M+).
+  if (cachedExitGas != null && cachedExitGas > BigInt(0)) {
     const fromExisting = parseHexGasQuantity(existing ?? null);
     const pick =
       fromExisting != null && fromExisting > cachedExitGas
         ? fromExisting
         : cachedExitGas;
-    return forceGatewayExitTxGas({ gas: pick });
+    return toHexGasQuantity(pick);
   }
   return forceGatewayExitTxGas({ gas: existing });
 }

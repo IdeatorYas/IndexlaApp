@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyGatewayExitGasBuffer,
   formatGatewayWithdrawWalletError,
+  GATEWAY_EXIT_CHUNK_GAS_FLOOR,
   GATEWAY_EXIT_GAS_FLOOR,
   GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR,
   GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE,
@@ -33,19 +34,30 @@ describe("gateway exit gas policy", () => {
 
   it("maps false user-reject / simulate failures to sim guidance", () => {
     expect(
-      formatGatewayWithdrawWalletError(new Error("User rejected the request")),
-    ).toBe(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
-    expect(
       formatGatewayWithdrawWalletError(
         new Error("Failed to simulate the results of this request."),
       ),
     ).toBe(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
+    // Genuine cancel / 4001 must NOT be remapped to sim-preflight copy.
+    expect(
+      formatGatewayWithdrawWalletError(new Error("User rejected the request")),
+    ).toBeNull();
     expect(
       formatGatewayWithdrawWalletError({
         shortMessage: "User rejected the request.",
         code: 4001,
       }),
-    ).toBe(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
+    ).toBeNull();
+  });
+
+  it("uses a lower gas floor for single-LP chunks than full exits", () => {
+    expect(GATEWAY_EXIT_CHUNK_GAS_FLOOR).toBe(BigInt(1_500_000));
+    expect(GATEWAY_EXIT_GAS_FLOOR).toBe(BigInt(10_000_000));
+    expect(
+      applyGatewayExitGasBuffer(BigInt(517_541), {
+        floor: GATEWAY_EXIT_CHUNK_GAS_FLOOR,
+      }),
+    ).toBe(GATEWAY_EXIT_CHUNK_GAS_FLOOR);
   });
 
   it("short-circuits eth_estimateGas without calling the wallet", async () => {
@@ -123,7 +135,8 @@ describe("gateway withdraw wiring", () => {
     expect(src).toContain("preferChunkedExits");
     expect(src).toContain("runExitChunks");
     expect(src).toContain("GATEWAY_EXIT_CHUNK_LEG_THRESHOLD");
-    expect(src).toContain("isGatewayWithdrawWalletRejectError");
+    expect(src).toContain("GATEWAY_EXIT_CHUNK_GAS_FLOOR");
+    expect(src).not.toContain("GATEWAY_EXIT_AUTO_REJECT_MS");
   });
 
   it("remints deadline after grants and never atomicBatch-gates grants", () => {

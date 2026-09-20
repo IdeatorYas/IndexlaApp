@@ -36,16 +36,15 @@ import { planLooseAssetRecoveries } from "@/lib/stable-club/recover-loose-assets
 import { residueFromBaseline } from "@/lib/stable-club/withdraw-checkpoint";
 import {
   applyGatewayExitGasBuffer,
+  GATEWAY_EXIT_CHUNK_GAS_FLOOR,
+  GATEWAY_EXIT_CHUNK_OOG_USER_MESSAGE,
   GATEWAY_EXIT_OOG_USER_MESSAGE,
-  isGatewayWithdrawWalletRejectError,
   requireGatewayExitGasLimit,
 } from "@/lib/stable-club/gateway-exit-gas";
 import { wrapProviderForceGatewayExitGas } from "@/lib/stable-club/force-gateway-exit-gas-provider";
 
-/** Mobile WC private sim often caps near 6M; chunk when many legs or WC requested. */
+/** Mobile WC: one-LP chunks when many legs (avoids oversized private sims). */
 const GATEWAY_EXIT_CHUNK_LEG_THRESHOLD = 3;
-/** Deliberate cancel needs a sheet; auto-sim reject is usually sub-second. */
-const GATEWAY_EXIT_AUTO_REJECT_MS = 800;
 
 export type GatewayWithdrawPosition = {
   npm: Address;
@@ -292,9 +291,8 @@ export async function withdrawPercentViaOpsGateway(params: {
     deadline,
   });
 
-  // ≥3 LPs or WC/mobile: one-LP chunks so private wallet sim stays under ~6M cap.
-  // Desktop injected with <3 legs keeps single-shot. Fast 4001 (<800ms, no broadcast)
-  // falls back to chunked once (not a deliberate cancel).
+  // ≥3 LPs or WC/mobile: one-LP chunks. Desktop injected with <3 legs keeps single-shot.
+  // Chunk gas uses 1.5M floor (not 10M) so low-ETH mobile wallets can afford the fee reserve.
   const preferChunked =
     Boolean(params.preferChunkedExits) ||
     exitLegs.length >= GATEWAY_EXIT_CHUNK_LEG_THRESHOLD;
@@ -316,7 +314,7 @@ export async function withdrawPercentViaOpsGateway(params: {
         deadline,
       });
       params.onStatus?.(
-        `${label} ${i + 1}/${chunks.length} (1 LP, keep gas ≥ 10,000,000)…`,
+        `${label} ${i + 1}/${chunks.length} (1 LP)…`,
       );
       const rawEstimate = await params.publicClient.estimateGas({
         account: params.account,
@@ -324,7 +322,10 @@ export async function withdrawPercentViaOpsGateway(params: {
         data: chunkCall.data,
       });
       const exitGas = requireGatewayExitGasLimit(
-        applyGatewayExitGasBuffer(rawEstimate),
+        applyGatewayExitGasBuffer(rawEstimate, {
+          floor: GATEWAY_EXIT_CHUNK_GAS_FLOOR,
+        }),
+        { floor: GATEWAY_EXIT_CHUNK_GAS_FLOOR },
       );
       try {
         await params.publicClient.call({
@@ -349,7 +350,7 @@ export async function withdrawPercentViaOpsGateway(params: {
         ),
       });
       params.onStatus?.(
-        `Confirm gateway exit ${i + 1}/${chunks.length} to USDC — keep gas ≥ 10,000,000…`,
+        `Confirm gateway exit ${i + 1}/${chunks.length} to USDC (gas ${exitGas.toString()})…`,
       );
       const exitHash = await walletClient.sendTransaction({
         account: params.account,
@@ -362,14 +363,14 @@ export async function withdrawPercentViaOpsGateway(params: {
       txHashes.push(exitHash);
       await waitForSuccessfulTransactionReceipt(params.publicClient, exitHash, {
         gasLimit: exitGas,
-        outOfGasMessage: GATEWAY_EXIT_OOG_USER_MESSAGE,
+        outOfGasMessage: GATEWAY_EXIT_CHUNK_OOG_USER_MESSAGE,
       });
     }
   };
 
   if (preferChunked) {
     params.onStatus?.(
-      `Mobile/safe path: ${exitLegs.length} gateway exits (one LP each) so wallet sim stays under gas cap…`,
+      `Mobile/safe path: ${exitLegs.length} gateway exits (one LP each)…`,
     );
     await runExitChunks(exitLegs, "Estimating gateway exit");
   } else {
@@ -406,39 +407,18 @@ export async function withdrawPercentViaOpsGateway(params: {
       ),
     });
 
-    let broadcasted = false;
-    const started = Date.now();
-    try {
-      await sequentialGrantsAndExit({
-        walletClient,
-        account: params.account,
-        gateway,
-        needingGrant: [],
-        exitCall,
-        exitGas,
-        publicClient: params.publicClient,
-        txHashes,
-        onStatus: params.onStatus,
-        onBroadcast: () => {
-          broadcasted = true;
-          params.onBroadcast?.();
-        },
-      });
-    } catch (err) {
-      const elapsed = Date.now() - started;
-      if (
-        !broadcasted &&
-        isGatewayWithdrawWalletRejectError(err) &&
-        elapsed < GATEWAY_EXIT_AUTO_REJECT_MS
-      ) {
-        params.onStatus?.(
-          "Wallet auto-rejected full exit (private sim). Retrying one LP at a time…",
-        );
-        await runExitChunks(exitLegs, "Estimating chunked gateway exit");
-      } else {
-        throw err;
-      }
-    }
+    await sequentialGrantsAndExit({
+      walletClient,
+      account: params.account,
+      gateway,
+      needingGrant: [],
+      exitCall,
+      exitGas,
+      publicClient: params.publicClient,
+      txHashes,
+      onStatus: params.onStatus,
+      onBroadcast: params.onBroadcast,
+    });
   }
 
   const lastHash = txHashes[txHashes.length - 1];

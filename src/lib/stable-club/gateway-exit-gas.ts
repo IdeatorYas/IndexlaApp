@@ -13,6 +13,12 @@ export const GATEWAY_EXIT_GAS_BUFFER_BPS = 4_000;
 export const GATEWAY_EXIT_GAS_FLOOR = BigInt(10_000_000);
 
 /**
+ * Single-LP chunk exits estimate ~0.5–1.5M; forcing 10M makes mobile wallets
+ * refuse send when ETH is low (gasLimit × padded maxFee > balance).
+ */
+export const GATEWAY_EXIT_CHUNK_GAS_FLOOR = BigInt(1_500_000);
+
+/**
  * exitPercentToUsdc((address,uint256,uint128,uint256,uint256,bool)[],(address,uint24,uint256,uint256)[],uint256,uint256)
  */
 export const GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR = "0x4a41f906";
@@ -22,12 +28,14 @@ export const GATEWAY_EXIT_GAS_CEILING = BigInt(30_000_000);
 export const GATEWAY_EXIT_OOG_USER_MESSAGE =
   "Gateway withdraw ran out of gas. Retry and keep gas limit ≥ 10,000,000 (do not accept a tight wallet estimate).";
 
+export const GATEWAY_EXIT_CHUNK_OOG_USER_MESSAGE =
+  "Gateway exit chunk ran out of gas. Retry without lowering the gas limit.";
+
 /**
- * Mobile wallets often return "User rejected the request" after a failed
- * internal simulation (low-gas eth_call), not after a deliberate cancel.
+ * Only for proven wallet/RPC simulation failures — never for 4001 / user reject.
  */
 export const GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE =
-  "Wallet could not simulate gateway exit (often a low-gas preflight — not a cancel). Keep gas ≥ 10,000,000, do not edit gas manually, and retry Withdraw. LPs are untouched until a tx confirms.";
+  "Wallet could not simulate gateway exit. Keep the dapp gas limit, do not edit gas manually, and retry Withdraw. LPs are untouched until a tx confirms.";
 
 function collectWalletErrorText(err: unknown): string {
   if (err == null) return "";
@@ -52,24 +60,39 @@ function collectWalletErrorText(err: unknown): string {
   return parts.filter((p) => typeof p === "string" && p.length > 0).join(" | ");
 }
 
-/** True when wallet returned 4001 / UserRejected — often a failed private sim, not cancel. */
-export function isGatewayWithdrawWalletRejectError(err: unknown): boolean {
+/** Explicit simulation / RPC failure — not user cancel. */
+export function isGatewayWithdrawSimulationError(err: unknown): boolean {
   const msg = collectWalletErrorText(err);
-  if (/failed to simulate|simulation failed|could not simulate|internal JSON-RPC/i.test(msg)) {
-    return true;
-  }
-  if (/user rejected|denied|rejected the request|ACTION_REJECTED|code[:\s]*4001|\b4001\b/i.test(msg)) {
+  return /failed to simulate|simulation failed|could not simulate|internal JSON-RPC/i.test(
+    msg,
+  );
+}
+
+/** Genuine wallet cancel / reject — must not be remapped to sim guidance. */
+export function isGatewayWithdrawUserRejectError(err: unknown): boolean {
+  if (isGatewayWithdrawSimulationError(err)) return false;
+  const msg = collectWalletErrorText(err);
+  if (/user rejected|denied the request|rejected the request|ACTION_REJECTED|\b4001\b/i.test(msg)) {
     return true;
   }
   const code = (err as { code?: unknown } | null)?.code;
   return code === 4001 || code === "4001" || code === "ACTION_REJECTED";
 }
 
+/**
+ * @deprecated Prefer isGatewayWithdrawSimulationError / isGatewayWithdrawUserRejectError.
+ * Kept for call sites that previously treated reject as sim-fail — now only sim.
+ */
+export function isGatewayWithdrawWalletRejectError(err: unknown): boolean {
+  return isGatewayWithdrawSimulationError(err);
+}
+
 export function formatGatewayWithdrawWalletError(err: unknown): string | null {
-  if (!isGatewayWithdrawWalletRejectError(err)) return null;
-  // 4001 / "user rejected" after HTTP preflight usually means wallet closed a
-  // failed sim sheet — not a deliberate cancel of a healthy confirm.
-  return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
+  if (isGatewayWithdrawSimulationError(err)) {
+    return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
+  }
+  // Never remap 4001 / user rejected to sim-preflight — surface wallet text.
+  return null;
 }
 
 export function parseHexGasQuantity(
@@ -102,15 +125,18 @@ export function isGatewayExitPercentToUsdcCalldata(
   return data.trim().toLowerCase().startsWith(GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR);
 }
 
-export function applyGatewayExitGasBuffer(estimateGas: bigint): bigint {
+export function applyGatewayExitGasBuffer(
+  estimateGas: bigint,
+  opts?: { floor?: bigint },
+): bigint {
   if (estimateGas <= BigInt(0)) {
     throw new Error("Gateway exit estimateGas must be > 0");
   }
+  const floor = opts?.floor ?? GATEWAY_EXIT_GAS_FLOOR;
   const buffered =
     (estimateGas * BigInt(10_000 + GATEWAY_EXIT_GAS_BUFFER_BPS)) /
     BigInt(10_000);
-  const withFloor =
-    buffered > GATEWAY_EXIT_GAS_FLOOR ? buffered : GATEWAY_EXIT_GAS_FLOOR;
+  const withFloor = buffered > floor ? buffered : floor;
   if (withFloor > GATEWAY_EXIT_GAS_CEILING) {
     throw new Error(
       `Gateway exit gas estimate too high (${withFloor.toString()}). Refresh and retry.`,
@@ -119,10 +145,14 @@ export function applyGatewayExitGasBuffer(estimateGas: bigint): bigint {
   return withFloor;
 }
 
-export function requireGatewayExitGasLimit(gas: bigint): bigint {
-  if (gas < GATEWAY_EXIT_GAS_FLOOR) {
+export function requireGatewayExitGasLimit(
+  gas: bigint,
+  opts?: { floor?: bigint },
+): bigint {
+  const floor = opts?.floor ?? GATEWAY_EXIT_GAS_FLOOR;
+  if (gas < floor) {
     throw new Error(
-      `Gateway exit gas limit ${gas.toString()} is below the required minimum ${GATEWAY_EXIT_GAS_FLOOR.toString()}.`,
+      `Gateway exit gas limit ${gas.toString()} is below the required minimum ${floor.toString()}.`,
     );
   }
   if (gas > GATEWAY_EXIT_GAS_CEILING) {
