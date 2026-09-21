@@ -38,6 +38,9 @@ import { residueFromBaseline } from "@/lib/stable-club/withdraw-checkpoint";
 import {
   GATEWAY_EXIT_CHUNK_OOG_USER_MESSAGE,
   GATEWAY_EXIT_OOG_USER_MESSAGE,
+  GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE,
+  isGatewayExitFeeReserveUnaffordable,
+  isGatewayWithdrawUserRejectError,
   resolveGatewayExitGas,
 } from "@/lib/stable-club/gateway-exit-gas";
 import { wrapProviderForceGatewayExitGas } from "@/lib/stable-club/force-gateway-exit-gas-provider";
@@ -298,24 +301,47 @@ export async function withdrawPercentViaOpsGateway(params: {
 
   const txHashes: Hex[] = [];
 
-  const fees = await params.publicClient.estimateFeesPerGas();
-  const networkMaxFee =
-    fees.maxFeePerGas ?? (await params.publicClient.getGasPrice());
-  const ethBalance = await params.publicClient.getBalance({
-    address: params.account,
-  });
-
-  const resolveExitGas = async (to: Address, data: Hex): Promise<bigint> => {
+  const resolveExitGas = async (to: Address, data: Hex): Promise<{
+    exitGas: bigint;
+    ethBalance: bigint;
+    networkMaxFee: bigint;
+  }> => {
+    const feesNow = await params.publicClient.estimateFeesPerGas();
+    const networkMaxFee =
+      feesNow.maxFeePerGas ?? (await params.publicClient.getGasPrice());
+    const ethBalance = await params.publicClient.getBalance({
+      address: params.account,
+    });
     const rawEstimate = await params.publicClient.estimateGas({
       account: params.account,
       to,
       data,
     });
-    return resolveGatewayExitGas({
+    const exitGas = resolveGatewayExitGas({
       estimateGas: rawEstimate,
       ethBalance,
       networkMaxFee,
     });
+    return { exitGas, ethBalance, networkMaxFee };
+  };
+
+  const remapWalletRejectIfFeeReserve = (
+    err: unknown,
+    exitGas: bigint,
+    ethBalance: bigint,
+    networkMaxFee: bigint,
+  ): never => {
+    if (
+      isGatewayWithdrawUserRejectError(err) &&
+      isGatewayExitFeeReserveUnaffordable({
+        gas: exitGas,
+        ethBalance,
+        networkMaxFee,
+      })
+    ) {
+      throw new Error(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
+    }
+    throw err instanceof Error ? err : new Error(String(err));
   };
 
   const runExitChunks = async (legs: typeof exitLegs, label: string) => {
@@ -335,7 +361,10 @@ export async function withdrawPercentViaOpsGateway(params: {
       params.onStatus?.(
         `${label} ${i + 1}/${chunks.length} (1 LP)…`,
       );
-      const exitGas = await resolveExitGas(chunkCall.to, chunkCall.data);
+      const { exitGas, ethBalance, networkMaxFee } = await resolveExitGas(
+        chunkCall.to,
+        chunkCall.data,
+      );
       try {
         await params.publicClient.call({
           account: params.account,
@@ -361,16 +390,26 @@ export async function withdrawPercentViaOpsGateway(params: {
       params.onStatus?.(
         `Confirm gateway exit ${i + 1}/${chunks.length} to USDC (gas ${exitGas.toString()})…`,
       );
-      const exitHash = await walletClient.sendTransaction({
-        account: params.account,
-        to: chunkCall.to,
-        data: chunkCall.data,
-        gas: exitGas,
-        chain: base,
-      });
+      let exitHash: Hex;
+      try {
+        exitHash = await walletClient.sendTransaction({
+          account: params.account,
+          to: chunkCall.to,
+          data: chunkCall.data,
+          gas: exitGas,
+          chain: base,
+        });
+      } catch (sendErr) {
+        remapWalletRejectIfFeeReserve(
+          sendErr,
+          exitGas,
+          ethBalance,
+          networkMaxFee,
+        );
+      }
       params.onBroadcast?.();
-      txHashes.push(exitHash);
-      await waitForSuccessfulTransactionReceipt(params.publicClient, exitHash, {
+      txHashes.push(exitHash!);
+      await waitForSuccessfulTransactionReceipt(params.publicClient, exitHash!, {
         gasLimit: exitGas,
         outOfGasMessage: GATEWAY_EXIT_CHUNK_OOG_USER_MESSAGE,
       });
@@ -379,8 +418,13 @@ export async function withdrawPercentViaOpsGateway(params: {
 
   let useChunks = false;
   let oneshotGas: bigint | null = null;
+  let oneshotEth: bigint | null = null;
+  let oneshotFee: bigint | null = null;
   try {
-    oneshotGas = await resolveExitGas(exitCall.to, exitCall.data);
+    const r = await resolveExitGas(exitCall.to, exitCall.data);
+    oneshotGas = r.exitGas;
+    oneshotEth = r.ethBalance;
+    oneshotFee = r.networkMaxFee;
   } catch (affordErr) {
     if (!allowChunkFallback) throw affordErr;
     useChunks = true;
@@ -417,18 +461,27 @@ export async function withdrawPercentViaOpsGateway(params: {
       ),
     });
 
-    await sequentialGrantsAndExit({
-      walletClient,
-      account: params.account,
-      gateway,
-      needingGrant: [],
-      exitCall,
-      exitGas: oneshotGas,
-      publicClient: params.publicClient,
-      txHashes,
-      onStatus: params.onStatus,
-      onBroadcast: params.onBroadcast,
-    });
+    try {
+      await sequentialGrantsAndExit({
+        walletClient,
+        account: params.account,
+        gateway,
+        needingGrant: [],
+        exitCall,
+        exitGas: oneshotGas,
+        publicClient: params.publicClient,
+        txHashes,
+        onStatus: params.onStatus,
+        onBroadcast: params.onBroadcast,
+      });
+    } catch (sendErr) {
+      remapWalletRejectIfFeeReserve(
+        sendErr,
+        oneshotGas,
+        oneshotEth ?? BigInt(0),
+        oneshotFee ?? BigInt(0),
+      );
+    }
   } else {
     params.onStatus?.(
       `Low-ETH path: ${exitLegs.length} gateway exits (one LP each)…`,

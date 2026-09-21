@@ -33,7 +33,14 @@ export const GATEWAY_EXIT_GAS_CEILING = BigInt(30_000_000);
 /** Absolute minimum gas we will send (below typical single-LP estimate). */
 export const GATEWAY_EXIT_GAS_ABSOLUTE_MIN = BigInt(300_000);
 
-/** MetaMask-style fee pad floor used for affordability clamp (5 gwei). */
+/** Absolute floor only when network quotes absurdly low (0.05 gwei). Not 5 gwei. */
+export const GATEWAY_EXIT_LIVE_FEE_FLOOR_WEI = BigInt(50_000_000);
+
+/**
+ * @deprecated Historical MetaMask-style 5 gwei floor — DO NOT use for affordability.
+ * Kept only so old tests/docs can reference the prior bug. Live path uses
+ * GATEWAY_EXIT_LIVE_FEE_FLOOR_WEI + network×pad.
+ */
 export const GATEWAY_EXIT_CONSERVATIVE_MAX_FEE_WEI = BigInt(5_000_000_000);
 
 /** Multiplier on network maxFee when computing conservative pad. */
@@ -52,7 +59,7 @@ export const GATEWAY_EXIT_CHUNK_OOG_USER_MESSAGE =
  * Only for proven wallet/RPC simulation failures — never for 4001 / user reject.
  */
 export const GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE =
-  "Wallet could not simulate gateway exit (often gasLimit × fee reserve exceeds ETH). Keep the dapp gas limit, do not edit gas manually, and retry Withdraw. LPs are untouched until a tx confirms.";
+  "Wallet could not simulate gateway exit (fee reserve or private sim). Keep the dapp gas limit, do not edit gas, and retry. If ETH is low, top up a little Base ETH. LPs stay untouched until a tx confirms.";
 
 function collectWalletErrorText(err: unknown): string {
   if (err == null) return "";
@@ -103,11 +110,32 @@ export function isGatewayWithdrawWalletRejectError(err: unknown): boolean {
   return isGatewayWithdrawSimulationError(err);
 }
 
-export function formatGatewayWithdrawWalletError(err: unknown): string | null {
+export function formatGatewayWithdrawWalletError(
+  err: unknown,
+  context?: {
+    submittedGas?: bigint;
+    ethBalance?: bigint;
+    networkMaxFee?: bigint;
+  },
+): string | null {
   if (isGatewayWithdrawSimulationError(err)) {
     return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
   }
-  // Never remap bare 4001 / user rejected to sim-preflight — surface wallet text.
+  // Bare 4001 after an unaffordable fee-reserve prompt is MM Close-only, not a cancel.
+  if (
+    context &&
+    context.submittedGas != null &&
+    context.ethBalance != null &&
+    context.networkMaxFee != null &&
+    isGatewayWithdrawUserRejectError(err) &&
+    isGatewayExitFeeReserveUnaffordable({
+      gas: context.submittedGas,
+      ethBalance: context.ethBalance,
+      networkMaxFee: context.networkMaxFee,
+    })
+  ) {
+    return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
+  }
   return null;
 }
 
@@ -183,12 +211,26 @@ export function requireGatewayExitGasLimit(
   return gas;
 }
 
-/** Conservative maxFee for MetaMask Mobile fee-reserve checks. */
+/** Conservative maxFee from live network quote × pad (no fixed 5 gwei floor). */
 export function conservativeGatewayExitMaxFee(networkMaxFee: bigint): bigint {
+  if (networkMaxFee <= BigInt(0)) {
+    return GATEWAY_EXIT_LIVE_FEE_FLOOR_WEI;
+  }
   const padded = networkMaxFee * GATEWAY_EXIT_FEE_PAD_MULT;
-  return padded > GATEWAY_EXIT_CONSERVATIVE_MAX_FEE_WEI
+  return padded > GATEWAY_EXIT_LIVE_FEE_FLOOR_WEI
     ? padded
-    : GATEWAY_EXIT_CONSERVATIVE_MAX_FEE_WEI;
+    : GATEWAY_EXIT_LIVE_FEE_FLOOR_WEI;
+}
+
+/** True when submitted gas × live conservative fee exceeds wallet ETH (MM Close-only risk). */
+export function isGatewayExitFeeReserveUnaffordable(params: {
+  gas: bigint;
+  ethBalance: bigint;
+  networkMaxFee: bigint;
+}): boolean {
+  if (params.gas <= BigInt(0) || params.ethBalance <= BigInt(0)) return true;
+  const fee = conservativeGatewayExitMaxFee(params.networkMaxFee);
+  return params.gas * fee > params.ethBalance;
 }
 
 /**

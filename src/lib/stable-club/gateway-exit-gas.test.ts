@@ -36,32 +36,31 @@ describe("gateway exit gas policy", () => {
     expect(GATEWAY_EXIT_CHUNK_GAS_FLOOR).toBe(BigInt(1_500_000));
   });
 
-  it("clamps gas so 5 gwei × gas fits low ETH (friend wallet case)", () => {
-    const eth = BigInt("5937250705694626"); // ~0.005937
-    const estimate = BigInt(517_541);
+  it("uses live network×pad fee (no fixed 5 gwei floor) for low-ETH friend case", () => {
+    const eth = BigInt("1751000000000000"); // ~0.001751
+    const estimate = BigInt(518_000);
+    const networkMaxFee = BigInt(7_000_000); // 0.007 gwei
     const gas = resolveGatewayExitGas({
       estimateGas: estimate,
       ethBalance: eth,
-      networkMaxFee: BigInt(7_000_000), // 0.007 gwei
+      networkMaxFee,
     });
     expect(gas).toBe((estimate * BigInt(14_000)) / BigInt(10_000));
-    expect(gas * GATEWAY_EXIT_CONSERVATIVE_MAX_FEE_WEI).toBeLessThan(
-      (eth * BigInt(9_000)) / BigInt(10_000),
-    );
-    // Legacy 1.5M floor would NOT fit at 5 gwei
+    // Live pad ≪ 5 gwei → reserve fits; legacy 5 gwei floor would not.
+    const livePad = networkMaxFee * BigInt(12);
+    expect(gas * livePad).toBeLessThan(eth);
     expect(
-      GATEWAY_EXIT_CHUNK_GAS_FLOOR * GATEWAY_EXIT_CONSERVATIVE_MAX_FEE_WEI >
-        eth,
+      gas * GATEWAY_EXIT_CONSERVATIVE_MAX_FEE_WEI > eth,
     ).toBe(true);
   });
 
-  it("throws when even raw estimate exceeds ETH budget at 5 gwei", () => {
+  it("throws when raw estimate exceeds ETH budget at live padded fee", () => {
     expect(() =>
       clampGatewayExitGasToAffordability({
         gas: BigInt(2_000_000),
         rawEstimate: BigInt(2_000_000),
-        ethBalance: BigInt("1000000000000000"), // 0.001 ETH
-        networkMaxFee: BigInt(1),
+        ethBalance: BigInt("1000000000000"), // 0.000001 ETH
+        networkMaxFee: BigInt(1_000_000_000), // 1 gwei → pad 12 gwei
       }),
     ).toThrow(/Not enough Base ETH/);
   });
@@ -78,16 +77,31 @@ describe("gateway exit gas policy", () => {
         cause: new Error("Failed to simulate the results of this request."),
       }),
     ).toBe(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
-    // Genuine cancel / 4001 must NOT be remapped to sim-preflight copy.
+    // Genuine cancel / 4001 must NOT be remapped when reserve fits.
     expect(
       formatGatewayWithdrawWalletError(new Error("User rejected the request")),
     ).toBeNull();
     expect(
-      formatGatewayWithdrawWalletError({
-        shortMessage: "User rejected the request.",
-        code: 4001,
-      }),
+      formatGatewayWithdrawWalletError(
+        { shortMessage: "User rejected the request.", code: 4001 },
+        {
+          submittedGas: BigInt(729_715),
+          ethBalance: BigInt("1751000000000000"),
+          networkMaxFee: BigInt(7_000_000),
+        },
+      ),
     ).toBeNull();
+    // Same reject with inflated legacy-style fee context → sim guidance.
+    expect(
+      formatGatewayWithdrawWalletError(
+        { shortMessage: "User rejected the request.", code: 4001 },
+        {
+          submittedGas: BigInt(729_715),
+          ethBalance: BigInt("1751000000000000"),
+          networkMaxFee: BigInt(5_000_000_000),
+        },
+      ),
+    ).toBe(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
   });
 
   it("short-circuits eth_estimateGas without calling the wallet", async () => {
