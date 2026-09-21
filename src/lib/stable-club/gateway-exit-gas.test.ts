@@ -191,9 +191,12 @@ describe("gateway withdraw wiring", () => {
     expect(src).toContain("gas: params.exitGas");
   });
 
-  it("prefers oneshot and zeros LP mins; always allows chunk ETH fallback", () => {
+  it("prefers oneshot on desktop; mobile preferChunkedExits skips oneshot", () => {
     expect(src).toContain("allowChunkFallback = true");
     expect(src).toContain("runExitChunks");
+    expect(src).toContain("preferChunksFirst");
+    expect(src).toContain("let useChunks = preferChunksFirst");
+    expect(src).toContain("skipping multi-LP oneshot");
     expect(src).toContain("amount0Min: BigInt(0)");
     expect(src).toContain("amount1Min: BigInt(0)");
     expect(src).not.toContain("GATEWAY_EXIT_CHUNK_LEG_THRESHOLD");

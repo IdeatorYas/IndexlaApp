@@ -36,6 +36,7 @@ import {
   padExitUnwindSwaps,
 } from "@/lib/stable-club/exit-to-usdc";
 import { withdrawPercentViaOpsGateway } from "@/lib/stable-club/ops-gateway-withdraw";
+import { shouldPreferChunkedGatewayExits } from "@/lib/stable-club/prefer-chunked-gateway-exits";
 import {
   coldWithdrawPromptClaim,
   isOpsGatewayWithdrawAvailable,
@@ -2727,10 +2728,14 @@ export function useFivePoolPositions() {
           setProgress("awaiting-exit");
           setStatusMessage("Ops Gateway withdraw (atomic USDC-only)…");
           const open = [...positions].sort((a, b) => a.legIndex - b.legIndex);
-          // WC/AppKit: allow one-LP chunk fallback when oneshot fee reserve exceeds ETH.
-          const preferChunkedExits = /walletconnect|appkit|reown|coinbase|wallet.?connect/i.test(
-            `${wallet.connectorId ?? ""} ${wallet.connectorName ?? ""}`,
-          );
+          // Mobile / WC: never multi-LP oneshot (MM Mobile private-sim Close-only).
+          const preferChunkedExits = shouldPreferChunkedGatewayExits({
+            connectorId: wallet.connectorId,
+            connectorName: wallet.connectorName,
+            userAgent:
+              typeof navigator !== "undefined" ? navigator.userAgent : "",
+            provider: liveProvider as { isMetaMask?: boolean } | null,
+          });
           const result = await withdrawPercentViaOpsGateway({
             deployments: d,
             account,

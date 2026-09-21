@@ -2,8 +2,9 @@
  * Gateway cold/warm withdraw orchestration (feature-flagged).
  * Fail-closed: never mark complete while catalogue LPs or non-USDC withdrawal residue remain.
  * Path: setApprovalForAll (as needed) → HTTP estimate×1.4 clamped to ETH affordability →
- * simulate → oneshot exitPercentToUsdc when affordable; one-LP chunks only as low-ETH fallback.
- * LP decrease mins are 0; slippage is enforced via minUsdcOut (MetaMask Mobile fee-reserve).
+ * simulate → oneshot exitPercentToUsdc on desktop when affordable; mobile/WC skips oneshot and
+ * always uses one-LP chunks (MetaMask Mobile private-sim Close-only on nested ~2M+ gas exits).
+ * LP decrease mins are 0; slippage is enforced via minUsdcOut.
  */
 import {
   createWalletClient,
@@ -93,8 +94,10 @@ export async function withdrawPercentViaOpsGateway(params: {
   onStatus?: (msg: string) => void;
   onBroadcast?: () => void;
   /**
-   * @deprecated Chunk fallback is always allowed when oneshot is unaffordable.
-   * Kept for call-site compatibility; ignored for affordability gating.
+   * When true (mobile / WC-class wallets): skip multi-LP oneshot entirely and
+   * run one-LP chunk exits. MetaMask Mobile private-sim Close-only-fails nested
+   * ~2M+ gas oneshots even when HTTP eth_call succeeds.
+   * When false (desktop): oneshot first; chunk only if live-fee reserve exceeds ETH.
    */
   preferChunkedExits?: boolean;
 }): Promise<{
@@ -294,9 +297,10 @@ export async function withdrawPercentViaOpsGateway(params: {
     deadline,
   });
 
-  // Prefer oneshot. Always fall back to one-LP chunks when oneshot gas×conservative
-  // fee exceeds ETH — do not gate on connector regex (MetaMask Mobile often misses
-  // walletconnect|appkit|reown and previously threw the oneshot reserve error).
+  // Mobile (preferChunkedExits): NEVER oneshot — MetaMask Mobile private-sim
+  // Close-only-fails nested exits ~2M+ gas even when HTTP eth_call succeeds.
+  // Desktop: oneshot first; chunk only if live-fee reserve exceeds ETH.
+  const preferChunksFirst = Boolean(params.preferChunkedExits);
   const allowChunkFallback = true;
 
   const txHashes: Hex[] = [];
@@ -338,6 +342,13 @@ export async function withdrawPercentViaOpsGateway(params: {
         ethBalance,
         networkMaxFee,
       })
+    ) {
+      throw new Error(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
+    }
+    // Mobile oneshot-class gas: bare 4001 is almost always MM Close-only sim.
+    if (
+      isGatewayWithdrawUserRejectError(err) &&
+      exitGas >= BigInt(1_500_000)
     ) {
       throw new Error(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
     }
@@ -416,21 +427,28 @@ export async function withdrawPercentViaOpsGateway(params: {
     }
   };
 
-  let useChunks = false;
+  let useChunks = preferChunksFirst;
   let oneshotGas: bigint | null = null;
   let oneshotEth: bigint | null = null;
   let oneshotFee: bigint | null = null;
-  try {
-    const r = await resolveExitGas(exitCall.to, exitCall.data);
-    oneshotGas = r.exitGas;
-    oneshotEth = r.ethBalance;
-    oneshotFee = r.networkMaxFee;
-  } catch (affordErr) {
-    if (!allowChunkFallback) throw affordErr;
-    useChunks = true;
+
+  if (preferChunksFirst) {
     params.onStatus?.(
-      `Oneshot exit unaffordable on ETH reserve — falling back to one-LP chunks…`,
+      `Mobile wallet path: ${exitLegs.length} gateway exits (one LP each) — skipping multi-LP oneshot…`,
     );
+  } else {
+    try {
+      const r = await resolveExitGas(exitCall.to, exitCall.data);
+      oneshotGas = r.exitGas;
+      oneshotEth = r.ethBalance;
+      oneshotFee = r.networkMaxFee;
+    } catch (affordErr) {
+      if (!allowChunkFallback) throw affordErr;
+      useChunks = true;
+      params.onStatus?.(
+        `Oneshot exit unaffordable on ETH reserve — falling back to one-LP chunks…`,
+      );
+    }
   }
 
   if (!useChunks && oneshotGas != null) {
@@ -483,9 +501,11 @@ export async function withdrawPercentViaOpsGateway(params: {
       );
     }
   } else {
-    params.onStatus?.(
-      `Low-ETH path: ${exitLegs.length} gateway exits (one LP each)…`,
-    );
+    if (!preferChunksFirst) {
+      params.onStatus?.(
+        `Low-ETH path: ${exitLegs.length} gateway exits (one LP each)…`,
+      );
+    }
     await runExitChunks(exitLegs, "Estimating gateway exit");
   }
 
