@@ -41,6 +41,7 @@ import {
   GATEWAY_EXIT_OOG_USER_MESSAGE,
   GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE,
   isGatewayExitFeeReserveUnaffordable,
+  isGatewayExitWalletPrivateFeeUnaffordable,
   isGatewayWithdrawUserRejectError,
   resolveGatewayExitGas,
 } from "@/lib/stable-club/gateway-exit-gas";
@@ -309,10 +310,18 @@ export async function withdrawPercentViaOpsGateway(params: {
     exitGas: bigint;
     ethBalance: bigint;
     networkMaxFee: bigint;
+    maxFeePerGas: bigint;
+    maxPriorityFeePerGas: bigint;
   }> => {
     const feesNow = await params.publicClient.estimateFeesPerGas();
     const networkMaxFee =
       feesNow.maxFeePerGas ?? (await params.publicClient.getGasPrice());
+    // Live HTTP fees on the wire (owner-NPM pattern) — never the 12× affordability pad.
+    const maxFeePerGas = networkMaxFee;
+    const maxPriorityFeePerGas =
+      feesNow.maxPriorityFeePerGas && feesNow.maxPriorityFeePerGas > BigInt(0)
+        ? feesNow.maxPriorityFeePerGas
+        : BigInt(1_000_000);
     const ethBalance = await params.publicClient.getBalance({
       address: params.account,
     });
@@ -326,7 +335,13 @@ export async function withdrawPercentViaOpsGateway(params: {
       ethBalance,
       networkMaxFee,
     });
-    return { exitGas, ethBalance, networkMaxFee };
+    return {
+      exitGas,
+      ethBalance,
+      networkMaxFee,
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+    };
   };
 
   const remapWalletRejectIfFeeReserve = (
@@ -345,7 +360,17 @@ export async function withdrawPercentViaOpsGateway(params: {
     ) {
       throw new Error(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
     }
-    // Mobile oneshot-class gas: bare 4001 is almost always MM Close-only sim.
+    // Phantom/MM private fee pad (~1 gwei+) vs low Base ETH → false 4001.
+    if (
+      isGatewayWithdrawUserRejectError(err) &&
+      isGatewayExitWalletPrivateFeeUnaffordable({
+        gas: exitGas,
+        ethBalance,
+      })
+    ) {
+      throw new Error(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
+    }
+    // Mobile oneshot-class gas: bare 4001 is almost always wallet Close-only sim.
     if (
       isGatewayWithdrawUserRejectError(err) &&
       exitGas >= BigInt(1_500_000)
@@ -372,10 +397,13 @@ export async function withdrawPercentViaOpsGateway(params: {
       params.onStatus?.(
         `${label} ${i + 1}/${chunks.length} (1 LP)…`,
       );
-      const { exitGas, ethBalance, networkMaxFee } = await resolveExitGas(
-        chunkCall.to,
-        chunkCall.data,
-      );
+      const {
+        exitGas,
+        ethBalance,
+        networkMaxFee,
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+      } = await resolveExitGas(chunkCall.to, chunkCall.data);
       try {
         await params.publicClient.call({
           account: params.account,
@@ -395,6 +423,8 @@ export async function withdrawPercentViaOpsGateway(params: {
         transport: custom(
           wrapProviderForceGatewayExitGas(params.provider, {
             cachedExitGas: exitGas,
+            maxFeePerGas,
+            maxPriorityFeePerGas,
           }),
         ),
       });
@@ -408,6 +438,9 @@ export async function withdrawPercentViaOpsGateway(params: {
           to: chunkCall.to,
           data: chunkCall.data,
           gas: exitGas,
+          maxFeePerGas,
+          maxPriorityFeePerGas,
+          value: BigInt(0),
           chain: base,
         });
       } catch (sendErr) {
@@ -431,6 +464,8 @@ export async function withdrawPercentViaOpsGateway(params: {
   let oneshotGas: bigint | null = null;
   let oneshotEth: bigint | null = null;
   let oneshotFee: bigint | null = null;
+  let oneshotMaxFee: bigint | null = null;
+  let oneshotPriorityFee: bigint | null = null;
 
   if (preferChunksFirst) {
     params.onStatus?.(
@@ -442,6 +477,8 @@ export async function withdrawPercentViaOpsGateway(params: {
       oneshotGas = r.exitGas;
       oneshotEth = r.ethBalance;
       oneshotFee = r.networkMaxFee;
+      oneshotMaxFee = r.maxFeePerGas;
+      oneshotPriorityFee = r.maxPriorityFeePerGas;
     } catch (affordErr) {
       if (!allowChunkFallback) throw affordErr;
       useChunks = true;
@@ -475,6 +512,8 @@ export async function withdrawPercentViaOpsGateway(params: {
       transport: custom(
         wrapProviderForceGatewayExitGas(params.provider, {
           cachedExitGas: oneshotGas,
+          maxFeePerGas: oneshotMaxFee ?? undefined,
+          maxPriorityFeePerGas: oneshotPriorityFee ?? undefined,
         }),
       ),
     });
@@ -487,6 +526,8 @@ export async function withdrawPercentViaOpsGateway(params: {
         needingGrant: [],
         exitCall,
         exitGas: oneshotGas,
+        maxFeePerGas: oneshotMaxFee ?? undefined,
+        maxPriorityFeePerGas: oneshotPriorityFee ?? undefined,
         publicClient: params.publicClient,
         txHashes,
         onStatus: params.onStatus,
@@ -621,6 +662,8 @@ async function sequentialGrantsAndExit(params: {
   needingGrant: Address[];
   exitCall: { to: Address; data: Hex };
   exitGas: bigint;
+  maxFeePerGas?: bigint;
+  maxPriorityFeePerGas?: bigint;
   publicClient: Pick<PublicClient, "waitForTransactionReceipt">;
   txHashes: Hex[];
   onStatus?: (msg: string) => void;
@@ -650,6 +693,13 @@ async function sequentialGrantsAndExit(params: {
     to: params.exitCall.to,
     data: params.exitCall.data,
     gas: params.exitGas,
+    ...(params.maxFeePerGas != null
+      ? { maxFeePerGas: params.maxFeePerGas }
+      : {}),
+    ...(params.maxPriorityFeePerGas != null
+      ? { maxPriorityFeePerGas: params.maxPriorityFeePerGas }
+      : {}),
+    value: BigInt(0),
     chain: base,
   });
   params.onBroadcast?.();

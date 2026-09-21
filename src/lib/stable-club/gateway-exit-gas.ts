@@ -61,6 +61,12 @@ export const GATEWAY_EXIT_CHUNK_OOG_USER_MESSAGE =
 export const GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE =
   "Wallet could not simulate gateway exit (fee reserve or private sim). Keep the dapp gas limit, do not edit gas, and retry. If ETH is low, top up a little Base ETH. LPs stay untouched until a tx confirms.";
 
+/**
+ * Mobile wallets (Phantom / MM) often privately reserve gas×~1 gwei+ even on Base.
+ * Used only to remap false 4001 → guidance — never as a submitted maxFeePerGas.
+ */
+export const GATEWAY_EXIT_WALLET_PRIVATE_FEE_FLOOR_WEI = BigInt(1_000_000_000);
+
 function collectWalletErrorText(err: unknown): string {
   if (err == null) return "";
   if (typeof err === "string") return err;
@@ -121,20 +127,31 @@ export function formatGatewayWithdrawWalletError(
   if (isGatewayWithdrawSimulationError(err)) {
     return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
   }
-  // Bare 4001 after an unaffordable fee-reserve prompt is MM Close-only, not a cancel.
+  // Bare 4001 after an unaffordable fee-reserve prompt is wallet Close-only, not a cancel.
   if (
     context &&
     context.submittedGas != null &&
     context.ethBalance != null &&
-    context.networkMaxFee != null &&
-    isGatewayWithdrawUserRejectError(err) &&
-    isGatewayExitFeeReserveUnaffordable({
-      gas: context.submittedGas,
-      ethBalance: context.ethBalance,
-      networkMaxFee: context.networkMaxFee,
-    })
+    isGatewayWithdrawUserRejectError(err)
   ) {
-    return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
+    if (
+      context.networkMaxFee != null &&
+      isGatewayExitFeeReserveUnaffordable({
+        gas: context.submittedGas,
+        ethBalance: context.ethBalance,
+        networkMaxFee: context.networkMaxFee,
+      })
+    ) {
+      return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
+    }
+    if (
+      isGatewayExitWalletPrivateFeeUnaffordable({
+        gas: context.submittedGas,
+        ethBalance: context.ethBalance,
+      })
+    ) {
+      return GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE;
+    }
   }
   return null;
 }
@@ -231,6 +248,17 @@ export function isGatewayExitFeeReserveUnaffordable(params: {
   if (params.gas <= BigInt(0) || params.ethBalance <= BigInt(0)) return true;
   const fee = conservativeGatewayExitMaxFee(params.networkMaxFee);
   return params.gas * fee > params.ethBalance;
+}
+
+/** True when gas × mobile private fee floor exceeds ETH (false 4001 risk). */
+export function isGatewayExitWalletPrivateFeeUnaffordable(params: {
+  gas: bigint;
+  ethBalance: bigint;
+}): boolean {
+  if (params.gas <= BigInt(0) || params.ethBalance <= BigInt(0)) return true;
+  return (
+    params.gas * GATEWAY_EXIT_WALLET_PRIVATE_FEE_FLOOR_WEI > params.ethBalance
+  );
 }
 
 /**

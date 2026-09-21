@@ -1,9 +1,13 @@
 /**
  * EIP-1193 wrapper — mobile wallets re-simulate exitPercentToUsdc with a tight
- * default gas (~6M) even when eth_sendTransaction carries 10M. That preflight
- * OOG/reverts and the wallet surfaces "User rejected the request" (not a cancel).
+ * default gas even when eth_sendTransaction carries the dapp limit. That
+ * preflight OOG/reverts and the wallet surfaces "User rejected the request"
+ * (not a cancel).
  *
  * Cover eth_call + eth_estimateGas (short-circuit) + send/sign + wallet_sendTransaction.
+ * Also pin EIP-1559 fee hex + value 0x0 when provided — viem json-rpc accounts
+ * skip prepareTransactionRequest, so gas-only payloads let Phantom pad fees
+ * above low Base ETH balances.
  */
 import {
   forceGatewayExitTxGas,
@@ -21,6 +25,10 @@ type RequestFn = (args: {
 export type ForceGatewayExitGasOptions = {
   /** HTTP-computed gas to return from eth_estimateGas / inject into eth_call. */
   cachedExitGas?: bigint;
+  /** Live HTTP maxFeePerGas — pin on exit sends so wallets do not invent a high floor. */
+  maxFeePerGas?: bigint;
+  /** Live HTTP tip — pin alongside maxFeePerGas. */
+  maxPriorityFeePerGas?: bigint;
 };
 
 function readTxFields(tx: Record<string, unknown> | null | undefined): {
@@ -56,16 +64,29 @@ function resolveForcedGasHex(
   return forceGatewayExitTxGas({ gas: existing });
 }
 
-function withForcedGas(
+function withForcedGasAndFees(
   tx: Record<string, unknown>,
-  cachedExitGas: bigint | undefined,
+  opts: ForceGatewayExitGasOptions | undefined,
 ): Record<string, unknown> {
   const { gas } = readTxFields(tx);
   const next: Record<string, unknown> = {
     ...tx,
-    gas: resolveForcedGasHex(gas, cachedExitGas),
+    gas: resolveForcedGasHex(gas, opts?.cachedExitGas),
   };
   delete next.gasLimit;
+  if (opts?.maxFeePerGas != null && opts.maxFeePerGas > BigInt(0)) {
+    next.maxFeePerGas = toHexGasQuantity(opts.maxFeePerGas);
+    delete next.gasPrice;
+  }
+  if (
+    opts?.maxPriorityFeePerGas != null &&
+    opts.maxPriorityFeePerGas > BigInt(0)
+  ) {
+    next.maxPriorityFeePerGas = toHexGasQuantity(opts.maxPriorityFeePerGas);
+  }
+  if (next.value == null) {
+    next.value = "0x0";
+  }
   return next;
 }
 
@@ -100,7 +121,7 @@ export function wrapProviderForceGatewayExitGas<T>(
       const tx = params[0] as Record<string, unknown>;
       const { data } = readTxFields(tx);
       if (isGatewayExitPercentToUsdcCalldata(data)) {
-        const forcedTx = withForcedGas(tx, cachedExitGas);
+        const forcedTx = withForcedGasAndFees(tx, opts);
         return baseRequest({
           method,
           params: [forcedTx, ...params.slice(1)],
@@ -120,7 +141,7 @@ export function wrapProviderForceGatewayExitGas<T>(
       const tx = params[0] as Record<string, unknown>;
       const { data } = readTxFields(tx);
       if (isGatewayExitPercentToUsdcCalldata(data)) {
-        const forcedTx = withForcedGas(tx, cachedExitGas);
+        const forcedTx = withForcedGasAndFees(tx, opts);
         return baseRequest({ method, params: [forcedTx, ...params.slice(1)] });
       }
     }

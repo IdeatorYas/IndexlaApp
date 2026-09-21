@@ -19,6 +19,7 @@ describe("prefer-chunked-gateway-exits", () => {
     expect(isWalletConnectLikeConnector("walletConnect", "WalletConnect")).toBe(
       true,
     );
+    expect(isWalletConnectLikeConnector("injected", "Phantom")).toBe(true);
     expect(isWalletConnectLikeConnector("injected", "MetaMask")).toBe(false);
   });
 

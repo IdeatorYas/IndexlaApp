@@ -13,7 +13,7 @@ export function isWalletConnectLikeConnector(
   connectorId: string,
   connectorName: string,
 ): boolean {
-  return /walletconnect|appkit|reown|coinbase|wallet.?connect/i.test(
+  return /walletconnect|appkit|reown|coinbase|phantom|wallet.?connect/i.test(
     `${connectorId} ${connectorName}`,
   );
 }

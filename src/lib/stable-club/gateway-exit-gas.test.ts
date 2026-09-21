@@ -124,12 +124,35 @@ describe("gateway exit gas policy", () => {
 
   it("forces cached gas on eth_call and wallet_sendTransaction", async () => {
     const data = `${GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR}${"00".repeat(32)}`;
-    const seen: Array<{ method: string; gas?: string }> = [];
+    const seen: Array<{
+      method: string;
+      gas?: string;
+      maxFeePerGas?: string;
+      maxPriorityFeePerGas?: string;
+      value?: string;
+    }> = [];
     const cached = BigInt(724_557);
+    const maxFee = BigInt(7_000_000);
+    const tip = BigInt(1_000_000);
     const provider = {
       request: async (args: { method: string; params?: unknown }) => {
-        const tx = (args.params as [{ gas?: string }])?.[0];
-        seen.push({ method: args.method, gas: tx?.gas });
+        const tx = (
+          args.params as [
+            {
+              gas?: string;
+              maxFeePerGas?: string;
+              maxPriorityFeePerGas?: string;
+              value?: string;
+            },
+          ]
+        )?.[0];
+        seen.push({
+          method: args.method,
+          gas: tx?.gas,
+          maxFeePerGas: tx?.maxFeePerGas,
+          maxPriorityFeePerGas: tx?.maxPriorityFeePerGas,
+          value: tx?.value,
+        });
         if (args.method === "eth_call") return "0x";
         if (
           args.method === "eth_sendTransaction" ||
@@ -142,6 +165,8 @@ describe("gateway exit gas policy", () => {
     };
     const wrapped = wrapProviderForceGatewayExitGas(provider, {
       cachedExitGas: cached,
+      maxFeePerGas: maxFee,
+      maxPriorityFeePerGas: tip,
     });
 
     await wrapped.request({
@@ -161,6 +186,9 @@ describe("gateway exit gas policy", () => {
 
     expect(BigInt(seen[0]!.gas!)).toBe(cached);
     expect(BigInt(seen[1]!.gas!)).toBe(cached);
+    expect(BigInt(seen[1]!.maxFeePerGas!)).toBe(maxFee);
+    expect(BigInt(seen[1]!.maxPriorityFeePerGas!)).toBe(tip);
+    expect(seen[1]!.value).toBe("0x0");
   });
 
   it("defaults eth_estimateGas to absolute min when cache missing", async () => {
@@ -184,11 +212,15 @@ describe("gateway withdraw wiring", () => {
     "utf8",
   );
 
-  it("forces gateway exit gas at EIP-1193 and passes gas on send", () => {
+  it("forces gateway exit gas at EIP-1193 and passes gas + live EIP-1559 fees on send", () => {
     expect(src).toContain("wrapProviderForceGatewayExitGas");
     expect(src).toContain("cachedExitGas");
     expect(src).toContain("resolveGatewayExitGas");
     expect(src).toContain("gas: params.exitGas");
+    expect(src).toContain("maxFeePerGas");
+    expect(src).toContain("maxPriorityFeePerGas");
+    expect(src).toContain("value: BigInt(0)");
+    expect(src).toContain("isGatewayExitWalletPrivateFeeUnaffordable");
   });
 
   it("prefers oneshot on desktop; mobile preferChunkedExits skips oneshot", () => {
