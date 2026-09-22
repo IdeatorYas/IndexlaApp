@@ -44,6 +44,7 @@ import {
   isGatewayExitWalletPrivateFeeUnaffordable,
   isGatewayWithdrawUserRejectError,
   resolveGatewayExitGas,
+  resolveWalletVisibleGatewayExitMaxFee,
 } from "@/lib/stable-club/gateway-exit-gas";
 import { wrapProviderForceGatewayExitGas } from "@/lib/stable-club/force-gateway-exit-gas-provider";
 
@@ -316,12 +317,6 @@ export async function withdrawPercentViaOpsGateway(params: {
     const feesNow = await params.publicClient.estimateFeesPerGas();
     const networkMaxFee =
       feesNow.maxFeePerGas ?? (await params.publicClient.getGasPrice());
-    // Live HTTP fees on the wire (owner-NPM pattern) — never the 12× affordability pad.
-    const maxFeePerGas = networkMaxFee;
-    const maxPriorityFeePerGas =
-      feesNow.maxPriorityFeePerGas && feesNow.maxPriorityFeePerGas > BigInt(0)
-        ? feesNow.maxPriorityFeePerGas
-        : BigInt(1_000_000);
     const ethBalance = await params.publicClient.getBalance({
       address: params.account,
     });
@@ -335,6 +330,19 @@ export async function withdrawPercentViaOpsGateway(params: {
       ethBalance,
       networkMaxFee,
     });
+    // Phantom ignores dust Base fees (~0.007 gwei). Pin wallet-usable maxFee
+    // (max(network×12, 1 gwei)) capped by ETH budget / gas.
+    const maxFeePerGas = resolveWalletVisibleGatewayExitMaxFee({
+      exitGas,
+      ethBalance,
+      networkMaxFee,
+    });
+    const liveTip =
+      feesNow.maxPriorityFeePerGas && feesNow.maxPriorityFeePerGas > BigInt(0)
+        ? feesNow.maxPriorityFeePerGas
+        : BigInt(1_000_000);
+    const maxPriorityFeePerGas =
+      liveTip < maxFeePerGas ? liveTip : maxFeePerGas;
     return {
       exitGas,
       ethBalance,

@@ -10,10 +10,12 @@ import {
   GATEWAY_EXIT_GAS_ABSOLUTE_MIN,
   GATEWAY_EXIT_GAS_FLOOR,
   GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR,
+  GATEWAY_EXIT_WALLET_PRIVATE_FEE_FLOOR_WEI,
   GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE,
   isGatewayExitPercentToUsdcCalldata,
   requireGatewayExitGasLimit,
   resolveGatewayExitGas,
+  resolveWalletVisibleGatewayExitMaxFee,
   toHexGasQuantity,
 } from "@/lib/stable-club/gateway-exit-gas";
 import { wrapProviderForceGatewayExitGas } from "@/lib/stable-club/force-gateway-exit-gas-provider";
@@ -52,6 +54,32 @@ describe("gateway exit gas policy", () => {
     expect(
       gas * GATEWAY_EXIT_CONSERVATIVE_MAX_FEE_WEI > eth,
     ).toBe(true);
+  });
+
+  it("pins wallet-visible maxFee at 1 gwei floor for dust Base fees", () => {
+    const eth = BigInt("1751000000000000"); // ~0.001751
+    const exitGas = BigInt(729_617);
+    const networkMaxFee = BigInt(7_000_000); // 0.007 gwei
+    const maxFee = resolveWalletVisibleGatewayExitMaxFee({
+      exitGas,
+      ethBalance: eth,
+      networkMaxFee,
+    });
+    expect(maxFee).toBe(GATEWAY_EXIT_WALLET_PRIVATE_FEE_FLOOR_WEI);
+    expect(exitGas * maxFee).toBeLessThan(eth);
+    // Raw live pin would be dust; 5 gwei pad would exceed ETH.
+    expect(networkMaxFee).toBeLessThan(GATEWAY_EXIT_WALLET_PRIVATE_FEE_FLOOR_WEI);
+    expect(exitGas * GATEWAY_EXIT_CONSERVATIVE_MAX_FEE_WEI > eth).toBe(true);
+  });
+
+  it("throws when ETH cannot cover 1 gwei wallet fee floor", () => {
+    expect(() =>
+      resolveWalletVisibleGatewayExitMaxFee({
+        exitGas: BigInt(2_000_000),
+        ethBalance: BigInt("500000000000000"), // 0.0005 ETH
+        networkMaxFee: BigInt(7_000_000),
+      }),
+    ).toThrow(/wallet fee reserve/);
   });
 
   it("throws when raw estimate exceeds ETH budget at live padded fee", () => {
@@ -216,6 +244,7 @@ describe("gateway withdraw wiring", () => {
     expect(src).toContain("wrapProviderForceGatewayExitGas");
     expect(src).toContain("cachedExitGas");
     expect(src).toContain("resolveGatewayExitGas");
+    expect(src).toContain("resolveWalletVisibleGatewayExitMaxFee");
     expect(src).toContain("gas: params.exitGas");
     expect(src).toContain("maxFeePerGas");
     expect(src).toContain("maxPriorityFeePerGas");

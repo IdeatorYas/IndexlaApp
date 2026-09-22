@@ -262,6 +262,47 @@ export function isGatewayExitWalletPrivateFeeUnaffordable(params: {
 }
 
 /**
+ * Wallet-visible maxFeePerGas for exit sends.
+ * Phantom/MM ignore dust Base fees (~0.007 gwei) and pad ≥1 gwei privately.
+ * Pin max(network×12, 1 gwei), capped so gas×maxFee ≤ 90% ETH.
+ * Throws if even the 1 gwei floor exceeds the ETH budget (top up required).
+ */
+export function resolveWalletVisibleGatewayExitMaxFee(params: {
+  exitGas: bigint;
+  ethBalance: bigint;
+  networkMaxFee: bigint;
+}): bigint {
+  if (params.exitGas <= BigInt(0)) {
+    throw new Error("Gateway exit gas must be > 0 to resolve wallet-visible fees");
+  }
+  if (params.ethBalance <= BigInt(0)) {
+    throw new Error(
+      "Not enough Base ETH for gateway exit fee reserve. Top up Base ETH and retry. LPs untouched.",
+    );
+  }
+  const ethBudget =
+    (params.ethBalance * GATEWAY_EXIT_ETH_BUDGET_BPS) / BigInt(10_000);
+  const affordableFee = ethBudget / params.exitGas;
+  const preferred = (() => {
+    const padded = conservativeGatewayExitMaxFee(params.networkMaxFee);
+    return padded > GATEWAY_EXIT_WALLET_PRIVATE_FEE_FLOOR_WEI
+      ? padded
+      : GATEWAY_EXIT_WALLET_PRIVATE_FEE_FLOOR_WEI;
+  })();
+  if (affordableFee < GATEWAY_EXIT_WALLET_PRIVATE_FEE_FLOOR_WEI) {
+    const need =
+      params.exitGas * GATEWAY_EXIT_WALLET_PRIVATE_FEE_FLOOR_WEI;
+    const fmt = (w: bigint) => `${(Number(w) / 1e18).toFixed(6)} ETH`;
+    throw new Error(
+      `Not enough Base ETH for wallet fee reserve: have ${fmt(params.ethBalance)}, ` +
+        `need ~${fmt(need)} at 1 gwei (mobile wallets pad fees above Base's dust rates). ` +
+        `Top up ETH and retry. LPs untouched.`,
+    );
+  }
+  return preferred < affordableFee ? preferred : affordableFee;
+}
+
+/**
  * Cap gas so gas × conservativeMaxFee ≤ ethBudget. Never below rawEstimate
  * (or absolute min). Throws if even rawEstimate is unaffordable.
  */
