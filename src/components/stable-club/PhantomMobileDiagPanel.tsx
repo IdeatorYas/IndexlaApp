@@ -135,7 +135,7 @@ export function PhantomMobileDiagPanel() {
     setBusy("1");
     try {
       const p = (await wallet.refreshProvider()) ?? wallet.provider;
-      if (!p?.request) throw new Error("AppKit provider missing");
+      if (!p) throw new Error("AppKit provider missing");
       await refreshSnaps();
       const r = await diagSelfTransfer({
         provider: p,
@@ -159,7 +159,7 @@ export function PhantomMobileDiagPanel() {
     setBusy("2");
     try {
       const p = (await wallet.refreshProvider()) ?? wallet.provider;
-      if (!p?.request) throw new Error("AppKit provider missing");
+      if (!p) throw new Error("AppKit provider missing");
       const r = await diagUsdcApproveZero({
         provider: p,
         kind: "appkit",
@@ -213,7 +213,7 @@ export function PhantomMobileDiagPanel() {
     setBusy("3");
     try {
       const p = (await wallet.refreshProvider()) ?? wallet.provider;
-      if (!p?.request) throw new Error("AppKit provider missing");
+      if (!p) throw new Error("AppKit provider missing");
       const r = await diagSendGatewayExit({
         provider: p,
         kind: "appkit",
@@ -238,7 +238,7 @@ export function PhantomMobileDiagPanel() {
     setBusy("4");
     try {
       const inj = resolveInjectedPhantomProvider();
-      if (!inj.provider?.request) {
+      if (!inj.provider) {
         append("T4 SKIP — no injected Phantom (open inside Phantom browser or install)");
         setGwInjected({
           ok: false,

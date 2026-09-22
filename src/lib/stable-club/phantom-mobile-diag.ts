@@ -99,7 +99,7 @@ export function resolveInjectedPhantomProvider(): {
     };
     phantom?: { ethereum?: EIP1193Provider };
   };
-  if (w.phantom?.ethereum?.request) {
+  if (w.phantom?.ethereum) {
     return {
       provider: w.phantom.ethereum,
       kind: "injected-phantom",
@@ -109,7 +109,7 @@ export function resolveInjectedPhantomProvider(): {
   const announced = discoverEip6963Providers().find(
     (d) => d.info.rdns.toLowerCase() === "app.phantom",
   );
-  if (announced?.provider?.request) {
+  if (announced?.provider) {
     return {
       provider: announced.provider,
       kind: "injected-phantom",
@@ -117,7 +117,7 @@ export function resolveInjectedPhantomProvider(): {
     };
   }
   const eth = w.ethereum;
-  if (eth?.isPhantom && eth.request) {
+  if (eth?.isPhantom) {
     return {
       provider: eth,
       kind: "injected-phantom",
@@ -125,14 +125,14 @@ export function resolveInjectedPhantomProvider(): {
     };
   }
   const nested = eth?.providers?.find((p) => p.isPhantom);
-  if (nested?.request) {
+  if (nested) {
     return {
       provider: nested,
       kind: "injected-phantom",
       label: "window.ethereum.providers[phantom]",
     };
   }
-  if (eth?.request) {
+  if (eth) {
     return {
       provider: eth,
       kind: "injected-ethereum",
