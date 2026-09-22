@@ -145,7 +145,7 @@ export function resolveInjectedPhantomProvider(): {
 export async function diagProviderSnapshot(
   provider: EIP1193Provider | null,
 ): Promise<string> {
-  if (!provider?.request) return "provider=null";
+  if (!provider) return "provider=null";
   try {
     const [accounts, chainId] = await Promise.all([
       provider.request({ method: "eth_accounts" }) as Promise<string[]>,
