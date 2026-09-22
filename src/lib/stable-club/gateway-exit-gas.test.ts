@@ -219,7 +219,7 @@ describe("gateway exit gas policy", () => {
     expect(seen[1]!.value).toBe("0x0");
   });
 
-  it("omitFees strips EIP-1559 fields (mobile/chunk deposit-style)", async () => {
+  it("omitFees strips fees, does not inject value (deposit-style send)", async () => {
     const data = `${GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR}${"00".repeat(32)}`;
     let seen: {
       gas?: string;
@@ -255,7 +255,54 @@ describe("gateway exit gas policy", () => {
     expect(seen!.maxFeePerGas).toBeUndefined();
     expect(seen!.maxPriorityFeePerGas).toBeUndefined();
     expect(seen!.gasPrice).toBeUndefined();
-    expect(seen!.value).toBe("0x0");
+    expect(seen!.value).toBeUndefined();
+  });
+
+  it("omitFees pass-through eth_estimateGas then inflates to cached floor", async () => {
+    const data = `${GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR}${"00".repeat(32)}`;
+    const cached = BigInt(729_582);
+    let walletEstimateCalls = 0;
+    const wrapped = wrapProviderForceGatewayExitGas(
+      {
+        request: async () => {
+          walletEstimateCalls += 1;
+          return toHexGasQuantity(BigInt(400_000));
+        },
+      },
+      { cachedExitGas: cached, omitFees: true },
+    );
+    const estimate = (await wrapped.request({
+      method: "eth_estimateGas",
+      params: [{ to: "0xE82d1602c2953D805ea8Ebe3056804e4f60d4316", data }],
+    })) as string;
+    expect(walletEstimateCalls).toBe(1);
+    expect(BigInt(estimate)).toBe(cached);
+  });
+
+  it("omitFees does not hijack eth_call (deposit-style)", async () => {
+    const data = `${GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR}${"00".repeat(32)}`;
+    let seenGas: string | undefined;
+    const wrapped = wrapProviderForceGatewayExitGas(
+      {
+        request: async (args: { method: string; params?: unknown }) => {
+          const tx = (args.params as [{ gas?: string }])?.[0];
+          seenGas = tx?.gas;
+          return "0x";
+        },
+      },
+      { cachedExitGas: BigInt(729_582), omitFees: true },
+    );
+    await wrapped.request({
+      method: "eth_call",
+      params: [
+        {
+          to: "0xE82d1602c2953D805ea8Ebe3056804e4f60d4316",
+          data,
+          // no gas — must pass through unchanged
+        },
+      ],
+    });
+    expect(seenGas).toBeUndefined();
   });
 
   it("enriches wallet_sendTransaction rejects with forcedTx + provider dump", async () => {
@@ -310,7 +357,7 @@ describe("gateway withdraw wiring", () => {
     "utf8",
   );
 
-  it("forces gateway exit gas at EIP-1193; desktop oneshot pins fees; chunks omit fees", () => {
+  it("forces gateway exit gas at EIP-1193; desktop oneshot pins fees; chunks omit fees deposit-style", () => {
     expect(src).toContain("wrapProviderForceGatewayExitGas");
     expect(src).toContain("cachedExitGas");
     expect(src).toContain("resolveGatewayExitGas");
@@ -319,11 +366,13 @@ describe("gateway withdraw wiring", () => {
     expect(src).toContain("maxFeePerGas");
     expect(src).toContain("maxPriorityFeePerGas");
     expect(src).toContain("omitFees: true");
-    expect(src).toContain("value: BigInt(0)");
     expect(src).toContain("isGatewayExitWalletPrivateFeeUnaffordable");
-    // Chunk path must not pass maxFee into wrap/send (gas-only).
     expect(src).toMatch(
       /wrapProviderForceGatewayExitGas\(\s*params\.provider,\s*\{\s*cachedExitGas: exitGas,\s*omitFees: true,\s*\}\)/,
+    );
+    // Chunk send matches deposit: gas only, no value: BigInt(0).
+    expect(src).toMatch(
+      /exitHash = await walletClient\.sendTransaction\(\{[\s\S]*?gas: exitGas,\s*chain: base,\s*\}\)/,
     );
   });
 

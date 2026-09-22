@@ -1,13 +1,15 @@
 /**
  * EIP-1193 wrapper — mobile wallets re-simulate exitPercentToUsdc with a tight
- * default gas even when eth_sendTransaction carries the dapp limit. That
- * preflight OOG/reverts and the wallet surfaces "User rejected the request"
- * (not a cancel).
+ * default gas even when eth_sendTransaction carries the dapp limit.
  *
- * Cover eth_call + eth_estimateGas (short-circuit) + send/sign + wallet_sendTransaction.
- * Desktop oneshot may pin EIP-1559 fee hex. Mobile/chunk path uses omitFees
- * (gas + value 0 only) — matching the working deposit pattern; Phantom Mobile
- * still returns bare 4001 when maxFee/tip are dapp-pinned.
+ * Two modes:
+ * - Desktop oneshot (default): short-circuit eth_estimateGas, force eth_call gas,
+ *   optionally pin EIP-1559 fees.
+ * - Mobile/chunk (`omitFees`): match the working deposit wrap — pass-through
+ *   eth_estimateGas then inflate to HTTP cached gas, do NOT intercept eth_call,
+ *   force gas only on send (no fee pin, no value inject). Screenshot proved
+ *   fee pin and fee omit alone still bare-4001; deposit wrap shape is the next
+ *   proven Phantom-compatible path.
  */
 import {
   forceGatewayExitTxGas,
@@ -31,8 +33,8 @@ export type ForceGatewayExitGasOptions = {
   /** Live HTTP tip — pin alongside maxFeePerGas on desktop oneshot. */
   maxPriorityFeePerGas?: bigint;
   /**
-   * Strip maxFeePerGas / maxPriorityFeePerGas / gasPrice so Phantom populates
-   * fees (deposit-style). Used on mobile/chunk exits.
+   * Mobile/chunk mode: deposit-style prepare (pass-through estimateGas + inflate,
+   * no eth_call hijack) and strip fee fields on send.
    */
   omitFees?: boolean;
 };
@@ -84,6 +86,7 @@ function withForcedGasAndFees(
     delete next.maxFeePerGas;
     delete next.maxPriorityFeePerGas;
     delete next.gasPrice;
+    // Deposit wrap does not inject value — leave absent so Phantom fills defaults.
   } else {
     if (opts?.maxFeePerGas != null && opts.maxFeePerGas > BigInt(0)) {
       next.maxFeePerGas = toHexGasQuantity(opts.maxFeePerGas);
@@ -95,9 +98,9 @@ function withForcedGasAndFees(
     ) {
       next.maxPriorityFeePerGas = toHexGasQuantity(opts.maxPriorityFeePerGas);
     }
-  }
-  if (next.value == null) {
-    next.value = "0x0";
+    if (next.value == null) {
+      next.value = "0x0";
+    }
   }
   return next;
 }
@@ -107,6 +110,7 @@ export function wrapProviderForceGatewayExitGas<T>(
   opts?: ForceGatewayExitGasOptions,
 ): T {
   const cachedExitGas = opts?.cachedExitGas;
+  const matchDepositPrepare = Boolean(opts?.omitFees);
   const baseRequest = (provider as { request: RequestFn }).request.bind(
     provider,
   ) as RequestFn;
@@ -115,11 +119,25 @@ export function wrapProviderForceGatewayExitGas<T>(
     const method = args.method;
     const params = Array.isArray(args.params) ? [...args.params] : args.params;
 
-    // Short-circuit — never ask the wallet to estimate (mobile false-rejects).
     if (method === "eth_estimateGas" && Array.isArray(params) && params[0]) {
       const tx = params[0] as Record<string, unknown>;
       const { data } = readTxFields(tx);
       if (isGatewayExitPercentToUsdcCalldata(data)) {
+        if (matchDepositPrepare) {
+          // Deposit-style: ask the wallet, then inflate to HTTP cached floor.
+          const result = await baseRequest({ method, params });
+          if (typeof result === "string") {
+            const walletGas = parseHexGasQuantity(result) ?? BigInt(0);
+            const floor =
+              cachedExitGas != null && cachedExitGas > BigInt(0)
+                ? cachedExitGas
+                : GATEWAY_EXIT_GAS_ABSOLUTE_MIN;
+            const pick = walletGas > floor ? walletGas : floor;
+            return toHexGasQuantity(pick);
+          }
+          return result;
+        }
+        // Desktop oneshot: short-circuit — never ask the wallet to estimate.
         return resolveForcedGasHex(
           readTxFields(tx).gas,
           cachedExitGas ?? GATEWAY_EXIT_GAS_ABSOLUTE_MIN,
@@ -128,8 +146,14 @@ export function wrapProviderForceGatewayExitGas<T>(
       return baseRequest({ method, params });
     }
 
-    // Wallet confirm preflight often eth_call's with missing/low gas.
-    if (method === "eth_call" && Array.isArray(params) && params[0]) {
+    // Desktop oneshot only — mobile/chunk must not re-enter Phantom on eth_call
+    // (deposit wrap does not intercept eth_call either).
+    if (
+      !matchDepositPrepare &&
+      method === "eth_call" &&
+      Array.isArray(params) &&
+      params[0]
+    ) {
       const tx = params[0] as Record<string, unknown>;
       const { data } = readTxFields(tx);
       if (isGatewayExitPercentToUsdcCalldata(data)) {

@@ -451,12 +451,13 @@ export async function withdrawPercentViaOpsGateway(params: {
       );
       let exitHash: Hex;
       try {
+        // Deposit-shaped send: gas only (no value, no fees). Wrap uses omitFees
+        // → pass-through estimateGas + no eth_call hijack.
         exitHash = await walletClient.sendTransaction({
           account: params.account,
           to: chunkCall.to,
           data: chunkCall.data,
           gas: exitGas,
-          value: BigInt(0),
           chain: base,
         });
       } catch (sendErr) {
