@@ -75,6 +75,7 @@ function collectWalletErrorText(err: unknown): string {
     message?: unknown;
     shortMessage?: unknown;
     details?: unknown;
+    data?: unknown;
     code?: unknown;
     name?: unknown;
     cause?: unknown;
@@ -85,9 +86,120 @@ function collectWalletErrorText(err: unknown): string {
     e.shortMessage,
     e.message,
     e.details,
+    e.data != null
+      ? typeof e.data === "string"
+        ? e.data
+        : safeJsonSlice(e.data, 240)
+      : null,
     collectWalletErrorText(e.cause),
   ];
   return parts.filter((p) => typeof p === "string" && p.length > 0).join(" | ");
+}
+
+function safeJsonSlice(value: unknown, max: number): string {
+  try {
+    const raw = JSON.stringify(value);
+    return raw.length > max ? `${raw.slice(0, max)}…` : raw;
+  } catch {
+    return String(value).slice(0, max);
+  }
+}
+
+/**
+ * Full EIP-1193 / viem reject dump for mobile forensics.
+ * Do not treat 4001 as proof of a manual cancel without this body.
+ */
+export function serializeGatewayWithdrawProviderError(
+  err: unknown,
+  depth = 0,
+): string {
+  if (depth > 6) return "…";
+  if (err == null) return "";
+  if (typeof err === "string") return err.slice(0, 400);
+  if (typeof err !== "object") return String(err);
+  const e = err as Record<string, unknown>;
+  const bits: string[] = [];
+  if (e.name != null) bits.push(`name=${String(e.name)}`);
+  if (e.code != null) bits.push(`code=${String(e.code)}`);
+  if (e.shortMessage != null) {
+    bits.push(`short=${String(e.shortMessage).slice(0, 200)}`);
+  }
+  if (e.message != null) bits.push(`msg=${String(e.message).slice(0, 320)}`);
+  if (e.details != null) {
+    bits.push(`details=${String(e.details).slice(0, 320)}`);
+  }
+  if (e.data != null) {
+    bits.push(
+      `data=${
+        typeof e.data === "string"
+          ? e.data.slice(0, 240)
+          : safeJsonSlice(e.data, 280)
+      }`,
+    );
+  }
+  if (e.cause != null) {
+    bits.push(
+      `cause={${serializeGatewayWithdrawProviderError(e.cause, depth + 1)}}`,
+    );
+  }
+  const out = bits.join(" ");
+  return out.length > 1_200 ? `${out.slice(0, 1_200)}…` : out;
+}
+
+/** Compact forced eth_sendTransaction fields for reject dumps. */
+export function formatForcedGatewayExitTxForDump(
+  tx: Record<string, unknown> | null | undefined,
+): string {
+  if (!tx || typeof tx !== "object") return "";
+  const data =
+    typeof tx.data === "string"
+      ? tx.data
+      : typeof tx.input === "string"
+        ? tx.input
+        : "";
+  const parts = [
+    tx.from != null ? `from=${String(tx.from)}` : null,
+    tx.to != null ? `to=${String(tx.to)}` : null,
+    data ? `sel=${data.slice(0, 10)}` : null,
+    tx.gas != null ? `gas=${String(tx.gas)}` : null,
+    tx.maxFeePerGas != null ? `maxFee=${String(tx.maxFeePerGas)}` : null,
+    tx.maxPriorityFeePerGas != null
+      ? `tip=${String(tx.maxPriorityFeePerGas)}`
+      : null,
+    tx.value != null ? `value=${String(tx.value)}` : null,
+    tx.type != null ? `type=${String(tx.type)}` : null,
+  ];
+  return parts.filter(Boolean).join(" ");
+}
+
+export function enrichGatewayWithdrawProviderReject(
+  err: unknown,
+  forcedTx?: Record<string, unknown> | null,
+  method?: string,
+): Error {
+  if (
+    err instanceof Error &&
+    (/forcedTx\[/.test(err.message) || /provider\[/.test(err.message))
+  ) {
+    return err;
+  }
+  const dump = serializeGatewayWithdrawProviderError(err);
+  const txDump = formatForcedGatewayExitTxForDump(forcedTx);
+  const header =
+    err instanceof Error && err.message
+      ? err.message.slice(0, 280)
+      : "Wallet rejected gateway exit";
+  const body = [
+    header,
+    method ? `rpcMethod=${method}` : null,
+    txDump ? `forcedTx[${txDump}]` : null,
+    dump ? `provider[${dump}]` : null,
+  ]
+    .filter(Boolean)
+    .join(" — ");
+  const out = new Error(body);
+  (out as Error & { cause?: unknown }).cause = err;
+  return out;
 }
 
 /** Explicit simulation / RPC failure — not user cancel. */

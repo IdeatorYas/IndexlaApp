@@ -15,6 +15,7 @@ import {
   GATEWAY_EXIT_GAS_ABSOLUTE_MIN,
   parseHexGasQuantity,
   toHexGasQuantity,
+  enrichGatewayWithdrawProviderReject,
 } from "@/lib/stable-club/gateway-exit-gas";
 
 type RequestFn = (args: {
@@ -142,7 +143,14 @@ export function wrapProviderForceGatewayExitGas<T>(
       const { data } = readTxFields(tx);
       if (isGatewayExitPercentToUsdcCalldata(data)) {
         const forcedTx = withForcedGasAndFees(tx, opts);
-        return baseRequest({ method, params: [forcedTx, ...params.slice(1)] });
+        try {
+          return await baseRequest({
+            method,
+            params: [forcedTx, ...params.slice(1)],
+          });
+        } catch (sendErr) {
+          throw enrichGatewayWithdrawProviderReject(sendErr, forcedTx, method);
+        }
       }
     }
 

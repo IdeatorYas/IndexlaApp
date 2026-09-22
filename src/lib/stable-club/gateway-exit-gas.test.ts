@@ -219,6 +219,37 @@ describe("gateway exit gas policy", () => {
     expect(seen[1]!.value).toBe("0x0");
   });
 
+  it("enriches wallet_sendTransaction rejects with forcedTx + provider dump", async () => {
+    const data = `${GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR}${"00".repeat(32)}`;
+    const cached = BigInt(729_617);
+    const maxFee = BigInt(1_000_000_000);
+    const tip = BigInt(1_000_000);
+    const wrapped = wrapProviderForceGatewayExitGas(
+      {
+        request: async () => {
+          const err = Object.assign(new Error("User rejected the request."), {
+            code: 4001,
+            data: { originalError: { code: 3, message: "execution reverted" } },
+          });
+          throw err;
+        },
+      },
+      { cachedExitGas: cached, maxFeePerGas: maxFee, maxPriorityFeePerGas: tip },
+    );
+    await expect(
+      wrapped.request({
+        method: "wallet_sendTransaction",
+        params: [
+          {
+            to: "0xE82d1602c2953D805ea8Ebe3056804e4f60d4316",
+            data,
+            from: "0x2e961336203D2F0D0E65d6b9dC0f1E5846b44FC9",
+          },
+        ],
+      }),
+    ).rejects.toThrow(/forcedTx\[|provider\[|code=4001/);
+  });
+
   it("defaults eth_estimateGas to absolute min when cache missing", async () => {
     const data = `${GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR}${"00".repeat(32)}`;
     const wrapped = wrapProviderForceGatewayExitGas({

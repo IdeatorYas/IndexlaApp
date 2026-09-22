@@ -40,6 +40,7 @@ import {
   GATEWAY_EXIT_CHUNK_OOG_USER_MESSAGE,
   GATEWAY_EXIT_OOG_USER_MESSAGE,
   GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE,
+  enrichGatewayWithdrawProviderReject,
   isGatewayExitFeeReserveUnaffordable,
   isGatewayExitWalletPrivateFeeUnaffordable,
   isGatewayWithdrawUserRejectError,
@@ -385,7 +386,8 @@ export async function withdrawPercentViaOpsGateway(params: {
     ) {
       throw new Error(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
     }
-    throw err instanceof Error ? err : new Error(String(err));
+    // Preserve nested EIP-1193 / forced-tx dump — do not stringify-destroy.
+    throw enrichGatewayWithdrawProviderReject(err);
   };
 
   const runExitChunks = async (legs: typeof exitLegs, label: string) => {
