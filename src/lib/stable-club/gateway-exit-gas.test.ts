@@ -219,6 +219,45 @@ describe("gateway exit gas policy", () => {
     expect(seen[1]!.value).toBe("0x0");
   });
 
+  it("omitFees strips EIP-1559 fields (mobile/chunk deposit-style)", async () => {
+    const data = `${GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR}${"00".repeat(32)}`;
+    let seen: {
+      gas?: string;
+      maxFeePerGas?: string;
+      maxPriorityFeePerGas?: string;
+      gasPrice?: string;
+      value?: string;
+    } | null = null;
+    const cached = BigInt(724_438);
+    const wrapped = wrapProviderForceGatewayExitGas(
+      {
+        request: async (args: { method: string; params?: unknown }) => {
+          seen = (args.params as [typeof seen])?.[0] ?? null;
+          return "0xabc";
+        },
+      },
+      { cachedExitGas: cached, omitFees: true },
+    );
+    await wrapped.request({
+      method: "eth_sendTransaction",
+      params: [
+        {
+          to: "0xE82d1602c2953D805ea8Ebe3056804e4f60d4316",
+          data,
+          gas: toHexGasQuantity(BigInt(400_000)),
+          maxFeePerGas: toHexGasQuantity(BigInt(1_000_000_000)),
+          maxPriorityFeePerGas: toHexGasQuantity(BigInt(1_000_000)),
+          gasPrice: toHexGasQuantity(BigInt(1_000_000_000)),
+        },
+      ],
+    });
+    expect(BigInt(seen!.gas!)).toBe(cached);
+    expect(seen!.maxFeePerGas).toBeUndefined();
+    expect(seen!.maxPriorityFeePerGas).toBeUndefined();
+    expect(seen!.gasPrice).toBeUndefined();
+    expect(seen!.value).toBe("0x0");
+  });
+
   it("enriches wallet_sendTransaction rejects with forcedTx + provider dump", async () => {
     const data = `${GATEWAY_EXIT_PERCENT_TO_USDC_SELECTOR}${"00".repeat(32)}`;
     const cached = BigInt(729_617);
@@ -271,7 +310,7 @@ describe("gateway withdraw wiring", () => {
     "utf8",
   );
 
-  it("forces gateway exit gas at EIP-1193 and passes gas + live EIP-1559 fees on send", () => {
+  it("forces gateway exit gas at EIP-1193; desktop oneshot pins fees; chunks omit fees", () => {
     expect(src).toContain("wrapProviderForceGatewayExitGas");
     expect(src).toContain("cachedExitGas");
     expect(src).toContain("resolveGatewayExitGas");
@@ -279,8 +318,13 @@ describe("gateway withdraw wiring", () => {
     expect(src).toContain("gas: params.exitGas");
     expect(src).toContain("maxFeePerGas");
     expect(src).toContain("maxPriorityFeePerGas");
+    expect(src).toContain("omitFees: true");
     expect(src).toContain("value: BigInt(0)");
     expect(src).toContain("isGatewayExitWalletPrivateFeeUnaffordable");
+    // Chunk path must not pass maxFee into wrap/send (gas-only).
+    expect(src).toMatch(
+      /wrapProviderForceGatewayExitGas\(\s*params\.provider,\s*\{\s*cachedExitGas: exitGas,\s*omitFees: true,\s*\}\)/,
+    );
   });
 
   it("prefers oneshot on desktop; mobile preferChunkedExits skips oneshot", () => {

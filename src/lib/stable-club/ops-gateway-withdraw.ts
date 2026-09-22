@@ -407,13 +407,22 @@ export async function withdrawPercentViaOpsGateway(params: {
       params.onStatus?.(
         `${label} ${i + 1}/${chunks.length} (1 LP)…`,
       );
-      const {
-        exitGas,
-        ethBalance,
-        networkMaxFee,
-        maxFeePerGas,
-        maxPriorityFeePerGas,
-      } = await resolveExitGas(chunkCall.to, chunkCall.data);
+      // resolveExitGas still computes wallet-visible maxFee for ETH preflight
+      // (throws if exitGas×1gwei > budget). Do NOT pin fees on the wire —
+      // Phantom Mobile returns bare 4001 when maxFee/tip are dapp-pinned
+      // (screenshot: maxFee=1gwei still 4001). Match deposit: gas + value 0.
+      const { exitGas, ethBalance, networkMaxFee } = await resolveExitGas(
+        chunkCall.to,
+        chunkCall.data,
+      );
+      if (
+        isGatewayExitWalletPrivateFeeUnaffordable({
+          gas: exitGas,
+          ethBalance,
+        })
+      ) {
+        throw new Error(GATEWAY_EXIT_WALLET_SIM_USER_MESSAGE);
+      }
       try {
         await params.publicClient.call({
           account: params.account,
@@ -433,8 +442,7 @@ export async function withdrawPercentViaOpsGateway(params: {
         transport: custom(
           wrapProviderForceGatewayExitGas(params.provider, {
             cachedExitGas: exitGas,
-            maxFeePerGas,
-            maxPriorityFeePerGas,
+            omitFees: true,
           }),
         ),
       });
@@ -448,8 +456,6 @@ export async function withdrawPercentViaOpsGateway(params: {
           to: chunkCall.to,
           data: chunkCall.data,
           gas: exitGas,
-          maxFeePerGas,
-          maxPriorityFeePerGas,
           value: BigInt(0),
           chain: base,
         });

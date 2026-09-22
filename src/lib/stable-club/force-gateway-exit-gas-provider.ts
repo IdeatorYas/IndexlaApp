@@ -5,9 +5,9 @@
  * (not a cancel).
  *
  * Cover eth_call + eth_estimateGas (short-circuit) + send/sign + wallet_sendTransaction.
- * Also pin EIP-1559 fee hex + value 0x0 when provided — viem json-rpc accounts
- * skip prepareTransactionRequest, so gas-only payloads let Phantom pad fees
- * above low Base ETH balances.
+ * Desktop oneshot may pin EIP-1559 fee hex. Mobile/chunk path uses omitFees
+ * (gas + value 0 only) — matching the working deposit pattern; Phantom Mobile
+ * still returns bare 4001 when maxFee/tip are dapp-pinned.
  */
 import {
   forceGatewayExitTxGas,
@@ -26,10 +26,15 @@ type RequestFn = (args: {
 export type ForceGatewayExitGasOptions = {
   /** HTTP-computed gas to return from eth_estimateGas / inject into eth_call. */
   cachedExitGas?: bigint;
-  /** Live HTTP maxFeePerGas — pin on exit sends so wallets do not invent a high floor. */
+  /** Live HTTP maxFeePerGas — pin on desktop oneshot only (not mobile chunks). */
   maxFeePerGas?: bigint;
-  /** Live HTTP tip — pin alongside maxFeePerGas. */
+  /** Live HTTP tip — pin alongside maxFeePerGas on desktop oneshot. */
   maxPriorityFeePerGas?: bigint;
+  /**
+   * Strip maxFeePerGas / maxPriorityFeePerGas / gasPrice so Phantom populates
+   * fees (deposit-style). Used on mobile/chunk exits.
+   */
+  omitFees?: boolean;
 };
 
 function readTxFields(tx: Record<string, unknown> | null | undefined): {
@@ -75,15 +80,21 @@ function withForcedGasAndFees(
     gas: resolveForcedGasHex(gas, opts?.cachedExitGas),
   };
   delete next.gasLimit;
-  if (opts?.maxFeePerGas != null && opts.maxFeePerGas > BigInt(0)) {
-    next.maxFeePerGas = toHexGasQuantity(opts.maxFeePerGas);
+  if (opts?.omitFees) {
+    delete next.maxFeePerGas;
+    delete next.maxPriorityFeePerGas;
     delete next.gasPrice;
-  }
-  if (
-    opts?.maxPriorityFeePerGas != null &&
-    opts.maxPriorityFeePerGas > BigInt(0)
-  ) {
-    next.maxPriorityFeePerGas = toHexGasQuantity(opts.maxPriorityFeePerGas);
+  } else {
+    if (opts?.maxFeePerGas != null && opts.maxFeePerGas > BigInt(0)) {
+      next.maxFeePerGas = toHexGasQuantity(opts.maxFeePerGas);
+      delete next.gasPrice;
+    }
+    if (
+      opts?.maxPriorityFeePerGas != null &&
+      opts.maxPriorityFeePerGas > BigInt(0)
+    ) {
+      next.maxPriorityFeePerGas = toHexGasQuantity(opts.maxPriorityFeePerGas);
+    }
   }
   if (next.value == null) {
     next.value = "0x0";
