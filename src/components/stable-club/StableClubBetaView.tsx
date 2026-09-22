@@ -18,6 +18,7 @@ import {
   type FivePoolPositionsRefreshDetail,
 } from "@/lib/stable-club/positions-refresh";
 import { OFFICIAL_STABLE_CLUB_BASE_POOLS } from "@/lib/stable-club/official-pools";
+import { PhantomMobileDiagPanel } from "@/components/stable-club/PhantomMobileDiagPanel";
 
 type TabId = "position" | "pools";
 
@@ -397,6 +398,7 @@ export function StableClubBetaView({
         )}
         <StableClubCategoryExplain />
         <StableClubRiskDisclaimer />
+        <PhantomMobileDiagPanel />
       </div>
     </div>
   );
