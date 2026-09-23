@@ -305,7 +305,7 @@ export async function prepareGatewayExitChunk1(params: {
         liquidity: first.liquidity,
         amount0Min: BigInt(0),
         amount1Min: BigInt(0),
-        burnIfEmpty: true,
+        burnIfEmpty: false,
       },
     ],
     swaps: [

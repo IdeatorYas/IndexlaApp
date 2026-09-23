@@ -397,9 +397,16 @@ export async function withdrawPercentViaOpsGateway(params: {
     }
     for (let i = 0; i < chunks.length; i += 1) {
       const chunk = chunks[i]!;
+      // Mobile/chunk: never ask Phantom to private-sim npm.burn inside
+      // exitPercentToUsdc — that Close-only "Failed to simulate" becomes bare
+      // 4001. Empty zero-liq shells are not open catalogue LPs.
+      const chunkLegs = chunk.map((leg) => ({
+        ...leg,
+        burnIfEmpty: false,
+      }));
       const chunkCall = encodeGatewayExitPercentToUsdcCall({
         gateway,
-        exitLegs: chunk,
+        exitLegs: chunkLegs,
         swaps,
         minUsdcOut: BigInt(1),
         deadline,

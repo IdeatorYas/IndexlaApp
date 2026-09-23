@@ -390,6 +390,13 @@ describe("gateway withdraw wiring", () => {
     expect(src).not.toContain("allowChunkFallback = Boolean(params.preferChunkedExits)");
   });
 
+  it("chunk path forces burnIfEmpty false; oneshot keeps burnIfEmpty from legs", () => {
+    expect(src).toContain("burnIfEmpty: false");
+    expect(src).toContain("const chunkLegs = chunk.map");
+    // Oneshot still builds legs with pct-based burn flag.
+    expect(src).toContain("burnIfEmpty: pct >= 100");
+  });
+
   it("remints deadline after grants and never atomicBatch-gates grants", () => {
     expect(src).toContain("Remint deadline");
     expect(src).toContain("ALWAYS grant");
