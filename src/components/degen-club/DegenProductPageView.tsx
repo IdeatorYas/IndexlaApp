@@ -20,8 +20,14 @@ import { PreviewOnlyMessage } from "@/components/ui/PreviewOnlyMessage";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { type DegenProduct } from "@/lib/domain/degen-club";
 import { DegenRiskCopy } from "@/components/degen-club/DegenRiskCopy";
+import { SolanaMemeBasketPanel } from "@/components/degen-club/SolanaMemeBasketPanel";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
+import {
+  DEGEN_SOLANA_PRODUCT_ID,
+  DEGEN_SOLANA_BASKET,
+  isDegenSolanaLiveEnabled,
+} from "@/lib/degen-solana/constants";
 
 export function DegenProductPageView({ product }: { product: DegenProduct }) {
   const router = useRouter();
@@ -55,8 +61,60 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
 
   const positive = enriched.performance30d >= 0;
   const holdingCount = enriched.allocations.length;
+  const liveSolana =
+    product.id === DEGEN_SOLANA_PRODUCT_ID && isDegenSolanaLiveEnabled();
   /* Large dominant donut — sized to fit with 2×5 holdings in one desktop viewport */
   const donutSize = holdingCount >= 10 ? 300 : holdingCount >= 8 ? 288 : 276;
+
+  const [allocPercents, setAllocPercents] = useState<Record<string, number>>(
+    () =>
+      Object.fromEntries(
+        enriched.allocations.map((a) => [a.assetId, a.percent]),
+      ),
+  );
+
+  useEffect(() => {
+    setAllocPercents(
+      Object.fromEntries(
+        enriched.allocations.map((a) => [a.assetId, a.percent]),
+      ),
+    );
+  }, [enriched.allocations]);
+
+  const displayAllocations = useMemo(
+    () =>
+      enriched.allocations.map((a) => ({
+        ...a,
+        percent: allocPercents[a.assetId] ?? a.percent,
+      })),
+    [enriched.allocations, allocPercents],
+  );
+
+  const weightsTotal = useMemo(
+    () =>
+      displayAllocations.reduce(
+        (sum, a) => sum + (Number.isFinite(a.percent) ? a.percent : 0),
+        0,
+      ),
+    [displayAllocations],
+  );
+  const weightsValid = Math.round(weightsTotal) === 100;
+
+  const weightsPctOrdered = useMemo(() => {
+    // Must match DEGEN_SOLANA_BASKET order used by /api/degen-solana/quote
+    return DEGEN_SOLANA_BASKET.map((m) => {
+      const pct = allocPercents[m.key];
+      return Math.round(Number.isFinite(pct) ? (pct as number) : 10);
+    });
+  }, [allocPercents]);
+
+  function setPercent(assetId: string, raw: string) {
+    const n = Number(raw);
+    setAllocPercents((prev) => ({
+      ...prev,
+      [assetId]: Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0,
+    }));
+  }
 
   function preview(action: string) {
     setMessage(`${action} — preview only. No real execution was submitted.`);
@@ -77,7 +135,11 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
           >
             ← Degen Club
           </Link>
-          <span className="degen-illustrative-tag">Illustrative</span>
+          {liveSolana ? (
+            <span className="degen-badge-kind">Live · Solana</span>
+          ) : (
+            <span className="degen-illustrative-tag">Illustrative</span>
+          )}
         </div>
 
         {message ? <PreviewOnlyMessage>{message}</PreviewOnlyMessage> : null}
@@ -85,7 +147,6 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
         <section className="degen-detail-hero">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="degen-badge-kind">{enriched.kind}</span>
-            <span className="degen-badge-extreme">Extreme Risk</span>
           </div>
           <h1 className="degen-detail-title">{enriched.name}</h1>
           <ProductAttribution
@@ -125,7 +186,7 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
           <div className="degen-detail-allocation-grid">
             <div className="degen-detail-donut-wrap">
               <DegenAllocationDonut
-                segments={enriched.allocations.map((a) => ({
+                segments={displayAllocations.map((a) => ({
                   assetKey: a.assetId,
                   label: a.label,
                   percent: a.percent,
@@ -138,7 +199,7 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
               className="degen-detail-holdings"
               style={{ ["--degen-holding-count" as string]: String(holdingCount) }}
             >
-              {enriched.allocations.map((a) => {
+              {displayAllocations.map((a) => {
                 const up7 =
                   a.change7dPercent != null && a.change7dPercent >= 0;
                 const down7 =
@@ -149,7 +210,23 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
                   a.change30dPercent != null && a.change30dPercent < 0;
                 return (
                   <li key={a.assetId} className="degen-detail-holding-row">
-                    <span className="degen-detail-holding-pct">{a.percent}%</span>
+                    {liveSolana ? (
+                      <label className="degen-detail-holding-pct flex items-center gap-0.5">
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={1}
+                          className="w-12 rounded border border-[var(--degen-border)] bg-transparent px-1 py-0.5 text-right font-mono text-[12px] text-[var(--degen-ink)]"
+                          value={Number.isFinite(a.percent) ? a.percent : 0}
+                          onChange={(e) => setPercent(a.assetId, e.target.value)}
+                          aria-label={`${a.ticker ?? a.label} allocation percent`}
+                        />
+                        <span>%</span>
+                      </label>
+                    ) : (
+                      <span className="degen-detail-holding-pct">{a.percent}%</span>
+                    )}
                     <span className="degen-detail-holding-logo">
                       <DegenAssetIcon
                         assetKey={a.assetId}
@@ -202,8 +279,29 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
               })}
             </ul>
           </div>
+          {liveSolana ? (
+            <p
+              className={[
+                "mt-2 text-center text-xs font-semibold",
+                weightsValid
+                  ? "text-[var(--degen-muted)]"
+                  : "text-[var(--degen-danger,#f87171)]",
+              ].join(" ")}
+            >
+              Allocation total: {weightsTotal.toFixed(0)}%
+              {weightsValid ? "" : " — must equal 100% to Buy"}
+            </p>
+          ) : null}
         </section>
 
+        {liveSolana ? (
+          <SolanaMemeBasketPanel
+            weightsPct={weightsPctOrdered}
+            weightsValid={weightsValid}
+          />
+        ) : null}
+
+        {!liveSolana ? (
         <div className="degen-detail-actions degen-detail-actions-inline">
           <button
             type="button"
@@ -224,6 +322,7 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
             Full Exit
           </button>
         </div>
+        ) : null}
       </div>
 
       <div className="degen-detail-disclaimer">
