@@ -6,6 +6,7 @@ import {
   IMPACT_SOFT,
   INDEXLA_FEE_BPS,
   MAX_SLIPPAGE_BPS,
+  MIN_LEG_LAMPORTS,
   MIN_SLIPPAGE_BPS,
   PRIORITY_FEE_RESERVE_LAMPORTS,
   WSOL_MINT,
@@ -39,6 +40,8 @@ type Body = {
    * Must sum to 100. When omitted, equal split.
    */
   weightsPct?: number[];
+  /** Mint keys whose ATAs already exist — rent reserved only for the rest. */
+  existingAtaKeys?: string[];
 };
 
 export async function POST(req: Request) {
@@ -91,8 +94,11 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
+      const existing = new Set(body.existingAtaKeys ?? []);
+      const missingAtaCount = basket.filter((m) => !existing.has(m.key)).length;
       const rentReserve =
-        ATA_RENT_LAMPORTS * BigInt(basket.length) + PRIORITY_FEE_RESERVE_LAMPORTS;
+        ATA_RENT_LAMPORTS * BigInt(missingAtaCount) +
+        PRIORITY_FEE_RESERVE_LAMPORTS;
       if (gross <= rentReserve) {
         return NextResponse.json(
           {
@@ -102,6 +108,15 @@ export async function POST(req: Request) {
         );
       }
       const investable = gross - rentReserve;
+      const perLeg = investable / BigInt(basket.length);
+      if (perLeg < MIN_LEG_LAMPORTS) {
+        return NextResponse.json(
+          {
+            error: `Per-asset notional too small (~${Number(perLeg) / 1e9} SOL). Increase SOL amount or finish fewer remaining legs.`,
+          },
+          { status: 400 },
+        );
+      }
       const splits =
         body.weightsPct && body.weightsPct.length === basket.length
           ? weightedLamportSplits(investable, body.weightsPct)
@@ -111,12 +126,21 @@ export async function POST(req: Request) {
         const m = basket[i]!;
         const amountIn = splits[i]!;
         if (amountIn <= BigInt(0)) continue;
+        if (amountIn < MIN_LEG_LAMPORTS) {
+          return NextResponse.json(
+            {
+              error: `${m.ticker} allocation too small (~${Number(amountIn) / 1e9} SOL). Rebalance % or add SOL.`,
+            },
+            { status: 400 },
+          );
+        }
         const quote = await fetchJupiterQuote({
           inputMint: WSOL_MINT,
           outputMint: m.mint,
           amount: amountIn,
           slippageBps,
           platformFeeBps,
+          onlyDirectRoutes: true,
         });
         assertImpactAllowed(quote, { allowHard: body.allowHardImpact });
         legs.push({
@@ -138,6 +162,7 @@ export async function POST(req: Request) {
         feeMissing: feeCfg.missing,
         rentReserveLamports: rentReserve.toString(),
         investableLamports: investable.toString(),
+        missingAtaCount,
         legs,
       });
     }
@@ -156,6 +181,7 @@ export async function POST(req: Request) {
         amount: amountIn,
         slippageBps,
         platformFeeBps,
+        onlyDirectRoutes: true,
       });
       assertImpactAllowed(quote, { allowHard: body.allowHardImpact });
       legs.push({

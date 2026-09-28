@@ -2,7 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useSolanaMemeBasket } from "@/components/degen-club/useSolanaMemeBasket";
-import { DEFAULT_SLIPPAGE_BPS } from "@/lib/degen-solana/constants";
+import {
+  DEFAULT_SLIPPAGE_BPS,
+  DEGEN_SOLANA_BASKET,
+} from "@/lib/degen-solana/constants";
+import { dustThresholdRaw } from "@/lib/degen-solana/balances";
 
 function solToLamports(sol: string): string {
   const n = Number(sol);
@@ -37,16 +41,22 @@ export function SolanaMemeBasketPanel({
   const [localMsg, setLocalMsg] = useState<string | null>(null);
 
   const holdingsNonZero = useMemo(
-    () => (balances?.tokens ?? []).filter((t) => Number(t.amount) > 0),
+    () =>
+      (balances?.tokens ?? []).filter((t) => {
+        const meta = DEGEN_SOLANA_BASKET.find((m) => m.key === t.key);
+        return BigInt(t.amount) > dustThresholdRaw(meta?.decimals ?? 6);
+      }),
     [balances],
   );
+
+  const heldCount = holdingsNonZero.length;
+  const basketSize = basket.length;
 
   const loadingLabel = useMemo(() => {
     if (!busy) return null;
     const phase = progress?.phase ?? "";
     if (/wallet|Confirm/i.test(phase)) return "Confirm in wallet…";
     if (/Sending|Confirming|on-chain/i.test(phase)) return "Sending transaction…";
-    if (/complete/i.test(phase)) return phase;
     return "Preparing transaction…";
   }, [busy, progress?.phase]);
 
@@ -63,10 +73,15 @@ export function SolanaMemeBasketPanel({
     try {
       const lamports = solToLamports(solIn);
       const result = await buy(lamports, slippageBps, weightsPct);
-      const ok = result.legs.filter((l) => l.status === "confirmed").length;
-      setLocalMsg(
-        `Buy finished — ${ok}/${result.legs.length} legs · ${result.confirmCount} wallet confirm(s).`,
-      );
+      if (result.complete) {
+        setLocalMsg(
+          `Buy complete — ${result.heldCount}/${result.basketSize} confirmed · ${result.confirmCount} wallet prompt(s).`,
+        );
+      } else {
+        setLocalMsg(
+          `Partial buy — ${result.heldCount} of ${result.basketSize} confirmed. Use Finish remaining or Sell All to unwind.`,
+        );
+      }
     } catch (err) {
       setLocalMsg(err instanceof Error ? err.message : String(err));
     }
@@ -80,10 +95,15 @@ export function SolanaMemeBasketPanel({
     }
     try {
       const result = await sellAll(slippageBps);
-      const ok = result.legs.filter((l) => l.status === "confirmed").length;
-      setLocalMsg(
-        `Sell All finished — ${ok}/${result.legs.length} legs · ${result.confirmCount} wallet confirm(s). SOL should be in your wallet.`,
-      );
+      if (result.complete) {
+        setLocalMsg(
+          `Sell All complete — ${result.heldCount}/${result.basketSize} confirmed · ${result.confirmCount} wallet prompt(s). SOL should be in your wallet.`,
+        );
+      } else {
+        setLocalMsg(
+          `Partial sell — ${result.heldCount} of ${result.basketSize} confirmed. Use Finish incomplete sell.`,
+        );
+      }
     } catch (err) {
       setLocalMsg(err instanceof Error ? err.message : String(err));
     }
@@ -100,8 +120,8 @@ export function SolanaMemeBasketPanel({
             Buy · Sell All → SOL
           </h2>
           <p className="mt-1 text-sm text-[var(--degen-muted)]">
-            You own these coins directly in your wallet (ATAs). Max {4}{" "}
-            wallet confirms per flow (including first use). Demo execution fee:{" "}
+            You own these coins directly in your wallet (ATAs). Max {3}{" "}
+            wallet prompts per flow (one swap per asset). Demo execution fee:{" "}
             <strong>0%</strong> (INDEXLA platform fee off for this test).
           </p>
         </div>
@@ -206,6 +226,18 @@ export function SolanaMemeBasketPanel({
           className="degen-btn-ghost"
           disabled={busy}
           onClick={() =>
+            void finishIncomplete("buy").catch((e) =>
+              setLocalMsg(e instanceof Error ? e.message : String(e)),
+            )
+          }
+        >
+          Finish remaining buy
+        </button>
+        <button
+          type="button"
+          className="degen-btn-ghost"
+          disabled={busy}
+          onClick={() =>
             void finishIncomplete("sell").catch((e) =>
               setLocalMsg(e instanceof Error ? e.message : String(e)),
             )
@@ -221,47 +253,53 @@ export function SolanaMemeBasketPanel({
         </p>
       ) : null}
 
+      {wallet.connected ? (
+        <p className="text-sm text-[var(--degen-ink)]">
+          On-chain holdings: {heldCount} of {basketSize}
+          {heldCount > 0 && heldCount < basketSize
+            ? " — partial. Finish remaining or Sell All."
+            : null}
+          {heldCount === basketSize ? " — full basket." : null}
+        </p>
+      ) : null}
+
       {(localMsg || error || wallet.error) && !busy ? (
         <p className="text-sm text-[var(--degen-ink)]">
           {localMsg || error || wallet.error}
         </p>
       ) : null}
 
-      {/* User-facing progress: loading only — no per-leg error dump */}
-      {busy || (progress && /complete|Partial/i.test(progress.phase)) ? (
-        <div className="flex items-center justify-center gap-3 rounded-lg border border-[var(--degen-border)] px-4 py-6">
-          {busy ? (
-            <span
-              className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-[var(--degen-muted)] border-t-[var(--degen-ink)]"
-              aria-hidden
-            />
-          ) : null}
-          <p className="text-sm font-semibold text-[var(--degen-ink)]">
-            {loadingLabel ?? progress?.phase ?? "Working…"}
-          </p>
-        </div>
+      {busy ? (
+        <p className="text-sm font-semibold text-[var(--degen-ink)]">
+          <span
+            className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--degen-muted)] border-t-[var(--degen-ink)] align-[-2px]"
+            aria-hidden
+          />
+          {loadingLabel ?? "Working…"}
+        </p>
       ) : null}
 
-      {/* Signatures only after completion — no live failed/pending dump */}
-      {progress &&
-      !busy &&
-      progress.legs.some((l) => l.signature) ? (
-        <ul className="space-y-1 text-xs font-mono text-[var(--degen-muted)]">
-          {progress.legs
-            .filter((l) => l.signature)
-            .map((l) => (
-              <li key={l.key}>
-                {l.ticker}:{" "}
-                <a
-                  className="underline"
-                  href={`https://solscan.io/tx/${l.signature}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {l.signature!.slice(0, 12)}…
-                </a>
-              </li>
-            ))}
+      {/* Compact per-asset result after run — not a bordered dump box */}
+      {progress && !busy ? (
+        <ul className="space-y-0.5 text-xs font-mono text-[var(--degen-muted)]">
+          {progress.legs.map((l) => (
+            <li key={l.key}>
+              {l.ticker}: {l.status}
+              {l.signature ? (
+                <>
+                  {" "}
+                  <a
+                    className="underline"
+                    href={`https://solscan.io/tx/${l.signature}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {l.signature.slice(0, 8)}…
+                  </a>
+                </>
+              ) : null}
+            </li>
+          ))}
         </ul>
       ) : null}
 
@@ -282,7 +320,7 @@ export function SolanaMemeBasketPanel({
           ).map((t) => (
             <li
               key={t.key}
-              className="flex justify-between rounded border border-[var(--degen-border)] px-2 py-1 text-xs font-mono"
+              className="flex justify-between px-1 py-0.5 text-xs font-mono"
             >
               <span>{t.ticker}</span>
               <span>{t.uiAmount?.toPrecision?.(6) ?? t.amount}</span>

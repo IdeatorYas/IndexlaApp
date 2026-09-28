@@ -38,13 +38,11 @@ describe("degen solana basket constants", () => {
     expect(keys).toEqual(DEGEN_SOLANA_BASKET.map((m) => m.key));
   });
 
-  it("splits 10 legs into ≤3 sign batches", () => {
+  it("keeps 10 one-tx legs in a single signAll batch by default", () => {
     const legs = DEGEN_SOLANA_BASKET.map((m) => m.key);
     const batches = splitLegsIntoSignBatches(legs);
-    expect(batches.length).toBeLessThanOrEqual(3);
+    expect(batches).toHaveLength(1);
     expect(batches.flat()).toHaveLength(10);
-    // 4+3+3
-    expect(batches.map((b) => b.length).sort().reverse()).toEqual([4, 3, 3]);
   });
 
   it("equal lamport splits conserve total", () => {
