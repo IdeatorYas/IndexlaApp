@@ -97,37 +97,73 @@ export async function fetchJupiterQuote(params: {
   return (await res.json()) as JupiterQuoteResponse;
 }
 
-export async function fetchJupiterSwapTx(params: {
+export type JupiterInstruction = {
+  programId: string;
+  accounts: Array<{
+    pubkey: string;
+    isSigner: boolean;
+    isWritable: boolean;
+  }>;
+  data: string;
+};
+
+export type JupiterSwapInstructionsResponse = {
+  computeBudgetInstructions?: JupiterInstruction[];
+  setupInstructions?: JupiterInstruction[];
+  swapInstruction: JupiterInstruction;
+  cleanupInstruction?: JupiterInstruction | null;
+  addressLookupTableAddresses?: string[];
+  otherInstructions?: JupiterInstruction[];
+  error?: string;
+};
+
+function jupiterSwapRequestBody(params: {
   quoteResponse: JupiterQuoteResponse;
   userPublicKey: string;
   feeAccount?: string;
-}): Promise<JupiterSwapResponse> {
-  const base = jupiterApiBase().replace(/\/$/, "");
+  wrapAndUnwrapSol?: boolean;
+  /** Pin buy output to the user's ATA (direct ownership). */
+  destinationTokenAccount?: string;
+}): Record<string, unknown> {
   const body: Record<string, unknown> = {
     quoteResponse: params.quoteResponse,
     userPublicKey: params.userPublicKey,
-    wrapAndUnwrapSol: true,
-    // Force user-owned intermediate ATAs — shared_accounts_route is a common
-    // Phantom "Blocked: Unsafe" trigger for multi-hop memecoin routes.
+    wrapAndUnwrapSol: params.wrapAndUnwrapSol ?? true,
+    // Keep intermediate accounts user-owned — shared_accounts_route has
+    // triggered Phantom Unsafe on memecoin routes in this product.
+    // Destination ATA is still the user's (derived from userPublicKey).
     useSharedAccounts: false,
     dynamicComputeUnitLimit: true,
     prioritizationFeeLamports: {
       priorityLevelWithMaxLamports: {
         priorityLevel: "high",
-        maxLamports: 1_000_000,
+        maxLamports: 500_000,
       },
     },
   };
   if (params.feeAccount) {
     body.feeAccount = params.feeAccount;
   }
+  if (params.destinationTokenAccount) {
+    body.destinationTokenAccount = params.destinationTokenAccount;
+  }
+  return body;
+}
+
+export async function fetchJupiterSwapTx(params: {
+  quoteResponse: JupiterQuoteResponse;
+  userPublicKey: string;
+  feeAccount?: string;
+  destinationTokenAccount?: string;
+}): Promise<JupiterSwapResponse> {
+  const base = jupiterApiBase().replace(/\/$/, "");
   const res = await fetch(`${base}/swap`, {
     method: "POST",
     headers: {
       ...jupiterHeaders(),
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(jupiterSwapRequestBody(params)),
     cache: "no-store",
   });
   if (!res.ok) {
@@ -137,6 +173,37 @@ export async function fetchJupiterSwapTx(params: {
   const json = (await res.json()) as JupiterSwapResponse;
   if (!json.swapTransaction) {
     throw new Error("Jupiter swap response missing swapTransaction");
+  }
+  return json;
+}
+
+export async function fetchJupiterSwapInstructions(params: {
+  quoteResponse: JupiterQuoteResponse;
+  userPublicKey: string;
+  feeAccount?: string;
+  wrapAndUnwrapSol?: boolean;
+}): Promise<JupiterSwapInstructionsResponse> {
+  const base = jupiterApiBase().replace(/\/$/, "");
+  const res = await fetch(`${base}/swap-instructions`, {
+    method: "POST",
+    headers: {
+      ...jupiterHeaders(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(jupiterSwapRequestBody(params)),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `Jupiter swap-instructions ${res.status}: ${text.slice(0, 320)}`,
+    );
+  }
+  const json = (await res.json()) as JupiterSwapInstructionsResponse;
+  if (!json.swapInstruction) {
+    throw new Error(
+      json.error ?? "Jupiter swap-instructions missing swapInstruction",
+    );
   }
   return json;
 }

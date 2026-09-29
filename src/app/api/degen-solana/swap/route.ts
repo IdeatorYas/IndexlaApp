@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { PublicKey } from "@solana/web3.js";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { isDegenSolanaLiveEnabled } from "@/lib/degen-solana/constants";
 import {
   assertSwapTxSize,
@@ -9,10 +11,24 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Body = {
-  userPublicKey: string;
+type LegBody = {
+  key: string;
+  ticker?: string;
+  mint: string;
   quoteResponse: JupiterQuoteResponse;
   feeAccount?: string;
+};
+
+type Body = {
+  userPublicKey: string;
+  side: "buy" | "sell";
+  /** Single-leg (legacy) */
+  quoteResponse?: JupiterQuoteResponse;
+  feeAccount?: string;
+  mint?: string;
+  key?: string;
+  /** Multi-leg: one canonical Jupiter /swap per asset */
+  legs?: LegBody[];
 };
 
 export async function POST(req: Request) {
@@ -30,24 +46,84 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  if (!body.userPublicKey || !body.quoteResponse) {
+  if (!body.userPublicKey) {
     return NextResponse.json(
-      { error: "userPublicKey and quoteResponse required" },
+      { error: "userPublicKey required" },
+      { status: 400 },
+    );
+  }
+
+  const legs: LegBody[] =
+    body.legs?.length
+      ? body.legs
+      : body.quoteResponse
+        ? [
+            {
+              key: body.key ?? "leg",
+              mint: body.mint ?? "",
+              quoteResponse: body.quoteResponse,
+              feeAccount: body.feeAccount,
+            },
+          ]
+        : [];
+
+  if (legs.length === 0) {
+    return NextResponse.json(
+      { error: "legs or quoteResponse required" },
       { status: 400 },
     );
   }
 
   try {
-    const swap = await fetchJupiterSwapTx({
-      quoteResponse: body.quoteResponse,
-      userPublicKey: body.userPublicKey,
-      feeAccount: body.feeAccount,
-    });
-    assertSwapTxSize(swap.swapTransaction);
-    return NextResponse.json({
-      swapTransaction: swap.swapTransaction,
-      lastValidBlockHeight: swap.lastValidBlockHeight,
-    });
+    const owner = new PublicKey(body.userPublicKey);
+    const built = [];
+    const failed = [];
+    for (const leg of legs) {
+      try {
+        let destinationTokenAccount: string | undefined;
+        if (body.side === "buy" && leg.mint) {
+          destinationTokenAccount = getAssociatedTokenAddressSync(
+            new PublicKey(leg.mint),
+            owner,
+            false,
+          ).toBase58();
+        }
+        const swap = await fetchJupiterSwapTx({
+          quoteResponse: leg.quoteResponse,
+          userPublicKey: body.userPublicKey,
+          feeAccount: leg.feeAccount,
+          destinationTokenAccount,
+        });
+        assertSwapTxSize(swap.swapTransaction);
+        built.push({
+          key: leg.key,
+          ticker: leg.ticker,
+          mint: leg.mint,
+          swapTransaction: swap.swapTransaction,
+          lastValidBlockHeight: swap.lastValidBlockHeight,
+        });
+      } catch (legErr) {
+        const msg = legErr instanceof Error ? legErr.message : String(legErr);
+        failed.push({
+          key: leg.key,
+          ticker: leg.ticker,
+          mint: leg.mint,
+          error: msg,
+        });
+      }
+    }
+    if (built.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            failed[0]?.error ??
+            "All swap builds failed — try Finish remaining or lower size",
+          failed,
+        },
+        { status: 502 },
+      );
+    }
+    return NextResponse.json({ legs: built, failed });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 502 });

@@ -56,6 +56,7 @@ type SolanaWalletContextValue = {
   signAllTransactions: (
     txs: VersionedTransaction[],
   ) => Promise<VersionedTransaction[]>;
+  signTransaction: (tx: VersionedTransaction) => Promise<VersionedTransaction>;
   signAndSendTransaction: (
     tx: VersionedTransaction,
   ) => Promise<string>;
@@ -159,6 +160,23 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const signTransaction = useCallback(
+    async (tx: VersionedTransaction) => {
+      const provider = getInjectedSolana();
+      if (provider?.signTransaction) {
+        return provider.signTransaction(tx);
+      }
+      // Fallback: some wallets only expose signAllTransactions
+      if (provider?.signAllTransactions) {
+        const [signed] = await provider.signAllTransactions([tx]);
+        if (!signed) throw new Error("Wallet returned no signed transaction");
+        return signed;
+      }
+      throw new Error("Wallet missing signTransaction");
+    },
+    [],
+  );
+
   const signAndSendTransaction = useCallback(
     async (tx: VersionedTransaction) => {
       const provider = getInjectedSolana();
@@ -191,6 +209,7 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     connect,
     disconnect,
     signAllTransactions,
+    signTransaction,
     signAndSendTransaction,
     connection,
   };
