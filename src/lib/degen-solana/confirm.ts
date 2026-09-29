@@ -21,7 +21,9 @@ async function withRpcRetry<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
     } catch (err) {
       last = err;
       if (!isRetryableRpcError(err) || i === attempts - 1) throw err;
-      await new Promise((r) => setTimeout(r, 400 * 2 ** i));
+      // Bounded backoff; proxy also honours Retry-After upstream.
+      const delay = Math.min(12_000, 600 * 2 ** i + Math.floor(Math.random() * 250));
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
   throw last;
@@ -42,7 +44,7 @@ export async function confirmSignatureHttp(
   },
 ): Promise<ConfirmOutcome> {
   const timeoutMs = opts.timeoutMs ?? 90_000;
-  const pollMs = opts.pollMs ?? 1_500;
+  const pollMs = opts.pollMs ?? 2_200;
   const started = Date.now();
 
   while (Date.now() - started < timeoutMs) {
@@ -145,8 +147,8 @@ export async function waitSignatureProcessed(
   signature: string,
   opts: { timeoutMs?: number; pollMs?: number } = {},
 ): Promise<"processed" | "confirmed" | "failed" | "timeout"> {
-  const timeoutMs = opts.timeoutMs ?? 8_000;
-  const pollMs = opts.pollMs ?? 400;
+  const timeoutMs = opts.timeoutMs ?? 12_000;
+  const pollMs = opts.pollMs ?? 550;
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     try {

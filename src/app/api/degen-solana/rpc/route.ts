@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { solanaRpcUrl } from "@/lib/degen-solana/constants";
+import { fetchSolanaJsonRpc } from "@/lib/degen-solana/rpc-upstream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +19,7 @@ const ALLOWED = new Set([
   "getMultipleAccounts",
   "getTokenAccountBalance",
   "getTokenAccountsByOwner",
+  "getAddressLookupTable",
   "getFeeForMessage",
   "simulateTransaction",
   "sendTransaction",
@@ -36,6 +37,7 @@ type JsonRpcBody = {
 /**
  * Browser-facing Solana JSON-RPC proxy.
  * Public mainnet RPC rejects browser Origin with HTTP 403; Node upstream does not.
+ * 429/rate-limit: Retry-After + backoff + SOLANA_RPC_FALLBACK_URL.
  */
 export async function POST(request: Request) {
   let body: JsonRpcBody;
@@ -67,23 +69,19 @@ export async function POST(request: Request) {
     );
   }
 
-  const upstream = solanaRpcUrl();
   try {
-    const res = await fetch(upstream, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: body.id ?? 1,
-        method,
-        params: body.params ?? [],
-      }),
-      cache: "no-store",
+    const result = await fetchSolanaJsonRpc({
+      jsonrpc: "2.0",
+      id: body.id ?? 1,
+      method,
+      params: body.params ?? [],
     });
-    const text = await res.text();
-    return new NextResponse(text, {
-      status: res.status,
-      headers: { "Content-Type": "application/json" },
+    return new NextResponse(result.text, {
+      status: result.status,
+      headers: {
+        "Content-Type": "application/json",
+        "X-IndexLa-Rpc-Endpoint": String(result.endpointIndex),
+      },
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

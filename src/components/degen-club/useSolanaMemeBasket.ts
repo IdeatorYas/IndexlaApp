@@ -517,24 +517,29 @@ export function useSolanaMemeBasket() {
         });
 
         // Pre-sign gate: simulate EVERY pack before the first wallet prompt.
-        for (const pack of packs) {
-          const latest = await wallet.connection.getLatestBlockhash(
+        // One blockhash for the whole gate — avoids N× getLatestBlockhash 429s.
+        {
+          const preLatest = await wallet.connection.getLatestBlockhash(
             "confirmed",
           );
-          const tx = restampVersionedTx(
-            decodeSwapTxBase64(pack.swapTransaction),
-            latest.blockhash,
-          );
-          const sim = await simulateVersionedTx(wallet.connection, tx);
-          if (!sim.ok) {
-            throw new Error(
-              `${pack.tickers.join(", ")} failed simulation before signing: ${sim.error.slice(0, 160)}`,
+          for (const pack of packs) {
+            const tx = restampVersionedTx(
+              decodeSwapTxBase64(pack.swapTransaction),
+              preLatest.blockhash,
             );
+            const sim = await simulateVersionedTx(wallet.connection, tx);
+            if (!sim.ok) {
+              throw new Error(
+                `${pack.tickers.join(", ")} failed simulation before signing: ${sim.error.slice(0, 160)}`,
+              );
+            }
+            await new Promise((r) => setTimeout(r, 120));
           }
         }
 
         // Phantom Blowfish: one signAndSendTransaction per pack (not signAll).
-        for (const pack of packs) {
+        for (let packIdx = 0; packIdx < packs.length; packIdx += 1) {
+          const pack = packs[packIdx]!;
           if (confirmCount >= confirmMax) {
             for (const key of pack.keys) {
               const idx = legResults.findIndex((x) => x.key === key);
@@ -549,6 +554,12 @@ export function useSolanaMemeBasket() {
             break;
           }
 
+          // Never re-prompt packs whose keys are already confirmed (resume safety).
+          const alreadyDone = pack.keys.every(
+            (k) => cp.legs.find((l) => l.key === k)?.status === "confirmed",
+          );
+          if (alreadyDone) continue;
+
           const packLabel = pack.tickers.join("+");
           setProgress({
             phase: `Preparing ${packLabel}…`,
@@ -561,7 +572,12 @@ export function useSolanaMemeBasket() {
             legs: [...legResults],
           });
 
-          let latest = await wallet.connection.getLatestBlockhash(
+          // Brief pause between packs so RPC confirm polls drain before next burst.
+          if (packIdx > 0) {
+            await new Promise((r) => setTimeout(r, 400));
+          }
+
+          const latest = await wallet.connection.getLatestBlockhash(
             "confirmed",
           );
           const tx = restampVersionedTx(

@@ -62,6 +62,25 @@ export function feeAccountsConfigured(mints: readonly DegenSolanaMint[]): {
 /** Cap route complexity so swap txs stay under Solana's 1232-byte packet limit. */
 export const JUPITER_MAX_ACCOUNTS = 30;
 
+async function jupiterFetch(
+  url: string,
+  init?: RequestInit,
+  label = "Jupiter",
+): Promise<Response> {
+  let lastText = "";
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const res = await fetch(url, { ...init, cache: "no-store" });
+    if (res.status !== 429 && res.status !== 503) return res;
+    lastText = await res.text();
+    const ra = res.headers.get("retry-after");
+    const wait = ra && /^\d+$/.test(ra)
+      ? Math.min(20_000, Number(ra) * 1000)
+      : Math.min(12_000, 500 * 2 ** attempt);
+    await new Promise((r) => setTimeout(r, wait));
+  }
+  throw new Error(`${label} rate-limited: ${lastText.slice(0, 200)}`);
+}
+
 export async function fetchJupiterQuote(params: {
   inputMint: string;
   outputMint: string;
@@ -86,10 +105,11 @@ export async function fetchJupiterQuote(params: {
   if (params.platformFeeBps != null && params.platformFeeBps > 0) {
     q.set("platformFeeBps", String(params.platformFeeBps));
   }
-  const res = await fetch(`${base}/quote?${q}`, {
-    headers: jupiterHeaders(),
-    cache: "no-store",
-  });
+  const res = await jupiterFetch(
+    `${base}/quote?${q}`,
+    { headers: jupiterHeaders() },
+    "Jupiter quote",
+  );
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Jupiter quote ${res.status}: ${body.slice(0, 240)}`);
@@ -157,15 +177,14 @@ export async function fetchJupiterSwapTx(params: {
   destinationTokenAccount?: string;
 }): Promise<JupiterSwapResponse> {
   const base = jupiterApiBase().replace(/\/$/, "");
-  const res = await fetch(`${base}/swap`, {
+  const res = await jupiterFetch(`${base}/swap`, {
     method: "POST",
     headers: {
       ...jupiterHeaders(),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(jupiterSwapRequestBody(params)),
-    cache: "no-store",
-  });
+  }, "Jupiter swap");
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Jupiter swap ${res.status}: ${text.slice(0, 320)}`);
@@ -184,15 +203,14 @@ export async function fetchJupiterSwapInstructions(params: {
   wrapAndUnwrapSol?: boolean;
 }): Promise<JupiterSwapInstructionsResponse> {
   const base = jupiterApiBase().replace(/\/$/, "");
-  const res = await fetch(`${base}/swap-instructions`, {
+  const res = await jupiterFetch(`${base}/swap-instructions`, {
     method: "POST",
     headers: {
       ...jupiterHeaders(),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(jupiterSwapRequestBody(params)),
-    cache: "no-store",
-  });
+  }, "Jupiter swap-instructions");
   if (!res.ok) {
     const text = await res.text();
     throw new Error(

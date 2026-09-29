@@ -63,11 +63,28 @@ function toInstruction(ix: JupiterInstruction): TransactionInstruction {
 async function loadLookupTables(
   connection: Connection,
   addresses: string[],
+  cache: Map<string, AddressLookupTableAccount | null>,
 ): Promise<AddressLookupTableAccount[]> {
   const out: AddressLookupTableAccount[] = [];
+  const missing: string[] = [];
   for (const addr of addresses) {
-    const res = await connection.getAddressLookupTable(new PublicKey(addr));
-    if (res.value) out.push(res.value);
+    if (cache.has(addr)) {
+      const hit = cache.get(addr);
+      if (hit) out.push(hit);
+      continue;
+    }
+    missing.push(addr);
+  }
+  // Sequential with tiny gap — parallel ALT storms trip connection rate limits.
+  for (const addr of missing) {
+    try {
+      const res = await connection.getAddressLookupTable(new PublicKey(addr));
+      cache.set(addr, res.value);
+      if (res.value) out.push(res.value);
+    } catch {
+      cache.set(addr, null);
+    }
+    await new Promise((r) => setTimeout(r, 40));
   }
   return out;
 }
@@ -211,9 +228,10 @@ async function measureAndEncode(
   blockhash: string,
   side: "buy" | "sell",
   closeEmptiedAtas: boolean,
+  altCache: Map<string, AddressLookupTableAccount | null>,
 ): Promise<{ base64: string; size: number }> {
   const altAddrs = [...new Set(legs.flatMap((l) => l.altAddresses))];
-  const alts = await loadLookupTables(connection, altAddrs);
+  const alts = await loadLookupTables(connection, altAddrs, altCache);
   const msg = new TransactionMessage({
     payerKey: payer,
     recentBlockhash: blockhash,
@@ -237,10 +255,13 @@ export async function partitionBuiltLegs(params: {
   closeEmptiedAtas: boolean;
   safeBytes?: number;
   promptMax?: number;
+  altCache?: Map<string, AddressLookupTableAccount | null>;
 }): Promise<BuiltLeg[][]> {
   const safeBytes = params.safeBytes ?? PACK_SAFE_BYTES;
   const promptMax = params.promptMax ?? PACK_PROMPT_MAX;
   const { connection, payer, blockhash, side, closeEmptiedAtas } = params;
+  const altCache =
+    params.altCache ?? new Map<string, AddressLookupTableAccount | null>();
 
   const scored: Array<{ leg: BuiltLeg; alone: number }> = [];
   for (const leg of params.built) {
@@ -251,6 +272,7 @@ export async function partitionBuiltLegs(params: {
       blockhash,
       side,
       closeEmptiedAtas,
+      altCache,
     );
     if (size > SOLANA_TX_MAX_BYTES) {
       throw new Error(
@@ -272,21 +294,6 @@ export async function partitionBuiltLegs(params: {
     for (const group of groups) {
       if (group.length >= PACK_LEGS_HARD_MAX) continue;
       const candidate = [...group, leg];
-      // Prefer ≤3; only attempt a 4th when the measured size still fits.
-      if (candidate.length > PACK_LEGS_HINT_MAX) {
-        const { size } = await measureAndEncode(
-          connection,
-          payer,
-          candidate,
-          blockhash,
-          side,
-          closeEmptiedAtas,
-        );
-        if (size > safeBytes) continue;
-        group.push(leg);
-        placed = true;
-        break;
-      }
       const { size } = await measureAndEncode(
         connection,
         payer,
@@ -294,6 +301,7 @@ export async function partitionBuiltLegs(params: {
         blockhash,
         side,
         closeEmptiedAtas,
+        altCache,
       );
       if (size > safeBytes) continue;
       group.push(leg);
@@ -351,8 +359,11 @@ export async function packSwapLegs(params: {
       throw new Error(`${leg.ticker || leg.key} missing mint for packing`);
     }
     built.push(await fetchBuiltLeg(leg, params.userPublicKey, payer));
+    // Small gap between Jupiter swap-instructions calls — avoid burst 429.
+    await new Promise((r) => setTimeout(r, 80));
   }
 
+  const altCache = new Map<string, AddressLookupTableAccount | null>();
   const latest = await connection.getLatestBlockhash("confirmed");
   const groups = await partitionBuiltLegs({
     connection,
@@ -363,6 +374,7 @@ export async function packSwapLegs(params: {
     closeEmptiedAtas,
     safeBytes,
     promptMax,
+    altCache,
   });
 
   const packs: PackedSwapTx[] = [];
@@ -374,6 +386,7 @@ export async function packSwapLegs(params: {
       latest.blockhash,
       side,
       closeEmptiedAtas,
+      altCache,
     );
     packs.push({
       keys: group.map((g) => g.key),

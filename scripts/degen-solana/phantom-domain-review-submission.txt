@@ -1,0 +1,36 @@
+INDEXLA — Phantom domain / transaction warning review draft
+Product: Degen Club Solana Memecoin Index
+Domain: https://app.indexla.tech
+Path: /app/degen-club/product/solana-memecoin-index
+Date prepared: 2026-09-29
+
+WHAT USERS SEE
+- Phantom red “this site / dApp could be malicious or suspicious” sheet that requires
+  manual override before signing. Buy can succeed after override; Sell must not be
+  blocked by our RPC path.
+
+CLASSIFICATION (engineering assessment — not a Phantom verdict)
+1) Domain / site reputation: likely primary remaining cause after packing fix.
+   - Same-origin Solana JSON-RPC proxy at /api/degen-solana/rpc
+   - Non-custodial: assets stay in user ATAs (useSharedAccounts=false)
+2) Transaction / Blowfish: mitigated in app code
+   - One signAndSendTransaction per packed v0 tx (≤4 packs for 10 assets)
+   - Never signAllTransactions for the basket
+   - Pre-simulate every pack before first wallet prompt; refuse if any pack fails
+   - skipPreflight=false so Phantom can simulate; maxRetries=0 (app confirms via HTTP)
+   - Direct routes preferred; no shared accounts route
+
+TRANSACTION PATTERN (for reviewers)
+- Buy pack: create WSOL ATA → wrap SOL total → N Jupiter swaps → close WSOL
+- Sell 100% pack: N Jupiter token→WSOL swaps → close emptied token ATAs → close WSOL
+- Fee: ExactIn platform fee on output mint (token out on buy; WSOL on sell)
+- Confirmations: ≤4 wallet prompts per full buy or Sell All
+
+REQUEST TO PHANTOM
+Please review app.indexla.tech for domain allowlisting / warning reduction.
+Contact: [add INDEXLA operator email]
+Evidence: live product URL above; transactions are user-signed Jupiter swaps only.
+
+DO NOT
+- Ask users to disable security
+- Bypass or suppress the Phantom warning in app code

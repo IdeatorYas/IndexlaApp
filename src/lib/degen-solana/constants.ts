@@ -167,6 +167,14 @@ export function solanaRpcUrl(): string {
   );
 }
 
+/** Optional second Solana RPC when primary returns 429 / connection rate limits. */
+export function solanaRpcFallbackUrl(): string | undefined {
+  const v =
+    process.env.SOLANA_RPC_FALLBACK_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SOLANA_RPC_FALLBACK_URL?.trim();
+  return v || undefined;
+}
+
 /**
  * Split one-tx-per-leg items into ≤ maxPrompts signAll batches.
  *

@@ -183,7 +183,8 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
       if (provider?.signAndSendTransaction) {
         const res = await provider.signAndSendTransaction(tx, {
           skipPreflight: false,
-          maxRetries: 3,
+          // App confirms via HTTP; avoid Phantom rebroadcast storms that look hostile to Blowfish.
+          maxRetries: 0,
         });
         return res.signature;
       }

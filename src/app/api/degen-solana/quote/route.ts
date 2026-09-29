@@ -154,6 +154,7 @@ export async function POST(req: Request) {
           // ExactIn platform fee is taken from the OUTPUT mint.
           feeAccount: takeFees ? feeMap[m.mint] : undefined,
         });
+        await new Promise((r) => setTimeout(r, 60));
       }
       return NextResponse.json({
         side: "buy",
@@ -196,6 +197,7 @@ export async function POST(req: Request) {
         // ExactIn platform fee is taken from the OUTPUT mint (WSOL on sells).
         feeAccount: takeFees ? feeMap[WSOL_MINT] : undefined,
       });
+      await new Promise((r) => setTimeout(r, 60));
     }
     if (legs.length === 0) {
       return NextResponse.json(
