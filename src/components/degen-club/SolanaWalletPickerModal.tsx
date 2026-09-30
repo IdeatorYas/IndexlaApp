@@ -1,15 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   listSolanaInjectedWallets,
   waitForSolanaWallets,
   type SolanaInjectedWallet,
 } from "@/lib/degen-solana/injected-wallets";
+import {
+  buildPhantomOpenInAppHref,
+  currentProductUrl,
+  isMobileUserAgent,
+  isPhantomInAppBrowser,
+} from "@/lib/degen-solana/phantom-mobile";
 
 /**
  * Always shown on Connect Wallet click for Solana products.
- * Polls briefly for late Phantom injection.
+ * Desktop: list injected wallets.
+ * Mobile (no inject): Open in Phantom via browse deep link (preserves product URL).
+ * Inside Phantom browser: wait for inject, then connect normally.
  */
 export function SolanaWalletPickerModal({
   open,
@@ -26,24 +34,66 @@ export function SolanaWalletPickerModal({
 }) {
   const [wallets, setWallets] = useState<SolanaInjectedWallet[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [ua, setUa] = useState("");
+  const onPickRef = useRef(onPick);
+  onPickRef.current = onPick;
+  const autoConnectedRef = useRef(false);
+
+  const mobile = useMemo(() => (ua ? isMobileUserAgent(ua) : false), [ua]);
+  const inPhantom = useMemo(
+    () => (ua ? isPhantomInAppBrowser(ua) : false),
+    [ua],
+  );
+  const openInPhantomHref = useMemo(() => {
+    if (typeof window === "undefined" || !ua) return "https://phantom.app/download";
+    return buildPhantomOpenInAppHref(currentProductUrl(), ua);
+  }, [ua]);
+
+  useEffect(() => {
+    if (!open) {
+      autoConnectedRef.current = false;
+      return;
+    }
+    setUa(typeof navigator !== "undefined" ? navigator.userAgent : "");
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setScanning(true);
     setWallets(listSolanaInjectedWallets());
-    void waitForSolanaWallets(2500).then((list) => {
-      if (!cancelled) {
-        setWallets(list);
-        setScanning(false);
+    // Phantom in-app browser injects slightly later than desktop extensions.
+    const timeoutMs = inPhantom || mobile ? 4000 : 2500;
+    void waitForSolanaWallets(timeoutMs).then((list) => {
+      if (cancelled) return;
+      setWallets(list);
+      setScanning(false);
+      // Inside Phantom: one injected wallet → connect immediately.
+      if (
+        inPhantom &&
+        list.length === 1 &&
+        list[0] &&
+        !autoConnectedRef.current
+      ) {
+        autoConnectedRef.current = true;
+        onPickRef.current(list[0]);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, inPhantom, mobile]);
 
   if (!open) return null;
+
+  const showMobileHandoff =
+    !scanning && wallets.length === 0 && mobile && !inPhantom;
+  const showInPhantomWaiting =
+    scanning && wallets.length === 0 && inPhantom;
+  const showInPhantomEmpty =
+    !scanning && wallets.length === 0 && inPhantom;
+  const showDesktopEmpty =
+    !scanning && wallets.length === 0 && !mobile;
 
   return (
     <div
@@ -69,12 +119,62 @@ export function SolanaWalletPickerModal({
           </button>
         </div>
         <p className="mb-3 text-[12px] text-app-dim">
-          Choose a Solana wallet. Approve the connection prompt in the extension.
+          {showMobileHandoff
+            ? "Open this page in Phantom to connect your installed wallet."
+            : inPhantom
+              ? "Approve the connection prompt in Phantom."
+              : "Choose a Solana wallet. Approve the connection prompt in the extension."}
         </p>
-        {scanning && wallets.length === 0 ? (
+        {scanning && wallets.length === 0 && !showInPhantomWaiting ? (
           <p className="text-[12px] text-app-dim">Looking for wallets…</p>
         ) : null}
-        {!scanning && wallets.length === 0 ? (
+        {showInPhantomWaiting ? (
+          <p className="text-[12px] text-app-dim" data-testid="phantom-inapp-scanning">
+            Connecting to Phantom…
+          </p>
+        ) : null}
+        {showMobileHandoff ? (
+          <div className="space-y-3" data-testid="phantom-mobile-handoff">
+            <a
+              data-testid="open-in-phantom"
+              className="app-interactive flex h-11 w-full items-center justify-center rounded-xl border border-app-brand/50 bg-app-brand/10 px-3 text-[13px] font-bold text-app-ink hover:border-app-brand"
+              href={openInPhantomHref}
+              rel="noreferrer"
+            >
+              Open in Phantom
+            </a>
+            <p className="text-[11px] text-app-dim">
+              Already have Phantom? This opens the same product page inside the app.
+            </p>
+            <a
+              className="block text-center text-[11px] text-app-dim underline"
+              href="https://phantom.app/download"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Don’t have Phantom? Download
+            </a>
+          </div>
+        ) : null}
+        {showInPhantomEmpty ? (
+          <div className="space-y-2 text-[12px] text-app-dim" data-testid="phantom-inapp-retry">
+            <p>Phantom wallet not ready yet. Tap retry after a moment.</p>
+            <button
+              type="button"
+              className="app-interactive h-10 w-full rounded-xl border border-app-line text-[13px] font-semibold text-app-ink"
+              onClick={() => {
+                setScanning(true);
+                void waitForSolanaWallets(4000).then((list) => {
+                  setWallets(list);
+                  setScanning(false);
+                });
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
+        {showDesktopEmpty ? (
           <div className="space-y-2 text-[12px] text-app-dim">
             <p>No Solana wallet extension detected in this browser.</p>
             <a
@@ -86,7 +186,8 @@ export function SolanaWalletPickerModal({
               Install Phantom
             </a>
           </div>
-        ) : (
+        ) : null}
+        {wallets.length > 0 ? (
           <ul className="space-y-2">
             {wallets.map((w) => (
               <li key={w.id}>
@@ -105,7 +206,7 @@ export function SolanaWalletPickerModal({
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
         {error ? (
           <p className="mt-3 text-[12px] text-red-600" role="alert">
             {error}
