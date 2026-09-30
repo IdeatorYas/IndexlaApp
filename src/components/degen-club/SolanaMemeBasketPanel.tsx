@@ -11,7 +11,6 @@ import { dustThresholdRaw } from "@/lib/degen-solana/balances";
 import type { SolanaInjectedWallet } from "@/lib/degen-solana/injected-wallets";
 import {
   clearPhantomHandoffFlagFromUrl,
-  isPhantomProviderPresent,
 } from "@/lib/degen-solana/phantom-mobile";
 
 function solToLamports(sol: string): string {
@@ -47,7 +46,6 @@ export function SolanaMemeBasketPanel({
   const [localMsg, setLocalMsg] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
-  const [autoConnect, setAutoConnect] = useState(false);
 
   const holdingsNonZero = useMemo(
     () =>
@@ -114,7 +112,6 @@ export function SolanaMemeBasketPanel({
   function openConnect() {
     setPickError(null);
     setLocalMsg(null);
-    setAutoConnect(isPhantomProviderPresent());
     setPickerOpen(true);
   }
 
@@ -181,12 +178,8 @@ export function SolanaMemeBasketPanel({
         open={pickerOpen}
         busy={wallet.connecting}
         error={pickError ?? wallet.error}
-        onClose={() => {
-          setPickerOpen(false);
-          setAutoConnect(false);
-        }}
+        onClose={() => setPickerOpen(false)}
         onPick={onPick}
-        autoConnect={autoConnect}
       />
 
       {!weightsValid ? (

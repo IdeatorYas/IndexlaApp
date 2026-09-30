@@ -1,11 +1,7 @@
 /**
  * Phantom mobile handoff + provider detection.
- *
- * Critical facts from Phantom docs:
- * - Detect install / in-app via window.phantom.solana — NOT User-Agent.
- * - Browse deeplink: https://phantom.app/ul/browse/<urlencoded>?ref=<urlencoded>
- * - Do NOT use Android Intent with browser_fallback_url=download — that sends
- *   installed-Phantom users to the install page when App Links fail.
+ * Detect via window.phantom — not User-Agent.
+ * Browse UL: https://phantom.app/ul/browse/<url>?ref=<ref>
  */
 
 export const PHANTOM_HANDOFF_PARAM = "ixl_phantom";
@@ -14,10 +10,6 @@ export function isMobileUserAgent(ua: string): boolean {
   return /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
     ua,
   );
-}
-
-export function isAndroidUserAgent(ua: string): boolean {
-  return /Android/i.test(ua);
 }
 
 /** True when Phantom has injected its provider (extension OR mobile in-app). */
@@ -35,10 +27,6 @@ export function isPhantomProviderPresent(
   return false;
 }
 
-/**
- * Build Phantom browse universal link preserving the full product URL.
- * Always use https://phantom.app/ul/browse — never Intent+download fallback.
- */
 export function buildPhantomBrowseUniversalLink(
   productUrl: string,
   refUrl: string = productUrl,
@@ -48,17 +36,6 @@ export function buildPhantomBrowseUniversalLink(
   return `https://phantom.app/ul/browse/${encodedUrl}?ref=${encodedRef}`;
 }
 
-/** Custom-scheme fallback (some Android browsers). Same browse target. */
-export function buildPhantomBrowseCustomScheme(
-  productUrl: string,
-  refUrl: string = productUrl,
-): string {
-  const encodedUrl = encodeURIComponent(productUrl);
-  const encodedRef = encodeURIComponent(refUrl);
-  return `phantom://browse/${encodedUrl}?ref=${encodedRef}`;
-}
-
-/** Append handoff flag so the page auto-connects after Phantom opens it. */
 export function withPhantomHandoffFlag(url: string): string {
   try {
     const u = new URL(url);
@@ -80,7 +57,6 @@ export function hasPhantomHandoffFlag(
   }
 }
 
-/** Strip handoff flag from the address bar after connect (clean URL). */
 export function clearPhantomHandoffFlagFromUrl(): void {
   if (typeof window === "undefined") return;
   try {
@@ -93,18 +69,13 @@ export function clearPhantomHandoffFlagFromUrl(): void {
   }
 }
 
-/**
- * Best handoff href. Universal link only — Intent+download was sending
- * users with Phantom installed to the store / download page.
- */
+/** Browse handoff preserving product URL + auto-connect flag. */
 export function buildPhantomOpenInAppHref(
   productUrl: string,
-  _ua?: string,
   refUrl?: string,
 ): string {
   const target = withPhantomHandoffFlag(productUrl);
-  const ref = refUrl ?? productUrl;
-  return buildPhantomBrowseUniversalLink(target, ref);
+  return buildPhantomBrowseUniversalLink(target, refUrl ?? productUrl);
 }
 
 export function currentProductUrl(): string {
@@ -112,28 +83,13 @@ export function currentProductUrl(): string {
   return window.location.href;
 }
 
-export type WalletConnectStage =
-  | "idle"
-  | "scanning"
-  | "handoff"
-  | "injected"
-  | "connecting"
-  | "connected"
-  | "error";
-
-export function formatWalletStatusLine(opts: {
-  stage: WalletConnectStage;
-  phantomPresent: boolean;
-  mobile: boolean;
-  publicKey?: string | null;
-  error?: string | null;
-}): string {
-  const bits = [
-    `stage=${opts.stage}`,
-    `phantom=${opts.phantomPresent ? "yes" : "no"}`,
-    `mobile=${opts.mobile ? "yes" : "no"}`,
-  ];
-  if (opts.publicKey) bits.push(`pk=${opts.publicKey.slice(0, 4)}…${opts.publicKey.slice(-4)}`);
-  if (opts.error) bits.push(`err=${opts.error}`);
-  return bits.join(" · ");
+/** Launch Phantom in-app browser with the current product URL. */
+export function launchPhantomHandoff(productUrl?: string): void {
+  const url = productUrl ?? currentProductUrl();
+  const href = buildPhantomOpenInAppHref(url);
+  try {
+    window.location.assign(href);
+  } catch {
+    window.location.href = href;
+  }
 }

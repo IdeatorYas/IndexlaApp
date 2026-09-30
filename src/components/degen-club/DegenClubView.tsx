@@ -39,6 +39,10 @@ import { DEGEN_ASSETS } from "@/lib/fixtures/degen-asset-registry";
 import { formatPercent, formatUsd } from "@/lib/dashboard/data";
 import { APP_ROUTES } from "@/lib/routes";
 import { PreviewOnlyMessage } from "@/components/ui/PreviewOnlyMessage";
+import {
+  DEGEN_SOLANA_PRODUCT_ID,
+  isDegenSolanaLiveEnabled,
+} from "@/lib/degen-solana/constants";
 
 type ViewState = "loading" | "ready" | "error" | "empty";
 
@@ -216,6 +220,14 @@ export function DegenClubView({
                 key={product.id}
                 product={product}
                 onTrade={() => {
+                  // Live Solana index: never open AppKit / Base / RH — go to Solana product.
+                  if (
+                    product.id === DEGEN_SOLANA_PRODUCT_ID &&
+                    isDegenSolanaLiveEnabled()
+                  ) {
+                    router.push(APP_ROUTES.degenProduct(product.id));
+                    return;
+                  }
                   if (wallet.state !== "connected") connect();
                   setTradeAck(false);
                   setTradeProduct(product);

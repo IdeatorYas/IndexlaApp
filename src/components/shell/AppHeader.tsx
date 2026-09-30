@@ -17,14 +17,23 @@ import {
   isPhantomProviderPresent,
 } from "@/lib/degen-solana/phantom-mobile";
 
-function productWalletMode(pathname: string | null): "solana" | "evm" {
+/**
+ * Product-scoped wallet mode.
+ * Solana products never open AppKit / Base / Robinhood switch prompts.
+ */
+export function productWalletMode(
+  pathname: string | null,
+): "solana" | "base" | "robinhood" | "evm" {
   if (pathname?.startsWith("/app/degen-club")) return "solana";
-  return "evm"; // Base (Stable Club), Robinhood (Utility Index), and rest → AppKit
+  if (pathname?.startsWith("/app/stable-club")) return "base";
+  if (pathname?.startsWith("/app/utility-index")) return "robinhood";
+  return "evm";
 }
 
 export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const pathname = usePathname();
   const mode = productWalletMode(pathname);
+  const solanaProduct = mode === "solana";
   const { theme, toggleTheme } = useTheme();
   const { wallet, connect, disconnect, ethBalanceFormatted } = useDemoWallet();
   const solana = useSolanaWallet();
@@ -34,31 +43,28 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const [solanaPickerOpen, setSolanaPickerOpen] = useState(false);
   const [solanaPickError, setSolanaPickError] = useState<string | null>(null);
   const [solanaAutoConnect, setSolanaAutoConnect] = useState(false);
-  const [handoffBanner, setHandoffBanner] = useState<string | null>(null);
 
-  const headerConnected =
-    mode === "solana" ? solana.connected : wallet.state === "connected";
-  const headerLabel =
-    mode === "solana"
-      ? solana.connected && solana.publicKey
-        ? `${solana.publicKey.slice(0, 4)}…${solana.publicKey.slice(-4)}`
-        : solana.connecting
-          ? "Connecting…"
-          : "Connect Wallet"
-      : wallet.state === "connected"
-        ? wallet.shortenedAddress
-        : "Connect Wallet";
+  const headerConnected = solanaProduct
+    ? solana.connected
+    : wallet.state === "connected";
+  const headerLabel = solanaProduct
+    ? solana.connected && solana.publicKey
+      ? `${solana.publicKey.slice(0, 4)}…${solana.publicKey.slice(-4)}`
+      : solana.connecting
+        ? "Connecting…"
+        : "Connect Wallet"
+    : wallet.state === "connected"
+      ? wallet.shortenedAddress
+      : "Connect Wallet";
 
-  // After Open in Phantom lands here: auto-open picker + connect (detect via inject, not UA).
+  // Handoff return inside Phantom: auto-open picker and connect.
   useEffect(() => {
-    if (mode !== "solana" || solana.connected) return;
-    const handoff = hasPhantomHandoffFlag();
-    const injected = isPhantomProviderPresent();
+    if (!solanaProduct || solana.connected) return;
+    if (!hasPhantomHandoffFlag() && !isPhantomProviderPresent()) return;
     const mobile =
       typeof navigator !== "undefined" &&
       /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-    // Only auto-open on explicit handoff return, or mobile+injected (in-app browser).
-    if (!handoff && !(mobile && injected)) return;
+    if (!hasPhantomHandoffFlag() && !mobile) return;
     try {
       const key = "ixl_phantom_auto_once";
       if (sessionStorage.getItem(key) === window.location.href) return;
@@ -66,64 +72,44 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
     } catch {
       /* ignore */
     }
-    setHandoffBanner(
-      handoff
-        ? "Opened in Phantom — connecting…"
-        : "Phantom detected — connecting…",
-    );
     setSolanaPickError(null);
     setSolanaAutoConnect(true);
     setSolanaPickerOpen(true);
-  }, [mode, solana.connected]);
+  }, [solanaProduct, solana.connected]);
 
   useEffect(() => {
     if (solana.connected && solana.publicKey) {
       clearPhantomHandoffFlagFromUrl();
-      setHandoffBanner(null);
       setSolanaAutoConnect(false);
     }
   }, [solana.connected, solana.publicKey]);
 
-  useEffect(() => {
-    if (solana.error) {
-      setHandoffBanner(`Connect failed: ${solana.error}`);
-    }
-  }, [solana.error]);
-
-  const openSolanaConnect = () => {
-    // Always open the picker so the click is visibly handled.
-    setSolanaPickError(null);
-    setSolanaAutoConnect(isPhantomProviderPresent());
-    setSolanaPickerOpen(true);
-  };
-
   const onHeaderWalletClick = () => {
-    if (mode === "solana") {
+    if (solanaProduct) {
       if (solana.connected) {
         void solana.disconnect();
         return;
       }
-      openSolanaConnect();
+      setSolanaPickError(null);
+      setSolanaAutoConnect(false);
+      setSolanaPickerOpen(true);
       return;
     }
+    // Base / Robinhood / other EVM → AppKit only (never on Solana routes).
     if (wallet.state === "connected") disconnect();
-    else connect(); // AppKit modal for Base / Robinhood / other EVM
+    else connect();
   };
 
   const onPickSolana = (w: SolanaInjectedWallet) => {
     setSolanaPickError(null);
-    setHandoffBanner("Connecting to Phantom — approve the prompt…");
     void solana
       .connect(w)
       .then(() => {
         setSolanaPickerOpen(false);
         clearPhantomHandoffFlagFromUrl();
-        setHandoffBanner(null);
       })
       .catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        setSolanaPickError(msg);
-        setHandoffBanner(`Connect failed: ${msg}`);
+        setSolanaPickError(err instanceof Error ? err.message : String(err));
       });
   };
 
@@ -208,7 +194,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         {theme === "dark" ? "☀" : "☾"}
       </button>
 
-      {mode === "evm" && headerConnected && ethBalanceFormatted ? (
+      {!solanaProduct && headerConnected && ethBalanceFormatted ? (
         <span className="hidden h-9 items-center rounded-full border border-app-line px-2.5 text-[11px] font-semibold text-app-dim lg:flex">
           {ethBalanceFormatted}
         </span>
@@ -223,26 +209,18 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         {headerLabel}
       </button>
 
-      <SolanaWalletPickerModal
-        open={solanaPickerOpen}
-        busy={solana.connecting}
-        error={solanaPickError ?? solana.error}
-        onClose={() => {
-          setSolanaPickerOpen(false);
-          setSolanaAutoConnect(false);
-        }}
-        onPick={onPickSolana}
-        autoConnect={solanaAutoConnect}
-      />
-
-      {mode === "solana" && handoffBanner ? (
-        <p
-          className="absolute left-3 right-3 top-14 z-[70] rounded-lg border border-app-line bg-app-elevated px-2 py-1.5 text-center text-[11px] text-app-ink shadow-md"
-          data-testid="solana-handoff-banner"
-          role="status"
-        >
-          {handoffBanner}
-        </p>
+      {solanaProduct ? (
+        <SolanaWalletPickerModal
+          open={solanaPickerOpen}
+          busy={solana.connecting}
+          error={solanaPickError ?? solana.error}
+          onClose={() => {
+            setSolanaPickerOpen(false);
+            setSolanaAutoConnect(false);
+          }}
+          onPick={onPickSolana}
+          autoConnect={solanaAutoConnect}
+        />
       ) : null}
     </header>
   );

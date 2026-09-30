@@ -1,6 +1,6 @@
 /**
- * Mobile Connect Wallet: without inject → Open in Phantom (UL, no download Intent).
- * Status line always visible so failures are reportable.
+ * Connect Wallet → Phantom option always listed → select connects or launches handoff.
+ * No separate "Open in Phantom" pre-step.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup, act, fireEvent } from "@testing-library/react";
@@ -11,25 +11,28 @@ vi.mock("@/lib/degen-solana/injected-wallets", () => ({
 }));
 
 import { SolanaWalletPickerModal } from "@/components/degen-club/SolanaWalletPickerModal";
+import * as phantomMobile from "@/lib/degen-solana/phantom-mobile";
 
 const PRODUCT =
   "https://app.indexla.tech/app/degen-club/product/solana-memecoin-index";
 
-describe("SolanaWalletPickerModal mobile handoff", () => {
+describe("SolanaWalletPickerModal simplified connect", () => {
   const originalUa = navigator.userAgent;
   let assignedHref = "";
 
   beforeEach(() => {
     assignedHref = "";
-    const loc = {
-      href: PRODUCT,
-      assign(url: string) {
-        assignedHref = url;
-      },
-    };
+    vi.spyOn(phantomMobile, "launchPhantomHandoff").mockImplementation((url) => {
+      assignedHref = phantomMobile.buildPhantomOpenInAppHref(url ?? PRODUCT);
+    });
     Object.defineProperty(window, "location", {
       configurable: true,
-      value: loc,
+      value: {
+        href: PRODUCT,
+        assign: (u: string) => {
+          assignedHref = u;
+        },
+      },
       writable: true,
     });
   });
@@ -39,14 +42,15 @@ describe("SolanaWalletPickerModal mobile handoff", () => {
       configurable: true,
       value: originalUa,
     });
+    vi.restoreAllMocks();
     cleanup();
   });
 
-  it("on mobile without inject: Open in Phantom uses browse UL (not Intent download)", async () => {
+  it("always shows Phantom — no Open in Phantom pre-step", async () => {
     Object.defineProperty(navigator, "userAgent", {
       configurable: true,
       value:
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1",
     });
 
     await act(async () => {
@@ -59,43 +63,37 @@ describe("SolanaWalletPickerModal mobile handoff", () => {
       );
     });
 
-    expect(await screen.findByTestId("phantom-mobile-handoff")).toBeTruthy();
-    expect(await screen.findByTestId("wallet-connect-status")).toBeTruthy();
-    const btn = screen.getByTestId("open-in-phantom");
-    fireEvent.click(btn);
+    expect(
+      await screen.findByTestId("solana-wallet-option-phantom"),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("open-in-phantom")).toBeNull();
+    expect(screen.queryByText("Open in Phantom")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Connect Wallet" })).toBeTruthy();
+  });
+
+  it("selecting Phantom on mobile without inject launches handoff", async () => {
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1",
+    });
+
+    await act(async () => {
+      render(
+        <SolanaWalletPickerModal
+          open
+          onClose={() => undefined}
+          onPick={() => undefined}
+        />,
+      );
+    });
+
+    fireEvent.click(await screen.findByTestId("solana-wallet-option-phantom"));
     await waitFor(() => {
       expect(assignedHref.startsWith("https://phantom.app/ul/browse/")).toBe(
         true,
       );
     });
     expect(assignedHref).toContain("ixl_phantom");
-    expect(assignedHref.startsWith("intent://")).toBe(false);
-    expect(screen.queryByText("Install Phantom")).toBeNull();
-  });
-
-  it("on Android without inject: still uses https browse UL (no Intent fallback)", async () => {
-    Object.defineProperty(navigator, "userAgent", {
-      configurable: true,
-      value:
-        "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36",
-    });
-
-    await act(async () => {
-      render(
-        <SolanaWalletPickerModal
-          open
-          onClose={() => undefined}
-          onPick={() => undefined}
-        />,
-      );
-    });
-
-    fireEvent.click(await screen.findByTestId("open-in-phantom"));
-    await waitFor(() => {
-      expect(assignedHref.startsWith("https://phantom.app/ul/browse/")).toBe(
-        true,
-      );
-    });
-    expect(assignedHref).not.toContain("browser_fallback_url");
   });
 });
