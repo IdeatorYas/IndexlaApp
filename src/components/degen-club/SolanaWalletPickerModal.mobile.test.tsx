@@ -63,9 +63,8 @@ describe("SolanaWalletPickerModal simplified connect", () => {
       );
     });
 
-    expect(
-      await screen.findByTestId("solana-wallet-option-phantom"),
-    ).toBeTruthy();
+    expect(await screen.findByTestId("solana-wallet-option-phantom")).toBeTruthy();
+    expect(await screen.findByTestId("solana-wallet-sheet")).toBeTruthy();
     expect(screen.queryByTestId("open-in-phantom")).toBeNull();
     expect(screen.queryByText("Open in Phantom")).toBeNull();
     expect(screen.getByRole("dialog", { name: "Connect Wallet" })).toBeTruthy();

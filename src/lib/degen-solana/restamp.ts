@@ -12,7 +12,6 @@ export function restampVersionedTx(
   tx: VersionedTransaction,
   blockhash: string,
 ): VersionedTransaction {
-  // MessageV0 / legacy Message expose recentBlockhash; assign before any signature.
   const message = tx.message as { recentBlockhash: string };
   message.recentBlockhash = blockhash;
   return tx;
@@ -27,10 +26,32 @@ export function decodeSwapTxBase64(base64: string): VersionedTransaction {
   return VersionedTransaction.deserialize(bytes);
 }
 
+export function isBlockhashNotFoundError(error: string): boolean {
+  return /blockhashnotfound|blockhash not found|BlockhashNotFound/i.test(error);
+}
+
 export function isRetryableSimError(error: string): boolean {
-  return /429|rate limit|503|502|504|ECONNRESET|ETIMEDOUT|fetch failed|timeout|blockhash not found/i.test(
-    error,
+  return (
+    isBlockhashNotFoundError(error) ||
+    /429|rate limit|503|502|504|ECONNRESET|ETIMEDOUT|fetch failed|timeout/i.test(
+      error,
+    )
   );
+}
+
+function formatSimErr(err: unknown): string {
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    // Solana often returns { BlockhashNotFound: null } or InstructionError
+    const keys = Object.keys(err as object);
+    if (keys.length === 1 && keys[0]) return keys[0];
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return String(err);
+    }
+  }
+  return String(err);
 }
 
 /**
@@ -51,11 +72,12 @@ export async function simulateVersionedTx(
   try {
     const res = await connection.simulateTransaction(tx, config);
     if (res.value.err) {
-      const error =
-        typeof res.value.err === "string"
-          ? res.value.err
-          : JSON.stringify(res.value.err);
-      return { ok: false, error, retryable: false };
+      const error = formatSimErr(res.value.err);
+      return {
+        ok: false,
+        error,
+        retryable: isRetryableSimError(error),
+      };
     }
     return { ok: true };
   } catch (err) {
@@ -68,7 +90,7 @@ export async function simulateVersionedTx(
   }
 }
 
-/** Simulate with bounded retries on RPC/transport failures only. */
+/** Simulate with bounded retries on RPC/transport / BlockhashNotFound only. */
 export async function simulateVersionedTxWithRetry(
   connection: Connection,
   tx: VersionedTransaction,
@@ -84,6 +106,71 @@ export async function simulateVersionedTxWithRetry(
     }
     await new Promise((r) =>
       setTimeout(r, Math.min(8_000, 400 * 2 ** i)),
+    );
+  }
+  return { ok: false, error: last };
+}
+
+export type FreshBlockhash = {
+  blockhash: string;
+  lastValidBlockHeight: number;
+};
+
+/**
+ * Restamp with a fresh blockhash from the same Connection (RPC proxy),
+ * simulate, and on BlockhashNotFound re-fetch + restamp + re-sim.
+ * Returns the restamped tx ready for signing (same RPC path as sim).
+ */
+export async function restampSimulateFresh(
+  connection: Connection,
+  swapTransactionBase64: string,
+  opts?: { attempts?: number },
+): Promise<
+  | {
+      ok: true;
+      tx: VersionedTransaction;
+      blockhash: string;
+      lastValidBlockHeight: number;
+    }
+  | { ok: false; error: string }
+> {
+  const attempts = opts?.attempts ?? 4;
+  let last = "simulation failed";
+
+  for (let i = 0; i < attempts; i += 1) {
+    let latest: FreshBlockhash;
+    try {
+      latest = await connection.getLatestBlockhash("confirmed");
+    } catch (bhErr) {
+      last =
+        bhErr instanceof Error
+          ? `Blockhash fetch failed: ${bhErr.message}`
+          : String(bhErr);
+      if (i === attempts - 1) return { ok: false, error: last };
+      await new Promise((r) => setTimeout(r, 300 * (i + 1)));
+      continue;
+    }
+
+    const tx = restampVersionedTx(
+      decodeSwapTxBase64(swapTransactionBase64),
+      latest.blockhash,
+    );
+    const sim = await simulateVersionedTx(connection, tx);
+    if (sim.ok) {
+      return {
+        ok: true,
+        tx,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      };
+    }
+    last = sim.error;
+    // BlockhashNotFound / transport → loop with a brand-new blockhash.
+    if (!sim.retryable || i === attempts - 1) {
+      return { ok: false, error: last };
+    }
+    await new Promise((r) =>
+      setTimeout(r, Math.min(4_000, 250 * 2 ** i)),
     );
   }
   return { ok: false, error: last };

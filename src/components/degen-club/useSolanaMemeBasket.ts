@@ -27,10 +27,7 @@ import {
   waitSignatureProcessed,
 } from "@/lib/degen-solana/confirm";
 import {
-  decodeSwapTxBase64,
-  restampVersionedTx,
-  simulateVersionedTx,
-  simulateVersionedTxWithRetry,
+  restampSimulateFresh,
 } from "@/lib/degen-solana/restamp";
 import { useSolanaWallet } from "@/components/degen-club/SolanaWalletProvider";
 
@@ -363,7 +360,10 @@ export function useSolanaMemeBasket() {
           // Reset only the legs we're about to attempt; keep confirmed.
           for (const leg of quoteJson.legs) {
             const prev = cp.legs.find((l) => l.key === leg.key);
-            if (prev?.status === "confirmed") continue;
+            // Never reset confirmed or in-flight submitted (prevents duplicate buys).
+            if (prev?.status === "confirmed" || prev?.status === "submitted") {
+              continue;
+            }
             const next: CheckpointLeg = {
               key: leg.key,
               mint: leg.mint,
@@ -525,27 +525,20 @@ export function useSolanaMemeBasket() {
         });
 
         // Pre-sign gate: buy simulates EVERY pack before the first wallet prompt
-        // and aborts on any failure. Sell does not throw here — packs are rebuilt
-        // after each confirmation (WSOL state changes) and failed sims continue.
+        // and aborts on any failure. Fresh blockhash per pack (same RPC as sim);
+        // BlockhashNotFound → re-fetch + restamp + re-sim. Sell skips this gate.
         if (!isSell) {
-          const preLatest = await wallet.connection.getLatestBlockhash(
-            "confirmed",
-          );
           for (const pack of packs) {
-            const tx = restampVersionedTx(
-              decodeSwapTxBase64(pack.swapTransaction),
-              preLatest.blockhash,
-            );
-            const sim = await simulateVersionedTxWithRetry(
+            const sim = await restampSimulateFresh(
               wallet.connection,
-              tx,
+              pack.swapTransaction,
             );
             if (!sim.ok) {
               throw new Error(
                 `${pack.tickers.join(", ")} failed simulation before signing: ${sim.error.slice(0, 160)}`,
               );
             }
-            await new Promise((r) => setTimeout(r, 120));
+            await new Promise((r) => setTimeout(r, 80));
           }
         }
 
@@ -662,12 +655,12 @@ export function useSolanaMemeBasket() {
                 continue;
               }
             } else {
-              // Buy: preserve prior skip — only skip packs already checkpoint-confirmed.
-              const alreadyDone = pack.keys.every(
-                (k) =>
-                  cp.legs.find((l) => l.key === k)?.status === "confirmed",
+              // Buy: skip packs already confirmed or still in-flight (submitted).
+              const statuses = pack.keys.map(
+                (k) => cp.legs.find((l) => l.key === k)?.status,
               );
-              if (alreadyDone) continue;
+              if (statuses.every((st) => st === "confirmed")) continue;
+              if (statuses.some((st) => st === "submitted")) continue;
             }
 
             const packLabel = pack.tickers.join("+");
@@ -686,37 +679,23 @@ export function useSolanaMemeBasket() {
               await new Promise((r) => setTimeout(r, 400));
             }
 
-            let latest;
-            try {
-              latest = await wallet.connection.getLatestBlockhash("confirmed");
-            } catch (bhErr) {
-              const msg =
-                bhErr instanceof Error ? bhErr.message : String(bhErr);
-              markPackStatus(
-                pack.keys,
-                "failed",
-                `Blockhash fetch failed: ${msg.slice(0, 120)}`,
-              );
-              continue;
-            }
-
-            const tx = restampVersionedTx(
-              decodeSwapTxBase64(pack.swapTransaction),
-              latest.blockhash,
-            );
-
-            const sim = await simulateVersionedTxWithRetry(
+            const prepared = await restampSimulateFresh(
               wallet.connection,
-              tx,
+              pack.swapTransaction,
             );
-            if (!sim.ok) {
+            if (!prepared.ok) {
               markPackStatus(
                 pack.keys,
                 "failed",
-                `Simulation failed: ${sim.error.slice(0, 160)}`,
+                `Simulation failed: ${prepared.error.slice(0, 160)}`,
               );
               continue;
             }
+            const tx = prepared.tx;
+            const latest = {
+              blockhash: prepared.blockhash,
+              lastValidBlockHeight: prepared.lastValidBlockHeight,
+            };
 
             setProgress({
               phase: `Confirm ${packLabel} in wallet (${signingBudgetUsed() + 1}/${confirmMax})…`,
@@ -1046,24 +1025,17 @@ export function useSolanaMemeBasket() {
               if (!pRes.ok || !pJson.packs?.length) break;
               packsToRun = pJson.packs;
               {
-                const preLatest = await wallet.connection.getLatestBlockhash(
-                  "confirmed",
-                );
                 let preOk = true;
                 for (const pack of packsToRun) {
-                  const tx = restampVersionedTx(
-                    decodeSwapTxBase64(pack.swapTransaction),
-                    preLatest.blockhash,
-                  );
-                  const sim = await simulateVersionedTxWithRetry(
+                  const sim = await restampSimulateFresh(
                     wallet.connection,
-                    tx,
+                    pack.swapTransaction,
                   );
                   if (!sim.ok) {
                     preOk = false;
                     break;
                   }
-                  await new Promise((r) => setTimeout(r, 100));
+                  await new Promise((r) => setTimeout(r, 80));
                 }
                 if (!preOk) break;
               }

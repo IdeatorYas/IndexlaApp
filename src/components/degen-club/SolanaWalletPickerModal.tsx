@@ -14,9 +14,8 @@ import {
 } from "@/lib/degen-solana/phantom-mobile";
 
 /**
- * Connect Wallet → select wallet → approve.
- * If Phantom isn't injected on mobile, selecting Phantom launches the browse
- * handoff (no separate "Open in Phantom" step).
+ * Visible bottom-sheet Connect Wallet → select → approve.
+ * Mobile handoff runs only after Phantom is selected when not injected.
  */
 export function SolanaWalletPickerModal({
   open,
@@ -24,7 +23,6 @@ export function SolanaWalletPickerModal({
   error,
   onClose,
   onPick,
-  /** After handoff return: auto-connect the injected Phantom. */
   autoConnect = false,
 }: {
   open: boolean;
@@ -41,11 +39,9 @@ export function SolanaWalletPickerModal({
   onPickRef.current = onPick;
   const autoConnectedRef = useRef(false);
 
-  const ua =
-    typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
   const mobile = isMobileUserAgent(ua);
 
-  /** Always offer Phantom even when not yet injected (selection triggers handoff). */
   const options = useMemo(() => {
     if (wallets.length > 0) return wallets;
     return [
@@ -105,7 +101,6 @@ export function SolanaWalletPickerModal({
       return;
     }
 
-    // Mobile without inject: selecting Phantom launches handoff directly.
     if (w.id === "phantom" && mobile) {
       launchPhantomHandoff(currentProductUrl());
       return;
@@ -113,7 +108,7 @@ export function SolanaWalletPickerModal({
 
     if (w.id === "phantom") {
       setLocalError(
-        "Phantom extension not detected. Install Phantom for this browser, or open this page in Phantom on mobile.",
+        "Phantom extension not detected. Install Phantom, or open this page in the Phantom app on mobile.",
       );
       return;
     }
@@ -127,7 +122,7 @@ export function SolanaWalletPickerModal({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[90] flex items-end justify-center bg-black/55 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Connect Wallet"
@@ -135,24 +130,31 @@ export function SolanaWalletPickerModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-2xl border border-app-line bg-app-elevated p-4 shadow-xl"
+        className="w-full max-w-md rounded-t-2xl border border-app-line bg-app-elevated p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:pb-4"
+        data-testid="solana-wallet-sheet"
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="mb-3 flex justify-center sm:hidden" aria-hidden>
+          <span className="h-1 w-10 rounded-full bg-app-line" />
+        </div>
         <div className="mb-3 flex items-center justify-between gap-2">
-          <h2 className="text-sm font-bold text-app-ink">Connect Wallet</h2>
+          <h2 className="text-base font-bold text-app-ink">Connect Wallet</h2>
           <button
             type="button"
-            className="text-xs text-app-dim hover:text-app-ink"
+            className="rounded-lg px-2 py-1 text-sm text-app-dim hover:bg-app-muted/40 hover:text-app-ink"
             onClick={onClose}
           >
             Close
           </button>
         </div>
-        <p className="mb-3 text-[12px] text-app-dim">
-          Select Phantom, then approve the connection.
+        <p className="mb-4 text-[13px] leading-snug text-app-dim">
+          Select Phantom, then approve the connection in your wallet.
         </p>
         {scanning && wallets.length === 0 ? (
-          <p className="mb-2 text-[12px] text-app-dim" data-testid="wallet-scanning">
+          <p
+            className="mb-3 text-[13px] text-app-dim"
+            data-testid="wallet-scanning"
+          >
             Looking for wallets…
           </p>
         ) : null}
@@ -163,11 +165,11 @@ export function SolanaWalletPickerModal({
                 type="button"
                 data-testid={`solana-wallet-option-${w.id}`}
                 disabled={busy}
-                className="app-interactive flex h-11 w-full items-center justify-between rounded-xl border border-app-line px-3 text-left text-[13px] font-semibold text-app-ink hover:border-app-brand/50 disabled:opacity-60"
+                className="app-interactive flex h-12 w-full items-center justify-between rounded-xl border border-app-line px-4 text-left text-[14px] font-semibold text-app-ink hover:border-app-brand/50 disabled:opacity-60"
                 onClick={() => selectWallet(w)}
               >
                 <span>{w.name}</span>
-                <span className="text-[11px] font-normal text-app-dim">
+                <span className="text-[12px] font-normal text-app-dim">
                   {busy ? "Connecting…" : "Connect"}
                 </span>
               </button>
@@ -176,7 +178,7 @@ export function SolanaWalletPickerModal({
         </ul>
         {displayError ? (
           <p
-            className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-2 text-[12px] text-red-700 dark:text-red-300"
+            className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-[13px] leading-snug text-red-700 dark:text-red-300"
             role="alert"
             data-testid="wallet-connect-error"
           >
