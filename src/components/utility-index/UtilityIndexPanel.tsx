@@ -24,6 +24,7 @@ import {
 import { robinhood } from "viem/chains";
 import { AssetIcon } from "@/components/ui/AssetIcons";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
+import { RobinhoodNetworkPrep } from "@/components/wallet/RobinhoodNetworkPrep";
 import {
   BASKET,
   GATEWAY_ADDRESS,
@@ -904,6 +905,7 @@ export function UtilityIndexPanel() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 pb-10">
+      <RobinhoodNetworkPrep />
       <nav
         className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-app-muted"
         aria-label="Breadcrumb"

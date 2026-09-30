@@ -30,6 +30,7 @@ import {
   decodeSwapTxBase64,
   restampVersionedTx,
   simulateVersionedTx,
+  simulateVersionedTxWithRetry,
 } from "@/lib/degen-solana/restamp";
 import { useSolanaWallet } from "@/components/degen-club/SolanaWalletProvider";
 
@@ -192,7 +193,7 @@ export function useSolanaMemeBasket() {
       setBusy(true);
       setError(null);
       setProgress(null);
-      let confirmCount = 0;
+      let confirmCount = params.existingCheckpoint?.confirmCount ?? 0;
       const confirmMax =
         params.side === "buy" ? BUY_CONFIRM_MAX : SELL_CONFIRM_MAX;
       const basketSize = DEGEN_SOLANA_BASKET.length;
@@ -527,7 +528,10 @@ export function useSolanaMemeBasket() {
               decodeSwapTxBase64(pack.swapTransaction),
               preLatest.blockhash,
             );
-            const sim = await simulateVersionedTx(wallet.connection, tx);
+            const sim = await simulateVersionedTxWithRetry(
+              wallet.connection,
+              tx,
+            );
             if (!sim.ok) {
               throw new Error(
                 `${pack.tickers.join(", ")} failed simulation before signing: ${sim.error.slice(0, 160)}`,
@@ -537,196 +541,364 @@ export function useSolanaMemeBasket() {
           }
         }
 
-        // Phantom Blowfish: one signAndSendTransaction per pack (not signAll).
-        for (let packIdx = 0; packIdx < packs.length; packIdx += 1) {
-          const pack = packs[packIdx]!;
-          if (confirmCount >= confirmMax) {
-            for (const key of pack.keys) {
-              const idx = legResults.findIndex((x) => x.key === key);
-              if (idx >= 0 && legResults[idx]!.status === "pending") {
-                legResults[idx] = {
-                  ...legResults[idx]!,
-                  error:
-                    "Deferred — confirm budget. Resume Remaining to continue.",
-                };
-              }
-            }
-            break;
-          }
-
-          // Never re-prompt packs whose keys are already confirmed (resume safety).
-          const alreadyDone = pack.keys.every(
-            (k) => cp.legs.find((l) => l.key === k)?.status === "confirmed",
-          );
-          if (alreadyDone) continue;
-
-          const packLabel = pack.tickers.join("+");
-          setProgress({
-            phase: `Preparing ${packLabel}…`,
-            confirmCount,
-            confirmMax,
-            heldCount: legResults.filter((l) => l.status === "confirmed")
-              .length,
-            basketSize:
-              params.side === "buy" ? basketSize : intendedKeys.length,
-            legs: [...legResults],
-          });
-
-          // Brief pause between packs so RPC confirm polls drain before next burst.
-          if (packIdx > 0) {
-            await new Promise((r) => setTimeout(r, 400));
-          }
-
-          const latest = await wallet.connection.getLatestBlockhash(
-            "confirmed",
-          );
-          const tx = restampVersionedTx(
-            decodeSwapTxBase64(pack.swapTransaction),
-            latest.blockhash,
-          );
-
-          const sim = await simulateVersionedTx(wallet.connection, tx);
-          if (!sim.ok) {
-            const errStr = `Simulation failed: ${sim.error.slice(0, 160)}`;
-            for (const key of pack.keys) {
-              const idx = legResults.findIndex((x) => x.key === key);
-              if (idx >= 0) {
-                legResults[idx] = {
-                  key,
-                  ticker: tickerForKey(key),
-                  status: "failed",
-                  error: errStr,
-                };
-              }
-              const cpLeg = cp.legs.find((l) => l.key === key);
-              if (cpLeg && cpLeg.status !== "confirmed") {
-                cpLeg.status = "failed";
-                cpLeg.error = errStr;
-              }
-            }
-            saveCheckpoint(cp);
-            // Pack is atomic — stop so Resume Remaining can retry leftovers.
-            break;
-          }
-
-          setProgress({
-            phase: `Confirm ${packLabel} in wallet…`,
-            confirmCount,
-            confirmMax,
-            heldCount: legResults.filter((l) => l.status === "confirmed")
-              .length,
-            basketSize:
-              params.side === "buy" ? basketSize : intendedKeys.length,
-            legs: [...legResults],
-          });
-
-          let signature: string;
-          try {
-            signature = await wallet.signAndSendTransaction(tx);
-            confirmCount += 1;
-            cp.confirmCount = confirmCount;
-          } catch (signErr) {
-            const msg =
-              signErr instanceof Error ? signErr.message : String(signErr);
-            for (const key of pack.keys) {
-              const idx = legResults.findIndex((x) => x.key === key);
-              if (idx >= 0) {
-                legResults[idx] = {
-                  key,
-                  ticker: tickerForKey(key),
-                  status: "failed",
-                  error: msg,
-                };
-              }
-              const cpLeg = cp.legs.find((l) => l.key === key);
-              if (cpLeg && cpLeg.status !== "confirmed") {
-                cpLeg.status = "failed";
-                cpLeg.error = msg;
-              }
-            }
-            saveCheckpoint(cp);
-            // Preserve progress; do not continue past a failed pack.
-            break;
-          }
-
-          for (const key of pack.keys) {
+        const markPackStatus = (
+          keys: string[],
+          status: "failed" | "pending" | "submitted" | "confirmed" | "expired",
+          error?: string,
+          signature?: string,
+        ) => {
+          for (const key of keys) {
             const idx = legResults.findIndex((x) => x.key === key);
             if (idx >= 0) {
               legResults[idx] = {
                 key,
                 ticker: tickerForKey(key),
-                status: "submitted",
-                signature,
+                status,
+                signature: signature ?? legResults[idx]!.signature,
+                error,
               };
             }
             const cpLeg = cp.legs.find((l) => l.key === key);
-            if (cpLeg) {
-              cpLeg.status = "submitted";
-              cpLeg.signature = signature;
+            if (cpLeg && cpLeg.status !== "confirmed") {
+              cpLeg.status = status;
+              if (signature) cpLeg.signature = signature;
+              cpLeg.error = error;
             }
           }
           saveCheckpoint(cp);
+        };
 
-          setProgress({
-            phase: `Confirming ${packLabel}…`,
-            confirmCount,
-            confirmMax,
-            heldCount: legResults.filter((l) => l.status === "confirmed")
-              .length,
-            basketSize:
-              params.side === "buy" ? basketSize : intendedKeys.length,
-            legs: [...legResults],
-          });
+        const isUserReject = (msg: string) =>
+          /reject|denied|cancel|user refused|User rejected/i.test(msg);
 
-          await waitSignatureProcessed(wallet.connection, signature, {
-            timeoutMs: 12_000,
-            pollMs: 350,
-          });
+        // One click advances through ALL packs. Only a wallet reject stops early.
+        // Recoverable sim/RPC/confirm issues retry or skip to the next pack.
+        let userRejected = false;
+        let packsToRun = packs;
 
-          const outcome = await confirmSignatureHttp(
-            wallet.connection,
-            signature,
+        for (let wave = 0; wave < 2 && !userRejected; wave += 1) {
+          if (wave > 0) {
+            // Auto-continue: re-quote only unfinished legs still above dust.
+            const balMid = (await fetch(
+              `/api/degen-solana/balances?owner=${encodeURIComponent(pubkey)}`,
+            ).then((r) => r.json())) as {
+              tokens?: Array<{ key: string; mint: string; amount: string }>;
+            };
+            const unfinishedKeys = intendedKeys.filter((k) => {
+              const st = cp.legs.find((l) => l.key === k)?.status;
+              if (st === "confirmed") return false;
+              const tok = (balMid.tokens ?? []).find((t) => t.key === k);
+              const meta = DEGEN_SOLANA_BASKET.find((m) => m.key === k);
+              const dust = dustThresholdRaw(meta?.decimals ?? 6);
+              if (params.side === "sell") {
+                const amt = BigInt(tok?.amount ?? "0");
+                if (amt <= dust) {
+                  // Already dust — treat as done (no re-sell).
+                  markPackStatus([k], "confirmed");
+                  return false;
+                }
+                return true;
+              }
+              const base = BigInt(
+                cp.legs.find((l) => l.key === k)?.baselineAmount ?? "0",
+              );
+              return BigInt(tok?.amount ?? "0") <= base;
+            });
+            if (unfinishedKeys.length === 0) break;
+            if (confirmCount >= confirmMax) break;
+
+            setProgress({
+              phase: `Continuing remaining ${unfinishedKeys.length} asset(s)…`,
+              confirmCount,
+              confirmMax,
+              heldCount: legResults.filter((l) => l.status === "confirmed")
+                .length,
+              basketSize:
+                params.side === "buy" ? basketSize : intendedKeys.length,
+              legs: [...legResults],
+            });
+
+            let contSellAmounts: Record<string, string> | undefined;
+            if (params.side === "sell") {
+              contSellAmounts = {};
+              const sellPct = Math.min(
+                100,
+                Math.max(1, Math.round(params.sellPct ?? 100)),
+              );
+              for (const t of balMid.tokens ?? []) {
+                if (!unfinishedKeys.includes(t.key as DegenSolanaMintKey)) {
+                  continue;
+                }
+                const mintMeta = DEGEN_SOLANA_BASKET.find(
+                  (m) => m.mint === t.mint,
+                );
+                const dust = dustThresholdRaw(mintMeta?.decimals ?? 6);
+                let amt = BigInt(t.amount);
+                if (amt <= dust) continue;
+                if (sellPct < 100) {
+                  amt = (amt * BigInt(sellPct)) / BigInt(100);
+                  if (amt <= dust) continue;
+                }
+                contSellAmounts[t.key] = amt.toString();
+              }
+              if (Object.keys(contSellAmounts).length === 0) break;
+            }
+
+            const quoteBody =
+              params.side === "buy"
+                ? {
+                    side: "buy" as const,
+                    owner: pubkey,
+                    solLamports: params.solLamports,
+                    slippageBps: params.slippageBps ?? DEFAULT_SLIPPAGE_BPS,
+                    onlyKeys: unfinishedKeys,
+                    weightsPct,
+                  }
+                : {
+                    side: "sell" as const,
+                    owner: pubkey,
+                    sellAmounts: contSellAmounts,
+                    slippageBps: params.slippageBps ?? DEFAULT_SLIPPAGE_BPS,
+                  };
+            const qRes = await fetch("/api/degen-solana/quote", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(quoteBody),
+            });
+            const qJson = (await qRes.json()) as {
+              legs?: Array<{
+                key: string;
+                ticker: string;
+                mint: string;
+                quote: unknown;
+                feeAccount?: string;
+              }>;
+              error?: string;
+            };
+            if (!qRes.ok || !qJson.legs?.length) {
+              break;
+            }
+            const pRes = await fetch("/api/degen-solana/pack", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userPublicKey: pubkey,
+                side: params.side,
+                closeEmptiedAtas:
+                  params.side === "sell" &&
+                  Math.min(100, Math.max(1, Math.round(params.sellPct ?? 100))) >=
+                    100,
+                legs: qJson.legs.map((l) => ({
+                  key: l.key,
+                  ticker: l.ticker,
+                  mint: l.mint,
+                  quote: l.quote,
+                  feeAccount: l.feeAccount,
+                })),
+              }),
+            });
+            const pJson = (await pRes.json()) as {
+              packs?: typeof packs;
+              error?: string;
+            };
+            if (!pRes.ok || !pJson.packs?.length) break;
+            packsToRun = pJson.packs;
+            // Pre-sim continuation packs
             {
-              blockhash: latest.blockhash,
-              lastValidBlockHeight: latest.lastValidBlockHeight,
-            },
-          );
-          const nextStatus =
-            outcome.status === "confirmed"
-              ? "confirmed"
-              : outcome.status === "failed"
-                ? "failed"
-                : "expired";
-          const errMsg =
-            outcome.status === "failed"
-              ? outcome.err
-              : outcome.status === "expired"
-                ? "Blockhash expired before confirmation"
-                : undefined;
-          for (const key of pack.keys) {
-            const idx = legResults.findIndex((x) => x.key === key);
-            if (idx >= 0) {
-              legResults[idx] = {
-                key,
-                ticker: tickerForKey(key),
-                status: nextStatus,
-                signature,
-                error: errMsg,
-              };
-            }
-            const cpLeg = cp.legs.find((l) => l.key === key);
-            if (cpLeg) {
-              cpLeg.status = nextStatus;
-              cpLeg.signature = signature;
-              cpLeg.error = errMsg;
+              const preLatest = await wallet.connection.getLatestBlockhash(
+                "confirmed",
+              );
+              let preOk = true;
+              for (const pack of packsToRun) {
+                const tx = restampVersionedTx(
+                  decodeSwapTxBase64(pack.swapTransaction),
+                  preLatest.blockhash,
+                );
+                const sim = await simulateVersionedTxWithRetry(
+                  wallet.connection,
+                  tx,
+                );
+                if (!sim.ok) {
+                  preOk = false;
+                  break;
+                }
+                await new Promise((r) => setTimeout(r, 100));
+              }
+              if (!preOk) break;
             }
           }
-          saveCheckpoint(cp);
 
-          if (nextStatus !== "confirmed") {
-            // Stop — remaining packs stay pending for Resume Remaining.
-            break;
+          // Phantom Blowfish: one signAndSendTransaction per pack (not signAll).
+          for (let packIdx = 0; packIdx < packsToRun.length; packIdx += 1) {
+            const pack = packsToRun[packIdx]!;
+            if (confirmCount >= confirmMax) {
+              markPackStatus(
+                pack.keys.filter(
+                  (k) =>
+                    cp.legs.find((l) => l.key === k)?.status !== "confirmed",
+                ),
+                "pending",
+                "Deferred — confirm budget. Resume Remaining to continue.",
+              );
+              continue;
+            }
+
+            const alreadyDone = pack.keys.every(
+              (k) =>
+                cp.legs.find((l) => l.key === k)?.status === "confirmed",
+            );
+            if (alreadyDone) continue;
+
+            const packLabel = pack.tickers.join("+");
+            setProgress({
+              phase: `Preparing ${packLabel} (${confirmCount + 1}/${confirmMax})…`,
+              confirmCount,
+              confirmMax,
+              heldCount: legResults.filter((l) => l.status === "confirmed")
+                .length,
+              basketSize:
+                params.side === "buy" ? basketSize : intendedKeys.length,
+              legs: [...legResults],
+            });
+
+            if (packIdx > 0 || wave > 0) {
+              await new Promise((r) => setTimeout(r, 400));
+            }
+
+            let latest;
+            try {
+              latest = await wallet.connection.getLatestBlockhash("confirmed");
+            } catch (bhErr) {
+              const msg =
+                bhErr instanceof Error ? bhErr.message : String(bhErr);
+              markPackStatus(
+                pack.keys,
+                "failed",
+                `Blockhash fetch failed: ${msg.slice(0, 120)}`,
+              );
+              continue;
+            }
+
+            const tx = restampVersionedTx(
+              decodeSwapTxBase64(pack.swapTransaction),
+              latest.blockhash,
+            );
+
+            const sim = await simulateVersionedTxWithRetry(
+              wallet.connection,
+              tx,
+            );
+            if (!sim.ok) {
+              markPackStatus(
+                pack.keys,
+                "failed",
+                `Simulation failed: ${sim.error.slice(0, 160)}`,
+              );
+              // Continue remaining packs — do not abort the whole Sell/Buy click.
+              continue;
+            }
+
+            setProgress({
+              phase: `Confirm ${packLabel} in wallet (${confirmCount + 1}/${confirmMax})…`,
+              confirmCount,
+              confirmMax,
+              heldCount: legResults.filter((l) => l.status === "confirmed")
+                .length,
+              basketSize:
+                params.side === "buy" ? basketSize : intendedKeys.length,
+              legs: [...legResults],
+            });
+
+            let signature: string;
+            try {
+              signature = await wallet.signAndSendTransaction(tx);
+              confirmCount += 1;
+              cp.confirmCount = confirmCount;
+            } catch (signErr) {
+              const msg =
+                signErr instanceof Error ? signErr.message : String(signErr);
+              markPackStatus(pack.keys, "failed", msg);
+              if (isUserReject(msg)) {
+                userRejected = true;
+                break;
+              }
+              // Non-reject wallet/send error — try remaining packs.
+              continue;
+            }
+
+            markPackStatus(pack.keys, "submitted", undefined, signature);
+
+            setProgress({
+              phase: `Confirming ${packLabel}…`,
+              confirmCount,
+              confirmMax,
+              heldCount: legResults.filter((l) => l.status === "confirmed")
+                .length,
+              basketSize:
+                params.side === "buy" ? basketSize : intendedKeys.length,
+              legs: [...legResults],
+            });
+
+            await waitSignatureProcessed(wallet.connection, signature, {
+              timeoutMs: 12_000,
+              pollMs: 350,
+            });
+
+            let outcome = await confirmSignatureHttp(
+              wallet.connection,
+              signature,
+              {
+                blockhash: latest.blockhash,
+                lastValidBlockHeight: latest.lastValidBlockHeight,
+              },
+            );
+
+            // Expired: one last status read before giving up on this pack.
+            if (outcome.status === "expired") {
+              try {
+                const st = await wallet.connection.getSignatureStatuses(
+                  [signature],
+                  { searchTransactionHistory: true },
+                );
+                const s = st.value[0];
+                if (
+                  s &&
+                  !s.err &&
+                  (s.confirmationStatus === "confirmed" ||
+                    s.confirmationStatus === "finalized")
+                ) {
+                  outcome = { status: "confirmed" };
+                } else if (s?.err) {
+                  outcome = {
+                    status: "failed",
+                    err:
+                      typeof s.err === "string"
+                        ? s.err
+                        : JSON.stringify(s.err),
+                  };
+                }
+              } catch {
+                /* keep expired */
+              }
+            }
+
+            const nextStatus =
+              outcome.status === "confirmed"
+                ? "confirmed"
+                : outcome.status === "failed"
+                  ? "failed"
+                  : "expired";
+            const errMsg =
+              outcome.status === "failed"
+                ? outcome.err
+                : outcome.status === "expired"
+                  ? "Blockhash expired before confirmation"
+                  : undefined;
+            markPackStatus(pack.keys, nextStatus, errMsg, signature);
+            // Confirmed or not — advance to next pack in this click.
           }
+
+          if (userRejected) break;
         }
 
         await refreshBalances().catch(() => undefined);
@@ -843,21 +1015,51 @@ export function useSolanaMemeBasket() {
         const failedTickers = legResults
           .filter((l) => l.status === "failed" || l.status === "pending")
           .map((l) => l.ticker);
+
+        // Explicit dust / leftover inventory for sell-100 success gate messaging.
+        let dustNote = "";
+        if (
+          params.side === "sell" &&
+          sellPctFinal >= 100 &&
+          !allCpConfirmed
+        ) {
+          const leftovers = (balAfter.tokens ?? [])
+            .map((t) => {
+              const meta = DEGEN_SOLANA_BASKET.find((m) => m.key === t.key);
+              const dust = dustThresholdRaw(meta?.decimals ?? 6);
+              const amt = BigInt(t.amount);
+              if (amt <= BigInt(0)) return null;
+              const ticker = meta?.ticker ?? t.key;
+              if (amt <= dust) {
+                return `${ticker} dust ${amt.toString()} raw`;
+              }
+              return `${ticker} ${amt.toString()} raw (still sellable)`;
+            })
+            .filter(Boolean);
+          if (leftovers.length > 0) {
+            dustNote = ` · leftovers: ${leftovers.join(", ")}`;
+          }
+        }
+
         const leftoverNote =
           !allCpConfirmed && failedTickers.length > 0
             ? ` · remaining: ${[...new Set(failedTickers)].join(", ")}`
-            : !allCpConfirmed &&
-                params.side === "sell" &&
-                sellPctFinal >= 100 &&
-                inventoryHeld > 0
-              ? ` · ${inventoryHeld} asset(s) still held (incl. check WIF)`
-              : "";
+            : !allCpConfirmed && dustNote
+              ? dustNote
+              : !allCpConfirmed &&
+                  params.side === "sell" &&
+                  sellPctFinal >= 100 &&
+                  inventoryHeld > 0
+                ? ` · ${inventoryHeld} asset(s) still held`
+                : "";
 
         const phase = allCpConfirmed
           ? params.side === "buy"
             ? "Buy complete"
             : sellPctFinal >= 100
-              ? "Sell All complete"
+              ? inventoryHeld === 0
+                ? "Sell All complete"
+                : "Sell All complete (dust only remaining)"
               : `Sold ${sellPctFinal}%`
           : params.side === "buy"
             ? `Partial buy — ${displayNum} of ${displayDenom} confirmed${leftoverNote}`
@@ -891,25 +1093,6 @@ export function useSolanaMemeBasket() {
     [heldNonDustCount, refreshBalances, wallet],
   );
 
-  const buy = useCallback(
-    (solLamports: string, slippageBps?: number, weightsPct?: number[]) =>
-      runSide({ side: "buy", solLamports, slippageBps, weightsPct }),
-    [runSide],
-  );
-
-  const sellAll = useCallback(
-    (slippageBps?: number) => runSide({ side: "sell", slippageBps, sellPct: 100 }),
-    [runSide],
-  );
-
-  const sellPercent = useCallback(
-    (pct: number, slippageBps?: number) => {
-      const sellPct = Math.min(100, Math.max(1, Math.round(pct)));
-      return runSide({ side: "sell", slippageBps, sellPct });
-    },
-    [runSide],
-  );
-
   const hasIncomplete = useCallback((): { buy: boolean; sell: boolean } => {
     const pk = wallet.publicKey;
     if (!pk) return { buy: false, sell: false };
@@ -920,15 +1103,15 @@ export function useSolanaMemeBasket() {
       ? unfinishedLegs(sellCp).length > 0
       : false;
     // Partial on-chain holdings with a saved buy intent → offer resume.
-    const heldPartial =
-      Boolean(buyCp) &&
-      (balances?.tokens ?? []).filter((t) => {
-        const meta = DEGEN_SOLANA_BASKET.find((m) => m.key === t.key);
-        return BigInt(t.amount) > dustThresholdRaw(meta?.decimals ?? 6);
-      }).length;
+    const heldPartial = (balances?.tokens ?? []).filter((t) => {
+      const meta = DEGEN_SOLANA_BASKET.find((m) => m.key === t.key);
+      return BigInt(t.amount) > dustThresholdRaw(meta?.decimals ?? 6);
+    }).length;
     const buyPartial =
       buyUnfinished ||
-      (heldPartial > 0 && heldPartial < DEGEN_SOLANA_BASKET.length && Boolean(buyCp));
+      (Boolean(buyCp) &&
+        heldPartial > 0 &&
+        heldPartial < DEGEN_SOLANA_BASKET.length);
     return { buy: buyPartial, sell: sellUnfinished };
   }, [wallet.publicKey, balances]);
 
@@ -1182,11 +1365,66 @@ export function useSolanaMemeBasket() {
             leg.status = "expired";
           }
         }
+
+        // Balance reconcile (mirror buy): dust / zero means sold.
+        const balRes = await fetch(
+          `/api/degen-solana/balances?owner=${encodeURIComponent(pk)}`,
+        );
+        const balJson = (await balRes.json()) as {
+          tokens?: Array<{ key: string; amount: string }>;
+        };
+        for (const leg of cp.legs) {
+          const tok = (balJson.tokens ?? []).find((t) => t.key === leg.key);
+          const now = BigInt(tok?.amount ?? "0");
+          const dust = dustThresholdRaw(
+            DEGEN_SOLANA_BASKET.find((m) => m.key === leg.key)?.decimals ?? 6,
+          );
+          if (now <= dust) {
+            leg.status = "confirmed";
+            leg.error = undefined;
+          } else if (
+            leg.status === "confirmed" &&
+            (cp.sellPct ?? 100) >= 100 &&
+            now > dust
+          ) {
+            leg.status = "failed";
+            leg.error = "Still held above dust — will retry";
+          }
+        }
         saveCheckpoint(cp);
+
+        const stillHeld = unfinishedLegs(cp).filter((l) => {
+          const tok = (balJson.tokens ?? []).find((t) => t.key === l.key);
+          const dust = dustThresholdRaw(
+            DEGEN_SOLANA_BASKET.find((m) => m.key === l.key)?.decimals ?? 6,
+          );
+          return BigInt(tok?.amount ?? "0") > dust;
+        });
+        if (stillHeld.length === 0 && (cp.sellPct ?? 100) >= 100) {
+          clearCheckpoint(pk, "sell");
+          await refreshBalances();
+          return {
+            confirmCount: cp.confirmCount,
+            legs: cp.legs.map((l) => ({
+              key: l.key,
+              ticker: tickerForKey(l.key),
+              status: l.status,
+              signature: l.signature,
+            })),
+            heldCount: 0,
+            basketSize: cp.intendedKeys?.length ?? cp.legs.length,
+            complete: true,
+          };
+        }
       }
 
       const onlyKeys = cp
-        ? unfinishedLegs(cp).map((l) => l.key)
+        ? unfinishedLegs(cp)
+            .map((l) => l.key)
+            .filter((key) => {
+              // unfinishedLegs already filtered; keep keys that still need sell
+              return true;
+            })
         : undefined;
       return runSide({
         side: "sell",
@@ -1198,6 +1436,40 @@ export function useSolanaMemeBasket() {
       });
     },
     [refreshBalances, runSide, wallet],
+  );
+
+  const buy = useCallback(
+    async (solLamports: string, slippageBps?: number, weightsPct?: number[]) => {
+      const pk = wallet.publicKey;
+      if (pk) {
+        const cp = loadCheckpoint(pk, "buy");
+        if (cp && unfinishedLegs(cp).length > 0) {
+          return finishIncomplete("buy");
+        }
+      }
+      return runSide({ side: "buy", solLamports, slippageBps, weightsPct });
+    },
+    [finishIncomplete, runSide, wallet.publicKey],
+  );
+
+  const sellPercent = useCallback(
+    async (pct: number, slippageBps?: number) => {
+      const sellPct = Math.min(100, Math.max(1, Math.round(pct)));
+      const pk = wallet.publicKey;
+      if (pk && sellPct >= 100) {
+        const cp = loadCheckpoint(pk, "sell");
+        if (cp && unfinishedLegs(cp).length > 0) {
+          return finishIncomplete("sell");
+        }
+      }
+      return runSide({ side: "sell", slippageBps, sellPct });
+    },
+    [finishIncomplete, runSide, wallet.publicKey],
+  );
+
+  const sellAll = useCallback(
+    (slippageBps?: number) => sellPercent(100, slippageBps),
+    [sellPercent],
   );
 
   return {

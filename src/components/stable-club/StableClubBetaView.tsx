@@ -280,6 +280,12 @@ export function StableClubBetaView({
   const wallet = useStableClubWallet();
   const { readiness, loading, error, refetchBootstrap, refreshActivation } =
     useStableClubBetaReadiness();
+
+  // Clear stale EIP-1193 provider when entering Stable Club.
+  useEffect(() => {
+    void wallet.refreshProvider().catch(() => undefined);
+  }, [wallet.refreshProvider]);
+
   const searchParams = useSearchParams();
   const depositsEnabled = depositsEnabledOverride ?? readiness.depositsEnabled;
   const depositBlockers = readiness.depositBlockers;
