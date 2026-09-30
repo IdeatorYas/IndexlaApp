@@ -43,20 +43,9 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         : "Connect Wallet";
 
   const openSolanaConnect = () => {
+    // Always open the picker so the click is visibly handled.
+    // Never silent auto-connect — blocked popups looked like a dead button.
     setSolanaPickError(null);
-    const wallets = solana.listWallets();
-    if (wallets.length === 1) {
-      void solana
-        .connect(wallets[0])
-        .then(() => setSolanaPickerOpen(false))
-        .catch((err) => {
-          setSolanaPickError(
-            err instanceof Error ? err.message : String(err),
-          );
-          setSolanaPickerOpen(true);
-        });
-      return;
-    }
     setSolanaPickerOpen(true);
   };
 
@@ -70,7 +59,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
       return;
     }
     if (wallet.state === "connected") disconnect();
-    else connect();
+    else connect(); // AppKit modal for Base / Robinhood / other EVM
   };
 
   const onPickSolana = (w: SolanaInjectedWallet) => {
@@ -172,6 +161,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
 
       <button
         type="button"
+        data-testid="header-connect-wallet"
         onClick={onHeaderWalletClick}
         className="app-interactive ml-0.5 h-9 shrink-0 truncate rounded-full border border-app-brand/35 bg-gradient-to-r from-app-brand/15 to-[color:var(--color-accent-violet)]/12 px-3.5 text-[12px] font-bold text-app-ink hover:border-app-brand/55 hover:shadow-[0_4px_14px_-4px_rgba(37,99,235,0.35)] sm:max-w-none sm:px-4"
       >

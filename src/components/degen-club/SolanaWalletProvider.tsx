@@ -11,14 +11,16 @@ import {
 } from "react";
 import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import {
+  connectSolanaProvider,
+  ensureWalletStandardListeners,
   getActiveSolanaProvider,
   listSolanaInjectedWallets,
   setActiveSolanaProvider,
+  waitForSolanaWallets,
   type SolanaInjectedProvider,
   type SolanaInjectedWallet,
 } from "@/lib/degen-solana/injected-wallets";
 
-/** Same-origin JSON-RPC proxy — avoids public RPC browser Origin 403. */
 function browserSolanaRpcEndpoint(): string {
   if (typeof window === "undefined") return "http://127.0.0.1/api/degen-solana/rpc";
   return `${window.location.origin}/api/degen-solana/rpc`;
@@ -30,9 +32,10 @@ type SolanaWalletContextValue = {
   publicKey: string | null;
   connecting: boolean;
   error: string | null;
-  /** Open picker / connect. If one wallet, connects it; if several, caller should pick. */
   listWallets: () => SolanaInjectedWallet[];
-  connect: (wallet?: SolanaInjectedWallet) => Promise<string>;
+  /** Wait for late injection then return wallets (for picker). */
+  discoverWallets: () => Promise<SolanaInjectedWallet[]>;
+  connect: (wallet: SolanaInjectedWallet) => Promise<string>;
   disconnect: () => Promise<void>;
   signAllTransactions: (
     txs: VersionedTransaction[],
@@ -50,7 +53,7 @@ function providerOrThrow(): SolanaInjectedProvider {
   const provider = getActiveSolanaProvider();
   if (!provider) {
     throw new Error(
-      "No Solana wallet connected. Click Connect Wallet and choose Phantom, Backpack, or Solflare.",
+      "No Solana wallet connected. Click Connect Wallet and choose a wallet.",
     );
   }
   return provider;
@@ -68,88 +71,72 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const bindProviderEvents = useCallback((provider: SolanaInjectedProvider | null) => {
-    if (!provider?.on) return () => undefined;
-    const onConnect = () => {
-      const p = getActiveSolanaProvider();
-      if (p?.publicKey) {
-        setPublicKey(p.publicKey.toString());
-        setConnected(true);
-        setError(null);
-      }
-    };
-    const onDisconnect = () => {
-      setPublicKey(null);
-      setConnected(false);
-    };
-    const onAccountChanged = (...args: unknown[]) => {
-      const pk = args[0] as { toString(): string } | null | undefined;
-      if (pk && typeof pk.toString === "function") {
-        setPublicKey(pk.toString());
-        setConnected(true);
-      } else {
-        setPublicKey(null);
-        setConnected(false);
-      }
-    };
-    provider.on("connect", onConnect);
-    provider.on("disconnect", onDisconnect);
-    provider.on("accountChanged", onAccountChanged);
-    return () => {
-      provider.off?.("connect", onConnect);
-      provider.off?.("disconnect", onDisconnect);
-      provider.off?.("accountChanged", onAccountChanged);
-    };
-  }, []);
-
   useEffect(() => {
+    ensureWalletStandardListeners();
     setReady(true);
     const wallets = listSolanaInjectedWallets();
-    // Restore session if a wallet already authorized this origin.
     for (const w of wallets) {
       if (w.provider.publicKey) {
         setActiveSolanaProvider(w.provider);
         setPublicKey(w.provider.publicKey.toString());
         setConnected(true);
-        return bindProviderEvents(w.provider);
+        const provider = w.provider;
+        const onDisconnect = () => {
+          setPublicKey(null);
+          setConnected(false);
+        };
+        const onAccountChanged = (...args: unknown[]) => {
+          const pk = args[0] as { toString(): string } | null | undefined;
+          if (pk && typeof pk.toString === "function") {
+            setPublicKey(pk.toString());
+            setConnected(true);
+          } else {
+            setPublicKey(null);
+            setConnected(false);
+          }
+        };
+        provider.on?.("disconnect", onDisconnect);
+        provider.on?.("accountChanged", onAccountChanged);
+        return () => {
+          provider.off?.("disconnect", onDisconnect);
+          provider.off?.("accountChanged", onAccountChanged);
+        };
       }
     }
     return undefined;
-  }, [bindProviderEvents]);
+  }, []);
 
   const listWallets = useCallback(() => listSolanaInjectedWallets(), []);
+  const discoverWallets = useCallback(() => waitForSolanaWallets(2500), []);
 
-  const connect = useCallback(async (wallet?: SolanaInjectedWallet) => {
+  const connect = useCallback(async (wallet: SolanaInjectedWallet) => {
     setConnecting(true);
     setError(null);
     try {
-      const wallets = listSolanaInjectedWallets();
-      const chosen =
-        wallet ??
-        (wallets.length === 1 ? wallets[0] : undefined);
-      if (!chosen) {
-        throw new Error(
-          wallets.length === 0
-            ? "No Solana wallet found. Install Phantom or Backpack, then retry."
-            : "Choose a Solana wallet to continue.",
-        );
-      }
-      setActiveSolanaProvider(chosen.provider);
-      bindProviderEvents(chosen.provider);
-      const res = await chosen.provider.connect({ onlyIfTrusted: false });
-      const pk = res.publicKey.toString();
+      // Re-resolve injector at click time (Phantom may attach late).
+      const fresh =
+        listSolanaInjectedWallets().find((w) => w.id === wallet.id) ?? wallet;
+      setActiveSolanaProvider(fresh.provider);
+      const pk = await connectSolanaProvider(fresh.provider);
       new PublicKey(pk);
+      // Prefer live provider after connect (proxy may have swapped).
+      const live =
+        listSolanaInjectedWallets().find((w) => w.id === wallet.id)?.provider ??
+        fresh.provider;
+      setActiveSolanaProvider(live);
       setPublicKey(pk);
       setConnected(true);
       return pk;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
+      setConnected(false);
+      setPublicKey(null);
       throw err;
     } finally {
       setConnecting(false);
     }
-  }, [bindProviderEvents]);
+  }, []);
 
   const disconnect = useCallback(async () => {
     const provider = getActiveSolanaProvider();
@@ -176,9 +163,7 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
   const signTransaction = useCallback(
     async (tx: VersionedTransaction) => {
       const provider = providerOrThrow();
-      if (provider.signTransaction) {
-        return provider.signTransaction(tx);
-      }
+      if (provider.signTransaction) return provider.signTransaction(tx);
       if (provider.signAllTransactions) {
         const [signed] = await provider.signAllTransactions([tx]);
         if (!signed) throw new Error("Wallet returned no signed transaction");
@@ -203,8 +188,7 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
         throw new Error("Wallet missing signAndSendTransaction / signTransaction");
       }
       const signed = await provider.signTransaction(tx);
-      const raw = signed.serialize();
-      return connection.sendRawTransaction(raw, {
+      return connection.sendRawTransaction(signed.serialize(), {
         skipPreflight: false,
         maxRetries: 3,
       });
@@ -219,6 +203,7 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     connecting,
     error,
     listWallets,
+    discoverWallets,
     connect,
     disconnect,
     signAllTransactions,

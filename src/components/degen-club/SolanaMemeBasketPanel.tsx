@@ -107,18 +107,9 @@ export function SolanaMemeBasketPanel({
   }
 
   function openConnect() {
+    // Always open picker — same behavior as header.
     setPickError(null);
     setLocalMsg(null);
-    const wallets = wallet.listWallets();
-    if (wallets.length === 1) {
-      void wallet
-        .connect(wallets[0])
-        .catch((err) => {
-          setPickError(err instanceof Error ? err.message : String(err));
-          setPickerOpen(true);
-        });
-      return;
-    }
     setPickerOpen(true);
   }
 
@@ -126,7 +117,10 @@ export function SolanaMemeBasketPanel({
     setPickError(null);
     void wallet
       .connect(w)
-      .then(() => setPickerOpen(false))
+      .then(() => {
+        setPickerOpen(false);
+        setLocalMsg(null);
+      })
       .catch((err) => {
         setPickError(err instanceof Error ? err.message : String(err));
       });
