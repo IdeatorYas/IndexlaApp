@@ -9,6 +9,10 @@ import {
 } from "@/lib/degen-solana/constants";
 import { dustThresholdRaw } from "@/lib/degen-solana/balances";
 import type { SolanaInjectedWallet } from "@/lib/degen-solana/injected-wallets";
+import {
+  clearPhantomHandoffFlagFromUrl,
+  isPhantomProviderPresent,
+} from "@/lib/degen-solana/phantom-mobile";
 
 function solToLamports(sol: string): string {
   const n = Number(sol);
@@ -43,6 +47,7 @@ export function SolanaMemeBasketPanel({
   const [localMsg, setLocalMsg] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
+  const [autoConnect, setAutoConnect] = useState(false);
 
   const holdingsNonZero = useMemo(
     () =>
@@ -107,9 +112,9 @@ export function SolanaMemeBasketPanel({
   }
 
   function openConnect() {
-    // Always open picker — same behavior as header.
     setPickError(null);
     setLocalMsg(null);
+    setAutoConnect(isPhantomProviderPresent());
     setPickerOpen(true);
   }
 
@@ -120,6 +125,7 @@ export function SolanaMemeBasketPanel({
       .then(() => {
         setPickerOpen(false);
         setLocalMsg(null);
+        clearPhantomHandoffFlagFromUrl();
       })
       .catch((err) => {
         setPickError(err instanceof Error ? err.message : String(err));
@@ -175,8 +181,12 @@ export function SolanaMemeBasketPanel({
         open={pickerOpen}
         busy={wallet.connecting}
         error={pickError ?? wallet.error}
-        onClose={() => setPickerOpen(false)}
+        onClose={() => {
+          setPickerOpen(false);
+          setAutoConnect(false);
+        }}
         onPick={onPick}
+        autoConnect={autoConnect}
       />
 
       {!weightsValid ? (

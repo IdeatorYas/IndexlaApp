@@ -113,13 +113,21 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     setConnecting(true);
     setError(null);
     try {
-      // Re-resolve injector at click time (Phantom may attach late).
-      const fresh =
+      // Re-resolve injector at click time (Phantom may attach late on mobile).
+      let fresh =
         listSolanaInjectedWallets().find((w) => w.id === wallet.id) ?? wallet;
+      if (!fresh.provider?.connect) {
+        const waited = await waitForSolanaWallets(5000);
+        fresh = waited.find((w) => w.id === wallet.id) ?? waited[0] ?? fresh;
+      }
+      if (!fresh.provider?.connect) {
+        throw new Error(
+          "Phantom provider missing connect(). Open this page inside Phantom’s browser, then retry.",
+        );
+      }
       setActiveSolanaProvider(fresh.provider);
       const pk = await connectSolanaProvider(fresh.provider);
       new PublicKey(pk);
-      // Prefer live provider after connect (proxy may have swapped).
       const live =
         listSolanaInjectedWallets().find((w) => w.id === wallet.id)?.provider ??
         fresh.provider;

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { useSolanaWallet } from "@/components/degen-club/SolanaWalletProvider";
 import { SolanaWalletPickerModal } from "@/components/degen-club/SolanaWalletPickerModal";
@@ -11,6 +11,11 @@ import { getClientFeatureFlags } from "@/lib/feature-flags";
 import { PreviewIllustrativeBadge } from "@/components/shell/PreviewIllustrativeBadge";
 import { getDexlaBalance } from "@/lib/data";
 import type { SolanaInjectedWallet } from "@/lib/degen-solana/injected-wallets";
+import {
+  clearPhantomHandoffFlagFromUrl,
+  hasPhantomHandoffFlag,
+  isPhantomProviderPresent,
+} from "@/lib/degen-solana/phantom-mobile";
 
 function productWalletMode(pathname: string | null): "solana" | "evm" {
   if (pathname?.startsWith("/app/degen-club")) return "solana";
@@ -28,6 +33,8 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
 
   const [solanaPickerOpen, setSolanaPickerOpen] = useState(false);
   const [solanaPickError, setSolanaPickError] = useState<string | null>(null);
+  const [solanaAutoConnect, setSolanaAutoConnect] = useState(false);
+  const [handoffBanner, setHandoffBanner] = useState<string | null>(null);
 
   const headerConnected =
     mode === "solana" ? solana.connected : wallet.state === "connected";
@@ -42,10 +49,51 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         ? wallet.shortenedAddress
         : "Connect Wallet";
 
+  // After Open in Phantom lands here: auto-open picker + connect (detect via inject, not UA).
+  useEffect(() => {
+    if (mode !== "solana" || solana.connected) return;
+    const handoff = hasPhantomHandoffFlag();
+    const injected = isPhantomProviderPresent();
+    const mobile =
+      typeof navigator !== "undefined" &&
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    // Only auto-open on explicit handoff return, or mobile+injected (in-app browser).
+    if (!handoff && !(mobile && injected)) return;
+    try {
+      const key = "ixl_phantom_auto_once";
+      if (sessionStorage.getItem(key) === window.location.href) return;
+      sessionStorage.setItem(key, window.location.href);
+    } catch {
+      /* ignore */
+    }
+    setHandoffBanner(
+      handoff
+        ? "Opened in Phantom — connecting…"
+        : "Phantom detected — connecting…",
+    );
+    setSolanaPickError(null);
+    setSolanaAutoConnect(true);
+    setSolanaPickerOpen(true);
+  }, [mode, solana.connected]);
+
+  useEffect(() => {
+    if (solana.connected && solana.publicKey) {
+      clearPhantomHandoffFlagFromUrl();
+      setHandoffBanner(null);
+      setSolanaAutoConnect(false);
+    }
+  }, [solana.connected, solana.publicKey]);
+
+  useEffect(() => {
+    if (solana.error) {
+      setHandoffBanner(`Connect failed: ${solana.error}`);
+    }
+  }, [solana.error]);
+
   const openSolanaConnect = () => {
     // Always open the picker so the click is visibly handled.
-    // Never silent auto-connect — blocked popups looked like a dead button.
     setSolanaPickError(null);
+    setSolanaAutoConnect(isPhantomProviderPresent());
     setSolanaPickerOpen(true);
   };
 
@@ -64,17 +112,24 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
 
   const onPickSolana = (w: SolanaInjectedWallet) => {
     setSolanaPickError(null);
+    setHandoffBanner("Connecting to Phantom — approve the prompt…");
     void solana
       .connect(w)
-      .then(() => setSolanaPickerOpen(false))
+      .then(() => {
+        setSolanaPickerOpen(false);
+        clearPhantomHandoffFlagFromUrl();
+        setHandoffBanner(null);
+      })
       .catch((err) => {
-        setSolanaPickError(err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        setSolanaPickError(msg);
+        setHandoffBanner(`Connect failed: ${msg}`);
       });
   };
 
   return (
     <header
-      className="flex h-14 shrink-0 items-center gap-2 border-b border-app-line/80 bg-gradient-to-r from-app-brand/6 via-app-elevated/98 to-[color:var(--color-accent-violet)]/5 px-3 backdrop-blur-md sm:gap-2.5 sm:px-5 lg:px-6"
+      className="relative flex h-14 shrink-0 items-center gap-2 border-b border-app-line/80 bg-gradient-to-r from-app-brand/6 via-app-elevated/98 to-[color:var(--color-accent-violet)]/5 px-3 backdrop-blur-md sm:gap-2.5 sm:px-5 lg:px-6"
       role="banner"
     >
       {onMenuClick ? (
@@ -172,9 +227,23 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         open={solanaPickerOpen}
         busy={solana.connecting}
         error={solanaPickError ?? solana.error}
-        onClose={() => setSolanaPickerOpen(false)}
+        onClose={() => {
+          setSolanaPickerOpen(false);
+          setSolanaAutoConnect(false);
+        }}
         onPick={onPickSolana}
+        autoConnect={solanaAutoConnect}
       />
+
+      {mode === "solana" && handoffBanner ? (
+        <p
+          className="absolute left-3 right-3 top-14 z-[70] rounded-lg border border-app-line bg-app-elevated px-2 py-1.5 text-center text-[11px] text-app-ink shadow-md"
+          data-testid="solana-handoff-banner"
+          role="status"
+        >
+          {handoffBanner}
+        </p>
+      ) : null}
     </header>
   );
 }

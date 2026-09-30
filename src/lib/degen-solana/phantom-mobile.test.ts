@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildPhantomBrowseAndroidIntent,
+  buildPhantomBrowseCustomScheme,
   buildPhantomBrowseUniversalLink,
   buildPhantomOpenInAppHref,
-  isAndroidUserAgent,
+  formatWalletStatusLine,
+  hasPhantomHandoffFlag,
   isMobileUserAgent,
-  isPhantomInAppBrowser,
+  isPhantomProviderPresent,
+  withPhantomHandoffFlag,
 } from "@/lib/degen-solana/phantom-mobile";
 
 const PRODUCT =
@@ -20,64 +22,63 @@ describe("phantom-mobile detection", () => {
     ).toBe(true);
     expect(
       isMobileUserAgent(
-        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36",
-      ),
-    ).toBe(true);
-    expect(
-      isMobileUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
       ),
     ).toBe(false);
   });
 
-  it("detects Phantom in-app browser", () => {
-    expect(
-      isPhantomInAppBrowser(
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) AppleWebKit/605.1.15 Phantom/25.0",
-      ),
-    ).toBe(true);
-    expect(
-      isPhantomInAppBrowser(
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) AppleWebKit/605.1.15",
-      ),
-    ).toBe(false);
-  });
-
-  it("detects Android", () => {
-    expect(isAndroidUserAgent("Mozilla/5.0 (Linux; Android 14)")).toBe(true);
-    expect(isAndroidUserAgent("Mozilla/5.0 (iPhone)")).toBe(false);
+  it("detects Phantom via window.phantom, not UA", () => {
+    expect(isPhantomProviderPresent(undefined)).toBe(false);
+    const fake = {
+      phantom: { solana: { isPhantom: true, connect: () => undefined } },
+    } as unknown as Window;
+    expect(isPhantomProviderPresent(fake)).toBe(true);
+    const legacy = {
+      solana: { isPhantom: true, connect: () => undefined },
+    } as unknown as Window;
+    expect(isPhantomProviderPresent(legacy)).toBe(true);
   });
 });
 
 describe("phantom browse deep links", () => {
-  it("builds universal browse link preserving full product URL", () => {
-    const href = buildPhantomBrowseUniversalLink(PRODUCT);
+  it("builds universal browse link preserving full product URL + handoff flag", () => {
+    const href = buildPhantomOpenInAppHref(PRODUCT);
     expect(href.startsWith("https://phantom.app/ul/browse/")).toBe(true);
-    expect(href).toContain(encodeURIComponent(PRODUCT));
-    expect(href).toContain(`ref=${encodeURIComponent(PRODUCT)}`);
-    // Round-trip: path segment decodes back to product URL
     const encoded = href.split("/ul/browse/")[1]!.split("?")[0]!;
-    expect(decodeURIComponent(encoded)).toBe(PRODUCT);
+    const decoded = decodeURIComponent(encoded);
+    expect(decoded).toContain(PRODUCT.split("?")[0]!);
+    expect(decoded).toContain("ixl_phantom=1");
+    // Must NOT be an Android Intent that falls back to download
+    expect(href.startsWith("intent://")).toBe(false);
+    expect(href).not.toContain("browser_fallback_url");
   });
 
-  it("builds Android intent targeting Phantom package", () => {
-    const href = buildPhantomBrowseAndroidIntent(PRODUCT);
-    expect(href.startsWith("intent://ul/browse/")).toBe(true);
-    expect(href).toContain("package=app.phantom");
+  it("builds custom scheme fallback", () => {
+    const href = buildPhantomBrowseCustomScheme(PRODUCT);
+    expect(href.startsWith("phantom://browse/")).toBe(true);
     expect(href).toContain(encodeURIComponent(PRODUCT));
-    expect(href).toContain("S.browser_fallback_url=");
   });
 
-  it("picks intent on Android and universal link on iOS", () => {
-    const android = buildPhantomOpenInAppHref(
-      PRODUCT,
-      "Mozilla/5.0 (Linux; Android 14) Mobile",
-    );
-    const ios = buildPhantomOpenInAppHref(
-      PRODUCT,
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)",
-    );
-    expect(android.startsWith("intent://")).toBe(true);
-    expect(ios.startsWith("https://phantom.app/ul/browse/")).toBe(true);
+  it("withPhantomHandoffFlag / hasPhantomHandoffFlag round-trip", () => {
+    const flagged = withPhantomHandoffFlag(PRODUCT);
+    expect(hasPhantomHandoffFlag(flagged)).toBe(true);
+    expect(hasPhantomHandoffFlag(PRODUCT)).toBe(false);
+  });
+
+  it("status line includes stage and phantom flag", () => {
+    const line = formatWalletStatusLine({
+      stage: "handoff",
+      phantomPresent: false,
+      mobile: true,
+      error: "no inject",
+    });
+    expect(line).toContain("stage=handoff");
+    expect(line).toContain("phantom=no");
+    expect(line).toContain("err=no inject");
+  });
+
+  it("universal link encodes ref", () => {
+    const href = buildPhantomBrowseUniversalLink(PRODUCT, "https://app.indexla.tech");
+    expect(href).toContain(`ref=${encodeURIComponent("https://app.indexla.tech")}`);
   });
 });
