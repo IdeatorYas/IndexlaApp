@@ -204,8 +204,7 @@ export function useSolanaMemeBasket() {
       try {
         let pubkey = wallet.publicKey;
         if (!pubkey) {
-          // Connect does not count toward the ≤4 sign budget.
-          pubkey = await wallet.connect();
+          throw new Error("Connect Wallet first (Solana), then retry.");
         }
 
         let sellAmounts: Record<string, string> | undefined;
@@ -1307,7 +1306,9 @@ export function useSolanaMemeBasket() {
 
   const finishIncomplete = useCallback(
     async (side: "buy" | "sell") => {
-      if (!wallet.publicKey) await wallet.connect();
+      if (!wallet.publicKey) {
+        throw new Error("Connect Wallet first (Solana), then retry.");
+      }
       const pk = wallet.publicKey;
       if (!pk) throw new Error("Connect Solana wallet first");
       const cp = loadCheckpoint(pk, side);

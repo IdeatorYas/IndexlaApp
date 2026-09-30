@@ -45,14 +45,18 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
   const [tradeAck, setTradeAck] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const liveSolana =
+    product.id === DEGEN_SOLANA_PRODUCT_ID && isDegenSolanaLiveEnabled();
+
   useEffect(() => {
+    if (liveSolana) return; // Solana live: never open EVM trade / AppKit connect
     if (
       searchParams.get("action") === "trade" ||
       searchParams.get("action") === "invest"
     ) {
       setTradeOpen(true);
     }
-  }, [searchParams]);
+  }, [searchParams, liveSolana]);
 
   useEffect(() => {
     const t = window.setTimeout(() => setEntered(true), 30);
@@ -61,8 +65,6 @@ export function DegenProductPageView({ product }: { product: DegenProduct }) {
 
   const positive = enriched.performance30d >= 0;
   const holdingCount = enriched.allocations.length;
-  const liveSolana =
-    product.id === DEGEN_SOLANA_PRODUCT_ID && isDegenSolanaLiveEnabled();
   /* Large dominant donut — sized to fit with 2×5 holdings in one desktop viewport */
   const donutSize = holdingCount >= 10 ? 300 : holdingCount >= 8 ? 288 : 276;
 

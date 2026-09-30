@@ -42,6 +42,10 @@ if (projectId) {
     enableEIP6963: true,
     enableInjected: true,
     enableCoinbase: false,
+    // Prevent Reown UnsupportedChain modal (Base+RH list) when Phantom's EVM
+    // chain is neither Base nor Robinhood — product pages use their own Switch CTAs.
+    allowUnsupportedChain: true,
+    enableNetworkSwitch: false,
     features: {
       analytics: false,
       email: false,

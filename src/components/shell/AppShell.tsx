@@ -6,6 +6,7 @@ import { AppHeader } from "@/components/shell/AppHeader";
 import { AppSidebar } from "@/components/shell/AppSidebar";
 import { DashboardTopBar } from "@/components/shell/DashboardTopBar";
 import { GlobalCommandSearch } from "@/components/shell/GlobalCommandSearch";
+import { SolanaEvmIsolation } from "@/components/wallet/SolanaEvmIsolation";
 import { getDashboard } from "@/lib/data";
 import { APP_ROUTES } from "@/lib/routes";
 
@@ -19,6 +20,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-app-bg text-app-ink">
+      <SolanaEvmIsolation />
       <div
         className={[
           "fixed inset-0 z-40 bg-black/55 backdrop-blur-[2px] lg:hidden",
