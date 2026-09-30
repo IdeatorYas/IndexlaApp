@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useSolanaMemeBasket } from "@/components/degen-club/useSolanaMemeBasket";
+import { SolanaWalletPickerModal } from "@/components/degen-club/SolanaWalletPickerModal";
 import {
   DEFAULT_SLIPPAGE_BPS,
   DEGEN_SOLANA_BASKET,
 } from "@/lib/degen-solana/constants";
 import { dustThresholdRaw } from "@/lib/degen-solana/balances";
+import type { SolanaInjectedWallet } from "@/lib/degen-solana/injected-wallets";
 
 function solToLamports(sol: string): string {
   const n = Number(sol);
@@ -39,6 +41,8 @@ export function SolanaMemeBasketPanel({
   const [solIn, setSolIn] = useState("0.05");
   const [sellPct, setSellPct] = useState(100);
   const [localMsg, setLocalMsg] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickError, setPickError] = useState<string | null>(null);
 
   const holdingsNonZero = useMemo(
     () =>
@@ -102,6 +106,32 @@ export function SolanaMemeBasketPanel({
     }
   }
 
+  function openConnect() {
+    setPickError(null);
+    setLocalMsg(null);
+    const wallets = wallet.listWallets();
+    if (wallets.length === 1) {
+      void wallet
+        .connect(wallets[0])
+        .catch((err) => {
+          setPickError(err instanceof Error ? err.message : String(err));
+          setPickerOpen(true);
+        });
+      return;
+    }
+    setPickerOpen(true);
+  }
+
+  function onPick(w: SolanaInjectedWallet) {
+    setPickError(null);
+    void wallet
+      .connect(w)
+      .then(() => setPickerOpen(false))
+      .catch((err) => {
+        setPickError(err instanceof Error ? err.message : String(err));
+      });
+  }
+
   return (
     <div className="mt-4 space-y-4">
       {/* Invest controls — product chrome, not a separate technical box */}
@@ -111,9 +141,9 @@ export function SolanaMemeBasketPanel({
             type="button"
             className="degen-btn-primary h-9 flex-1 text-[12px] uppercase tracking-wide"
             disabled={wallet.connecting || busy}
-            onClick={() => void wallet.connect().catch(() => undefined)}
+            onClick={openConnect}
           >
-            {wallet.connecting ? "Connecting…" : "Connect Solana"}
+            {wallet.connecting ? "Connecting…" : "Connect Wallet"}
           </button>
         ) : (
           <>
@@ -146,6 +176,14 @@ export function SolanaMemeBasketPanel({
           </>
         )}
       </div>
+
+      <SolanaWalletPickerModal
+        open={pickerOpen}
+        busy={wallet.connecting}
+        error={pickError ?? wallet.error}
+        onClose={() => setPickerOpen(false)}
+        onPick={onPick}
+      />
 
       {!weightsValid ? (
         <p className="text-center text-xs font-semibold text-[var(--degen-danger,#f87171)]">

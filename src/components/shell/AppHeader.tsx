@@ -2,43 +2,85 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
 import { useSolanaWallet } from "@/components/degen-club/SolanaWalletProvider";
+import { SolanaWalletPickerModal } from "@/components/degen-club/SolanaWalletPickerModal";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { getClientFeatureFlags } from "@/lib/feature-flags";
 import { PreviewIllustrativeBadge } from "@/components/shell/PreviewIllustrativeBadge";
 import { getDexlaBalance } from "@/lib/data";
+import type { SolanaInjectedWallet } from "@/lib/degen-solana/injected-wallets";
+
+function productWalletMode(pathname: string | null): "solana" | "evm" {
+  if (pathname?.startsWith("/app/degen-club")) return "solana";
+  return "evm"; // Base (Stable Club), Robinhood (Utility Index), and rest → AppKit
+}
 
 export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const pathname = usePathname();
-  const onSolanaDegen = pathname?.startsWith("/app/degen-club") ?? false;
+  const mode = productWalletMode(pathname);
   const { theme, toggleTheme } = useTheme();
-  const { wallet, connect, disconnect, ethBalanceFormatted } =
-    useDemoWallet();
+  const { wallet, connect, disconnect, ethBalanceFormatted } = useDemoWallet();
   const solana = useSolanaWallet();
   const flags = getClientFeatureFlags();
   const dexla = getDexlaBalance().data;
 
-  const headerConnected = onSolanaDegen
-    ? solana.connected
-    : wallet.state === "connected";
-  const headerLabel = onSolanaDegen
-    ? solana.connected && solana.publicKey
-      ? `${solana.publicKey.slice(0, 4)}…${solana.publicKey.slice(-4)}`
-      : solana.connecting
-        ? "Connecting…"
-        : "Connect Solana"
-    : wallet.state === "connected"
-      ? wallet.shortenedAddress
-      : "Connect Wallet";
+  const [solanaPickerOpen, setSolanaPickerOpen] = useState(false);
+  const [solanaPickError, setSolanaPickError] = useState<string | null>(null);
+
+  const headerConnected =
+    mode === "solana" ? solana.connected : wallet.state === "connected";
+  const headerLabel =
+    mode === "solana"
+      ? solana.connected && solana.publicKey
+        ? `${solana.publicKey.slice(0, 4)}…${solana.publicKey.slice(-4)}`
+        : solana.connecting
+          ? "Connecting…"
+          : "Connect Wallet"
+      : wallet.state === "connected"
+        ? wallet.shortenedAddress
+        : "Connect Wallet";
+
+  const openSolanaConnect = () => {
+    setSolanaPickError(null);
+    const wallets = solana.listWallets();
+    if (wallets.length === 1) {
+      void solana
+        .connect(wallets[0])
+        .then(() => setSolanaPickerOpen(false))
+        .catch((err) => {
+          setSolanaPickError(
+            err instanceof Error ? err.message : String(err),
+          );
+          setSolanaPickerOpen(true);
+        });
+      return;
+    }
+    setSolanaPickerOpen(true);
+  };
+
   const onHeaderWalletClick = () => {
-    if (onSolanaDegen) {
-      if (solana.connected) void solana.disconnect();
-      else void solana.connect().catch(() => undefined);
+    if (mode === "solana") {
+      if (solana.connected) {
+        void solana.disconnect();
+        return;
+      }
+      openSolanaConnect();
       return;
     }
     if (wallet.state === "connected") disconnect();
     else connect();
+  };
+
+  const onPickSolana = (w: SolanaInjectedWallet) => {
+    setSolanaPickError(null);
+    void solana
+      .connect(w)
+      .then(() => setSolanaPickerOpen(false))
+      .catch((err) => {
+        setSolanaPickError(err instanceof Error ? err.message : String(err));
+      });
   };
 
   return (
@@ -122,7 +164,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         {theme === "dark" ? "☀" : "☾"}
       </button>
 
-      {!onSolanaDegen && headerConnected && ethBalanceFormatted ? (
+      {mode === "evm" && headerConnected && ethBalanceFormatted ? (
         <span className="hidden h-9 items-center rounded-full border border-app-line px-2.5 text-[11px] font-semibold text-app-dim lg:flex">
           {ethBalanceFormatted}
         </span>
@@ -135,6 +177,14 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
       >
         {headerLabel}
       </button>
+
+      <SolanaWalletPickerModal
+        open={solanaPickerOpen}
+        busy={solana.connecting}
+        error={solanaPickError ?? solana.error}
+        onClose={() => setSolanaPickerOpen(false)}
+        onPick={onPickSolana}
+      />
     </header>
   );
 }
