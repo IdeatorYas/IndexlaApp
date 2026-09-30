@@ -196,6 +196,9 @@ export function useSolanaMemeBasket() {
       let confirmCount = params.existingCheckpoint?.confirmCount ?? 0;
       const confirmMax =
         params.side === "buy" ? BUY_CONFIRM_MAX : SELL_CONFIRM_MAX;
+      const isSell = params.side === "sell";
+      // Sell: fresh per-click signature budget (do not inherit exhausted checkpoint count).
+      let sessionConfirmCount = isSell ? 0 : confirmCount;
       const basketSize = DEGEN_SOLANA_BASKET.length;
 
       try {
@@ -458,17 +461,20 @@ export function useSolanaMemeBasket() {
           100,
           Math.max(1, Math.round(params.sellPct ?? 100)),
         );
-        const closeEmptiedAtas =
-          params.side === "sell" && sellPctNow >= 100;
+        void sellPctNow; // retained for sell-% pack policy decisions above
+        // Sell: never close token ATAs inside swap packs (residuals revert whole pack).
+        // WSOL unwrap/close still happens in composePack. Buy path unchanged.
+        const closeEmptiedAtas = false;
 
-        // Multi-leg packs (≤4 prompts). Never start a partial basket.
+        // Multi-leg packs. Sell forces ≤3 prompts; buy keeps default ≤4.
         const packRes = await fetch("/api/degen-solana/pack", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             userPublicKey: pubkey,
             side: params.side,
-            closeEmptiedAtas,
+            closeEmptiedAtas: isSell ? false : closeEmptiedAtas,
+            ...(isSell ? { promptMax: confirmMax } : {}),
             legs: quoteJson.legs.map((l) => ({
               key: l.key,
               ticker: l.ticker,
@@ -485,7 +491,9 @@ export function useSolanaMemeBasket() {
         if (!packRes.ok || !packJson.packs?.length) {
           throw new Error(
             packJson.error ??
-              "Could not pack all assets into ≤4 wallet confirms",
+              (isSell
+                ? "Could not pack all assets into ≤3 wallet confirms"
+                : "Could not pack all assets into ≤4 wallet confirms"),
           );
         }
 
@@ -517,9 +525,10 @@ export function useSolanaMemeBasket() {
           legs: [...legResults],
         });
 
-        // Pre-sign gate: simulate EVERY pack before the first wallet prompt.
-        // One blockhash for the whole gate — avoids N× getLatestBlockhash 429s.
-        {
+        // Pre-sign gate: buy simulates EVERY pack before the first wallet prompt
+        // and aborts on any failure. Sell does not throw here — packs are rebuilt
+        // after each confirmation (WSOL state changes) and failed sims continue.
+        if (!isSell) {
           const preLatest = await wallet.connection.getLatestBlockhash(
             "confirmed",
           );
@@ -565,173 +574,54 @@ export function useSolanaMemeBasket() {
               cpLeg.error = error;
             }
           }
+          if (isSell) {
+            cp.confirmCount = Math.max(cp.confirmCount ?? 0, confirmCount);
+          }
           saveCheckpoint(cp);
         };
 
+        // Phantom cancel only — do not treat generic "cancel"/RPC noise as reject.
         const isUserReject = (msg: string) =>
-          /reject|denied|cancel|user refused|User rejected/i.test(msg);
+          /User rejected|rejected the request|4001/i.test(msg);
 
-        // One click advances through ALL packs. Only a wallet reject stops early.
-        // Recoverable sim/RPC/confirm issues retry or skip to the next pack.
         let userRejected = false;
         let packsToRun = packs;
 
-        for (let wave = 0; wave < 2 && !userRejected; wave += 1) {
-          if (wave > 0) {
-            // Auto-continue: re-quote only unfinished legs still above dust.
-            const balMid = (await fetch(
-              `/api/degen-solana/balances?owner=${encodeURIComponent(pubkey)}`,
-            ).then((r) => r.json())) as {
-              tokens?: Array<{ key: string; mint: string; amount: string }>;
-            };
-            const unfinishedKeys = intendedKeys.filter((k) => {
+        const signingBudgetUsed = () =>
+          isSell ? sessionConfirmCount : confirmCount;
+
+        const bumpSigned = () => {
+          confirmCount += 1;
+          if (isSell) sessionConfirmCount += 1;
+          cp.confirmCount = Math.max(cp.confirmCount ?? 0, confirmCount);
+        };
+
+        const amountAboveDust = (
+          tokens: Array<{ key: string; amount: string }> | undefined,
+          key: string,
+        ) => {
+          const tok = (tokens ?? []).find((t) => t.key === key);
+          const meta = DEGEN_SOLANA_BASKET.find((m) => m.key === key);
+          const dust = dustThresholdRaw(meta?.decimals ?? 6);
+          return BigInt(tok?.amount ?? "0") > dust;
+        };
+
+        const promoteDustLegs = (
+          tokens: Array<{ key: string; amount: string }> | undefined,
+        ) => {
+          for (const k of intendedKeys) {
+            if (!amountAboveDust(tokens, k)) {
               const st = cp.legs.find((l) => l.key === k)?.status;
-              if (st === "confirmed") return false;
-              const tok = (balMid.tokens ?? []).find((t) => t.key === k);
-              const meta = DEGEN_SOLANA_BASKET.find((m) => m.key === k);
-              const dust = dustThresholdRaw(meta?.decimals ?? 6);
-              if (params.side === "sell") {
-                const amt = BigInt(tok?.amount ?? "0");
-                if (amt <= dust) {
-                  // Already dust — treat as done (no re-sell).
-                  markPackStatus([k], "confirmed");
-                  return false;
-                }
-                return true;
-              }
-              const base = BigInt(
-                cp.legs.find((l) => l.key === k)?.baselineAmount ?? "0",
-              );
-              return BigInt(tok?.amount ?? "0") <= base;
-            });
-            if (unfinishedKeys.length === 0) break;
-            if (confirmCount >= confirmMax) break;
-
-            setProgress({
-              phase: `Continuing remaining ${unfinishedKeys.length} asset(s)…`,
-              confirmCount,
-              confirmMax,
-              heldCount: legResults.filter((l) => l.status === "confirmed")
-                .length,
-              basketSize:
-                params.side === "buy" ? basketSize : intendedKeys.length,
-              legs: [...legResults],
-            });
-
-            let contSellAmounts: Record<string, string> | undefined;
-            if (params.side === "sell") {
-              contSellAmounts = {};
-              const sellPct = Math.min(
-                100,
-                Math.max(1, Math.round(params.sellPct ?? 100)),
-              );
-              for (const t of balMid.tokens ?? []) {
-                if (!unfinishedKeys.includes(t.key as DegenSolanaMintKey)) {
-                  continue;
-                }
-                const mintMeta = DEGEN_SOLANA_BASKET.find(
-                  (m) => m.mint === t.mint,
-                );
-                const dust = dustThresholdRaw(mintMeta?.decimals ?? 6);
-                let amt = BigInt(t.amount);
-                if (amt <= dust) continue;
-                if (sellPct < 100) {
-                  amt = (amt * BigInt(sellPct)) / BigInt(100);
-                  if (amt <= dust) continue;
-                }
-                contSellAmounts[t.key] = amt.toString();
-              }
-              if (Object.keys(contSellAmounts).length === 0) break;
-            }
-
-            const quoteBody =
-              params.side === "buy"
-                ? {
-                    side: "buy" as const,
-                    owner: pubkey,
-                    solLamports: params.solLamports,
-                    slippageBps: params.slippageBps ?? DEFAULT_SLIPPAGE_BPS,
-                    onlyKeys: unfinishedKeys,
-                    weightsPct,
-                  }
-                : {
-                    side: "sell" as const,
-                    owner: pubkey,
-                    sellAmounts: contSellAmounts,
-                    slippageBps: params.slippageBps ?? DEFAULT_SLIPPAGE_BPS,
-                  };
-            const qRes = await fetch("/api/degen-solana/quote", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(quoteBody),
-            });
-            const qJson = (await qRes.json()) as {
-              legs?: Array<{
-                key: string;
-                ticker: string;
-                mint: string;
-                quote: unknown;
-                feeAccount?: string;
-              }>;
-              error?: string;
-            };
-            if (!qRes.ok || !qJson.legs?.length) {
-              break;
-            }
-            const pRes = await fetch("/api/degen-solana/pack", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                userPublicKey: pubkey,
-                side: params.side,
-                closeEmptiedAtas:
-                  params.side === "sell" &&
-                  Math.min(100, Math.max(1, Math.round(params.sellPct ?? 100))) >=
-                    100,
-                legs: qJson.legs.map((l) => ({
-                  key: l.key,
-                  ticker: l.ticker,
-                  mint: l.mint,
-                  quote: l.quote,
-                  feeAccount: l.feeAccount,
-                })),
-              }),
-            });
-            const pJson = (await pRes.json()) as {
-              packs?: typeof packs;
-              error?: string;
-            };
-            if (!pRes.ok || !pJson.packs?.length) break;
-            packsToRun = pJson.packs;
-            // Pre-sim continuation packs
-            {
-              const preLatest = await wallet.connection.getLatestBlockhash(
-                "confirmed",
-              );
-              let preOk = true;
-              for (const pack of packsToRun) {
-                const tx = restampVersionedTx(
-                  decodeSwapTxBase64(pack.swapTransaction),
-                  preLatest.blockhash,
-                );
-                const sim = await simulateVersionedTxWithRetry(
-                  wallet.connection,
-                  tx,
-                );
-                if (!sim.ok) {
-                  preOk = false;
-                  break;
-                }
-                await new Promise((r) => setTimeout(r, 100));
-              }
-              if (!preOk) break;
+              if (st !== "confirmed") markPackStatus([k], "confirmed");
             }
           }
+        };
 
-          // Phantom Blowfish: one signAndSendTransaction per pack (not signAll).
+        const runPackSignLoop = async (wave: number) => {
+          let signedThisRound = 0;
           for (let packIdx = 0; packIdx < packsToRun.length; packIdx += 1) {
             const pack = packsToRun[packIdx]!;
-            if (confirmCount >= confirmMax) {
+            if (signingBudgetUsed() >= confirmMax) {
               markPackStatus(
                 pack.keys.filter(
                   (k) =>
@@ -743,16 +633,35 @@ export function useSolanaMemeBasket() {
               continue;
             }
 
-            const alreadyDone = pack.keys.every(
-              (k) =>
-                cp.legs.find((l) => l.key === k)?.status === "confirmed",
-            );
-            if (alreadyDone) continue;
+            // Skip only when every leg is already at/below dust (not bare confirmed).
+            const balSkip = (await fetch(
+              `/api/degen-solana/balances?owner=${encodeURIComponent(pubkey)}`,
+            ).then((r) => r.json())) as {
+              tokens?: Array<{ key: string; amount: string }>;
+            };
+            if (pack.keys.every((k) => !amountAboveDust(balSkip.tokens, k))) {
+              markPackStatus(pack.keys, "confirmed");
+              continue;
+            }
+
+            // Do not re-send a pack whose legs are still in-flight (submitted).
+            const allSubmitted = pack.keys.every((k) => {
+              const st = cp.legs.find((l) => l.key === k)?.status;
+              return st === "submitted" || st === "confirmed";
+            });
+            if (
+              allSubmitted &&
+              pack.keys.some(
+                (k) => cp.legs.find((l) => l.key === k)?.status === "submitted",
+              )
+            ) {
+              continue;
+            }
 
             const packLabel = pack.tickers.join("+");
             setProgress({
-              phase: `Preparing ${packLabel} (${confirmCount + 1}/${confirmMax})…`,
-              confirmCount,
+              phase: `Preparing ${packLabel} (${signingBudgetUsed() + 1}/${confirmMax})…`,
+              confirmCount: signingBudgetUsed(),
               confirmMax,
               heldCount: legResults.filter((l) => l.status === "confirmed")
                 .length,
@@ -794,13 +703,12 @@ export function useSolanaMemeBasket() {
                 "failed",
                 `Simulation failed: ${sim.error.slice(0, 160)}`,
               );
-              // Continue remaining packs — do not abort the whole Sell/Buy click.
               continue;
             }
 
             setProgress({
-              phase: `Confirm ${packLabel} in wallet (${confirmCount + 1}/${confirmMax})…`,
-              confirmCount,
+              phase: `Confirm ${packLabel} in wallet (${signingBudgetUsed() + 1}/${confirmMax})…`,
+              confirmCount: signingBudgetUsed(),
               confirmMax,
               heldCount: legResults.filter((l) => l.status === "confirmed")
                 .length,
@@ -812,8 +720,8 @@ export function useSolanaMemeBasket() {
             let signature: string;
             try {
               signature = await wallet.signAndSendTransaction(tx);
-              confirmCount += 1;
-              cp.confirmCount = confirmCount;
+              bumpSigned();
+              signedThisRound += 1;
             } catch (signErr) {
               const msg =
                 signErr instanceof Error ? signErr.message : String(signErr);
@@ -822,15 +730,15 @@ export function useSolanaMemeBasket() {
                 userRejected = true;
                 break;
               }
-              // Non-reject wallet/send error — try remaining packs.
               continue;
             }
 
+            // Persist submitted+sig before waiting so resume can reconcile.
             markPackStatus(pack.keys, "submitted", undefined, signature);
 
             setProgress({
               phase: `Confirming ${packLabel}…`,
-              confirmCount,
+              confirmCount: signingBudgetUsed(),
               confirmMax,
               heldCount: legResults.filter((l) => l.status === "confirmed")
                 .length,
@@ -853,7 +761,6 @@ export function useSolanaMemeBasket() {
               },
             );
 
-            // Expired: one last status read before giving up on this pack.
             if (outcome.status === "expired") {
               try {
                 const st = await wallet.connection.getSignatureStatuses(
@@ -895,10 +802,264 @@ export function useSolanaMemeBasket() {
                   ? "Blockhash expired before confirmation"
                   : undefined;
             markPackStatus(pack.keys, nextStatus, errMsg, signature);
-            // Confirmed or not — advance to next pack in this click.
+
+            // After each confirmed sell pack, promote legs already at dust.
+            if (isSell && nextStatus === "confirmed") {
+              const balNow = (await fetch(
+                `/api/degen-solana/balances?owner=${encodeURIComponent(pubkey)}`,
+              ).then((r) => r.json())) as {
+                tokens?: Array<{ key: string; amount: string }>;
+              };
+              promoteDustLegs(balNow.tokens);
+            }
+          }
+          return signedThisRound;
+        };
+
+        const rebuildSellPacks = async (): Promise<boolean> => {
+          const balMid = (await fetch(
+            `/api/degen-solana/balances?owner=${encodeURIComponent(pubkey)}`,
+          ).then((r) => r.json())) as {
+            tokens?: Array<{ key: string; mint: string; amount: string }>;
+          };
+          promoteDustLegs(balMid.tokens);
+
+          const unfinishedKeys = intendedKeys.filter((k) => {
+            const st = cp.legs.find((l) => l.key === k)?.status;
+            // In-flight submitted: wait for reconcile, do not re-quote yet.
+            if (st === "submitted") return false;
+            return amountAboveDust(balMid.tokens, k);
+          });
+          if (unfinishedKeys.length === 0) {
+            packsToRun = [];
+            return false;
+          }
+          if (sessionConfirmCount >= confirmMax) return false;
+
+          setProgress({
+            phase: `Continuing remaining ${unfinishedKeys.length} asset(s)…`,
+            confirmCount: sessionConfirmCount,
+            confirmMax,
+            heldCount: legResults.filter((l) => l.status === "confirmed")
+              .length,
+            basketSize: intendedKeys.length,
+            legs: [...legResults],
+          });
+
+          const contSellAmounts: Record<string, string> = {};
+          const sellPct = Math.min(
+            100,
+            Math.max(1, Math.round(params.sellPct ?? 100)),
+          );
+          for (const t of balMid.tokens ?? []) {
+            if (!unfinishedKeys.includes(t.key as DegenSolanaMintKey)) continue;
+            const mintMeta = DEGEN_SOLANA_BASKET.find((m) => m.mint === t.mint);
+            const dust = dustThresholdRaw(mintMeta?.decimals ?? 6);
+            let amt = BigInt(t.amount);
+            if (amt <= dust) continue;
+            if (sellPct < 100) {
+              // Partial % must use original baseline, not leftover×% again.
+              const base = BigInt(
+                cp.legs.find((l) => l.key === t.key)?.baselineAmount ??
+                  t.amount,
+              );
+              const alreadySold = base > amt ? base - amt : BigInt(0);
+              const target = (base * BigInt(sellPct)) / BigInt(100);
+              if (alreadySold + dust >= target) {
+                markPackStatus([t.key], "confirmed");
+                continue;
+              }
+              amt = target > alreadySold ? target - alreadySold : BigInt(0);
+              if (amt <= dust) continue;
+            }
+            contSellAmounts[t.key] = amt.toString();
+          }
+          if (Object.keys(contSellAmounts).length === 0) {
+            packsToRun = [];
+            return false;
           }
 
-          if (userRejected) break;
+          const qRes = await fetch("/api/degen-solana/quote", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              side: "sell",
+              owner: pubkey,
+              sellAmounts: contSellAmounts,
+              slippageBps: params.slippageBps ?? DEFAULT_SLIPPAGE_BPS,
+            }),
+          });
+          const qJson = (await qRes.json()) as {
+            legs?: Array<{
+              key: string;
+              ticker: string;
+              mint: string;
+              quote: unknown;
+              feeAccount?: string;
+            }>;
+            error?: string;
+          };
+          if (!qRes.ok || !qJson.legs?.length) return false;
+
+          const remainBudget = Math.max(1, confirmMax - sessionConfirmCount);
+          const pRes = await fetch("/api/degen-solana/pack", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userPublicKey: pubkey,
+              side: "sell",
+              closeEmptiedAtas: false,
+              promptMax: remainBudget,
+              legs: qJson.legs.map((l) => ({
+                key: l.key,
+                ticker: l.ticker,
+                mint: l.mint,
+                quote: l.quote,
+                feeAccount: l.feeAccount,
+              })),
+            }),
+          });
+          const pJson = (await pRes.json()) as {
+            packs?: typeof packs;
+            error?: string;
+          };
+          if (!pRes.ok || !pJson.packs?.length) return false;
+          packsToRun = pJson.packs;
+          return true;
+        };
+
+        if (isSell) {
+          // One Sell All click: rebuild after each wave until dust / budget / reject.
+          let wave = 0;
+          while (!userRejected && sessionConfirmCount < confirmMax) {
+            const signed = await runPackSignLoop(wave);
+            if (userRejected) break;
+            const balCheck = (await fetch(
+              `/api/degen-solana/balances?owner=${encodeURIComponent(pubkey)}`,
+            ).then((r) => r.json())) as {
+              tokens?: Array<{ key: string; amount: string }>;
+            };
+            promoteDustLegs(balCheck.tokens);
+            const stillSellable = intendedKeys.some((k) =>
+              amountAboveDust(balCheck.tokens, k),
+            );
+            if (!stillSellable) break;
+            if (sessionConfirmCount >= confirmMax) break;
+            // Zero progress this round → stop (do not spin on perpetual sim fails).
+            if (signed === 0 && wave > 0) break;
+            const rebuilt = await rebuildSellPacks();
+            if (!rebuilt) {
+              if (signed === 0) break;
+              // Had signatures but rebuild failed — stop rather than spin.
+              break;
+            }
+            wave += 1;
+            if (wave > 6) break;
+          }
+        } else {
+          // Buy path: preserve prior two-wave auto-continue behavior.
+          for (let wave = 0; wave < 2 && !userRejected; wave += 1) {
+            if (wave > 0) {
+              const balMid = (await fetch(
+                `/api/degen-solana/balances?owner=${encodeURIComponent(pubkey)}`,
+              ).then((r) => r.json())) as {
+                tokens?: Array<{ key: string; mint: string; amount: string }>;
+              };
+              const unfinishedKeys = intendedKeys.filter((k) => {
+                const st = cp.legs.find((l) => l.key === k)?.status;
+                if (st === "confirmed") return false;
+                const tok = (balMid.tokens ?? []).find((t) => t.key === k);
+                const base = BigInt(
+                  cp.legs.find((l) => l.key === k)?.baselineAmount ?? "0",
+                );
+                return BigInt(tok?.amount ?? "0") <= base;
+              });
+              if (unfinishedKeys.length === 0) break;
+              if (confirmCount >= confirmMax) break;
+
+              setProgress({
+                phase: `Continuing remaining ${unfinishedKeys.length} asset(s)…`,
+                confirmCount,
+                confirmMax,
+                heldCount: legResults.filter((l) => l.status === "confirmed")
+                  .length,
+                basketSize: basketSize,
+                legs: [...legResults],
+              });
+
+              const quoteBody = {
+                side: "buy" as const,
+                owner: pubkey,
+                solLamports: params.solLamports,
+                slippageBps: params.slippageBps ?? DEFAULT_SLIPPAGE_BPS,
+                onlyKeys: unfinishedKeys,
+                weightsPct,
+              };
+              const qRes = await fetch("/api/degen-solana/quote", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(quoteBody),
+              });
+              const qJson = (await qRes.json()) as {
+                legs?: Array<{
+                  key: string;
+                  ticker: string;
+                  mint: string;
+                  quote: unknown;
+                  feeAccount?: string;
+                }>;
+                error?: string;
+              };
+              if (!qRes.ok || !qJson.legs?.length) break;
+              const pRes = await fetch("/api/degen-solana/pack", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  userPublicKey: pubkey,
+                  side: "buy",
+                  closeEmptiedAtas: false,
+                  legs: qJson.legs.map((l) => ({
+                    key: l.key,
+                    ticker: l.ticker,
+                    mint: l.mint,
+                    quote: l.quote,
+                    feeAccount: l.feeAccount,
+                  })),
+                }),
+              });
+              const pJson = (await pRes.json()) as {
+                packs?: typeof packs;
+                error?: string;
+              };
+              if (!pRes.ok || !pJson.packs?.length) break;
+              packsToRun = pJson.packs;
+              {
+                const preLatest = await wallet.connection.getLatestBlockhash(
+                  "confirmed",
+                );
+                let preOk = true;
+                for (const pack of packsToRun) {
+                  const tx = restampVersionedTx(
+                    decodeSwapTxBase64(pack.swapTransaction),
+                    preLatest.blockhash,
+                  );
+                  const sim = await simulateVersionedTxWithRetry(
+                    wallet.connection,
+                    tx,
+                  );
+                  if (!sim.ok) {
+                    preOk = false;
+                    break;
+                  }
+                  await new Promise((r) => setTimeout(r, 100));
+                }
+                if (!preOk) break;
+              }
+            }
+
+            await runPackSignLoop(wave);
+            if (userRejected) break;
+          }
         }
 
         await refreshBalances().catch(() => undefined);
@@ -966,7 +1127,17 @@ export function useSolanaMemeBasket() {
 
         // Merge into full-intent checkpoint when finishing a subset.
         if (params.existingCheckpoint) {
-          cp = mergeCheckpointLegs(params.existingCheckpoint, cp.legs);
+          const merged = mergeCheckpointLegs(params.existingCheckpoint, cp.legs);
+          if (isSell) {
+            merged.confirmCount = Math.max(
+              merged.confirmCount ?? 0,
+              confirmCount,
+              params.existingCheckpoint.confirmCount ?? 0,
+            );
+          }
+          cp = merged;
+        } else if (isSell) {
+          cp.confirmCount = Math.max(cp.confirmCount ?? 0, confirmCount);
         }
         saveCheckpoint(cp);
 
@@ -974,6 +1145,9 @@ export function useSolanaMemeBasket() {
         const confirmedCount = confirmed.length;
 
         // Inventory gate: never claim complete while any intended sleeve is wrong.
+        // Sell success uses original full intent (cp.intendedKeys), not this quote alone.
+        const sellIntentKeys =
+          (cp.intendedKeys as DegenSolanaMintKey[] | undefined) ?? intendedKeys;
         const inventoryHeld = heldNonDustCount(balAfter.tokens ?? []);
         const cpKeysOk =
           params.side === "buy"
@@ -981,10 +1155,12 @@ export function useSolanaMemeBasket() {
                 (k) => cp.legs.find((l) => l.key === k)?.status === "confirmed",
               ) &&
               (cp.intendedKeys?.length ?? 0) === basketSize
-            : intendedKeys.every(
-                (k) =>
-                  cp.legs.find((l) => l.key === k)?.status === "confirmed",
-              ) && confirmedCount === intendedKeys.length;
+            : sellIntentKeys.every((k) => {
+                const tok = (balAfter.tokens ?? []).find((t) => t.key === k);
+                const meta = DEGEN_SOLANA_BASKET.find((m) => m.key === k);
+                const dust = dustThresholdRaw(meta?.decimals ?? 6);
+                return BigInt(tok?.amount ?? "0") <= dust;
+              });
 
         const sellPctFinal = Math.min(
           100,
@@ -1023,13 +1199,14 @@ export function useSolanaMemeBasket() {
           sellPctFinal >= 100 &&
           !allCpConfirmed
         ) {
-          const leftovers = (balAfter.tokens ?? [])
-            .map((t) => {
-              const meta = DEGEN_SOLANA_BASKET.find((m) => m.key === t.key);
+          const leftovers = sellIntentKeys
+            .map((key) => {
+              const t = (balAfter.tokens ?? []).find((x) => x.key === key);
+              const meta = DEGEN_SOLANA_BASKET.find((m) => m.key === key);
               const dust = dustThresholdRaw(meta?.decimals ?? 6);
-              const amt = BigInt(t.amount);
+              const amt = BigInt(t?.amount ?? "0");
               if (amt <= BigInt(0)) return null;
-              const ticker = meta?.ticker ?? t.key;
+              const ticker = meta?.ticker ?? key;
               if (amt <= dust) {
                 return `${ticker} dust ${amt.toString()} raw`;
               }

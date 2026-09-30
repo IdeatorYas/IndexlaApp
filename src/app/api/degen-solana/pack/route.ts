@@ -11,6 +11,10 @@ type Body = {
   side?: "buy" | "sell";
   /** Sell 100%: close emptied token ATAs inside packs. */
   closeEmptiedAtas?: boolean;
+  /** Override packer wallet-prompt budget (sell uses 3; buy omits → default 4). */
+  promptMax?: number;
+  /** Override soft byte budget (sell may pass; buy omits → default 1100). */
+  safeBytes?: number;
   legs: Array<{
     key: string;
     ticker: string;
@@ -58,11 +62,27 @@ export async function POST(req: Request) {
       quote: l.quote,
       feeAccount: l.feeAccount,
     }));
+    const promptMax =
+      typeof body.promptMax === "number" &&
+      Number.isFinite(body.promptMax) &&
+      body.promptMax >= 1 &&
+      body.promptMax <= 8
+        ? Math.floor(body.promptMax)
+        : undefined;
+    const safeBytes =
+      typeof body.safeBytes === "number" &&
+      Number.isFinite(body.safeBytes) &&
+      body.safeBytes >= 800 &&
+      body.safeBytes <= 1232
+        ? Math.floor(body.safeBytes)
+        : undefined;
     const { packs } = await packSwapLegs({
       userPublicKey: body.userPublicKey,
       legs,
       side: body.side === "sell" ? "sell" : "buy",
       closeEmptiedAtas: Boolean(body.closeEmptiedAtas),
+      promptMax,
+      safeBytes,
     });
     return NextResponse.json({
       packs,

@@ -1,0 +1,24 @@
+{
+  "submittedAt": "2026-09-30T16:10:05.538Z",
+  "formStatus": 200,
+  "formLocation": null,
+  "answers": {
+    "projectName": "IndexLa — Degen Club Solana Memecoin Index",
+    "description": "Non-custodial Solana memecoin index on app.indexla.tech. Users buy/sell a fixed 10-asset basket via Jupiter swaps packed into ≤3–4 VersionedTransactions, each confirmed with Phantom signAndSendTransaction. Assets remain in the user’s associated token accounts. Same-origin Solana RPC proxy at /api/degen-solana/rpc.",
+    "website": "https://app.indexla.tech/app/degen-club/product/solana-memecoin-index",
+    "name": "IndexLa Security",
+    "email": "security@indexla.tech",
+    "txLink": "https://app.indexla.tech/app/degen-club/product/solana-memecoin-index (Phantom simulation warning on signAndSendTransaction of Jupiter-packed v0 swaps; will follow up with Solscan hash from next live buy confirmation)",
+    "team": "https://indexla.tech · https://app.indexla.tech · security@indexla.tech · https://app.indexla.tech/.well-known/security.txt",
+    "social": "https://twitter.com/indexla · https://indexla.tech",
+    "repo": "Private application repository. Execution path is Jupiter-routed non-custodial swaps only (no custodial vault).",
+    "vouch": "N/A — requesting review based on live product + security contact",
+    "additional": "Request domain allowlisting / transaction simulation warning reduction for app.indexla.tech. We already use one signAndSendTransaction per pack (never signAll), pre-simulate packs, skipPreflight=false, maxRetries=0, direct routes, useSharedAccounts=false. Buy ≤4 packs; Sell All ≤3. We do not ask users to disable Phantom security."
+  },
+  "blowfishMailto": {
+    "to": "review@blowfish.xyz",
+    "cc": "review@phantom.com",
+    "subject": "Domain / dApp review request — app.indexla.tech (IndexLa Degen Club)",
+    "body": "Hello Blowfish / Phantom review team,\n\nPlease review https://app.indexla.tech for allowlisting. Phantom shows “This dApp could be malicious” on transaction simulation for our Solana Degen Club product.\n\nProduct: IndexLa — Degen Club Solana Memecoin Index\nURL: https://app.indexla.tech/app/degen-club/product/solana-memecoin-index\nContact: security@indexla.tech\n\nWe use Phantom signAndSendTransaction (one packed VersionedTransaction per prompt; never signAll). Pre-simulate with sigVerify:false; skipPreflight=false; Jupiter direct routes; user ATAs (no shared accounts).\n\nOfficial Phantom Google Form also submitted 2026-09-30T16:10:05.552Z.\n\nThank you,\nIndexLa Security\nsecurity@indexla.tech\n"
+  }
+}

@@ -1,35 +1,42 @@
-INDEXLA — Phantom domain / transaction warning review draft
-Product: Degen Club Solana Memecoin Index
+INDEXLA — Phantom domain / transaction warning review SUBMISSION
+Product: IndexLa — Degen Club Solana Memecoin Index
 Domain: https://app.indexla.tech
 Path: /app/degen-club/product/solana-memecoin-index
-Date prepared: 2026-09-29
+Submitted: 2026-09-30
+Contact: security@indexla.tech
+
+OFFICIAL CHANNELS
+1) Phantom Trust & Safety Google Form (docs.phantom.com → Domain and transaction warnings):
+   https://docs.google.com/forms/d/1JgIxdmolgh_80xMfQKBKx9-QPC7LRdN6LHpFFW8BlKM/viewform
+   formResponse: https://docs.google.com/forms/d/e/1FAIpQLSeoSDtQc9CEHG-dC2EUO6ZkDCaFQXq3M92M1csH4WrdCCW-QQ/formResponse
+2) Blowfish review mailbox (mirrored for scanner allowlist): review@blowfish.xyz
+3) Also: review@phantom.com (legacy contact referenced in community guides)
 
 WHAT USERS SEE
-- Phantom red “this site / dApp could be malicious or suspicious” sheet that requires
-  manual override before signing. Buy can succeed after override; Sell must not be
-  blocked by our RPC path.
+- Phantom red sheet: “This dApp could be malicious. Do not proceed unless you are certain this is safe.”
+  Matches Phantom docs “Transaction simulation warning” (not merely “new domain”).
+- Users can override, but override is NOT our fix — we request official review/allowlisting.
 
-CLASSIFICATION (engineering assessment — not a Phantom verdict)
-1) Domain / site reputation: likely primary remaining cause after packing fix.
-   - Same-origin Solana JSON-RPC proxy at /api/degen-solana/rpc
-   - Non-custodial: assets stay in user ATAs (useSharedAccounts=false)
-2) Transaction / Blowfish: mitigated in app code
-   - One signAndSendTransaction per packed v0 tx (≤4 packs for 10 assets)
-   - Never signAllTransactions for the basket
-   - Pre-simulate every pack before first wallet prompt; refuse if any pack fails
-   - skipPreflight=false so Phantom can simulate; maxRetries=0 (app confirms via HTTP)
-   - Direct routes preferred; no shared accounts route
+CLASSIFICATION
+1) Domain / site reputation: primary remaining cause for persistent red sheet on app.indexla.tech
+2) Transaction screening: mitigated in product code
+   - One signAndSendTransaction per packed v0 tx (never signAll for basket)
+   - Buy ≤4 packs; Sell All ≤3 packs
+   - Pre-simulate packs; skipPreflight=false; maxRetries=0
+   - Direct Jupiter routes; useSharedAccounts=false (user ATAs)
+   - Same-origin Solana RPC proxy /api/degen-solana/rpc
 
-TRANSACTION PATTERN (for reviewers)
-- Buy pack: create WSOL ATA → wrap SOL total → N Jupiter swaps → close WSOL
-- Sell 100% pack: N Jupiter token→WSOL swaps → close emptied token ATAs → close WSOL
-- Fee: ExactIn platform fee on output mint (token out on buy; WSOL on sell)
-- Confirmations: ≤4 wallet prompts per full buy or Sell All
-
-REQUEST TO PHANTOM
-Please review app.indexla.tech for domain allowlisting / warning reduction.
-Contact: [add INDEXLA operator email]
-Evidence: live product URL above; transactions are user-signed Jupiter swaps only.
+FORM ANSWERS (submitted)
+- Project Name: IndexLa — Degen Club Solana Memecoin Index
+- Describe: Non-custodial Solana memecoin index basket on app.indexla.tech. Users buy/sell a fixed 10-asset basket via Jupiter swaps packed into ≤3–4 VersionedTransactions, each confirmed with Phantom signAndSendTransaction. Assets remain in the user’s ATAs.
+- dApp website URL: https://app.indexla.tech/app/degen-club/product/solana-memecoin-index
+- Your Name: IndexLa Security
+- Your E-mail: security@indexla.tech
+- Transaction Link: (see submission log — use latest successful buy/sell Solscan URL when available; warning often appears at simulation before broadcast)
+- Team Information: https://indexla.tech · https://app.indexla.tech · Contact security@indexla.tech · security.txt https://app.indexla.tech/.well-known/security.txt
+- Social Media: https://twitter.com/indexla (and product site)
+- Repository: private application repo; architecture is Jupiter-routed non-custodial swaps only
+- Additional: Please review app.indexla.tech for domain allowlisting / transaction simulation warning reduction. We do not ask users to disable security. Signing path is official Phantom signAndSendTransaction.
 
 DO NOT
 - Ask users to disable security

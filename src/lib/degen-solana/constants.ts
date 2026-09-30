@@ -35,8 +35,9 @@ export const IMPACT_HARD = 0.08;
  * Connect does not count. Resume Remaining continues after a stop/cancel.
  */
 export const BUY_CONFIRM_MAX = 4;
-export const SELL_CONFIRM_MAX = 4;
-/** Alias for pack prompt budget / legacy batch helpers. */
+/** Sell All: one click → ≤3 Phantom prompts (buy stays ≤4). */
+export const SELL_CONFIRM_MAX = 3;
+/** Alias for pack prompt budget / legacy batch helpers (buy path). */
 export const SIGN_BATCH_MAX = 4;
 
 /** Approximate rent-exempt minimum per new ATA (lamports). */

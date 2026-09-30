@@ -1,0 +1,23 @@
+To: review@blowfish.xyz
+Cc: review@phantom.com
+From: security@indexla.tech
+Subject: Domain / dApp review request — app.indexla.tech (IndexLa Degen Club)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Hello Blowfish / Phantom review team,
+
+Please review https://app.indexla.tech for allowlisting. Phantom shows “This dApp could be malicious” on transaction simulation for our Solana Degen Club product.
+
+Product: IndexLa — Degen Club Solana Memecoin Index
+URL: https://app.indexla.tech/app/degen-club/product/solana-memecoin-index
+Contact: security@indexla.tech
+
+We use Phantom signAndSendTransaction (one packed VersionedTransaction per prompt; never signAll). Pre-simulate with sigVerify:false; skipPreflight=false; Jupiter direct routes; user ATAs (no shared accounts).
+
+Official Phantom Google Form also submitted 2026-09-30T16:10:05.552Z.
+
+Thank you,
+IndexLa Security
+security@indexla.tech
+

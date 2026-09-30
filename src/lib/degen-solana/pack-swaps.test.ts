@@ -8,12 +8,12 @@ import {
 } from "@/lib/degen-solana/pack-swaps";
 
 describe("degen solana packing constants", () => {
-  it("caps wallet confirms at 4 for buy and sell", () => {
+  it("caps wallet confirms at 4 buy / 3 sell", () => {
     expect(BUY_CONFIRM_MAX).toBe(4);
-    expect(SELL_CONFIRM_MAX).toBe(4);
+    expect(SELL_CONFIRM_MAX).toBe(3);
   });
 
-  it("keeps packer budget at ≤4 packs with 3-prefer / 4-hard legs", () => {
+  it("keeps packer default budget at ≤4 packs with 3-prefer / 4-hard legs", () => {
     expect(PACK_PROMPT_MAX).toBe(BUY_CONFIRM_MAX);
     expect(PACK_LEGS_HINT_MAX).toBe(3);
     expect(PACK_LEGS_HARD_MAX).toBe(4);
