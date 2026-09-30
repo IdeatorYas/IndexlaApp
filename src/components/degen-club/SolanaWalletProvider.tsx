@@ -26,8 +26,8 @@ type PhantomLike = {
     tx: VersionedTransaction,
     opts?: { skipPreflight?: boolean; maxRetries?: number },
   ) => Promise<{ signature: string }>;
-  on?: (event: string, handler: () => void) => void;
-  off?: (event: string, handler: () => void) => void;
+  on?: (event: string, handler: (...args: unknown[]) => void) => void;
+  off?: (event: string, handler: (...args: unknown[]) => void) => void;
 };
 
 function getInjectedSolana(): PhantomLike | null {
@@ -91,17 +91,30 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
       if (p?.publicKey) {
         setPublicKey(p.publicKey.toString());
         setConnected(true);
+        setError(null);
       }
     };
     const onDisconnect = () => {
       setPublicKey(null);
       setConnected(false);
     };
+    const onAccountChanged = (...args: unknown[]) => {
+      const pk = args[0] as { toString(): string } | null | undefined;
+      if (pk && typeof pk.toString === "function") {
+        setPublicKey(pk.toString());
+        setConnected(true);
+      } else {
+        setPublicKey(null);
+        setConnected(false);
+      }
+    };
     provider?.on?.("connect", onConnect);
     provider?.on?.("disconnect", onDisconnect);
+    provider?.on?.("accountChanged", onAccountChanged);
     return () => {
       provider?.off?.("connect", onConnect);
       provider?.off?.("disconnect", onDisconnect);
+      provider?.off?.("accountChanged", onAccountChanged);
     };
   }, []);
 

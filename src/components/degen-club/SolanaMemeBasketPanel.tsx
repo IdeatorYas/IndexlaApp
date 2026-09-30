@@ -94,7 +94,7 @@ export function SolanaMemeBasketPanel({
         );
       } else {
         setLocalMsg(
-          `Partial sell — Resume Remaining to finish leftover assets.`,
+          `Partial sell — ${result.confirmCount} prompt(s) so far. Resume Remaining finishes leftovers only.`,
         );
       }
     } catch (err) {
