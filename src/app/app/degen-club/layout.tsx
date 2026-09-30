@@ -1,16 +1,15 @@
 import "@/components/degen-club/degen-club.css";
-import { SolanaWalletProvider } from "@/components/degen-club/SolanaWalletProvider";
 
 export default function DegenClubLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // SolanaWalletProvider is lifted to /app layout so the header and
+  // SolanaMemeBasketPanel share the same Solana connection.
   return (
-    <SolanaWalletProvider>
-      <div className="degen-hub">
-        <div className="degen-hub-inner">{children}</div>
-      </div>
-    </SolanaWalletProvider>
+    <div className="degen-hub">
+      <div className="degen-hub-inner">{children}</div>
+    </div>
   );
 }

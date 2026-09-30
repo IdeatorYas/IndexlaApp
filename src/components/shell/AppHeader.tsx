@@ -1,18 +1,45 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useDemoWallet } from "@/components/wallet/DemoWalletProvider";
+import { useSolanaWallet } from "@/components/degen-club/SolanaWalletProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { getClientFeatureFlags } from "@/lib/feature-flags";
 import { PreviewIllustrativeBadge } from "@/components/shell/PreviewIllustrativeBadge";
 import { getDexlaBalance } from "@/lib/data";
 
 export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
+  const pathname = usePathname();
+  const onSolanaDegen = pathname?.startsWith("/app/degen-club") ?? false;
   const { theme, toggleTheme } = useTheme();
   const { wallet, connect, disconnect, ethBalanceFormatted } =
     useDemoWallet();
+  const solana = useSolanaWallet();
   const flags = getClientFeatureFlags();
   const dexla = getDexlaBalance().data;
+
+  const headerConnected = onSolanaDegen
+    ? solana.connected
+    : wallet.state === "connected";
+  const headerLabel = onSolanaDegen
+    ? solana.connected && solana.publicKey
+      ? `${solana.publicKey.slice(0, 4)}…${solana.publicKey.slice(-4)}`
+      : solana.connecting
+        ? "Connecting…"
+        : "Connect Solana"
+    : wallet.state === "connected"
+      ? wallet.shortenedAddress
+      : "Connect Wallet";
+  const onHeaderWalletClick = () => {
+    if (onSolanaDegen) {
+      if (solana.connected) void solana.disconnect();
+      else void solana.connect().catch(() => undefined);
+      return;
+    }
+    if (wallet.state === "connected") disconnect();
+    else connect();
+  };
 
   return (
     <header
@@ -95,7 +122,7 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         {theme === "dark" ? "☀" : "☾"}
       </button>
 
-      {wallet.state === "connected" && ethBalanceFormatted ? (
+      {!onSolanaDegen && headerConnected && ethBalanceFormatted ? (
         <span className="hidden h-9 items-center rounded-full border border-app-line px-2.5 text-[11px] font-semibold text-app-dim lg:flex">
           {ethBalanceFormatted}
         </span>
@@ -103,10 +130,10 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
 
       <button
         type="button"
-        onClick={wallet.state === "connected" ? disconnect : connect}
+        onClick={onHeaderWalletClick}
         className="app-interactive ml-0.5 h-9 shrink-0 truncate rounded-full border border-app-brand/35 bg-gradient-to-r from-app-brand/15 to-[color:var(--color-accent-violet)]/12 px-3.5 text-[12px] font-bold text-app-ink hover:border-app-brand/55 hover:shadow-[0_4px_14px_-4px_rgba(37,99,235,0.35)] sm:max-w-none sm:px-4"
       >
-        {wallet.state === "connected" ? wallet.shortenedAddress : "Connect Wallet"}
+        {headerLabel}
       </button>
     </header>
   );

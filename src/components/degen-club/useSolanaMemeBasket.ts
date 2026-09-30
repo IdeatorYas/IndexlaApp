@@ -633,29 +633,42 @@ export function useSolanaMemeBasket() {
               continue;
             }
 
-            // Skip only when every leg is already at/below dust (not bare confirmed).
-            const balSkip = (await fetch(
-              `/api/degen-solana/balances?owner=${encodeURIComponent(pubkey)}`,
-            ).then((r) => r.json())) as {
-              tokens?: Array<{ key: string; amount: string }>;
-            };
-            if (pack.keys.every((k) => !amountAboveDust(balSkip.tokens, k))) {
-              markPackStatus(pack.keys, "confirmed");
-              continue;
-            }
-
-            // Do not re-send a pack whose legs are still in-flight (submitted).
-            const allSubmitted = pack.keys.every((k) => {
-              const st = cp.legs.find((l) => l.key === k)?.status;
-              return st === "submitted" || st === "confirmed";
-            });
-            if (
-              allSubmitted &&
-              pack.keys.some(
-                (k) => cp.legs.find((l) => l.key === k)?.status === "submitted",
-              )
-            ) {
-              continue;
+            if (isSell) {
+              // Sell only: skip when every leg is already ≤ dust on-chain.
+              // Never apply this to buy — empty ATAs look like "dust" and would
+              // fake-confirm packs → Partial buy 0/10 after attribution demote.
+              const balSkip = (await fetch(
+                `/api/degen-solana/balances?owner=${encodeURIComponent(pubkey)}`,
+              ).then((r) => r.json())) as {
+                tokens?: Array<{ key: string; amount: string }>;
+              };
+              if (
+                pack.keys.every((k) => !amountAboveDust(balSkip.tokens, k))
+              ) {
+                markPackStatus(pack.keys, "confirmed");
+                continue;
+              }
+              // Do not re-send a pack whose legs are still in-flight (submitted).
+              const allSubmitted = pack.keys.every((k) => {
+                const st = cp.legs.find((l) => l.key === k)?.status;
+                return st === "submitted" || st === "confirmed";
+              });
+              if (
+                allSubmitted &&
+                pack.keys.some(
+                  (k) =>
+                    cp.legs.find((l) => l.key === k)?.status === "submitted",
+                )
+              ) {
+                continue;
+              }
+            } else {
+              // Buy: preserve prior skip — only skip packs already checkpoint-confirmed.
+              const alreadyDone = pack.keys.every(
+                (k) =>
+                  cp.legs.find((l) => l.key === k)?.status === "confirmed",
+              );
+              if (alreadyDone) continue;
             }
 
             const packLabel = pack.tickers.join("+");

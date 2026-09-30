@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { AppKitProvider } from "@/components/wallet/AppKitProvider";
 import { AppWalletProvider } from "@/components/wallet/DemoWalletProvider";
+import { SolanaWalletProvider } from "@/components/degen-club/SolanaWalletProvider";
 import { AppShell } from "@/components/shell/AppShell";
 
 export default async function AppLayout({
@@ -14,7 +15,9 @@ export default async function AppLayout({
   return (
     <AppKitProvider cookies={cookieHeader}>
       <AppWalletProvider>
-        <AppShell>{children}</AppShell>
+        <SolanaWalletProvider>
+          <AppShell>{children}</AppShell>
+        </SolanaWalletProvider>
       </AppWalletProvider>
     </AppKitProvider>
   );
